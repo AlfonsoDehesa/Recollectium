@@ -28,11 +28,11 @@ def test_semantic_search_matches_synonym_without_exact_term(tmp_path: Path) -> N
     provider = LocalEmbeddingProvider()
     store = SQLiteMemoryStore(tmp_path / "semantic.db")
 
-    memory = build_memory("mem-1", "Need to purchase groceries after work")
+    memory = build_memory("mem-1", "Need to fix bug before release")
     store.insert_memory(memory, embedding=provider.embed(memory.content))
 
     candidates = store.list_candidates(space=SPACE_USER)
-    results = rank_memory_candidates(query="buy groceries", candidates=candidates, embedding_provider=provider)
+    results = rank_memory_candidates(query="repair defect", candidates=candidates, embedding_provider=provider)
 
     assert results
     assert results[0].memory.id == "mem-1"
