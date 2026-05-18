@@ -62,6 +62,14 @@ def test_validate_memory_create_input_rejects_invalid_fields() -> None:
             confidence=2,
         )
 
+    with pytest.raises(ValidationError, match="confidence"):
+        validate_memory_create_input(
+            space=SPACE_USER,
+            memory_type="fact",
+            content="hello",
+            confidence=float("nan"),
+        )
+
 
 def test_validate_memory_update_input_requires_at_least_one_field() -> None:
     with pytest.raises(ValidationError, match="at least one update field"):
@@ -119,6 +127,9 @@ def test_search_result_rejects_invalid_values() -> None:
     bad_score: Any = "bad"
     with pytest.raises(ValidationError, match="score"):
         SearchResult(memory=build_memory(), score=bad_score, rank=1)
+
+    with pytest.raises(ValidationError, match="score"):
+        SearchResult(memory=build_memory(), score=float("nan"), rank=1)
 
     with pytest.raises(ValidationError, match="rank"):
         SearchResult(memory=build_memory(), score=0.1, rank=0)

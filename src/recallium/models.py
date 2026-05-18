@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import math
 from typing import Any
 
 from recallium.errors import ValidationError
@@ -42,6 +43,8 @@ def _validate_confidence(confidence: Any) -> float | None:
         raise ValidationError("confidence must be a number between 0 and 1")
 
     normalized = float(confidence)
+    if not math.isfinite(normalized):
+        raise ValidationError("confidence must be a finite number between 0 and 1")
     if normalized < 0 or normalized > 1:
         raise ValidationError("confidence must be between 0 and 1")
 
@@ -178,6 +181,8 @@ class SearchResult:
         if not isinstance(self.score, (int, float)):
             raise ValidationError("score must be numeric")
         self.score = float(self.score)
+        if not math.isfinite(self.score):
+            raise ValidationError("score must be a finite number")
         if not isinstance(self.rank, int) or self.rank < 1:
             raise ValidationError("rank must be a positive integer")
 
