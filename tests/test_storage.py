@@ -34,6 +34,22 @@ def test_store_creates_parent_directories_and_persists_across_instances(tmp_path
     assert loaded == memory
 
 
+def test_workspace_path_only_memory_round_trips_through_storage(tmp_path: Path) -> None:
+    store = SQLiteMemoryStore(tmp_path / "workspace-path.db")
+    memory = build_memory(
+        "mem-path",
+        space=SPACE_WORKSPACE,
+        workspace_path="/tmp/project-alpha",
+        workspace_id=None,
+    )
+
+    store.insert_memory(memory, embedding=[0.2, 0.3])
+
+    loaded = store.get_memory("mem-path")
+    assert loaded.space == SPACE_WORKSPACE
+    assert loaded.workspace_id == "/tmp/project-alpha"
+
+
 def test_store_uses_schema_version_1(tmp_path: Path) -> None:
     db_path = tmp_path / "schema.db"
     SQLiteMemoryStore(db_path)

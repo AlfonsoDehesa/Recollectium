@@ -9,7 +9,7 @@ import sqlite3
 from typing import Any
 
 from recallium.errors import NotFoundError
-from recallium.models import Memory, STATUS_ARCHIVED
+from recallium.models import Memory, SPACE_WORKSPACE, STATUS_ARCHIVED
 
 
 def utc_now_iso() -> str:
@@ -67,6 +67,10 @@ class SQLiteMemoryStore:
             connection.execute("PRAGMA user_version = 1")
 
     def insert_memory(self, memory: Memory, embedding: list[float]) -> Memory:
+        workspace_identifier = memory.workspace_id
+        if memory.space == SPACE_WORKSPACE and workspace_identifier is None:
+            workspace_identifier = memory.workspace_path
+
         with self._connect() as connection:
             connection.execute(
                 """
@@ -79,7 +83,7 @@ class SQLiteMemoryStore:
                 (
                     memory.id,
                     memory.space,
-                    memory.workspace_id,
+                    workspace_identifier,
                     memory.type,
                     memory.content,
                     json.dumps(memory.metadata, sort_keys=True),
