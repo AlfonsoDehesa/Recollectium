@@ -13,6 +13,14 @@ from recallium.models import (
 from recallium.storage import SQLiteMemoryStore
 
 
+EMBEDDING_PROFILE = {
+    "provider": "test",
+    "model": "test-model",
+    "dimensions": 2,
+    "version": "1",
+}
+
+
 def build_memory(memory_id: str, **overrides: object) -> Memory:
     payload = {
         "id": memory_id,
@@ -35,7 +43,9 @@ def test_store_creates_parent_directories_and_persists_across_instances(
     store = SQLiteMemoryStore(db_path)
     memory = build_memory("mem-1")
 
-    store.insert_memory(memory, embedding=[0.1, 0.2])
+    store.insert_memory(
+        memory, embedding=[0.1, 0.2], embedding_profile=EMBEDDING_PROFILE
+    )
 
     other_store = SQLiteMemoryStore(db_path)
     loaded = other_store.get_memory("mem-1")
@@ -50,7 +60,9 @@ def test_workspace_uid_memory_round_trips_through_storage(tmp_path: Path) -> Non
         workspace_uid="workspace-alpha",
     )
 
-    store.insert_memory(memory, embedding=[0.2, 0.3])
+    store.insert_memory(
+        memory, embedding=[0.2, 0.3], embedding_profile=EMBEDDING_PROFILE
+    )
 
     loaded = store.get_memory("mem-workspace")
     assert loaded.space == SPACE_WORKSPACE
@@ -86,7 +98,9 @@ def test_get_update_archive_raise_not_found_for_missing_ids(tmp_path: Path) -> N
 def test_update_memory_updates_editable_fields_and_timestamp(tmp_path: Path) -> None:
     store = SQLiteMemoryStore(tmp_path / "update.db")
     memory = build_memory("mem-1")
-    store.insert_memory(memory, embedding=[0.1, 0.2])
+    store.insert_memory(
+        memory, embedding=[0.1, 0.2], embedding_profile=EMBEDDING_PROFILE
+    )
 
     updated = store.update_memory(
         "mem-1",
@@ -97,6 +111,7 @@ def test_update_memory_updates_editable_fields_and_timestamp(tmp_path: Path) -> 
         confidence=0.6,
         sensitivity="low",
         embedding=[0.5, 0.6],
+        embedding_profile=EMBEDDING_PROFILE,
     )
 
     assert updated.content == "Updated memory"
@@ -115,8 +130,8 @@ def test_archive_excluded_from_default_list_and_includable(tmp_path: Path) -> No
     store = SQLiteMemoryStore(tmp_path / "archive.db")
     active = build_memory("mem-1")
     archived = build_memory("mem-2")
-    store.insert_memory(active, embedding=[0.1])
-    store.insert_memory(archived, embedding=[0.2])
+    store.insert_memory(active, embedding=[0.1], embedding_profile=EMBEDDING_PROFILE)
+    store.insert_memory(archived, embedding=[0.2], embedding_profile=EMBEDDING_PROFILE)
     store.archive_memory("mem-2")
 
     default_results = store.list_memories()
@@ -130,7 +145,9 @@ def test_archive_excluded_from_default_list_and_includable(tmp_path: Path) -> No
 def test_list_memories_filters_by_space_type_status_workspace(tmp_path: Path) -> None:
     store = SQLiteMemoryStore(tmp_path / "filters.db")
     store.insert_memory(
-        build_memory("u1", space=SPACE_USER, type="fact"), embedding=[0.1]
+        build_memory("u1", space=SPACE_USER, type="fact"),
+        embedding=[0.1],
+        embedding_profile=EMBEDDING_PROFILE,
     )
     store.insert_memory(
         build_memory(
@@ -141,6 +158,7 @@ def test_list_memories_filters_by_space_type_status_workspace(tmp_path: Path) ->
             content="task a",
         ),
         embedding=[0.2],
+        embedding_profile=EMBEDDING_PROFILE,
     )
     store.insert_memory(
         build_memory(
@@ -151,6 +169,7 @@ def test_list_memories_filters_by_space_type_status_workspace(tmp_path: Path) ->
             content="task b",
         ),
         embedding=[0.3],
+        embedding_profile=EMBEDDING_PROFILE,
     )
     store.archive_memory("w2")
 
@@ -171,8 +190,12 @@ def test_list_memories_filters_by_space_type_status_workspace(tmp_path: Path) ->
 
 def test_list_candidates_respects_archived_filter(tmp_path: Path) -> None:
     store = SQLiteMemoryStore(tmp_path / "candidates.db")
-    store.insert_memory(build_memory("mem-1"), embedding=[0.1])
-    store.insert_memory(build_memory("mem-2"), embedding=[0.2])
+    store.insert_memory(
+        build_memory("mem-1"), embedding=[0.1], embedding_profile=EMBEDDING_PROFILE
+    )
+    store.insert_memory(
+        build_memory("mem-2"), embedding=[0.2], embedding_profile=EMBEDDING_PROFILE
+    )
     store.archive_memory("mem-2")
 
     default_candidates = store.list_candidates()
@@ -180,3 +203,28 @@ def test_list_candidates_respects_archived_filter(tmp_path: Path) -> None:
 
     all_candidates = store.list_candidates(include_archived=True)
     assert [memory.id for memory, _ in all_candidates] == ["mem-2", "mem-1"]
+
+
+def test_list_candidates_can_filter_by_embedding_profile(tmp_path: Path) -> None:
+    store = SQLiteMemoryStore(tmp_path / "embedding-profile.db")
+    stale_profile = {
+        "provider": "test",
+        "model": "old-model",
+        "dimensions": 2,
+        "version": "1",
+    }
+
+    store.insert_memory(
+        build_memory("current"),
+        embedding=[0.1, 0.2],
+        embedding_profile=EMBEDDING_PROFILE,
+    )
+    store.insert_memory(
+        build_memory("stale"),
+        embedding=[0.3, 0.4],
+        embedding_profile=stale_profile,
+    )
+
+    candidates = store.list_candidates(embedding_profile=EMBEDDING_PROFILE)
+
+    assert [memory.id for memory, _ in candidates] == ["current"]

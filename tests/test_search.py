@@ -29,9 +29,15 @@ def test_semantic_search_matches_synonym_without_exact_term(tmp_path: Path) -> N
     store = SQLiteMemoryStore(tmp_path / "semantic.db")
 
     memory = build_memory("mem-1", "Need to fix bug before release")
-    store.insert_memory(memory, embedding=provider.embed(memory.content))
+    store.insert_memory(
+        memory,
+        embedding=provider.embed(memory.content),
+        embedding_profile=provider.embedding_profile,
+    )
 
-    candidates = store.list_candidates(space=SPACE_USER)
+    candidates = store.list_candidates(
+        space=SPACE_USER, embedding_profile=provider.embedding_profile
+    )
     results = rank_memory_candidates(
         query="repair defect", candidates=candidates, embedding_provider=provider
     )
@@ -100,11 +106,21 @@ def test_archived_filter_is_respected_by_candidate_selection(tmp_path: Path) -> 
 
     active = build_memory("active", "buy coffee beans")
     archived = build_memory("archived", "purchase coffee beans")
-    store.insert_memory(active, embedding=provider.embed(active.content))
-    store.insert_memory(archived, embedding=provider.embed(archived.content))
+    store.insert_memory(
+        active,
+        embedding=provider.embed(active.content),
+        embedding_profile=provider.embedding_profile,
+    )
+    store.insert_memory(
+        archived,
+        embedding=provider.embed(archived.content),
+        embedding_profile=provider.embedding_profile,
+    )
     store.archive_memory("archived")
 
-    active_candidates = store.list_candidates(space=SPACE_USER)
+    active_candidates = store.list_candidates(
+        space=SPACE_USER, embedding_profile=provider.embedding_profile
+    )
     active_results = rank_memory_candidates(
         query="buy coffee",
         candidates=active_candidates,
@@ -112,7 +128,11 @@ def test_archived_filter_is_respected_by_candidate_selection(tmp_path: Path) -> 
     )
     assert [result.memory.id for result in active_results] == ["active"]
 
-    all_candidates = store.list_candidates(space=SPACE_USER, include_archived=True)
+    all_candidates = store.list_candidates(
+        space=SPACE_USER,
+        embedding_profile=provider.embedding_profile,
+        include_archived=True,
+    )
     all_results = rank_memory_candidates(
         query="buy coffee",
         candidates=all_candidates,

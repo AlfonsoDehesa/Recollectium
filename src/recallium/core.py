@@ -81,7 +81,9 @@ class RecalliumCore:
             updated_at=timestamp,
         )
         embedding = self.embedding_provider.embed(memory.content)
-        return self.store.insert_memory(memory, embedding)
+        return self.store.insert_memory(
+            memory, embedding, self.embedding_provider.embedding_profile
+        )
 
     def search_user_memories(
         self,
@@ -90,7 +92,9 @@ class RecalliumCore:
         include_archived: bool = False,
     ) -> list[SearchResult]:
         candidates = self.store.list_candidates(
-            space=SPACE_USER, include_archived=include_archived
+            space=SPACE_USER,
+            embedding_profile=self.embedding_provider.embedding_profile,
+            include_archived=include_archived,
         )
         validated_limit = validate_limit(limit)
         assert validated_limit is not None
@@ -115,6 +119,7 @@ class RecalliumCore:
         candidates = self.store.list_candidates(
             space=SPACE_WORKSPACE,
             workspace_uid=workspace_uid,
+            embedding_profile=self.embedding_provider.embedding_profile,
             include_archived=include_archived,
         )
         validated_limit = validate_limit(limit)
@@ -188,6 +193,7 @@ class RecalliumCore:
         content_update = validated.get("content")
         if isinstance(content_update, str):
             validated["embedding"] = self.embedding_provider.embed(content_update)
+            validated["embedding_profile"] = self.embedding_provider.embedding_profile
 
         return self.store.update_memory(memory_id, **validated)
 

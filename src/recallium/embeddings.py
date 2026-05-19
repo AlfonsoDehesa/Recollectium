@@ -13,11 +13,24 @@ TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 class LocalEmbeddingProvider:
     """Simple, deterministic embedding provider with lightweight synonym support."""
 
+    provider_name = "local-hash"
+    model_name = "recallium-mvp-hash-v1"
+    version = "1"
+
     def __init__(self, dimensions: int = 256) -> None:
         if dimensions <= 0:
             raise ValueError("dimensions must be a positive integer")
         self.dimensions = dimensions
         self._synonym_map = self._build_synonym_map()
+
+    @property
+    def embedding_profile(self) -> dict[str, object]:
+        return {
+            "provider": self.provider_name,
+            "model": self.model_name,
+            "dimensions": self.dimensions,
+            "version": self.version,
+        }
 
     def embed(self, text: str) -> list[float]:
         vector = [0.0] * self.dimensions

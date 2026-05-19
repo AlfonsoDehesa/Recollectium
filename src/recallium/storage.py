@@ -44,6 +44,7 @@ class SQLiteMemoryStore:
                     source TEXT NULL,
                     confidence REAL NULL,
                     sensitivity TEXT NULL,
+                    embedding_profile_json TEXT NOT NULL,
                     embedding_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -68,15 +69,21 @@ class SQLiteMemoryStore:
             )
             connection.execute("PRAGMA user_version = 1")
 
-    def insert_memory(self, memory: Memory, embedding: list[float]) -> Memory:
+    def insert_memory(
+        self,
+        memory: Memory,
+        embedding: list[float],
+        embedding_profile: dict[str, object],
+    ) -> Memory:
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO memories (
                     id, space, workspace_uid, type, content, metadata_json,
-                    status, source, confidence, sensitivity, embedding_json,
+                    status, source, confidence, sensitivity, embedding_profile_json,
+                    embedding_json,
                     created_at, updated_at, last_accessed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     memory.id,
@@ -89,6 +96,7 @@ class SQLiteMemoryStore:
                     memory.source,
                     memory.confidence,
                     memory.sensitivity,
+                    json.dumps(embedding_profile, sort_keys=True),
                     json.dumps(embedding),
                     memory.created_at,
                     memory.updated_at,
@@ -125,6 +133,10 @@ class SQLiteMemoryStore:
         if "embedding" in updates:
             assignments.append("embedding_json = ?")
             values.append(json.dumps(updates["embedding"]))
+
+        if "embedding_profile" in updates:
+            assignments.append("embedding_profile_json = ?")
+            values.append(json.dumps(updates["embedding_profile"], sort_keys=True))
 
         if not assignments:
             return self.get_memory(memory_id)
@@ -225,6 +237,7 @@ class SQLiteMemoryStore:
         *,
         space: str | None = None,
         workspace_uid: str | None = None,
+        embedding_profile: dict[str, object] | None = None,
         include_archived: bool = False,
     ) -> list[tuple[Memory, list[float]]]:
         where_parts: list[str] = []
@@ -236,6 +249,9 @@ class SQLiteMemoryStore:
         if workspace_uid is not None:
             where_parts.append("workspace_uid = ?")
             values.append(workspace_uid)
+        if embedding_profile is not None:
+            where_parts.append("embedding_profile_json = ?")
+            values.append(json.dumps(embedding_profile, sort_keys=True))
         if not include_archived:
             where_parts.append("status != ?")
             values.append(STATUS_ARCHIVED)
