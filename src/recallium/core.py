@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from recallium.embeddings import LocalEmbeddingProvider
+from recallium.embeddings import BuiltinFastEmbedProvider, EmbeddingProvider
 from recallium.errors import ValidationError
 from recallium.models import (
     SPACE_USER,
@@ -40,11 +40,11 @@ class RecalliumCore:
         self,
         db_path: Path | str | None = None,
         *,
-        embedding_provider: LocalEmbeddingProvider | None = None,
+        embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         selected_path = db_path if db_path is not None else _default_db_path()
         self.store = SQLiteMemoryStore(selected_path)
-        self.embedding_provider = embedding_provider or LocalEmbeddingProvider()
+        self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider()
 
     def add_memory(
         self,

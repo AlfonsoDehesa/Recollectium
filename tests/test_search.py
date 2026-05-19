@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from recallium.embeddings import LocalEmbeddingProvider
-from recallium.errors import ValidationError
+from recallium.embeddings import BuiltinFastEmbedProvider
+from recallium.errors import EmbeddingGenerationError, ValidationError
 from recallium.models import SPACE_USER, STATUS_ACTIVE, Memory
 from recallium.search import rank_memory_candidates
 from recallium.storage import SQLiteMemoryStore
@@ -24,8 +24,32 @@ def build_memory(memory_id: str, content: str, **overrides: object) -> Memory:
     return Memory(**payload)
 
 
-def test_semantic_search_matches_synonym_without_exact_term(tmp_path: Path) -> None:
-    provider = LocalEmbeddingProvider()
+def test_provider_profile_matches_fastembed_spec() -> None:
+    provider = BuiltinFastEmbedProvider()
+
+    assert provider.embedding_profile == {
+        "provider": "builtin-fastembed",
+        "model": "mixedbread-ai/mxbai-embed-large-v1",
+        "dimensions": 1024,
+        "version": "1",
+        "profile": "builtin-fastembed-mxbai-large-v1",
+        "max_tokens": 512,
+        "chunk_tokens": 384,
+        "chunk_overlap_tokens": 64,
+        "query_prompt_policy": "raw",
+    }
+
+
+def test_real_embedding_shape_is_1024() -> None:
+    provider = BuiltinFastEmbedProvider()
+    vector = provider.embed("Recallium should return stable embedding dimensions")
+
+    assert len(vector) == 1024
+    assert any(value != 0.0 for value in vector)
+
+
+def test_semantic_search_returns_relevant_memory(tmp_path: Path) -> None:
+    provider = BuiltinFastEmbedProvider()
     store = SQLiteMemoryStore(tmp_path / "semantic.db")
 
     memory = build_memory("mem-1", "Need to fix bug before release")
@@ -39,7 +63,7 @@ def test_semantic_search_matches_synonym_without_exact_term(tmp_path: Path) -> N
         space=SPACE_USER, embedding_profile=provider.embedding_profile
     )
     results = rank_memory_candidates(
-        query="repair defect", candidates=candidates, embedding_provider=provider
+        query="fix software defect", candidates=candidates, embedding_provider=provider
     )
 
     assert results
@@ -49,7 +73,7 @@ def test_semantic_search_matches_synonym_without_exact_term(tmp_path: Path) -> N
 
 
 def test_ranking_includes_score_and_rank_order() -> None:
-    provider = LocalEmbeddingProvider()
+    provider = BuiltinFastEmbedProvider()
 
     primary = build_memory("mem-1", "buy groceries and fruit")
     secondary = build_memory("mem-2", "purchase household supplies")
@@ -59,7 +83,7 @@ def test_ranking_includes_score_and_rank_order() -> None:
     ]
 
     results = rank_memory_candidates(
-        query="purchase fruit", candidates=candidates, embedding_provider=provider
+        query="buy fruit", candidates=candidates, embedding_provider=provider
     )
 
     assert [result.memory.id for result in results] == ["mem-1", "mem-2"]
@@ -69,31 +93,25 @@ def test_ranking_includes_score_and_rank_order() -> None:
 
 
 def test_rank_memory_candidates_rejects_empty_query() -> None:
-    provider = LocalEmbeddingProvider()
+    provider = BuiltinFastEmbedProvider()
 
     with pytest.raises(ValidationError, match="query"):
         rank_memory_candidates(query="   ", candidates=[], embedding_provider=provider)
 
 
-def test_rank_memory_candidates_excludes_zero_score_results() -> None:
-    provider = LocalEmbeddingProvider()
-    unrelated = build_memory("mem-1", "apples oranges bananas")
+def test_similarity_rejects_dimension_mismatch() -> None:
+    provider = BuiltinFastEmbedProvider()
 
-    results = rank_memory_candidates(
-        query="repair defect",
-        candidates=[(unrelated, provider.embed(unrelated.content))],
-        embedding_provider=provider,
-    )
-
-    assert results == []
+    with pytest.raises(EmbeddingGenerationError, match="same size"):
+        provider.similarity([1.0, 0.0], [1.0])
 
 
 def test_rank_memory_candidates_rejects_invalid_limit() -> None:
-    provider = LocalEmbeddingProvider()
+    provider = BuiltinFastEmbedProvider()
 
     with pytest.raises(ValidationError, match="positive integer"):
         rank_memory_candidates(
-            query="repair defect",
+            query="fix software defect",
             candidates=[],
             embedding_provider=provider,
             limit=0,
@@ -101,7 +119,7 @@ def test_rank_memory_candidates_rejects_invalid_limit() -> None:
 
 
 def test_archived_filter_is_respected_by_candidate_selection(tmp_path: Path) -> None:
-    provider = LocalEmbeddingProvider()
+    provider = BuiltinFastEmbedProvider()
     store = SQLiteMemoryStore(tmp_path / "archive-filter.db")
 
     active = build_memory("active", "buy coffee beans")

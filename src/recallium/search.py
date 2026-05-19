@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from recallium.embeddings import LocalEmbeddingProvider
+from recallium.embeddings import EmbeddingProvider
 from recallium.errors import ValidationError
 from recallium.models import Memory, SearchResult, validate_limit
 
@@ -11,7 +11,7 @@ def rank_memory_candidates(
     *,
     query: str,
     candidates: list[tuple[Memory, list[float]]],
-    embedding_provider: LocalEmbeddingProvider,
+    embedding_provider: EmbeddingProvider,
     limit: int = 10,
 ) -> list[SearchResult]:
     normalized_query = query.strip()

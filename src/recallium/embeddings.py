@@ -1,27 +1,42 @@
-"""Deterministic local embeddings for MVP semantic search."""
+"""Production embedding provider using FastEmbed."""
 
 from __future__ import annotations
 
-import hashlib
 import math
-import re
+from collections.abc import Iterable
+from typing import Any, Protocol, cast
+
+from recallium.errors import (
+    EmbeddingGenerationError,
+    EmbeddingModelUnavailableError,
+    EmbeddingProviderUnavailableError,
+)
 
 
-TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+class EmbeddingProvider(Protocol):
+    @property
+    def embedding_profile(self) -> dict[str, object]: ...
+
+    def embed(self, text: str) -> list[float]: ...
+
+    def similarity(self, first: list[float], second: list[float]) -> float: ...
 
 
-class LocalEmbeddingProvider:
-    """Simple, deterministic embedding provider with lightweight synonym support."""
+class BuiltinFastEmbedProvider:
+    """Built-in production embedding provider backed by FastEmbed."""
 
-    provider_name = "local-hash"
-    model_name = "recallium-mvp-hash-v1"
+    provider_name = "builtin-fastembed"
+    model_name = "mixedbread-ai/mxbai-embed-large-v1"
+    dimensions = 1024
     version = "1"
+    profile_name = "builtin-fastembed-mxbai-large-v1"
+    max_tokens = 512
+    chunk_tokens = 384
+    chunk_overlap_tokens = 64
+    query_prompt_policy = "raw"
 
-    def __init__(self, dimensions: int = 256) -> None:
-        if dimensions <= 0:
-            raise ValueError("dimensions must be a positive integer")
-        self.dimensions = dimensions
-        self._synonym_map = self._build_synonym_map()
+    def __init__(self) -> None:
+        self._embedder: Any | None = None
 
     @property
     def embedding_profile(self) -> dict[str, object]:
@@ -30,18 +45,44 @@ class LocalEmbeddingProvider:
             "model": self.model_name,
             "dimensions": self.dimensions,
             "version": self.version,
+            "profile": self.profile_name,
+            "max_tokens": self.max_tokens,
+            "chunk_tokens": self.chunk_tokens,
+            "chunk_overlap_tokens": self.chunk_overlap_tokens,
+            "query_prompt_policy": self.query_prompt_policy,
         }
 
     def embed(self, text: str) -> list[float]:
-        vector = [0.0] * self.dimensions
-        for token in self._normalize_tokens(text):
-            index = self._token_index(token)
-            vector[index] += 1.0
+        normalized = text.strip()
+        if not normalized:
+            return [0.0] * self.dimensions
+
+        embedder = self._get_embedder()
+        try:
+            result = next(iter(embedder.embed([normalized])))
+        except StopIteration as exc:
+            raise EmbeddingGenerationError(
+                "embedding provider returned no vector"
+            ) from exc
+        except Exception as exc:  # pragma: no cover - defensive runtime wrapper
+            raise EmbeddingGenerationError(
+                f"failed to generate embedding with {self.provider_name}"
+            ) from exc
+
+        vector = [float(value) for value in cast(Iterable[float], result)]
+        if len(vector) != self.dimensions:
+            raise EmbeddingGenerationError(
+                f"unexpected embedding dimension: expected {self.dimensions}, got {len(vector)}"
+            )
         return self._normalize_vector(vector)
 
     def similarity(self, first: list[float], second: list[float]) -> float:
         if len(first) != len(second):
-            raise ValueError("embedding vectors must have the same size")
+            raise EmbeddingGenerationError("embedding vectors must have the same size")
+        if len(first) != self.dimensions:
+            raise EmbeddingGenerationError(
+                f"embedding vector size must be {self.dimensions}"
+            )
 
         first_norm = self._vector_norm(first)
         second_norm = self._vector_norm(second)
@@ -51,44 +92,32 @@ class LocalEmbeddingProvider:
         dot_product = sum(a * b for a, b in zip(first, second, strict=True))
         return dot_product / (first_norm * second_norm)
 
-    def _normalize_tokens(self, text: str) -> list[str]:
-        lowered = text.lower()
-        tokens = TOKEN_PATTERN.findall(lowered)
-        normalized_tokens: list[str] = []
-        for token in tokens:
-            canonical = self._synonym_map.get(token)
-            normalized_tokens.append(canonical if canonical is not None else token)
-        return normalized_tokens
+    def _get_embedder(self) -> Any:
+        if self._embedder is not None:
+            return self._embedder
 
-    def _token_index(self, token: str) -> int:
-        digest = hashlib.sha256(token.encode("utf-8")).digest()
-        token_hash = int.from_bytes(digest[:8], byteorder="big", signed=False)
-        return token_hash % self.dimensions
+        try:
+            from fastembed import TextEmbedding
+        except Exception as exc:  # pragma: no cover - import wrapper
+            raise EmbeddingProviderUnavailableError(
+                "FastEmbed is unavailable. Install fastembed and its runtime dependencies."
+            ) from exc
+
+        try:
+            self._embedder = TextEmbedding(model_name=self.model_name)
+        except Exception as exc:
+            raise EmbeddingModelUnavailableError(
+                f"failed to load embedding model '{self.model_name}'"
+            ) from exc
+
+        return self._embedder
+
+    @staticmethod
+    def _vector_norm(vector: list[float]) -> float:
+        return math.sqrt(sum(value * value for value in vector))
 
     def _normalize_vector(self, vector: list[float]) -> list[float]:
         norm = self._vector_norm(vector)
         if norm == 0.0:
             return vector
         return [value / norm for value in vector]
-
-    @staticmethod
-    def _vector_norm(vector: list[float]) -> float:
-        return math.sqrt(sum(value * value for value in vector))
-
-    @staticmethod
-    def _build_synonym_map() -> dict[str, str]:
-        buckets = {
-            "buy": {"buy", "purchase", "acquire", "obtain", "get"},
-            "fix": {"fix", "repair", "patch", "resolve"},
-            "bug": {"bug", "issue", "problem", "defect", "fail", "fails", "failure"},
-            "quick": {"quick", "fast", "rapid", "speedy"},
-            "idea": {"idea", "concept", "notion", "thought"},
-            "meeting": {"meeting", "sync", "standup", "checkin"},
-            "important": {"important", "critical", "urgent", "priority"},
-        }
-
-        synonym_map: dict[str, str] = {}
-        for canonical, words in buckets.items():
-            for word in words:
-                synonym_map[word] = canonical
-        return synonym_map
