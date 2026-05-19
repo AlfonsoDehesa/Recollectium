@@ -157,6 +157,21 @@ def test_chunk_text_for_profile_splits_with_overlap_without_truncation() -> None
     assert "six" in covered_tokens
 
 
+def test_chunk_text_for_profile_rejects_overlap_greater_than_or_equal_to_chunk_size() -> (
+    None
+):
+    provider = BuiltinFastEmbedProvider()
+    profile = dict(provider.embedding_profile)
+    profile["chunk_tokens"] = 4
+    profile["chunk_overlap_tokens"] = 4
+
+    with pytest.raises(
+        EmbeddingGenerationError,
+        match="chunk_overlap_tokens must be smaller than chunk_tokens",
+    ):
+        chunk_text_for_profile("zero one two three", profile)
+
+
 def test_rank_memory_candidates_deduplicates_parent_memory_by_best_chunk() -> None:
     provider = BuiltinFastEmbedProvider()
     memory = build_memory("mem-1", "parent memory")

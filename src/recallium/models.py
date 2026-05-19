@@ -216,14 +216,18 @@ class SearchResult:
                 raise ValidationError("chunk_index must be a non-negative integer")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "memory": self.memory.to_dict(),
             "score": self.score,
             "rank": self.rank,
-            "matched_text": self.matched_text,
-            "snippet": self.snippet,
-            "chunk_index": self.chunk_index,
         }
+        if self.matched_text is not None:
+            payload["matched_text"] = self.matched_text
+        if self.snippet is not None:
+            payload["snippet"] = self.snippet
+        if self.chunk_index is not None:
+            payload["chunk_index"] = self.chunk_index
+        return payload
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True)
