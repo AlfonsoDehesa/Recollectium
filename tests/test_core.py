@@ -812,3 +812,16 @@ def test_database_status_surfaces_store_migration_status(tmp_path: Path) -> None
     assert status["latest_version"] == 2
     assert status["pending_versions"] == []
     assert status["up_to_date"] is True
+
+
+def test_recallium_core_uses_config_db_path(tmp_path: Path) -> None:
+    """RecalliumCore with config_path and no db_path uses resolved_database_path."""
+    from recallium.config import _write_starter_config
+
+    config_path = tmp_path / "config.json"
+    _write_starter_config(config_path)
+
+    core = RecalliumCore(config_path=config_path)
+
+    assert core.config is not None
+    assert core.store.db_path == core.config.resolved_database_path

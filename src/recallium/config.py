@@ -233,7 +233,7 @@ def validate_config_file(path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-class RecursionConfig:
+class RecalliumConfig:
     """Recallium configuration loaded from disk and merged with defaults."""
 
     def __init__(self, config_path: str | Path | None = None) -> None:

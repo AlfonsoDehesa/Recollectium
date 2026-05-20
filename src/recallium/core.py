@@ -31,6 +31,7 @@ from recallium.models import (
     validate_memory_create_input,
     validate_memory_update_input,
 )
+from recallium.config import RecalliumConfig
 from recallium.search import rank_memory_candidates
 from recallium.storage import SQLiteMemoryStore, utc_now_iso
 
@@ -57,8 +58,20 @@ class RecalliumCore:
         *,
         embedding_provider: EmbeddingProvider | None = None,
         immediate_reembedding_threshold: int = 20,
+        config_path: Path | str | None = None,
     ) -> None:
-        selected_path = db_path if db_path is not None else _default_db_path()
+        if config_path is not None:
+            self.config = RecalliumConfig(config_path)
+        else:
+            self.config = None
+
+        if db_path is not None:
+            selected_path = db_path
+        elif self.config is not None:
+            selected_path = self.config.resolved_database_path
+        else:
+            selected_path = _default_db_path()
+
         self.store = SQLiteMemoryStore(selected_path)
         self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider()
         self.immediate_reembedding_threshold = immediate_reembedding_threshold
