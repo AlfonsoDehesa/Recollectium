@@ -5,12 +5,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import runpy
+from types import SimpleNamespace
 
 import pytest
 from pytest import CaptureFixture
 
+from recallium.config import DEFAULTS
 from recallium.cli import main
-from recallium.errors import EmbeddingGenerationError, EmbeddingProviderUnavailableError
+from recallium.errors import (
+    EmbeddingGenerationError,
+    EmbeddingProviderUnavailableError,
+    ValidationError,
+)
 from recallium.storage import SQLiteMemoryStore
 
 
@@ -64,10 +70,13 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "local-only" in serve_help
     assert "127.0.0.1" in serve_help
     assert "/v1" in serve_help
-    assert "--db" in serve_help
-    assert "database path" in serve_help
     assert "--host" in serve_help
     assert "--port" in serve_help
+
+    # --config and --db are global flags
+    top_level_help_2 = _run_help(["--help"], capsys)
+    assert "--config" in top_level_help_2
+    assert "--db" in top_level_help_2
 
     embedding_status_help = _run_help(["embedding-status", "--help"], capsys)
     assert "built-in local FastEmbed" in embedding_status_help
@@ -114,15 +123,22 @@ def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None
     db_path = tmp_path / "serve.db"
     call: dict[str, object] = {}
 
-    def _fake_run_service(*, host: str, port: int, db_path: str | None) -> None:
+    def _fake_run_service(
+        *, host: str, port: int, db_path: str | None, config_path: str | None
+    ) -> None:
         call["host"] = host
         call["port"] = port
         call["db_path"] = db_path
+        call["config_path"] = config_path
 
     monkeypatch.setattr("recallium.cli.run_service", _fake_run_service)
 
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
     exit_code = main(
         [
+            "--config",
+            str(config_path),
             "--db",
             str(db_path),
             "serve",
@@ -134,31 +150,186 @@ def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None
     )
 
     assert exit_code == 0
-    assert call == {
-        "host": "127.0.0.2",
-        "port": 9001,
-        "db_path": str(db_path),
-    }
+    assert call["host"] == "127.0.0.2"
+    assert call["port"] == 9001
+    assert call["db_path"] == str(db_path)
+    assert str(call["config_path"]) == str(config_path)
 
 
-def test_cli_serve_uses_default_host_and_port(monkeypatch) -> None:
+def test_cli_serve_uses_default_host_and_port_without_explicit_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     call: dict[str, object] = {}
 
-    def _fake_run_service(*, host: str, port: int, db_path: str | None) -> None:
+    def _fake_run_service(
+        *, host: str, port: int, db_path: str | None, config_path: str | None
+    ) -> None:
         call["host"] = host
         call["port"] = port
         call["db_path"] = db_path
+        call["config_path"] = config_path
 
     monkeypatch.setattr("recallium.cli.run_service", _fake_run_service)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
 
     exit_code = main(["serve"])
 
     assert exit_code == 0
-    assert call == {
-        "host": "127.0.0.1",
-        "port": 8765,
-        "db_path": None,
-    }
+    assert call["host"] == "127.0.0.1"
+    assert call["port"] == 8765
+    assert call["db_path"] is None
+    assert call["config_path"] is None
+    assert (tmp_path / "config" / "recallium" / "config.json").exists()
+
+
+def test_cli_serve_explicit_missing_config_fails_clearly(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fake_run_service(
+        *, host: str, port: int, db_path: str | None, config_path: str | None
+    ) -> None:
+        raise AssertionError("run_service should not run with a missing config")
+
+    monkeypatch.setattr("recallium.cli.run_service", _fake_run_service)
+    config_path = tmp_path / "missing" / "config.json"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "serve"], capsys
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert f"config file not found: {config_path}" in stderr
+
+
+def test_cli_serve_invalid_config_fails_clearly(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fake_run_service(
+        *, host: str, port: int, db_path: str | None, config_path: str | None
+    ) -> None:
+        raise AssertionError("run_service should not run with invalid config")
+
+    monkeypatch.setattr("recallium.cli.run_service", _fake_run_service)
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"version": 1, "service": {"port": "bad"}}')
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "serve"], capsys
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "ValidationError:" in stderr
+    assert "service.port must be int" in stderr
+
+
+def test_cli_serve_explicit_missing_config_fails_after_flag_overrides(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "missing" / "config.json"
+
+    def _fake_run_service(
+        *, host: str, port: int, db_path: str | None, config_path: str | None
+    ) -> None:
+        raise FileNotFoundError(f"config file not found: {config_path}")
+
+    monkeypatch.setattr("recallium.cli.run_service", _fake_run_service)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "serve",
+            "--host",
+            "127.0.0.2",
+            "--port",
+            "9001",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert f"config file not found: {config_path}" in stderr
+
+
+def test_cli_serve_invalid_config_fails_after_flag_overrides(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "config.json"
+
+    def _fake_run_service(
+        *, host: str, port: int, db_path: str | None, config_path: str | None
+    ) -> None:
+        raise ValidationError("invalid JSON in config file")
+
+    monkeypatch.setattr("recallium.cli.run_service", _fake_run_service)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "serve",
+            "--host",
+            "127.0.0.2",
+            "--port",
+            "9001",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "ValidationError: invalid JSON in config file" in stderr
+
+
+def test_cli_first_run_without_config_creates_default_config(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(tmp_path / "first-run.db"), "list", "--limit", "1"], capsys
+    )
+
+    config_path = config_home / "recallium" / "config.json"
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == []
+    assert json.loads(config_path.read_text(encoding="utf-8")) == DEFAULTS
+
+
+def test_cli_explicit_missing_config_fails_for_normal_command(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "missing" / "config.json"
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--db",
+            str(tmp_path / "explicit-missing.db"),
+            "list",
+            "--limit",
+            "1",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert f"config file not found: {config_path}" in stderr
 
 
 def test_cli_full_workflow(tmp_path, capsys) -> None:
@@ -318,20 +489,49 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["up_to_date"] is True
 
 
-def test_cli_db_status_uses_default_path_when_no_db_flag(
+def test_cli_db_status_missing_explicit_config_errors(tmp_path, capsys) -> None:
+    config_path = tmp_path / "nonexistent" / "config.json"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "db-status"],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert f"config file not found: {config_path}" in stderr
+
+
+def test_cli_db_status_invalid_config_errors(tmp_path, capsys) -> None:
+    config_path = tmp_path / "bad.json"
+    config_path.write_text('{"version": 1, "database": {"path": 3}}')
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "db-status"],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "ValidationError:" in stderr
+    assert "database.path must be str" in stderr
+
+
+def test_cli_db_status_invalid_default_config_errors(
     tmp_path, capsys, monkeypatch
 ) -> None:
-    monkeypatch.setattr("recallium.cli.Path.home", lambda: tmp_path)
+    config_home = tmp_path / "config"
+    config_path = config_home / "recallium" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('{"version": 1, "database": {"path": 3}}')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
 
     exit_code, stdout, stderr = _run_cli(["db-status"], capsys)
 
-    assert exit_code == 0
-    assert stderr == ""
-    payload = json.loads(stdout)
-    expected = str(tmp_path / ".local" / "share" / "recallium" / "recallium.db")
-    assert payload["db_path"] == expected
-    assert payload["current_version"] == 2
-    assert payload["up_to_date"] is True
+    assert exit_code == 2
+    assert stdout == ""
+    assert "ValidationError:" in stderr
+    assert "database.path must be str" in stderr
 
 
 def test_cli_rejects_invalid_metadata_json_and_non_object(
@@ -488,6 +688,7 @@ def test_cli_unknown_command_defensive_branch(monkeypatch: pytest.MonkeyPatch) -
     class FakeArgs:
         command = "mystery"
         db_path = None
+        config_path = None
 
     class FakeParser:
         def parse_args(self, argv: object) -> FakeArgs:
@@ -497,13 +698,42 @@ def test_cli_unknown_command_defensive_branch(monkeypatch: pytest.MonkeyPatch) -
             assert message == "unknown command: mystery"
 
     class FakeCore:
-        def __init__(self, *, db_path: object) -> None:
+        def __init__(self, *, db_path: object, config_path: object = None) -> None:
             assert db_path is None
 
     monkeypatch.setattr("recallium.cli._build_parser", lambda: FakeParser())
     monkeypatch.setattr("recallium.cli.RecalliumCore", FakeCore)
 
     assert main(["mystery"]) == 2
+
+
+def test_cli_db_status_with_valid_config(tmp_path, capsys) -> None:
+    """db-status uses resolved_database_path from config when available."""
+    config_path = tmp_path / "config.json"
+    config_path.parent.mkdir(exist_ok=True)
+    config_path.write_text(
+        json.dumps({"version": 1}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "db-status"], capsys
+    )
+    assert exit_code == 0
+    payload = json.loads(stdout)
+    assert "db_path" in payload
+
+
+def test_cli_parse_config_value_plain_string(tmp_path, capsys) -> None:
+    """config set with a non-JSON value falls back to string."""
+    config_path = tmp_path / "config.json"
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "config", "set", "logging.level", "debug"],
+        capsys,
+    )
+    assert exit_code == 0
+    loaded = json.loads(config_path.read_text())
+    assert loaded["logging"]["level"] == "debug"
 
 
 def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
@@ -580,4 +810,649 @@ def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
     assert state_err == ""
     state_payload = json.loads(state_out)
     assert isinstance(state_payload, list)
-    assert len(state_payload) <= 1
+
+
+# ---------------------------------------------------------------------------
+# Config command tests
+# ---------------------------------------------------------------------------
+
+
+class TestConfigCommand:
+    def test_directory_writable_returns_false_for_file_path(self, tmp_path) -> None:
+        from recallium.cli import _directory_writable
+
+        non_directory = tmp_path / "not-a-dir"
+        non_directory.write_text("x", encoding="utf-8")
+
+        assert _directory_writable(non_directory) is False
+
+    def test_config_prints_effective_json(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1}),
+            encoding="utf-8",
+        )
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config"], capsys
+        )
+        assert exit_code == 0
+        assert stderr == ""
+        payload = json.loads(stdout)
+        assert payload["service"]["port"] == 8765
+
+    def test_config_validate_success(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1}),
+            encoding="utf-8",
+        )
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "--validate"], capsys
+        )
+        assert exit_code == 0
+        assert stderr == ""
+
+    def test_config_validate_failure(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text("{bad", encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "--validate"], capsys
+        )
+        assert exit_code == 1
+        assert "invalid JSON" in stderr
+
+    def test_config_validate_missing_file(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "nonexistent.json"
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "--validate"], capsys
+        )
+        assert exit_code == 1
+        assert "config file not found" in stderr
+
+    def test_config_validate_default_creates_file(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        exit_code, stdout, stderr = _run_cli(["config", "--validate"], capsys)
+
+        config_path = config_home / "recallium" / "config.json"
+        assert exit_code == 0
+        assert stdout == ""
+        assert stderr == ""
+        assert config_path.exists()
+
+    def test_config_path_flag(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "--path"], capsys
+        )
+        assert exit_code == 0
+        assert stderr == ""
+        assert str(config_path) in stdout
+
+    def test_config_defaults(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "--defaults"], capsys
+        )
+        assert exit_code == 0
+        assert stderr == ""
+        payload = json.loads(stdout)
+        assert payload["version"] == 1
+        assert payload["service"]["port"] == 8765
+
+    def test_config_get_value(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1, "service": {"port": 9999}}),
+            encoding="utf-8",
+        )
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "get", "service.port"], capsys
+        )
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout) == 9999
+
+    def test_config_get_missing_key(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "get", "nonexistent"], capsys
+        )
+        assert exit_code == 1
+        assert "not found" in stderr
+
+    def test_config_get_missing_explicit_file_errors(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "missing.json"
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "get", "service.port"], capsys
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert f"config file not found: {config_path}" in stderr
+
+    def test_config_get_invalid_config_errors(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text("{bad", encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "get", "service.port"], capsys
+        )
+
+        assert exit_code == 2
+        assert stdout == ""
+        assert "ValidationError: invalid JSON" in stderr
+
+    def test_config_set_creates_file(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "set", "service.port", "9090"],
+            capsys,
+        )
+        assert exit_code == 0
+        assert config_path.exists()
+        loaded = json.loads(config_path.read_text())
+        assert loaded["service"]["port"] == 9090
+        assert "version" in loaded
+
+    def test_config_set_parses_json_values(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "set", "service.port", "9090"],
+            capsys,
+        )
+        assert exit_code == 0
+        loaded = json.loads(config_path.read_text())
+        assert loaded["service"]["port"] == 9090
+        assert isinstance(loaded["service"]["port"], int)
+
+    def test_config_set_preserves_existing_keys(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1, "logging": {"level": "debug"}}),
+            encoding="utf-8",
+        )
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "set", "service.port", "8080"],
+            capsys,
+        )
+        assert exit_code == 0
+        loaded = json.loads(config_path.read_text())
+        assert loaded["logging"]["level"] == "debug"
+        assert loaded["service"]["port"] == 8080
+
+    def test_config_unset_removes_key(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1, "service": {"host": "0.0.0.0", "port": 8765}}),
+            encoding="utf-8",
+        )
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "unset", "service.host"], capsys
+        )
+        assert exit_code == 0
+        loaded = json.loads(config_path.read_text())
+        assert "host" not in loaded["service"]
+        assert loaded["service"]["port"] == 8765
+
+    def test_config_unset_missing_key(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "unset", "nonexistent"], capsys
+        )
+        assert exit_code == 1
+        assert "not found" in stderr
+
+    def test_config_unset_missing_file(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "nonexistent.json"
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "unset", "service.port"], capsys
+        )
+        assert exit_code == 1
+        assert "config file not found" in stderr
+
+    def test_config_init_creates_file(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "recallium" / "config.json"
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "init"], capsys
+        )
+        assert exit_code == 0
+        assert config_path.exists()
+        loaded = json.loads(config_path.read_text())
+        assert loaded["version"] == 1
+
+    def test_config_init_without_force_existing(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1, "custom": "data"}', encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "init"], capsys
+        )
+        assert exit_code == 1
+        assert "already exists" in stderr
+        # File should NOT be overwritten
+        loaded = json.loads(config_path.read_text())
+        assert loaded.get("custom") == "data"
+
+    def test_config_init_force_overwrites(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1, "custom": "data"}', encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "init", "--force"], capsys
+        )
+        assert exit_code == 0
+        loaded = json.loads(config_path.read_text())
+        assert "custom" not in loaded
+        assert loaded["version"] == 1
+
+    def test_config_explicit_missing_file_errors(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "nonexistent" / "config.json"
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config"], capsys
+        )
+        assert exit_code == 1
+        assert stdout == ""
+        assert f"config file not found: {config_path}" in stderr
+
+    def test_config_no_args_invalid_config_errors(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text("{bad", encoding="utf-8")
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config"], capsys
+        )
+
+        assert exit_code == 2
+        assert stdout == ""
+        assert "ValidationError: invalid JSON" in stderr
+
+    def test_config_default_no_args_creates_file(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        exit_code, stdout, stderr = _run_cli(["config"], capsys)
+
+        config_path = config_home / "recallium" / "config.json"
+        assert exit_code == 0
+        assert stderr == ""
+        assert config_path.exists()
+        payload = json.loads(stdout)
+        assert payload["service"]["port"] == 8765
+
+    def test_config_default_get_creates_file(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        exit_code, stdout, stderr = _run_cli(["config", "get", "service.port"], capsys)
+
+        config_path = config_home / "recallium" / "config.json"
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout) == 8765
+        assert config_path.exists()
+
+    def test_config_path_and_defaults_do_not_create_default_file(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+
+        path_code, path_stdout, path_stderr = _run_cli(["config", "--path"], capsys)
+        defaults_code, defaults_stdout, defaults_stderr = _run_cli(
+            ["config", "--defaults"], capsys
+        )
+
+        config_path = config_home / "recallium" / "config.json"
+        assert path_code == 0
+        assert path_stderr == ""
+        assert str(config_path) in path_stdout
+        assert defaults_code == 0
+        assert defaults_stderr == ""
+        assert json.loads(defaults_stdout) == DEFAULTS
+        assert not config_path.exists()
+
+    def test_config_doctor_success_and_default_creation(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        exit_code, stdout, stderr = _run_cli(["config", "doctor"], capsys)
+
+        config_path = config_home / "recallium" / "config.json"
+        assert exit_code == 0
+        assert stderr == ""
+        assert config_path.exists()
+        assert "OK config:" in stdout
+        assert "OK data:" in stdout
+        assert "OK cache:" in stdout
+        assert "OK logs:" in stdout
+        assert "OK runtime:" in stdout
+        assert "Config doctor checks passed" in stdout
+
+    def test_config_doctor_explicit_missing_file_errors(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "missing" / "config.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "doctor"], capsys
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert f"config file not found: {config_path}" in stderr
+
+    def test_config_doctor_invalid_embedding_settings_fail_validation(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "embedding": {
+                        "provider": "custom-provider",
+                        "model": "custom-model",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "doctor"], capsys
+        )
+
+        assert exit_code == 2
+        assert stdout == ""
+        assert "ValidationError:" in stderr
+        assert "embedding.provider only supports" in stderr
+
+    def test_config_doctor_reports_directory_writability_failure(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+        monkeypatch.setattr("recallium.cli._directory_writable", lambda _path: False)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "doctor"], capsys
+        )
+
+        assert exit_code == 1
+        assert "OK config:" in stdout
+        assert "FAIL data directory is not writable:" in stderr
+        assert "FAIL cache directory is not writable:" in stderr
+        assert "FAIL logs directory is not writable:" in stderr
+        assert "FAIL runtime directory is not writable:" in stderr
+        assert "FAIL database parent directory is not writable:" in stderr
+
+    def test_config_doctor_reports_missing_and_nondirectory_paths(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        existing_dir = tmp_path / "existing"
+        existing_dir.mkdir()
+        non_dir = tmp_path / "not-a-dir"
+        non_dir.write_text("x", encoding="utf-8")
+
+        fake_cfg = SimpleNamespace(
+            config_file_path=tmp_path / "config.json",
+            xdg_dirs={
+                "data": tmp_path / "missing-data",
+                "cache": non_dir,
+                "logs": existing_dir,
+                "runtime": existing_dir,
+            },
+            resolved_database_path=(tmp_path / "missing-db-parent" / "recallium.db"),
+        )
+        monkeypatch.setattr(
+            "recallium.cli._load_effective_config", lambda _path, explicit: fake_cfg
+        )
+
+        exit_code, stdout, stderr = _run_cli(["config", "doctor"], capsys)
+
+        assert exit_code == 1
+        assert "OK config:" in stdout
+        assert "FAIL data directory missing:" in stderr
+        assert "FAIL cache path is not a directory:" in stderr
+        assert "FAIL database parent directory missing:" in stderr
+
+    def test_config_doctor_reports_database_parent_not_directory(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        shared_dir = tmp_path / "dirs"
+        shared_dir.mkdir()
+        db_parent_file = tmp_path / "db-parent-file"
+        db_parent_file.write_text("x", encoding="utf-8")
+
+        fake_cfg = SimpleNamespace(
+            config_file_path=tmp_path / "config.json",
+            xdg_dirs={
+                "data": shared_dir,
+                "cache": shared_dir,
+                "logs": shared_dir,
+                "runtime": shared_dir,
+            },
+            resolved_database_path=db_parent_file / "recallium.db",
+        )
+        monkeypatch.setattr(
+            "recallium.cli._load_effective_config", lambda _path, explicit: fake_cfg
+        )
+
+        exit_code, stdout, stderr = _run_cli(["config", "doctor"], capsys)
+
+        assert exit_code == 1
+        assert "FAIL database parent path is not a directory:" in stderr
+
+    # -- edit ---------------------------------------------------------------
+
+    def test_config_edit_creates_file_and_opens_editor(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "recallium" / "config.json"
+        editor_calls: list[list[str]] = []
+
+        def _fake_call(args, **kwargs) -> int:
+            editor_calls.append(args)
+            return 0
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert config_path.exists()
+        loaded = json.loads(config_path.read_text())
+        assert loaded["version"] == 1
+        assert len(editor_calls) == 1
+        assert editor_calls[0][0] == "vi"
+        assert editor_calls[0][1] == str(config_path)
+
+    def test_config_edit_opens_existing_config(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1, "logging": {"level": "debug"}}),
+            encoding="utf-8",
+        )
+        editor_calls: list[list[str]] = []
+
+        def _fake_call(args, **kwargs) -> int:
+            editor_calls.append(args)
+            return 0
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        # File should not be overwritten
+        loaded = json.loads(config_path.read_text())
+        assert loaded["logging"]["level"] == "debug"
+        assert len(editor_calls) == 1
+        assert editor_calls[0][1] == str(config_path)
+
+    def test_config_edit_respects_editor_env(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+        monkeypatch.setenv("EDITOR", "nano")
+
+        editor_calls: list[list[str]] = []
+
+        def _fake_call(args, **kwargs) -> int:
+            editor_calls.append(args)
+            return 0
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 0
+        assert editor_calls[0][0] == "nano"
+
+    def test_config_edit_editor_not_found(self, tmp_path, capsys, monkeypatch) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+
+        def _fake_call(args, **kwargs) -> int:
+            raise FileNotFoundError("no such editor")
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 1
+        assert "editor not found" in stderr
+
+    def test_config_edit_returns_editor_exit_code(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+
+        def _fake_call(args, **kwargs) -> int:
+            return 42
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 42
+
+    # -- reset --------------------------------------------------------------
+
+    def test_config_reset_creates_file_when_missing(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "recallium" / "config.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "reset"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert f"Config reset to defaults: {config_path}" in stdout
+        assert config_path.exists()
+        loaded = json.loads(config_path.read_text())
+        assert loaded["version"] == 1
+        assert loaded["service"]["port"] == 8765
+
+    def test_config_reset_overwrites_existing(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1, "logging": {"level": "debug"}, "custom": "data"}),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "reset"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert f"Config reset to defaults: {config_path}" in stdout
+        loaded = json.loads(config_path.read_text())
+        assert "custom" not in loaded
+        assert loaded["logging"]["level"] == "info"  # back to default
+
+    def test_config_reset_prints_message(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "reset"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert str(config_path) in stdout
+        assert "Config reset to defaults:" in stdout
+
+    def test_config_help_shows_actions(self, capsys) -> None:
+        help_text = _run_help(["config", "--help"], capsys)
+        assert "inspect, validate, and edit" in help_text.lower()
+        assert "get" in help_text
+        assert "set" in help_text
+        assert "unset" in help_text
+        assert "init" in help_text
+        assert "doctor" in help_text
+        assert "edit" in help_text
+        assert "reset" in help_text
+        assert "--validate" in help_text
+        assert "--path" in help_text
+        assert "--defaults" in help_text

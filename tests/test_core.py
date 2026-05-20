@@ -210,13 +210,14 @@ def test_core_rejects_invalid_list_limit(tmp_path: Path) -> None:
 
 
 def test_default_db_path_uses_xdg_style_data_home(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
     core = RecalliumCore(embedding_provider=FakeEmbeddingProvider())
 
-    assert (
-        core.store.db_path
-        == tmp_path / ".local" / "share" / "recallium" / "recallium.db"
-    )
+    assert core.store.db_path == tmp_path / "data" / "recallium" / "recallium.db"
 
 
 def test_workspace_search_requires_non_empty_workspace_uid(tmp_path: Path) -> None:
@@ -812,3 +813,16 @@ def test_database_status_surfaces_store_migration_status(tmp_path: Path) -> None
     assert status["latest_version"] == 2
     assert status["pending_versions"] == []
     assert status["up_to_date"] is True
+
+
+def test_recallium_core_uses_config_db_path(tmp_path: Path) -> None:
+    """RecalliumCore with config_path and no db_path uses resolved_database_path."""
+    from recallium.config import _write_starter_config
+
+    config_path = tmp_path / "config.json"
+    _write_starter_config(config_path)
+
+    core = RecalliumCore(config_path=config_path)
+
+    assert core.config is not None
+    assert core.store.db_path == core.config.resolved_database_path

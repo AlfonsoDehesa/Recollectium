@@ -1,5 +1,6 @@
 """Recallium Core package."""
 
+from recallium.config import RecalliumConfig
 from recallium.core import RecalliumCore
 from recallium.errors import (
     MigrationError,
@@ -19,9 +20,10 @@ from recallium.models import (
 __all__ = [
     "__version__",
     "Memory",
-    "SearchResult",
+    "RecalliumConfig",
     "RecalliumCore",
     "RecalliumError",
+    "SearchResult",
     "ValidationError",
     "NotFoundError",
     "MigrationError",

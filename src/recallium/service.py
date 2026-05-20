@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -350,8 +351,10 @@ def run_service(
     host: str = SERVICE_DEFAULT_HOST,
     port: int = SERVICE_DEFAULT_PORT,
     db_path: str | None = None,
+    config_path: str | Path | None = None,
 ) -> None:
     import uvicorn
 
-    core = RecalliumCore(db_path=db_path)
-    uvicorn.run(create_app(core), host=host, port=port, log_level="info")
+    core = RecalliumCore(db_path=db_path, config_path=config_path)
+    log_level = core.config.effective_config["logging"]["level"]
+    uvicorn.run(create_app(core), host=host, port=port, log_level=log_level)
