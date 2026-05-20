@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -199,6 +201,27 @@ def _handle_config_command(
         print("Config doctor checks passed")
         return 0
 
+    if args.config_action == "edit":
+        if not config_path.exists():
+            config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            config_path.write_text(
+                json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8"
+            )
+            config_path.chmod(0o600)
+        editor = os.environ.get("EDITOR", "vi")
+        try:
+            return subprocess.call([editor, str(config_path)])
+        except FileNotFoundError:
+            print(f"editor not found: {editor}", file=sys.stderr)
+            return 1
+
+    if args.config_action == "reset":
+        config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
+        config_path.chmod(0o600)
+        print(f"Config reset to defaults: {config_path}")
+        return 0
+
     if args.validate:
         try:
             if explicit:
@@ -355,6 +378,24 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Validate config and check that resolved data, cache, logs, runtime, "
             "and database parent directories exist, are directories, and are writable."
+        ),
+    )
+
+    config_sub.add_parser(
+        "edit",
+        help="open the config file in $EDITOR",
+        description=(
+            "Open the active config file in $EDITOR. Creates the config file with "
+            "defaults first if it does not exist."
+        ),
+    )
+
+    config_sub.add_parser(
+        "reset",
+        help="reset the config file to defaults",
+        description=(
+            "Replace the config file with a fresh copy of built-in defaults. "
+            "Creates the file if it does not exist."
         ),
     )
 

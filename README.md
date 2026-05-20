@@ -172,6 +172,14 @@ recallium config unset service.host
 
 # Create or overwrite the starter config with all defaults
 recallium config init --force
+
+# Open the config file in your editor ($EDITOR)
+# Creates the file with defaults first if it does not exist
+recallium config edit
+
+# Reset the config file to built-in defaults
+# Creates the file if it does not exist
+recallium config reset
 ```
 
 ### CLI flag overrides

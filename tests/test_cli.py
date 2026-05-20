@@ -1281,6 +1281,168 @@ class TestConfigCommand:
         assert exit_code == 1
         assert "FAIL database parent path is not a directory:" in stderr
 
+    # -- edit ---------------------------------------------------------------
+
+    def test_config_edit_creates_file_and_opens_editor(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "recallium" / "config.json"
+        editor_calls: list[list[str]] = []
+
+        def _fake_call(args, **kwargs) -> int:
+            editor_calls.append(args)
+            return 0
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert config_path.exists()
+        loaded = json.loads(config_path.read_text())
+        assert loaded["version"] == 1
+        assert len(editor_calls) == 1
+        assert editor_calls[0][0] == "vi"
+        assert editor_calls[0][1] == str(config_path)
+
+    def test_config_edit_opens_existing_config(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1, "logging": {"level": "debug"}}),
+            encoding="utf-8",
+        )
+        editor_calls: list[list[str]] = []
+
+        def _fake_call(args, **kwargs) -> int:
+            editor_calls.append(args)
+            return 0
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        # File should not be overwritten
+        loaded = json.loads(config_path.read_text())
+        assert loaded["logging"]["level"] == "debug"
+        assert len(editor_calls) == 1
+        assert editor_calls[0][1] == str(config_path)
+
+    def test_config_edit_respects_editor_env(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+        monkeypatch.setenv("EDITOR", "nano")
+
+        editor_calls: list[list[str]] = []
+
+        def _fake_call(args, **kwargs) -> int:
+            editor_calls.append(args)
+            return 0
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 0
+        assert editor_calls[0][0] == "nano"
+
+    def test_config_edit_editor_not_found(self, tmp_path, capsys, monkeypatch) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+
+        def _fake_call(args, **kwargs) -> int:
+            raise FileNotFoundError("no such editor")
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 1
+        assert "editor not found" in stderr
+
+    def test_config_edit_returns_editor_exit_code(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1}', encoding="utf-8")
+
+        def _fake_call(args, **kwargs) -> int:
+            return 42
+
+        monkeypatch.setattr("subprocess.call", _fake_call)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "edit"], capsys
+        )
+
+        assert exit_code == 42
+
+    # -- reset --------------------------------------------------------------
+
+    def test_config_reset_creates_file_when_missing(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "recallium" / "config.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "reset"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert f"Config reset to defaults: {config_path}" in stdout
+        assert config_path.exists()
+        loaded = json.loads(config_path.read_text())
+        assert loaded["version"] == 1
+        assert loaded["service"]["port"] == 8765
+
+    def test_config_reset_overwrites_existing(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text(
+            json.dumps({"version": 1, "logging": {"level": "debug"}, "custom": "data"}),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "reset"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert f"Config reset to defaults: {config_path}" in stdout
+        loaded = json.loads(config_path.read_text())
+        assert "custom" not in loaded
+        assert loaded["logging"]["level"] == "info"  # back to default
+
+    def test_config_reset_prints_message(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "reset"], capsys
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert str(config_path) in stdout
+        assert "Config reset to defaults:" in stdout
+
     def test_config_help_shows_actions(self, capsys) -> None:
         help_text = _run_help(["config", "--help"], capsys)
         assert "inspect, validate, and edit" in help_text.lower()
@@ -1289,6 +1451,8 @@ class TestConfigCommand:
         assert "unset" in help_text
         assert "init" in help_text
         assert "doctor" in help_text
+        assert "edit" in help_text
+        assert "reset" in help_text
         assert "--validate" in help_text
         assert "--path" in help_text
         assert "--defaults" in help_text
