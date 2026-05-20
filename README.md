@@ -158,6 +158,9 @@ recallium config --path
 # Validate the config file (exit 0 on success, 1 on error)
 recallium config --validate
 
+# Run config and directory health checks
+recallium config doctor
+
 # Get a single value by dot-notation key
 recallium config get service.port
 

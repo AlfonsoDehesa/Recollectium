@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import runpy
+from types import SimpleNamespace
 
 import pytest
 from pytest import CaptureFixture
@@ -817,6 +818,14 @@ def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
 
 
 class TestConfigCommand:
+    def test_directory_writable_returns_false_for_file_path(self, tmp_path) -> None:
+        from recallium.cli import _directory_writable
+
+        non_directory = tmp_path / "not-a-dir"
+        non_directory.write_text("x", encoding="utf-8")
+
+        assert _directory_writable(non_directory) is False
+
     def test_config_prints_effective_json(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
         config_path.parent.mkdir(exist_ok=True)
@@ -1136,6 +1145,142 @@ class TestConfigCommand:
         assert json.loads(defaults_stdout) == DEFAULTS
         assert not config_path.exists()
 
+    def test_config_doctor_success_and_default_creation(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        exit_code, stdout, stderr = _run_cli(["config", "doctor"], capsys)
+
+        config_path = config_home / "recallium" / "config.json"
+        assert exit_code == 0
+        assert stderr == ""
+        assert config_path.exists()
+        assert "OK config:" in stdout
+        assert "OK data:" in stdout
+        assert "OK cache:" in stdout
+        assert "OK logs:" in stdout
+        assert "OK runtime:" in stdout
+        assert "Config doctor checks passed" in stdout
+
+    def test_config_doctor_explicit_missing_file_errors(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "missing" / "config.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "doctor"], capsys
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert f"config file not found: {config_path}" in stderr
+
+    def test_config_doctor_invalid_embedding_settings_fail_validation(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "embedding": {
+                        "provider": "custom-provider",
+                        "model": "custom-model",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "doctor"], capsys
+        )
+
+        assert exit_code == 2
+        assert stdout == ""
+        assert "ValidationError:" in stderr
+        assert "embedding.provider only supports" in stderr
+
+    def test_config_doctor_reports_directory_writability_failure(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+        monkeypatch.setattr("recallium.cli._directory_writable", lambda _path: False)
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "doctor"], capsys
+        )
+
+        assert exit_code == 1
+        assert "OK config:" in stdout
+        assert "FAIL data directory is not writable:" in stderr
+        assert "FAIL cache directory is not writable:" in stderr
+        assert "FAIL logs directory is not writable:" in stderr
+        assert "FAIL runtime directory is not writable:" in stderr
+        assert "FAIL database parent directory is not writable:" in stderr
+
+    def test_config_doctor_reports_missing_and_nondirectory_paths(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        existing_dir = tmp_path / "existing"
+        existing_dir.mkdir()
+        non_dir = tmp_path / "not-a-dir"
+        non_dir.write_text("x", encoding="utf-8")
+
+        fake_cfg = SimpleNamespace(
+            config_file_path=tmp_path / "config.json",
+            xdg_dirs={
+                "data": tmp_path / "missing-data",
+                "cache": non_dir,
+                "logs": existing_dir,
+                "runtime": existing_dir,
+            },
+            resolved_database_path=(tmp_path / "missing-db-parent" / "recallium.db"),
+        )
+        monkeypatch.setattr(
+            "recallium.cli._load_effective_config", lambda _path, explicit: fake_cfg
+        )
+
+        exit_code, stdout, stderr = _run_cli(["config", "doctor"], capsys)
+
+        assert exit_code == 1
+        assert "OK config:" in stdout
+        assert "FAIL data directory missing:" in stderr
+        assert "FAIL cache path is not a directory:" in stderr
+        assert "FAIL database parent directory missing:" in stderr
+
+    def test_config_doctor_reports_database_parent_not_directory(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        shared_dir = tmp_path / "dirs"
+        shared_dir.mkdir()
+        db_parent_file = tmp_path / "db-parent-file"
+        db_parent_file.write_text("x", encoding="utf-8")
+
+        fake_cfg = SimpleNamespace(
+            config_file_path=tmp_path / "config.json",
+            xdg_dirs={
+                "data": shared_dir,
+                "cache": shared_dir,
+                "logs": shared_dir,
+                "runtime": shared_dir,
+            },
+            resolved_database_path=db_parent_file / "recallium.db",
+        )
+        monkeypatch.setattr(
+            "recallium.cli._load_effective_config", lambda _path, explicit: fake_cfg
+        )
+
+        exit_code, stdout, stderr = _run_cli(["config", "doctor"], capsys)
+
+        assert exit_code == 1
+        assert "FAIL database parent path is not a directory:" in stderr
+
     def test_config_help_shows_actions(self, capsys) -> None:
         help_text = _run_help(["config", "--help"], capsys)
         assert "inspect, validate, and edit" in help_text.lower()
@@ -1143,6 +1288,7 @@ class TestConfigCommand:
         assert "set" in help_text
         assert "unset" in help_text
         assert "init" in help_text
+        assert "doctor" in help_text
         assert "--validate" in help_text
         assert "--path" in help_text
         assert "--defaults" in help_text

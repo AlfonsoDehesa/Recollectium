@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -84,6 +85,15 @@ def _load_effective_config(config_path: Path, *, explicit: bool) -> RecalliumCon
     return RecalliumConfig()
 
 
+def _directory_writable(path: Path) -> bool:
+    """Return True when *path* is writable by current user."""
+    try:
+        with tempfile.TemporaryFile(dir=path):
+            return True
+    except OSError:
+        return False
+
+
 def _handle_config_command(
     args: argparse.Namespace,
     config_path: Path,
@@ -143,6 +153,50 @@ def _handle_config_command(
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
         config_path.chmod(0o600)
+        return 0
+
+    if args.config_action == "doctor":
+        try:
+            cfg = _load_effective_config(config_path, explicit=explicit)
+        except ValidationError as exc:
+            print(f"ValidationError: {exc}", file=sys.stderr)
+            return 2
+        except FileNotFoundError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
+        failures: list[str] = []
+        print(f"OK config: {cfg.config_file_path}")
+
+        for name in ("data", "cache", "logs", "runtime"):
+            directory = cfg.xdg_dirs[name]
+            if not directory.exists():
+                failures.append(f"{name} directory missing: {directory}")
+                continue
+            if not directory.is_dir():
+                failures.append(f"{name} path is not a directory: {directory}")
+                continue
+            if not _directory_writable(directory):
+                failures.append(f"{name} directory is not writable: {directory}")
+                continue
+            print(f"OK {name}: {directory}")
+
+        db_parent = cfg.resolved_database_path.parent
+        if not db_parent.exists():
+            failures.append(f"database parent directory missing: {db_parent}")
+        elif not db_parent.is_dir():
+            failures.append(f"database parent path is not a directory: {db_parent}")
+        elif not _directory_writable(db_parent):
+            failures.append(f"database parent directory is not writable: {db_parent}")
+        else:
+            print(f"OK database parent: {db_parent}")
+
+        if failures:
+            for failure in failures:
+                print(f"FAIL {failure}", file=sys.stderr)
+            return 1
+
+        print("Config doctor checks passed")
         return 0
 
     if args.validate:
@@ -293,6 +347,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Overwrite the config file if it already exists.",
+    )
+
+    config_sub.add_parser(
+        "doctor",
+        help="run config and filesystem checks",
+        description=(
+            "Validate config and check that resolved data, cache, logs, runtime, "
+            "and database parent directories exist, are directories, and are writable."
+        ),
     )
 
     # -- add --------------------------------------------------------------
