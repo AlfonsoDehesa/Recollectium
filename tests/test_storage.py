@@ -493,7 +493,7 @@ def test_embedding_job_persistence_create_update_get_list(tmp_path: Path) -> Non
         succeeded_count=0,
         failed_count=0,
         provider="builtin-fastembed",
-        model="mixedbread-ai/mxbai-embed-large-v1",
+        model="jinaai/jina-embeddings-v2-small-en",
         embedding_profile=EMBEDDING_PROFILE,
     )
     assert created["id"] == "job-1"
@@ -523,7 +523,7 @@ def test_embedding_job_persistence_create_update_get_list(tmp_path: Path) -> Non
         succeeded_count=3,
         failed_count=1,
         provider="builtin-fastembed",
-        model="mixedbread-ai/mxbai-embed-large-v1",
+        model="jinaai/jina-embeddings-v2-small-en",
         embedding_profile=EMBEDDING_PROFILE,
         error_message="provider unavailable",
         completed_at="2026-01-01T02:00:00Z",

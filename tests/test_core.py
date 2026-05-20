@@ -207,6 +207,15 @@ def test_startup_reembeds_stale_memories_for_active_profile(tmp_path: Path) -> N
     assert jobs[0]["state"] == "completed"
     assert jobs[0]["total_count"] >= 1
 
+    status = restarted.active_embedding_status()
+    assert status["provider_status"] == "configured"
+    assert status["model_status"] == "managed_by_fastembed_cache"
+    assert status["runtime"] == {"name": "fastembed", "threads": 1, "parallel": None}
+    assert status["startup_reembedding_job_id"] == jobs[0]["id"]
+    assert status["startup_reembedding_status_path"].endswith(jobs[0]["id"])
+    assert status["embedding_jobs_status_path"] == "/v1/embedding/jobs"
+    assert status["recent_embedding_jobs"]
+
 
 def test_search_reembeds_missing_profile_chunks_below_threshold(tmp_path: Path) -> None:
     db_path = tmp_path / "search-reembed.db"

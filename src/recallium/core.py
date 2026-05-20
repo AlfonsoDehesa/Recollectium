@@ -251,9 +251,27 @@ class RecalliumCore:
         return self.store.list_embedding_jobs(state=state, limit=validate_limit(limit))
 
     def active_embedding_status(self) -> dict[str, Any]:
+        startup_status_path = None
+        if self._startup_reembedding_job_id is not None:
+            startup_status_path = (
+                f"/v1/embedding/jobs/{self._startup_reembedding_job_id}"
+            )
+        profile = self.embedding_provider.embedding_profile
+        runtime_threads = getattr(self.embedding_provider, "runtime_threads", None)
+
         return {
-            "embedding_profile": self.embedding_provider.embedding_profile,
+            "embedding_profile": profile,
+            "provider_status": "configured",
+            "model_status": "managed_by_fastembed_cache",
+            "runtime": {
+                "name": "fastembed",
+                "threads": runtime_threads,
+                "parallel": None,
+            },
             "startup_reembedding_job_id": self._startup_reembedding_job_id,
+            "startup_reembedding_status_path": startup_status_path,
+            "embedding_jobs_status_path": "/v1/embedding/jobs",
+            "recent_embedding_jobs": self.list_embedding_jobs(limit=5),
         }
 
     def ensure_embedding_ready(self, *, timeout_seconds: float = 60.0) -> None:

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import math
 import multiprocessing
-import queue
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Protocol, cast
+from multiprocessing.connection import Connection
+from typing import Any, ClassVar, Protocol, cast
 
 from recallium.errors import (
     EmbeddingDimensionMismatchError,
@@ -28,20 +28,22 @@ class EmbeddingProvider(Protocol):
     def similarity(self, first: list[float], second: list[float]) -> float: ...
 
 
-def _fastembed_readiness_worker(result_queue: multiprocessing.Queue[Any]) -> None:
+def _fastembed_readiness_worker(result_connection: Connection) -> None:
     try:
         BuiltinFastEmbedProvider()._ensure_ready_unbounded()
     except Exception as exc:  # pragma: no cover - exercised through parent process
-        result_queue.put(
+        result_connection.send(
             {
                 "ok": False,
                 "error_type": exc.__class__.__name__,
                 "message": str(exc),
             }
         )
+        result_connection.close()
         return
 
-    result_queue.put({"ok": True})
+    result_connection.send({"ok": True})
+    result_connection.close()
 
 
 @dataclass(slots=True)
@@ -110,14 +112,16 @@ class BuiltinFastEmbedProvider:
     """Built-in production embedding provider backed by FastEmbed."""
 
     provider_name = "builtin-fastembed"
-    model_name = "mixedbread-ai/mxbai-embed-large-v1"
-    dimensions = 1024
+    model_name = "jinaai/jina-embeddings-v2-small-en"
+    dimensions = 512
     version = "1"
-    profile_name = "builtin-fastembed-mxbai-large-v1"
-    max_tokens = 512
-    chunk_tokens = 384
-    chunk_overlap_tokens = 64
+    profile_name = "builtin-fastembed-jina-v2-small-en-v1"
+    max_tokens = 8192
+    chunk_tokens = 6144
+    chunk_overlap_tokens = 512
     query_prompt_policy = "raw"
+    runtime_threads = 1
+    _shared_embedders: ClassVar[dict[tuple[str, int], Any]] = {}
 
     def __init__(self) -> None:
         self._embedder: Any | None = None
@@ -143,7 +147,7 @@ class BuiltinFastEmbedProvider:
 
         embedder = self._get_embedder()
         try:
-            result = next(iter(embedder.embed([normalized])))
+            result = next(iter(embedder.embed([normalized], batch_size=1)))
         except StopIteration as exc:
             raise EmbeddingGenerationError(
                 "embedding provider returned no vector"
@@ -164,12 +168,13 @@ class BuiltinFastEmbedProvider:
             )
 
         context = multiprocessing.get_context("spawn")
-        result_queue: multiprocessing.Queue[Any] = context.Queue()
+        parent_connection, child_connection = context.Pipe(duplex=False)
         process = context.Process(
             target=_fastembed_readiness_worker,
-            args=(result_queue,),
+            args=(child_connection,),
         )
         process.start()
+        child_connection.close()
         process.join(timeout_seconds)
 
         if process.is_alive():
@@ -178,20 +183,20 @@ class BuiltinFastEmbedProvider:
             if process.is_alive():
                 process.kill()
                 process.join(5)
+            parent_connection.close()
             raise EmbeddingReadinessTimeoutError(
                 "FastEmbed provider startup timed out after "
                 f"{timeout_seconds:g} seconds"
             )
 
-        try:
-            result = cast(dict[str, object], result_queue.get_nowait())
-        except queue.Empty as exc:
+        if not parent_connection.poll():
+            parent_connection.close()
             raise EmbeddingGenerationError(
                 "FastEmbed provider readiness check exited without reporting status"
-            ) from exc
-        finally:
-            result_queue.close()
-            result_queue.join_thread()
+            )
+
+        result = cast(dict[str, object], parent_connection.recv())
+        parent_connection.close()
 
         if result.get("ok") is True:
             return
@@ -236,6 +241,12 @@ class BuiltinFastEmbedProvider:
         if self._embedder is not None:
             return self._embedder
 
+        cache_key = (self.model_name, self.runtime_threads)
+        cached_embedder = self._shared_embedders.get(cache_key)
+        if cached_embedder is not None:
+            self._embedder = cached_embedder
+            return cached_embedder
+
         try:
             from fastembed import TextEmbedding
         except Exception as exc:  # pragma: no cover - import wrapper
@@ -244,12 +255,16 @@ class BuiltinFastEmbedProvider:
             ) from exc
 
         try:
-            self._embedder = TextEmbedding(model_name=self.model_name)
+            self._embedder = TextEmbedding(
+                model_name=self.model_name,
+                threads=self.runtime_threads,
+            )
         except Exception as exc:
             raise EmbeddingModelUnavailableError(
                 f"failed to load embedding model '{self.model_name}'"
             ) from exc
 
+        self._shared_embedders[cache_key] = self._embedder
         return self._embedder
 
     def _validate_dimensions(self, vector: list[float]) -> None:
