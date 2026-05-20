@@ -318,6 +318,22 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["up_to_date"] is True
 
 
+def test_cli_db_status_uses_default_path_when_no_db_flag(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    monkeypatch.setattr("recallium.cli.Path.home", lambda: tmp_path)
+
+    exit_code, stdout, stderr = _run_cli(["db-status"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    expected = str(tmp_path / ".local" / "share" / "recallium" / "recallium.db")
+    assert payload["db_path"] == expected
+    assert payload["current_version"] == 2
+    assert payload["up_to_date"] is True
+
+
 def test_cli_rejects_invalid_metadata_json_and_non_object(
     tmp_path: Path, capsys
 ) -> None:

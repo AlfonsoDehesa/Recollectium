@@ -317,10 +317,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "db-status":
-        store = SQLiteMemoryStore(
-            args.db_path or "~/.local/share/recallium/recallium.db"
-        )
-        print(json.dumps(_to_payload(store.migration_status()), sort_keys=True))
+        default_db = Path.home() / ".local" / "share" / "recallium" / "recallium.db"
+        store = SQLiteMemoryStore(args.db_path or default_db)
+        print(json.dumps(store.migration_status(), sort_keys=True))
         return 0
 
     try:
