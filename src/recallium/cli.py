@@ -878,6 +878,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             except ValidationError as exc:
                 print(f"ValidationError: {exc}", file=sys.stderr)
                 return 2
+            pid_path = get_pid_file_path(cfg)
+            raw_pid_info = read_pid_file(pid_path)
             running = check_running_service(cfg)
             if running is not None:
                 host = cfg.effective_config["service"]["host"]
@@ -894,14 +896,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             else:
-                # Check for stale PID file
-                pid_path = get_pid_file_path(cfg)
-                stale_info = read_pid_file(pid_path)
                 status_info: dict[str, object] = {"running": False}
-                if stale_info is not None:
+                if raw_pid_info is not None:
                     status_info["last_service"] = {
-                        "type": stale_info["type"],
-                        "pid": stale_info["pid"],
+                        "type": raw_pid_info["type"],
+                        "pid": raw_pid_info["pid"],
                     }
                 print(json.dumps(status_info, sort_keys=True))
             return 0
@@ -916,27 +915,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"ValidationError: {exc}", file=sys.stderr)
                 return 2
 
+            pid_path = get_pid_file_path(cfg)
+            raw_pid_info = read_pid_file(pid_path)
             running = check_running_service(cfg)
             if running is not None:
                 # Service is running: stop it first, then restart same type
                 service_type = running["type"]
                 print(f"Stopping existing {service_type} service...", file=sys.stderr)
                 stop_service(cfg)
+            elif raw_pid_info is not None:
+                service_type = raw_pid_info["type"]
+            elif args.type is not None:
+                service_type = args.type
             else:
-                # Check for stale PID file to infer type
-                pid_path = get_pid_file_path(cfg)
-                stale_info = read_pid_file(pid_path)
-                if stale_info is not None:
-                    service_type = stale_info["type"]
-                elif args.type is not None:
-                    service_type = args.type
-                else:
-                    print(
-                        "No running service found. Use --type to specify which "
-                        "service to restart.",
-                        file=sys.stderr,
-                    )
-                    return 1
+                print(
+                    "No running service found. Use --type to specify which "
+                    "service to restart.",
+                    file=sys.stderr,
+                )
+                return 1
 
             try:
                 pid = start_service(cfg, service_type, db_path=args.db_path)
