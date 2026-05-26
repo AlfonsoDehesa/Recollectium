@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import logging
 import os
 import runpy
 import signal
@@ -589,14 +591,23 @@ def test_stop_service_graceful(
     monkeypatch.setattr(time, "monotonic", lambda: 0.0)
     monkeypatch.setattr(time, "sleep", lambda s: None)
 
-    result = stop_service(config)
-    assert result == 42
-    assert kill_calls == [(42, signal.SIGTERM)]
-    assert len(remove_calls) == 1
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "Stopping service" in captured.err
-    assert "Service stopped gracefully" in captured.err
+    log_buf = io.StringIO()
+    log_handler = logging.StreamHandler(log_buf)
+    log_handler.setLevel(logging.INFO)
+    root = logging.getLogger()
+    root.addHandler(log_handler)
+    try:
+        result = stop_service(config)
+        assert result == 42
+        assert kill_calls == [(42, signal.SIGTERM)]
+        assert len(remove_calls) == 1
+        captured = capsys.readouterr()
+        combined = captured.err + log_buf.getvalue()
+        assert captured.out == ""
+        assert "Stopping service" in combined
+        assert "stopped gracefully" in combined
+    finally:
+        root.removeHandler(log_handler)
 
 
 def test_stop_service_sigkill(monkeypatch: pytest.MonkeyPatch) -> None:

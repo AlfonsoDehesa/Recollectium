@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -35,6 +36,8 @@ from recallium.service_manager import (
     stop_service,
 )
 from recallium.storage import SQLiteMemoryStore
+
+_log = logging.getLogger(__name__)
 
 
 def _parse_metadata(raw_metadata: str | None) -> dict[str, object] | None:
@@ -118,13 +121,13 @@ def _handle_config_command(
             cfg = _load_effective_config(config_path, explicit=explicit)
             value = get_config_value(cfg.effective_config, args.key)
         except FileNotFoundError as exc:
-            print(str(exc), file=sys.stderr)
+            _log.error(str(exc), extra={"event": "config.missing"})
             return 1
         except ValidationError as exc:
-            print(f"ValidationError: {exc}", file=sys.stderr)
+            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
             return 2
         except KeyError as exc:
-            print(f"key not found: {exc}", file=sys.stderr)
+            _log.error(f"key not found: {exc}", extra={"event": "config.missing"})
             return 1
         print(json.dumps(value, sort_keys=True))
         return 0
@@ -144,22 +147,25 @@ def _handle_config_command(
 
     if args.config_action == "unset":
         if not config_path.exists():
-            print(f"config file not found: {config_path}", file=sys.stderr)
+            _log.error(
+                f"config file not found: {config_path}",
+                extra={"event": "config.missing"},
+            )
             return 1
         raw = load_config_file(config_path)
         try:
             unset_config_value(raw, args.key)
         except KeyError as exc:
-            print(f"key not found: {exc}", file=sys.stderr)
+            _log.error(f"key not found: {exc}", extra={"event": "config.missing"})
             return 1
         config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
         return 0
 
     if args.config_action == "init":
         if config_path.exists() and not args.force:
-            print(
-                f"config file already exists: {config_path}\nuse --force to overwrite",
-                file=sys.stderr,
+            _log.warning(
+                f"config file already exists: {config_path}",
+                extra={"event": "config.missing"},
             )
             return 1
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -171,10 +177,10 @@ def _handle_config_command(
         try:
             cfg = _load_effective_config(config_path, explicit=explicit)
         except ValidationError as exc:
-            print(f"ValidationError: {exc}", file=sys.stderr)
+            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
             return 2
         except FileNotFoundError as exc:
-            print(str(exc), file=sys.stderr)
+            _log.error(str(exc), extra={"event": "config.missing"})
             return 1
 
         failures: list[str] = []
@@ -222,7 +228,7 @@ def _handle_config_command(
         try:
             return subprocess.call([editor, str(config_path)])
         except FileNotFoundError:
-            print(f"editor not found: {editor}", file=sys.stderr)
+            _log.error(f"editor not found: {editor}", extra={"event": "config.missing"})
             return 1
 
     if args.config_action == "reset":
@@ -239,10 +245,10 @@ def _handle_config_command(
             else:
                 _load_effective_config(config_path, explicit=False)
         except ValidationError as exc:
-            print(str(exc), file=sys.stderr)
+            _log.error(str(exc), extra={"event": "config.invalid"})
             return 1
         except FileNotFoundError as exc:
-            print(str(exc), file=sys.stderr)
+            _log.error(str(exc), extra={"event": "config.missing"})
             return 1
         return 0
 
@@ -258,10 +264,10 @@ def _handle_config_command(
     try:
         cfg = _load_effective_config(config_path, explicit=explicit)
     except FileNotFoundError as exc:
-        print(str(exc), file=sys.stderr)
+        _log.error(str(exc), extra={"event": "config.missing"})
         return 1
     except ValidationError as exc:
-        print(f"ValidationError: {exc}", file=sys.stderr)
+        _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
         return 2
     print(json.dumps(cfg.effective_config, indent=2, sort_keys=True))
     return 0
@@ -749,10 +755,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 cfg = RecalliumConfig(core_config_path)
             except FileNotFoundError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
             except ValidationError as exc:
-                print(f"ValidationError: {exc}", file=sys.stderr)
+                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
                 return 2
             if host is None:
                 host = (
@@ -774,10 +780,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config_path=core_config_path,
             )
         except FileNotFoundError as exc:
-            print(str(exc), file=sys.stderr)
+            _log.error(str(exc), extra={"event": "config.missing"})
             return 1
         except ValidationError as exc:
-            print(f"ValidationError: {exc}", file=sys.stderr)
+            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
             return 2
         return 0
 
@@ -790,10 +796,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cfg = RecalliumConfig(core_config_path)
                 db_path = cfg.resolved_database_path
             except FileNotFoundError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
             except ValidationError as exc:
-                print(f"ValidationError: {exc}", file=sys.stderr)
+                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
                 return 2
         store = SQLiteMemoryStore(db_path)
         print(json.dumps(store.migration_status(), sort_keys=True))
@@ -804,10 +810,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             core = RecalliumCore(db_path=args.db_path, config_path=core_config_path)
         except FileNotFoundError as exc:
-            print(str(exc), file=sys.stderr)
+            _log.error(str(exc), extra={"event": "config.missing"})
             return 1
         except ValidationError as exc:
-            print(f"ValidationError: {exc}", file=sys.stderr)
+            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
             return 2
         try:
             mcp = create_mcp_server(core)
@@ -815,7 +821,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             asyncio.run(mcp.run_stdio_async())
         except Exception as exc:
-            print(f"Error: {exc}", file=sys.stderr)
+            _log.error(f"Error: {exc}")
             return 1
         return 0
 
@@ -825,10 +831,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 cfg = RecalliumConfig(core_config_path)
             except FileNotFoundError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
             except ValidationError as exc:
-                print(f"ValidationError: {exc}", file=sys.stderr)
+                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
                 return 2
             try:
                 pid = start_service(cfg, args.type, db_path=args.db_path)
@@ -847,13 +853,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             except ServiceConflictError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc), extra={"event": "service.startup_rejected"})
                 return 1
             except ServiceError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc))
                 return 1
             except ValueError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc))
                 return 2
             return 0
 
@@ -861,10 +867,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 cfg = RecalliumConfig(core_config_path)
             except FileNotFoundError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
             except ValidationError as exc:
-                print(f"ValidationError: {exc}", file=sys.stderr)
+                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
                 return 2
             pid = stop_service(cfg)
             if pid is not None:
@@ -877,17 +883,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 cfg = RecalliumConfig(core_config_path)
             except FileNotFoundError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
             except ValidationError as exc:
-                print(f"ValidationError: {exc}", file=sys.stderr)
+                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
                 return 2
             pid_path = get_pid_file_path(cfg)
             try:
                 raw_pid_info = read_pid_file(pid_path)
                 running = check_running_service(cfg)
             except ServiceError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc))
                 return 1
             if running is not None:
                 host = cfg.effective_config["service"]["host"]
@@ -917,10 +923,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 cfg = RecalliumConfig(core_config_path)
             except FileNotFoundError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
             except ValidationError as exc:
-                print(f"ValidationError: {exc}", file=sys.stderr)
+                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
                 return 2
 
             pid_path = get_pid_file_path(cfg)
@@ -928,12 +934,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raw_pid_info = read_pid_file(pid_path)
                 running = check_running_service(cfg)
             except ServiceError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc))
                 return 1
             if running is not None:
                 # Service is running: stop it first, then restart same type
                 service_type = running["type"]
-                print(f"Stopping existing {service_type} service...", file=sys.stderr)
+                _log.warning(
+                    f"Stopping existing {service_type} service...",
+                    extra={"event": "service.stop"},
+                )
                 stop_service(cfg)
                 time.sleep(0.5)  # let port release before binding again
             elif raw_pid_info is not None:
@@ -941,10 +950,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif args.type is not None:
                 service_type = args.type
             else:
-                print(
+                _log.warning(
                     "No running service found. Use --type to specify which "
                     "service to restart.",
-                    file=sys.stderr,
+                    extra={"event": "service.no_service"},
                 )
                 return 1
 
@@ -964,13 +973,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             except ServiceConflictError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc), extra={"event": "service.startup_rejected"})
                 return 1
             except ServiceError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc))
                 return 1
             except ValueError as exc:
-                print(str(exc), file=sys.stderr)
+                _log.error(str(exc))
                 return 2
             return 0
 
@@ -1036,16 +1045,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error(f"unknown command: {args.command}")
             return 2
     except ValidationError as exc:
-        print(f"ValidationError: {exc}", file=sys.stderr)
+        _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
         return 2
     except NotFoundError as exc:
-        print(f"NotFoundError: {exc}", file=sys.stderr)
+        _log.error(f"NotFoundError: {exc}")
         return 1
     except FileNotFoundError as exc:
-        print(str(exc), file=sys.stderr)
+        _log.error(str(exc), extra={"event": "config.missing"})
         return 1
     except RecalliumError as exc:
-        print(f"{exc.__class__.__name__}: {exc}", file=sys.stderr)
+        _log.error(f"{exc.__class__.__name__}: {exc}")
         return 1
 
     print(json.dumps(_to_payload(result), sort_keys=True))

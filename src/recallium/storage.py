@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import UTC, datetime
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any
+from typing import Any, Iterator
 
 from recallium.embeddings import ContentChunk
 from recallium.errors import NotFoundError
@@ -28,10 +29,15 @@ class SQLiteMemoryStore:
         self._migration_runner = MigrationRunner(self.db_path)
         self._migration_runner.migrate()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            yield connection
+        finally:
+            connection.commit()
+            connection.close()
 
     def migration_status(self) -> dict[str, object]:
         return self._migration_runner.status().to_dict()

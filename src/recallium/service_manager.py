@@ -8,6 +8,7 @@ detection, and daemon-style service start/stop orchestration using
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -18,6 +19,8 @@ from typing import Any
 
 from recallium.config import RecalliumConfig
 from recallium.errors import ServiceConflictError, ServiceError
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # PID file helpers
@@ -273,12 +276,21 @@ def stop_service(config: RecalliumConfig) -> int | None:
     path = get_pid_file_path(config)
     data = check_running_service(config)
     if data is None:
-        print("No service running", file=sys.stderr)
+        _log.info(
+            "no service running to stop",
+            extra={"event": "service.no_service"},
+        )
         return None
 
     pid: int = data["pid"]
 
-    print(f"Stopping service (PID {pid})...", file=sys.stderr)
+    _log.info(
+        f"Stopping service (PID {pid})...",
+        extra={
+            "event": "service.stop",
+            "context": {"pid": pid, "type": data["type"]},
+        },
+    )
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -288,20 +300,31 @@ def stop_service(config: RecalliumConfig) -> int | None:
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
         if not is_pid_alive(pid):
-            print("Service stopped gracefully", file=sys.stderr)
+            _log.info(
+                "Service stopped gracefully",
+                extra={
+                    "event": "service.stopped",
+                    "context": {"pid": pid, "type": data["type"]},
+                },
+            )
             remove_pid_file(path)
             return pid
         time.sleep(0.1)
 
     # Force kill
-    print("Service did not stop gracefully, sending SIGKILL...", file=sys.stderr)
+    _log.warning(
+        f"service did not stop gracefully, sending SIGKILL (PID {pid})",
+        extra={
+            "event": "service.force_stopped",
+            "context": {"pid": pid, "type": data["type"]},
+        },
+    )
     try:
         os.kill(pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
     time.sleep(0.5)
     remove_pid_file(path)
-    print(f"Service forcefully stopped (PID {pid})", file=sys.stderr)
     return pid
 
 
@@ -339,7 +362,13 @@ def _run_server(
     elif service_type == "mcp":
         run_service(**service_kwargs, service_type="mcp")
     else:
-        print(f"Unknown service type: {service_type!r}", file=sys.stderr)
+        _log.error(
+            f"unknown service type: {service_type!r}",
+            extra={
+                "event": "service.startup_failed",
+                "context": {"type": service_type},
+            },
+        )
         sys.exit(1)
 
 
@@ -350,7 +379,7 @@ def _run_server(
 if __name__ == "__main__":
     # When spawned as: python -m recallium.service_manager _run_server <type> [...]
     if len(sys.argv) < 2 or sys.argv[1] != "_run_server":
-        print(
+        _log.error(
             "usage: python -m recallium.service_manager _run_server <api|mcp> [--db-path PATH] [--config-path PATH] [--host HOST] [--port PORT]"
         )
         sys.exit(2)
@@ -378,11 +407,17 @@ if __name__ == "__main__":
             try:
                 port = int(remaining[i + 1])
             except ValueError:
-                print(f"Invalid port: {remaining[i + 1]!r}", file=sys.stderr)
+                _log.error(
+                    f"invalid port: {remaining[i + 1]!r}",
+                    extra={"event": "config.invalid"},
+                )
                 sys.exit(2)
             i += 2
         else:
-            print(f"Unknown option: {remaining[i]}", file=sys.stderr)
+            _log.error(
+                f"unknown option: {remaining[i]}",
+                extra={"event": "config.invalid"},
+            )
             sys.exit(2)
 
     _run_server(

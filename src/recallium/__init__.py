@@ -10,6 +10,7 @@ from recallium.errors import (
     ServiceError,
     ValidationError,
 )
+from recallium.logging import get_logger, setup_logging
 from recallium.models import (
     SPACE_USER,
     SPACE_WORKSPACE,
@@ -35,6 +36,8 @@ __all__ = [
     "SPACE_WORKSPACE",
     "STATUS_ACTIVE",
     "STATUS_ARCHIVED",
+    "get_logger",
+    "setup_logging",
 ]
 
 __version__ = "0.1.0"

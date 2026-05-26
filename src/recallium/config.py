@@ -30,6 +30,7 @@ CONFIG_VERSION = 1
 SUPPORTED_EMBEDDING_PROVIDER = "builtin-fastembed"
 SUPPORTED_EMBEDDING_MODEL = "jinaai/jina-embeddings-v2-small-en"
 SUPPORTED_LOGGING_LEVELS = {"debug", "info", "warning", "error"}
+SUPPORTED_LOGGING_FORMATS = {"json"}
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -43,7 +44,12 @@ DEFAULTS: dict[str, Any] = {
         "model": SUPPORTED_EMBEDDING_MODEL,
     },
     "service": {"host": "127.0.0.1", "port": 8765},
-    "logging": {"level": "info"},
+    "logging": {
+        "level": "info",
+        "format": "json",
+        "max_bytes": 10485760,
+        "backup_count": 5,
+    },
     "directories": {"data": None, "cache": None, "logs": None, "runtime": None},
 }
 
@@ -136,7 +142,11 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
                 f"service.port must be between 1 and 65535 (got {port})"
             )
 
-    _validate_section(data, "logging", {"level": str})
+    _validate_section(
+        data,
+        "logging",
+        {"level": str, "format": str, "max_bytes": int, "backup_count": int},
+    )
     logging_config = data.get("logging", {})
     if isinstance(logging_config, dict):
         level = logging_config.get("level")
@@ -147,6 +157,24 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
             )
         if isinstance(level, str):
             logging_config["level"] = level.lower()
+
+        fmt = logging_config.get("format")
+        if isinstance(fmt, str) and fmt not in SUPPORTED_LOGGING_FORMATS:
+            raise ValidationError(
+                f"logging.format must be one of: {', '.join(sorted(SUPPORTED_LOGGING_FORMATS))} (got {fmt!r})"
+            )
+
+        max_bytes = logging_config.get("max_bytes")
+        if isinstance(max_bytes, int) and max_bytes <= 0:
+            raise ValidationError(
+                f"logging.max_bytes must be a positive integer (got {max_bytes})"
+            )
+
+        backup_count = logging_config.get("backup_count")
+        if isinstance(backup_count, int) and backup_count <= 0:
+            raise ValidationError(
+                f"logging.backup_count must be a positive integer (got {backup_count})"
+            )
 
     # directories.* must be string or None
     directories = data.get("directories", {})

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import logging
 from pathlib import Path
 import sqlite3
-from typing import Callable
+from typing import Callable, Iterator
 
 from recallium.errors import MigrationError
+
+_log = logging.getLogger(__name__)
 
 
 def _utc_now_iso() -> str:
@@ -58,10 +62,15 @@ class MigrationRunner:
         self.migrations = sorted(configured, key=lambda migration: migration.version)
         self._validate_migrations()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            yield connection
+        finally:
+            connection.commit()
+            connection.close()
 
     def _validate_migrations(self) -> None:
         versions = [migration.version for migration in self.migrations]
@@ -159,6 +168,16 @@ class MigrationRunner:
                             applied_at=_utc_now_iso(),
                         )
                         connection.execute(f"PRAGMA user_version = {migration.version}")
+                        _log.info(
+                            f"applied migration v{migration.version:03d} ({migration.name})",
+                            extra={
+                                "event": "db.migration",
+                                "context": {
+                                    "version": migration.version,
+                                    "name": migration.name,
+                                },
+                            },
+                        )
                 except sqlite3.DatabaseError as exc:
                     raise MigrationError(
                         f"failed applying migration v{migration.version:03d} "

@@ -99,7 +99,10 @@ the file).
     "port": 8765
   },
   "logging": {
-    "level": "info"
+    "level": "info",
+    "format": "json",
+    "max_bytes": 10485760,
+    "backup_count": 5
   },
   "directories": {
     "data": null,
@@ -118,7 +121,10 @@ the file).
 | `embedding.model` | `"jinaai/jina-embeddings-v2-small-en"` | Embedding model name. Only this model is supported in this release. Other values fail validation. |
 | `service.host` | `"127.0.0.1"` | Host interface for the local HTTP service. |
 | `service.port` | `8765` | TCP port for the local HTTP service. |
-| `logging.level` | `"info"` | Service log level. Allowed values: `debug`, `info`, `warning`, `error`. |
+| `logging.level` | `"info"` | Log level for the `recallium.*` logger hierarchy. Allowed values: `debug`, `info`, `warning`, `error`. |
+| `logging.format` | `"json"` | Log output format. Only `"json"` is supported in this release. |
+| `logging.max_bytes` | `10485760` | Maximum log file size in bytes before rotation (10 MiB). Must be a positive integer. |
+| `logging.backup_count` | `5` | Number of rotated log file backups to keep. Must be a positive integer. |
 | `directories.data` | `null` (XDG default) | Override the data directory. |
 | `directories.cache` | `null` (XDG default) | Override the cache directory. |
 | `directories.logs` | `null` (XDG default) | Override the logs directory. |

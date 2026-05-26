@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import logging
 from pathlib import Path
 import runpy
 from types import SimpleNamespace
@@ -22,9 +24,17 @@ from recallium.storage import SQLiteMemoryStore
 
 
 def _run_cli(args: list[str], capsys: CaptureFixture[str]) -> tuple[int, str, str]:
-    exit_code = main(args)
-    captured = capsys.readouterr()
-    return exit_code, captured.out, captured.err
+    log_buf = io.StringIO()
+    log_handler = logging.StreamHandler(log_buf)
+    log_handler.setLevel(logging.WARNING)
+    root = logging.getLogger()
+    root.addHandler(log_handler)
+    try:
+        exit_code = main(args)
+        captured = capsys.readouterr()
+        return exit_code, captured.out, captured.err + log_buf.getvalue()
+    finally:
+        root.removeHandler(log_handler)
 
 
 def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:

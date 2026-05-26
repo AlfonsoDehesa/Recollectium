@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import threading
 from typing import Any
@@ -22,6 +23,7 @@ from recallium.errors import (
     ReembeddingInProgressError,
     ValidationError,
 )
+from recallium.logging import setup_logging
 from recallium.models import (
     SPACE_USER,
     SPACE_WORKSPACE,
@@ -34,6 +36,8 @@ from recallium.models import (
 from recallium.config import RecalliumConfig
 from recallium.search import rank_memory_candidates
 from recallium.storage import SQLiteMemoryStore, utc_now_iso
+
+_log = logging.getLogger(__name__)
 
 
 def _validate_optional_string(field_name: str, value: str | None) -> str | None:
@@ -56,11 +60,17 @@ class RecalliumCore:
         config_path: Path | str | None = None,
     ) -> None:
         self.config = RecalliumConfig(config_path)
+        setup_logging(self.config)
 
         if db_path is not None:
             selected_path = db_path
         else:
             selected_path = self.config.resolved_database_path
+
+        _log.info(
+            "RecalliumCore initialised",
+            extra={"event": "core.init", "context": {"db_path": str(selected_path)}},
+        )
 
         self.store = SQLiteMemoryStore(selected_path)
         self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider()
@@ -117,6 +127,13 @@ class RecalliumCore:
             embedding_profile=self.embedding_provider.embedding_profile,
             chunk_embeddings=chunk_embeddings,
         )
+        _log.info(
+            "memory added",
+            extra={
+                "event": "memory.added",
+                "context": {"memory_id": inserted.id, "space": inserted.space},
+            },
+        )
         return inserted
 
     def search_user_memories(
@@ -137,12 +154,20 @@ class RecalliumCore:
         )
         validated_limit = validate_limit(limit)
         assert validated_limit is not None
-        return rank_memory_candidates(
+        result = rank_memory_candidates(
             query=query,
             candidates=candidates,
             embedding_provider=self.embedding_provider,
             limit=validated_limit,
         )
+        _log.info(
+            "user search",
+            extra={
+                "event": "search.user",
+                "context": {"query": query[:200], "results": len(result)},
+            },
+        )
+        return result
 
     def search_workspace_memories(
         self,
@@ -169,12 +194,24 @@ class RecalliumCore:
         )
         validated_limit = validate_limit(limit)
         assert validated_limit is not None
-        return rank_memory_candidates(
+        result = rank_memory_candidates(
             query=query,
             candidates=candidates,
             embedding_provider=self.embedding_provider,
             limit=validated_limit,
         )
+        _log.info(
+            "workspace search",
+            extra={
+                "event": "search.workspace",
+                "context": {
+                    "query": query[:200],
+                    "results": len(result),
+                    "workspace_uid": workspace_uid,
+                },
+            },
+        )
+        return result
 
     def list_memories(
         self,
@@ -246,12 +283,38 @@ class RecalliumCore:
                 embedding_profile=self.embedding_provider.embedding_profile,
                 chunk_embeddings=chunk_embeddings,
             )
+            _log.info(
+                "memory updated",
+                extra={
+                    "event": "memory.updated",
+                    "context": {
+                        "memory_id": updated_memory.id,
+                        "space": updated_memory.space,
+                    },
+                },
+            )
             return updated_memory
 
-        return self.store.update_memory(memory_id, **validated)
+        result = self.store.update_memory(memory_id, **validated)
+        _log.info(
+            "memory updated",
+            extra={
+                "event": "memory.updated",
+                "context": {"memory_id": result.id, "space": result.space},
+            },
+        )
+        return result
 
     def archive_memory(self, memory_id: str) -> Memory:
-        return self.store.archive_memory(memory_id)
+        result = self.store.archive_memory(memory_id)
+        _log.info(
+            "memory archived",
+            extra={
+                "event": "memory.archived",
+                "context": {"memory_id": result.id, "space": result.space},
+            },
+        )
+        return result
 
     def get_embedding_job(self, job_id: str) -> dict[str, Any]:
         return self.store.get_embedding_job(job_id)
@@ -447,6 +510,17 @@ class RecalliumCore:
             self._active_deferred_embedding_jobs[key] = job_id
             self._embedding_job_threads[job_id] = thread
             thread.start()
+            _log.info(
+                f"deferred embedding job started: {job_id}",
+                extra={
+                    "event": "embedding.job_started",
+                    "context": {
+                        "job_id": job_id,
+                        "reason": reason,
+                        "stale_count": stale_count,
+                    },
+                },
+            )
 
         return job_id
 
@@ -513,6 +587,13 @@ class RecalliumCore:
             error_message=f"triggered by {reason}",
             started_at=now,
             completed_at=None,
+        )
+        _log.info(
+            f"embedding job started: {job_id}",
+            extra={
+                "event": "embedding.job_started",
+                "context": {"job_id": job_id, "reason": reason},
+            },
         )
 
         failed = self._process_reembedding_job(
@@ -592,10 +673,36 @@ class RecalliumCore:
                 break
 
         completed_at = utc_now_iso()
+        final_state = "completed" if failed == 0 else "failed"
         self.store.update_embedding_job(
             job_id,
-            state="completed" if failed == 0 else "failed",
+            state=final_state,
             error_message=failure_message,
             completed_at=completed_at,
         )
+        if failed == 0:
+            _log.info(
+                f"embedding job completed: {job_id}",
+                extra={
+                    "event": "embedding.job_completed",
+                    "context": {
+                        "job_id": job_id,
+                        "succeeded": succeeded,
+                        "total": processed,
+                    },
+                },
+            )
+        else:
+            _log.error(
+                f"embedding job failed: {job_id}",
+                extra={
+                    "event": "embedding.job_failed",
+                    "context": {
+                        "job_id": job_id,
+                        "succeeded": succeeded,
+                        "failed": failed,
+                        "total": processed,
+                    },
+                },
+            )
         return failed > 0
