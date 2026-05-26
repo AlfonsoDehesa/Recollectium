@@ -1,19 +1,21 @@
-"""Integration tests for service lifecycle CLI commands.
-
-Tests CLI parsing -> service_manager function calls -> JSON output for the
-``recallium service start/stop/status/restart`` commands.  Uses mock-based
-testing; no real subprocesses or server ports are involved.
-"""
+"""Integration tests for service lifecycle CLI commands."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
+from mcp import ClientSession
+from mcp.client.sse import sse_client
+from mcp.types import TextContent
 import pytest
 from pytest import CaptureFixture
 
@@ -73,6 +75,61 @@ def _make_real_service_config(tmp_path: Path) -> Path:
     config_data["service"] = {"host": "127.0.0.1", "port": _free_port()}
     config_path.write_text(json.dumps(config_data), encoding="utf-8")
     return config_path
+
+
+def _run_real_service_command(
+    config_path: Path,
+    *args: str,
+    timeout: int = 15,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "recallium", "--config", str(config_path), *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _service_endpoint(config_path: Path) -> str:
+    config_data = json.loads(config_path.read_text(encoding="utf-8"))
+    service = config_data["service"]
+    return f"http://{service['host']}:{service['port']}"
+
+
+def _request_service_json(
+    endpoint: str,
+    method: str,
+    path: str,
+    body: dict[str, object] | None = None,
+) -> dict[str, object]:
+    encoded_body = None
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        encoded_body = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    request = Request(
+        f"{endpoint}{path}",
+        data=encoded_body,
+        headers=headers,
+        method=method,
+    )
+    with urlopen(request, timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _wait_for_http_service(endpoint: str) -> None:
+    last_error: Exception | None = None
+    for _ in range(40):
+        try:
+            _request_service_json(endpoint, "GET", "/v1/health")
+            return
+        except (TimeoutError, URLError, ConnectionError) as exc:
+            last_error = exc
+            time.sleep(0.25)
+
+    raise AssertionError(f"service did not become ready: {last_error!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -225,21 +282,12 @@ def test_start_service_real_process_returns_json_without_inherited_output(
 ) -> None:
     config_path = _make_real_service_config(tmp_path)
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "recallium",
-            "--config",
-            str(config_path),
-            "service",
-            "start",
-            "api",
-        ],
-        capture_output=True,
-        text=True,
+    result = _run_real_service_command(
+        config_path,
+        "service",
+        "start",
+        "api",
         timeout=5,
-        check=False,
     )
 
     try:
@@ -250,21 +298,122 @@ def test_start_service_real_process_returns_json_without_inherited_output(
         assert payload["type"] == "api"
         assert isinstance(payload["pid"], int)
     finally:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "recallium",
-                "--config",
-                str(config_path),
-                "service",
-                "stop",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
+        _run_real_service_command(config_path, "service", "stop")
+
+
+def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> None:
+    config_path = _make_real_service_config(tmp_path)
+    endpoint = _service_endpoint(config_path)
+
+    result = _run_real_service_command(config_path, "service", "start", "api")
+
+    try:
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        start_payload = json.loads(result.stdout)
+        assert start_payload["status"] == "started"
+        assert start_payload["type"] == "api"
+
+        _wait_for_http_service(endpoint)
+
+        added = _request_service_json(
+            endpoint,
+            "POST",
+            "/v1/memories",
+            {"space": "user", "type": "fact", "content": "api daemon memory"},
         )
+        memory = added["data"]
+        assert isinstance(memory, dict)
+        assert memory["content"] == "api daemon memory"
+
+        search = _request_service_json(
+            endpoint,
+            "POST",
+            "/v1/memories/search_user",
+            {"query": "api daemon"},
+        )
+        results = search["data"]
+        assert isinstance(results, list)
+        assert results[0]["memory"]["id"] == memory["id"]
+    finally:
+        stop_result = _run_real_service_command(config_path, "service", "stop")
+        assert stop_result.returncode in {0, 1}
+
+
+def test_mcp_service_real_process_handles_tool_round_trip(tmp_path: Path) -> None:
+    asyncio.run(_assert_mcp_service_round_trip(tmp_path))
+
+
+async def _assert_mcp_service_round_trip(tmp_path: Path) -> None:
+    config_path = _make_real_service_config(tmp_path)
+    endpoint = _service_endpoint(config_path)
+
+    result = _run_real_service_command(config_path, "service", "start", "mcp")
+
+    try:
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        start_payload = json.loads(result.stdout)
+        assert start_payload["status"] == "started"
+        assert start_payload["type"] == "mcp"
+
+        await _exercise_mcp_service_when_ready(endpoint)
+    finally:
+        stop_result = _run_real_service_command(config_path, "service", "stop")
+        assert stop_result.returncode in {0, 1}
+
+
+async def _exercise_mcp_service_when_ready(endpoint: str) -> None:
+    last_error: Exception | None = None
+    for _ in range(40):
+        try:
+            await _exercise_mcp_service(endpoint)
+            return
+        except Exception as exc:
+            last_error = exc
+            await asyncio.sleep(0.25)
+
+    raise AssertionError(f"MCP service did not become ready: {last_error!r}")
+
+
+async def _exercise_mcp_service(endpoint: str) -> None:
+    async with sse_client(
+        f"{endpoint}/sse",
+        timeout=5,
+        sse_read_timeout=5,
+    ) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            tools = await session.list_tools()
+            assert {tool.name for tool in tools.tools} >= {
+                "add_memory",
+                "search_user_memory",
+            }
+
+            added = await session.call_tool(
+                "add_memory",
+                {
+                    "space": "user",
+                    "type": "fact",
+                    "content": "mcp daemon memory",
+                },
+            )
+            assert not added.isError
+            added_content = added.content[0]
+            assert isinstance(added_content, TextContent)
+            added_memory = json.loads(added_content.text)
+            assert added_memory["content"] == "mcp daemon memory"
+
+            search = await session.call_tool(
+                "search_user_memory",
+                {"query": "mcp daemon"},
+            )
+            assert not search.isError
+            search_content = search.content[0]
+            assert isinstance(search_content, TextContent)
+            results = json.loads(search_content.text)
+            assert results[0]["memory"]["id"] == added_memory["id"]
 
 
 # ---------------------------------------------------------------------------
