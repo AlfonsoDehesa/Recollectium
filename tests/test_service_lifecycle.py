@@ -22,6 +22,7 @@ from pytest import CaptureFixture
 from recallium.cli import main
 from recallium.config import DEFAULTS
 from recallium.errors import ServiceConflictError, ServiceError
+from recallium.service_manager import is_pid_alive
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -130,6 +131,13 @@ def _wait_for_http_service(endpoint: str) -> None:
             time.sleep(0.25)
 
     raise AssertionError(f"service did not become ready: {last_error!r}")
+
+
+def _stop_real_service(config_path: Path, pid: int | None) -> None:
+    stop_result = _run_real_service_command(config_path, "service", "stop")
+    assert stop_result.returncode == 0, stop_result.stderr
+    if pid is not None:
+        assert not is_pid_alive(pid)
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +289,7 @@ def test_start_service_real_process_returns_json_without_inherited_output(
     tmp_path: Path,
 ) -> None:
     config_path = _make_real_service_config(tmp_path)
+    pid: int | None = None
 
     result = _run_real_service_command(
         config_path,
@@ -296,14 +305,16 @@ def test_start_service_real_process_returns_json_without_inherited_output(
         payload = json.loads(result.stdout)
         assert payload["status"] == "started"
         assert payload["type"] == "api"
-        assert isinstance(payload["pid"], int)
+        pid = payload["pid"]
+        assert isinstance(pid, int)
     finally:
-        _run_real_service_command(config_path, "service", "stop")
+        _stop_real_service(config_path, pid)
 
 
 def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> None:
     config_path = _make_real_service_config(tmp_path)
     endpoint = _service_endpoint(config_path)
+    pid: int | None = None
 
     result = _run_real_service_command(config_path, "service", "start", "api")
 
@@ -313,6 +324,8 @@ def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> N
         start_payload = json.loads(result.stdout)
         assert start_payload["status"] == "started"
         assert start_payload["type"] == "api"
+        pid = start_payload["pid"]
+        assert isinstance(pid, int)
 
         _wait_for_http_service(endpoint)
 
@@ -336,8 +349,7 @@ def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> N
         assert isinstance(results, list)
         assert results[0]["memory"]["id"] == memory["id"]
     finally:
-        stop_result = _run_real_service_command(config_path, "service", "stop")
-        assert stop_result.returncode in {0, 1}
+        _stop_real_service(config_path, pid)
 
 
 def test_mcp_service_real_process_handles_tool_round_trip(tmp_path: Path) -> None:
@@ -347,6 +359,7 @@ def test_mcp_service_real_process_handles_tool_round_trip(tmp_path: Path) -> Non
 async def _assert_mcp_service_round_trip(tmp_path: Path) -> None:
     config_path = _make_real_service_config(tmp_path)
     endpoint = _service_endpoint(config_path)
+    pid: int | None = None
 
     result = _run_real_service_command(config_path, "service", "start", "mcp")
 
@@ -356,11 +369,12 @@ async def _assert_mcp_service_round_trip(tmp_path: Path) -> None:
         start_payload = json.loads(result.stdout)
         assert start_payload["status"] == "started"
         assert start_payload["type"] == "mcp"
+        pid = start_payload["pid"]
+        assert isinstance(pid, int)
 
         await _exercise_mcp_service_when_ready(endpoint)
     finally:
-        stop_result = _run_real_service_command(config_path, "service", "stop")
-        assert stop_result.returncode in {0, 1}
+        _stop_real_service(config_path, pid)
 
 
 async def _exercise_mcp_service_when_ready(endpoint: str) -> None:
