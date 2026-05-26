@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import runpy
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from pytest import CaptureFixture
@@ -1456,3 +1457,137 @@ class TestConfigCommand:
         assert "--validate" in help_text
         assert "--path" in help_text
         assert "--defaults" in help_text
+
+
+class TestMcpStdioErrorPaths:
+    def test_mcp_stdio_file_not_found(self, tmp_path, capsys) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        config_data = dict(DEFAULTS)
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data))
+
+        with patch("recallium.cli.RecalliumCore") as mock_core:
+            mock_core.side_effect = FileNotFoundError("no database found")
+            exit_code, stdout, stderr = _run_cli(
+                ["--config", str(config_path), "mcp-stdio"],
+                capsys,
+            )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert "no database found" in stderr
+
+    def test_mcp_stdio_validation_error(self, tmp_path, capsys) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        config_data = dict(DEFAULTS)
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data))
+
+        with patch("recallium.cli.RecalliumCore") as mock_core:
+            mock_core.side_effect = ValidationError("bad config value")
+            exit_code, stdout, stderr = _run_cli(
+                ["--config", str(config_path), "mcp-stdio"],
+                capsys,
+            )
+
+        assert exit_code == 2
+        assert stdout == ""
+        assert "ValidationError: bad config value" in stderr
+
+    def test_mcp_stdio_happy_path_returns_zero(self, tmp_path, capsys) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        config_data = dict(DEFAULTS)
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data))
+
+        class FakeMCP:
+            async def run_stdio_async(self) -> None:
+                pass
+
+        with (
+            patch("recallium.cli.RecalliumCore"),
+            patch("recallium.cli.create_mcp_server", return_value=FakeMCP()),
+        ):
+            exit_code, stdout, stderr = _run_cli(
+                ["--config", str(config_path), "mcp-stdio"],
+                capsys,
+            )
+
+        assert exit_code == 0
+
+    def test_mcp_stdio_runtime_error(self, tmp_path, capsys) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        config_data = dict(DEFAULTS)
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data))
+
+        class FakeMCP:
+            def run_stdio_async(self) -> None:
+                raise RuntimeError("stdio transport broken")
+
+        with (
+            patch("recallium.cli.RecalliumCore"),
+            patch("recallium.cli.create_mcp_server", return_value=FakeMCP()),
+        ):
+            exit_code, stdout, stderr = _run_cli(
+                ["--config", str(config_path), "mcp-stdio"],
+                capsys,
+            )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert "stdio transport broken" in stderr
+
+
+class TestServiceStatusCorruptConfig:
+    def test_status_validation_error_on_bad_config(self, tmp_path, capsys) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+
+        config_data = dict(DEFAULTS)
+        config_data["logging"] = {"level": "invalid"}
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data))
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "service", "status"],
+            capsys,
+        )
+
+        assert exit_code == 2
+        assert stdout == ""
+        assert "logging.level must be one of" in stderr
