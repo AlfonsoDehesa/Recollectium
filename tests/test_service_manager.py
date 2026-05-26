@@ -13,13 +13,17 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from pytest import CaptureFixture
 
 from recallium.errors import ServiceConflictError, ServiceError
 from recallium.service_manager import (
     _run_server,
     check_running_service,
+    get_process_cmdline,
+    get_process_start_time,
     get_pid_file_path,
     is_pid_alive,
+    is_recallium_service_process,
     read_pid_file,
     remove_pid_file,
     start_service,
@@ -62,16 +66,16 @@ def test_get_pid_file_path(tmp_path: Path) -> None:
 
 def test_write_and_read_pid_file(tmp_path: Path) -> None:
     path = tmp_path / "service.pid"
-    write_pid_file(path, pid=12345, service_type="api")
+    write_pid_file(path, pid=12345, service_type="api", process_start_time=777)
     data = read_pid_file(path)
-    assert data == {"pid": 12345, "type": "api"}
+    assert data == {"pid": 12345, "type": "api", "process_start_time": 777}
 
 
 def test_write_and_read_mcp_pid_file(tmp_path: Path) -> None:
     path = tmp_path / "service.pid"
-    write_pid_file(path, pid=42, service_type="mcp")
+    write_pid_file(path, pid=42, service_type="mcp", process_start_time=888)
     data = read_pid_file(path)
-    assert data == {"pid": 42, "type": "mcp"}
+    assert data == {"pid": 42, "type": "mcp", "process_start_time": 888}
 
 
 def test_read_missing_pid_file(tmp_path: Path) -> None:
@@ -137,6 +141,16 @@ def test_read_corrupt_pid_file_invalid_type_value(tmp_path: Path) -> None:
         read_pid_file(path)
 
 
+def test_read_corrupt_pid_file_invalid_process_start_time(tmp_path: Path) -> None:
+    path = tmp_path / "bad_start_time.pid"
+    path.write_text(
+        json.dumps({"pid": 12345, "type": "api", "process_start_time": "bad"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ServiceError, match="process_start_time"):
+        read_pid_file(path)
+
+
 # ---------------------------------------------------------------------------
 # remove_pid_file
 # ---------------------------------------------------------------------------
@@ -177,6 +191,83 @@ def test_is_pid_alive_permission_error_returns_true(
     assert is_pid_alive(1) is True
 
 
+def test_get_process_start_time_current_process() -> None:
+    assert get_process_start_time(os.getpid()) is not None
+
+
+def test_get_process_start_time_missing_process() -> None:
+    assert get_process_start_time(999999) is None
+
+
+def test_get_process_start_time_malformed_stat(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Path, "read_text", lambda self, encoding=None: "bad stat")
+    assert get_process_start_time(123) is None
+
+
+def test_get_process_cmdline_current_process() -> None:
+    cmdline = get_process_cmdline(os.getpid())
+    assert cmdline is not None
+    assert len(cmdline) > 0
+
+
+def test_get_process_cmdline_missing_process() -> None:
+    assert get_process_cmdline(999999) is None
+
+
+def test_is_recallium_service_process_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_start_time", lambda pid: 5
+    )
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_cmdline",
+        lambda pid: [
+            sys.executable,
+            "-m",
+            "recallium.service_manager",
+            "_run_server",
+            "api",
+        ],
+    )
+    assert is_recallium_service_process(123, "api", 5) is True
+
+
+def test_is_recallium_service_process_missing_start_time() -> None:
+    assert is_recallium_service_process(123, "api", None) is False
+
+
+def test_is_recallium_service_process_start_time_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_start_time", lambda pid: 6
+    )
+    assert is_recallium_service_process(123, "api", 5) is False
+
+
+def test_is_recallium_service_process_wrong_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_start_time", lambda pid: 5
+    )
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_cmdline", lambda pid: ["sleep", "60"]
+    )
+    assert is_recallium_service_process(123, "api", 5) is False
+
+
+def test_is_recallium_service_process_missing_cmdline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_start_time", lambda pid: 5
+    )
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_cmdline", lambda pid: None
+    )
+    assert is_recallium_service_process(123, "api", 5) is False
+
+
 # ---------------------------------------------------------------------------
 # write_pid_file parent dir creation
 # ---------------------------------------------------------------------------
@@ -184,10 +275,10 @@ def test_is_pid_alive_permission_error_returns_true(
 
 def test_write_pid_file_parent_dir_created(tmp_path: Path) -> None:
     path = tmp_path / "deep" / "nested" / "service.pid"
-    write_pid_file(path, pid=42, service_type="mcp")
+    write_pid_file(path, pid=42, service_type="mcp", process_start_time=999)
     assert path.exists()
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data == {"pid": 42, "type": "mcp"}
+    assert data == {"pid": 42, "type": "mcp", "process_start_time": 999}
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +298,7 @@ def test_check_running_service_stale(
     runtime = tmp_path / "runtime"
     runtime.mkdir()
     pid_path = runtime / "service.pid"
-    write_pid_file(pid_path, pid=99999, service_type="api")
+    write_pid_file(pid_path, pid=99999, service_type="api", process_start_time=5)
 
     config = _make_mock_config(runtime)
     monkeypatch.setattr("recallium.service_manager.is_pid_alive", lambda pid: False)
@@ -223,13 +314,37 @@ def test_check_running_service_alive(
     runtime = tmp_path / "runtime"
     runtime.mkdir()
     pid_path = runtime / "service.pid"
-    write_pid_file(pid_path, pid=12345, service_type="api")
+    write_pid_file(pid_path, pid=12345, service_type="api", process_start_time=5)
 
     config = _make_mock_config(runtime)
     monkeypatch.setattr("recallium.service_manager.is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(
+        "recallium.service_manager.is_recallium_service_process",
+        lambda pid, service_type, process_start_time: True,
+    )
 
     result = check_running_service(config)
-    assert result == {"pid": 12345, "type": "api"}
+    assert result == {"pid": 12345, "type": "api", "process_start_time": 5}
+
+
+def test_check_running_service_wrong_process_removes_pid_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    pid_path = runtime / "service.pid"
+    write_pid_file(pid_path, pid=12345, service_type="api", process_start_time=5)
+
+    config = _make_mock_config(runtime)
+    monkeypatch.setattr("recallium.service_manager.is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(
+        "recallium.service_manager.is_recallium_service_process",
+        lambda pid, service_type, process_start_time: False,
+    )
+
+    result = check_running_service(config)
+    assert result is None
+    assert not pid_path.exists()
 
 
 def test_check_running_service_corrupt_pid_file(tmp_path: Path) -> None:
@@ -298,9 +413,12 @@ def test_start_service_child_dies_immediately(monkeypatch: pytest.MonkeyPatch) -
     fake_process.pid = 9999
     fake_process.poll.return_value = 1
     monkeypatch.setattr(subprocess, "Popen", lambda cmd: fake_process)
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_start_time", lambda pid: 5
+    )
 
     monkeypatch.setattr(
-        "recallium.service_manager.write_pid_file", lambda path, pid, st: None
+        "recallium.service_manager.write_pid_file", lambda path, pid, st, pst: None
     )
     monkeypatch.setattr("recallium.service_manager.is_pid_alive", lambda pid: True)
     monkeypatch.setattr("recallium.service_manager.remove_pid_file", lambda path: None)
@@ -309,7 +427,31 @@ def test_start_service_child_dies_immediately(monkeypatch: pytest.MonkeyPatch) -
         start_service(config, "api")
 
 
-def test_start_service_no_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_service_process_ownership_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _make_mock_config(Path("/tmp/runtime"))
+    monkeypatch.setattr(
+        "recallium.service_manager.check_running_service", lambda cfg: None
+    )
+
+    fake_process = MagicMock()
+    fake_process.pid = 9999
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd: fake_process)
+    monkeypatch.setattr(
+        "recallium.service_manager.get_process_start_time", lambda pid: None
+    )
+
+    with pytest.raises(
+        ServiceError, match="could not verify service process ownership"
+    ):
+        start_service(config, "api")
+    fake_process.terminate.assert_called_once_with()
+
+
+def test_start_service_no_conflict(
+    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture[str]
+) -> None:
     config = _make_mock_config(Path("/tmp/runtime"))
     monkeypatch.setattr(
         "recallium.service_manager.check_running_service", lambda cfg: None
@@ -320,12 +462,17 @@ def test_start_service_no_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_process.poll.return_value = None
     monkeypatch.setattr(subprocess, "Popen", lambda cmd: fake_process)
     monkeypatch.setattr(
-        "recallium.service_manager.write_pid_file", lambda path, pid, st: None
+        "recallium.service_manager.get_process_start_time", lambda pid: 5
+    )
+    monkeypatch.setattr(
+        "recallium.service_manager.write_pid_file", lambda path, pid, st, pst: None
     )
     monkeypatch.setattr("recallium.service_manager.is_pid_alive", lambda pid: True)
 
     pid = start_service(config, "mcp")
     assert pid == 5555
+    captured = capsys.readouterr()
+    assert captured.out == ""
 
 
 def test_start_service_without_db_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -345,7 +492,10 @@ def test_start_service_without_db_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(
-        "recallium.service_manager.write_pid_file", lambda p, pid, st: None
+        "recallium.service_manager.get_process_start_time", lambda pid: 5
+    )
+    monkeypatch.setattr(
+        "recallium.service_manager.write_pid_file", lambda p, pid, st, pst: None
     )
     monkeypatch.setattr("recallium.service_manager.is_pid_alive", lambda pid: True)
 
@@ -378,7 +528,10 @@ def test_start_service_with_db_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(
-        "recallium.service_manager.write_pid_file", lambda p, pid, st: None
+        "recallium.service_manager.get_process_start_time", lambda pid: 5
+    )
+    monkeypatch.setattr(
+        "recallium.service_manager.write_pid_file", lambda p, pid, st, pst: None
     )
     monkeypatch.setattr("recallium.service_manager.is_pid_alive", lambda pid: True)
 
@@ -404,7 +557,9 @@ def test_stop_service_no_service(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result is None
 
 
-def test_stop_service_graceful(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stop_service_graceful(
+    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture[str]
+) -> None:
     config = _make_mock_config(Path("/tmp/runtime"))
     monkeypatch.setattr(
         "recallium.service_manager.check_running_service",
@@ -431,6 +586,10 @@ def test_stop_service_graceful(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result == 42
     assert kill_calls == [(42, signal.SIGTERM)]
     assert len(remove_calls) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Stopping service" in captured.err
+    assert "Service stopped gracefully" in captured.err
 
 
 def test_stop_service_sigkill(monkeypatch: pytest.MonkeyPatch) -> None:

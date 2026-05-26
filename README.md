@@ -312,10 +312,10 @@ Adjust the `--directory` path to point at your Recallium Core checkout.
 
 ### PID file and runtime directory
 
-The service manager writes a PID file to the runtime directory (default `$XDG_RUNTIME_DIR/recallium/service.pid`). The file contains JSON with the process ID and service type:
+The service manager writes a PID file to the runtime directory (default `$XDG_RUNTIME_DIR/recallium/service.pid`). The file contains JSON with the process ID, service type, and Linux process start-time metadata used to avoid acting on a reused PID:
 
 ```json
-{"pid": 12345, "type": "api"}
+{"pid": 12345, "process_start_time": 1234567, "type": "api"}
 ```
 
 The runtime directory can be overridden in config by setting `directories.runtime`.
@@ -324,7 +324,7 @@ The runtime directory can be overridden in config by setting `directories.runtim
 
 - Starting any service while another service is running produces a clear error: `ServiceConflictError: a mcp service is already running (PID 12345). Stop it before starting an api service.`
 - Use `recallium service restart` to restart a running service.
-- Stale PID files from crashed processes are cleaned automatically.
+- Stale PID files from crashed processes or PID reuse are cleaned automatically.
 
 ## CLI examples
 

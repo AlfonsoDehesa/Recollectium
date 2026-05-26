@@ -32,9 +32,9 @@ def get_pid_file_path(config: RecalliumConfig) -> Path:
 def read_pid_file(path: Path) -> dict[str, Any] | None:
     """Read and validate the JSON PID file.
 
-    Returns a dict with ``"pid"`` (int) and ``"type"`` (str, ``"api"`` or
-    ``"mcp"``) if the file is valid.  Returns ``None`` if the file does not
-    exist.
+    Returns a dict with ``"pid"`` (int), ``"type"`` (str, ``"api"`` or
+    ``"mcp"``), and optional process ownership metadata if the file is valid.
+    Returns ``None`` if the file does not exist.
     """
     if not path.exists():
         return None
@@ -53,17 +53,74 @@ def read_pid_file(path: Path) -> dict[str, Any] | None:
         raise ServiceError("corrupted PID file: pid must be a positive integer")
     if "type" not in data or data["type"] not in {"api", "mcp"}:
         raise ServiceError("corrupted PID file: missing or invalid 'type' field")
+    if "process_start_time" in data and not isinstance(data["process_start_time"], int):
+        raise ServiceError(
+            "corrupted PID file: missing or invalid 'process_start_time' field"
+        )
     return data
 
 
-def write_pid_file(path: Path, pid: int, service_type: str) -> None:
+def get_process_start_time(pid: int) -> int | None:
+    """Return the Linux process start time ticks for *pid*, if available."""
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except FileNotFoundError, PermissionError, OSError:
+        return None
+
+    try:
+        fields_after_name = stat_text[stat_text.rfind(")") + 2 :].split()
+        return int(fields_after_name[19])
+    except IndexError, ValueError:
+        return None
+
+
+def get_process_cmdline(pid: int) -> list[str] | None:
+    """Return the process command line for *pid*, if available."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except FileNotFoundError, PermissionError, OSError:
+        return None
+    return [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
+
+
+def is_recallium_service_process(
+    pid: int,
+    service_type: str,
+    process_start_time: int | None,
+) -> bool:
+    """Return whether *pid* still looks like the daemon this PID file owns."""
+    if process_start_time is None:
+        return False
+    if get_process_start_time(pid) != process_start_time:
+        return False
+
+    cmdline = get_process_cmdline(pid)
+    if cmdline is None:
+        return False
+    return (
+        "recallium.service_manager" in cmdline
+        and "_run_server" in cmdline
+        and service_type in cmdline
+    )
+
+
+def write_pid_file(
+    path: Path, pid: int, service_type: str, process_start_time: int | None = None
+) -> None:
     """Write the PID file as JSON.
 
     Creates parent directories if they do not exist.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"pid": pid, "type": service_type}) + "\n",
+        json.dumps(
+            {
+                "pid": pid,
+                "type": service_type,
+                "process_start_time": process_start_time,
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -117,6 +174,12 @@ def check_running_service(config: RecalliumConfig) -> dict[str, Any] | None:
         remove_pid_file(path)
         return None
 
+    if not is_recallium_service_process(
+        data["pid"], data["type"], data.get("process_start_time")
+    ):
+        remove_pid_file(path)
+        return None
+
     return data
 
 
@@ -167,7 +230,11 @@ def start_service(
     process = subprocess.Popen(cmd)
     pid = process.pid
     pid_path = get_pid_file_path(config)
-    write_pid_file(pid_path, pid, service_type)
+    process_start_time = get_process_start_time(pid)
+    if process_start_time is None:
+        process.terminate()
+        raise ServiceError(f"could not verify service process ownership for PID {pid}")
+    write_pid_file(pid_path, pid, service_type, process_start_time)
 
     # Brief startup grace check: verify the child is still alive.
     # If the child dies quickly (config error, port conflict, etc.),
@@ -179,7 +246,6 @@ def start_service(
             f"service process (PID {pid}) exited immediately after start"
         )
 
-    print(f"Service started (PID {pid})")
     return pid
 
 
@@ -195,12 +261,12 @@ def stop_service(config: RecalliumConfig) -> int | None:
     path = get_pid_file_path(config)
     data = check_running_service(config)
     if data is None:
-        print("No service running")
+        print("No service running", file=sys.stderr)
         return None
 
     pid: int = data["pid"]
 
-    print(f"Stopping service (PID {pid})...")
+    print(f"Stopping service (PID {pid})...", file=sys.stderr)
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -210,20 +276,20 @@ def stop_service(config: RecalliumConfig) -> int | None:
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
         if not is_pid_alive(pid):
-            print("Service stopped gracefully")
+            print("Service stopped gracefully", file=sys.stderr)
             remove_pid_file(path)
             return pid
         time.sleep(0.1)
 
     # Force kill
-    print("Service did not stop gracefully, sending SIGKILL...")
+    print("Service did not stop gracefully, sending SIGKILL...", file=sys.stderr)
     try:
         os.kill(pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
     time.sleep(0.5)
     remove_pid_file(path)
-    print(f"Service forcefully stopped (PID {pid})")
+    print(f"Service forcefully stopped (PID {pid})", file=sys.stderr)
     return pid
 
 
