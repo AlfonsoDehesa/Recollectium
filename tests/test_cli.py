@@ -1301,10 +1301,12 @@ class TestConfigCommand:
     def test_config_doctor_reports_missing_and_nondirectory_paths(
         self, tmp_path, capsys, monkeypatch
     ) -> None:
+        state_home = tmp_path / "state"
         existing_dir = tmp_path / "existing"
         existing_dir.mkdir()
         non_dir = tmp_path / "not-a-dir"
         non_dir.write_text("x", encoding="utf-8")
+        monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
 
         fake_cfg = SimpleNamespace(
             config_file_path=tmp_path / "config.json",
@@ -1327,6 +1329,21 @@ class TestConfigCommand:
         assert "FAIL data directory missing:" in stderr
         assert "FAIL cache path is not a directory:" in stderr
         assert "FAIL database parent directory missing:" in stderr
+        log_file = state_home / "recallium" / "logs" / "recallium.log"
+        payloads = [
+            json.loads(line)
+            for line in log_file.read_text(encoding="utf-8").splitlines()
+        ]
+        doctor_failures = [
+            payload
+            for payload in payloads
+            if payload["event"] == "config.doctor_failed"
+        ]
+        assert {payload["message"] for payload in doctor_failures} >= {
+            f"data directory missing: {tmp_path / 'missing-data'}",
+            f"cache path is not a directory: {non_dir}",
+            f"database parent directory missing: {tmp_path / 'missing-db-parent'}",
+        }
 
     def test_config_doctor_reports_database_parent_not_directory(
         self, tmp_path, capsys, monkeypatch

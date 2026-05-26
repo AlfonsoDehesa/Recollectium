@@ -247,6 +247,10 @@ def _handle_config_command(
 
         if failures:
             for failure in failures:
+                _log.error(
+                    failure,
+                    extra={"event": "config.doctor_failed"},
+                )
                 print(f"FAIL {failure}", file=sys.stderr)
             return 1
 
