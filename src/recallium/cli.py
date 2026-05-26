@@ -83,7 +83,7 @@ def _parse_config_value(raw: str) -> Any:
     """Parse a CLI-provided config value as JSON; fall back to string on failure."""
     try:
         return json.loads(raw)
-    except json.JSONDecodeError, ValueError:
+    except ValueError:
         return raw
 
 
