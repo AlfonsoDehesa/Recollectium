@@ -194,6 +194,7 @@ recallium config reset
 | `--db <path>` | `database.path` | All commands |
 | `--host <host>` | `service.host` | `serve` command |
 | `--port <port>` | `service.port` | `serve` command |
+| `--log-level <level>` | `logging.level` | Current invocation only; does not modify config |
 | `--config <path>` | — | Loads config from a custom path |
 
 

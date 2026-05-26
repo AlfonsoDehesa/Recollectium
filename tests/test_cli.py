@@ -135,12 +135,18 @@ def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None
     call: dict[str, object] = {}
 
     def _fake_run_service(
-        *, host: str, port: int, db_path: str | None, config_path: str | None
+        *,
+        host: str,
+        port: int,
+        db_path: str | None,
+        config_path: str | None,
+        log_level: str | None,
     ) -> None:
         call["host"] = host
         call["port"] = port
         call["db_path"] = db_path
         call["config_path"] = config_path
+        call["log_level"] = log_level
 
     monkeypatch.setattr("recallium.cli.run_service", _fake_run_service)
 
@@ -152,6 +158,8 @@ def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None
             str(config_path),
             "--db",
             str(db_path),
+            "--log-level",
+            "debug",
             "serve",
             "--host",
             "127.0.0.2",
@@ -165,6 +173,7 @@ def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None
     assert call["port"] == 9001
     assert call["db_path"] == str(db_path)
     assert str(call["config_path"]) == str(config_path)
+    assert call["log_level"] == "debug"
 
 
 def test_cli_serve_uses_default_host_and_port_without_explicit_config(
@@ -173,12 +182,18 @@ def test_cli_serve_uses_default_host_and_port_without_explicit_config(
     call: dict[str, object] = {}
 
     def _fake_run_service(
-        *, host: str, port: int, db_path: str | None, config_path: str | None
+        *,
+        host: str,
+        port: int,
+        db_path: str | None,
+        config_path: str | None,
+        log_level: str | None,
     ) -> None:
         call["host"] = host
         call["port"] = port
         call["db_path"] = db_path
         call["config_path"] = config_path
+        call["log_level"] = log_level
 
     monkeypatch.setattr("recallium.cli.run_service", _fake_run_service)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
@@ -194,6 +209,7 @@ def test_cli_serve_uses_default_host_and_port_without_explicit_config(
     assert call["port"] == 8765
     assert call["db_path"] is None
     assert call["config_path"] is None
+    assert call["log_level"] is None
     assert (tmp_path / "config" / "recallium" / "config.json").exists()
 
 
@@ -201,7 +217,12 @@ def test_cli_serve_explicit_missing_config_fails_clearly(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _fake_run_service(
-        *, host: str, port: int, db_path: str | None, config_path: str | None
+        *,
+        host: str,
+        port: int,
+        db_path: str | None,
+        config_path: str | None,
+        log_level: str | None,
     ) -> None:
         raise AssertionError("run_service should not run with a missing config")
 
@@ -221,7 +242,12 @@ def test_cli_serve_invalid_config_fails_clearly(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _fake_run_service(
-        *, host: str, port: int, db_path: str | None, config_path: str | None
+        *,
+        host: str,
+        port: int,
+        db_path: str | None,
+        config_path: str | None,
+        log_level: str | None,
     ) -> None:
         raise AssertionError("run_service should not run with invalid config")
 
@@ -245,7 +271,12 @@ def test_cli_serve_explicit_missing_config_fails_after_flag_overrides(
     config_path = tmp_path / "missing" / "config.json"
 
     def _fake_run_service(
-        *, host: str, port: int, db_path: str | None, config_path: str | None
+        *,
+        host: str,
+        port: int,
+        db_path: str | None,
+        config_path: str | None,
+        log_level: str | None,
     ) -> None:
         raise FileNotFoundError(f"config file not found: {config_path}")
 
@@ -275,7 +306,12 @@ def test_cli_serve_invalid_config_fails_after_flag_overrides(
     config_path = tmp_path / "config.json"
 
     def _fake_run_service(
-        *, host: str, port: int, db_path: str | None, config_path: str | None
+        *,
+        host: str,
+        port: int,
+        db_path: str | None,
+        config_path: str | None,
+        log_level: str | None,
     ) -> None:
         raise ValidationError("invalid JSON in config file")
 
@@ -700,6 +736,7 @@ def test_cli_unknown_command_defensive_branch(monkeypatch: pytest.MonkeyPatch) -
         command = "mystery"
         db_path = None
         config_path = None
+        log_level = None
 
     class FakeParser:
         def parse_args(self, argv: object) -> FakeArgs:
@@ -709,7 +746,13 @@ def test_cli_unknown_command_defensive_branch(monkeypatch: pytest.MonkeyPatch) -
             assert message == "unknown command: mystery"
 
     class FakeCore:
-        def __init__(self, *, db_path: object, config_path: object = None) -> None:
+        def __init__(
+            self,
+            *,
+            db_path: object,
+            config_path: object = None,
+            log_level: object = None,
+        ) -> None:
             assert db_path is None
 
     monkeypatch.setattr("recallium.cli._build_parser", lambda: FakeParser())
@@ -911,6 +954,26 @@ class TestConfigCommand:
         assert exit_code == 0
         assert stderr == ""
         assert str(config_path) in stdout
+
+    def test_config_path_writes_structured_log_without_creating_config(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        state_home = tmp_path / "state"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+
+        exit_code, stdout, stderr = _run_cli(["config", "--path"], capsys)
+
+        config_path = config_home / "recallium" / "config.json"
+        log_file = state_home / "recallium" / "logs" / "recallium.log"
+        assert exit_code == 0
+        assert stderr == ""
+        assert str(config_path) in stdout
+        assert not config_path.exists()
+        payload = json.loads(log_file.read_text(encoding="utf-8").splitlines()[-1])
+        assert payload["event"] == "cli.command"
+        assert payload["context"] == {"command": "config"}
 
     def test_config_defaults(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -1238,10 +1301,12 @@ class TestConfigCommand:
     def test_config_doctor_reports_missing_and_nondirectory_paths(
         self, tmp_path, capsys, monkeypatch
     ) -> None:
+        state_home = tmp_path / "state"
         existing_dir = tmp_path / "existing"
         existing_dir.mkdir()
         non_dir = tmp_path / "not-a-dir"
         non_dir.write_text("x", encoding="utf-8")
+        monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
 
         fake_cfg = SimpleNamespace(
             config_file_path=tmp_path / "config.json",
@@ -1264,6 +1329,21 @@ class TestConfigCommand:
         assert "FAIL data directory missing:" in stderr
         assert "FAIL cache path is not a directory:" in stderr
         assert "FAIL database parent directory missing:" in stderr
+        log_file = state_home / "recallium" / "logs" / "recallium.log"
+        payloads = [
+            json.loads(line)
+            for line in log_file.read_text(encoding="utf-8").splitlines()
+        ]
+        doctor_failures = [
+            payload
+            for payload in payloads
+            if payload["event"] == "config.doctor_failed"
+        ]
+        assert {payload["message"] for payload in doctor_failures} >= {
+            f"data directory missing: {tmp_path / 'missing-data'}",
+            f"cache path is not a directory: {non_dir}",
+            f"database parent directory missing: {tmp_path / 'missing-db-parent'}",
+        }
 
     def test_config_doctor_reports_database_parent_not_directory(
         self, tmp_path, capsys, monkeypatch

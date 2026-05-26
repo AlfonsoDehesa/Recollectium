@@ -58,8 +58,9 @@ class RecalliumCore:
         embedding_provider: EmbeddingProvider | None = None,
         immediate_reembedding_threshold: int = 20,
         config_path: Path | str | None = None,
+        log_level: str | None = None,
     ) -> None:
-        self.config = RecalliumConfig(config_path)
+        self.config = RecalliumConfig(config_path, log_level=log_level)
         setup_logging(self.config)
 
         if db_path is not None:

@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from pytest import CaptureFixture
+from pytest import CaptureFixture, LogCaptureFixture
 
 from recallium.errors import ServiceConflictError, ServiceError
 from recallium.service_manager import (
@@ -567,7 +567,9 @@ def test_stop_service_no_service(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_stop_service_graceful(
-    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: CaptureFixture[str],
+    caplog: LogCaptureFixture,
 ) -> None:
     config = _make_mock_config(Path("/tmp/runtime"))
     monkeypatch.setattr(
@@ -596,6 +598,7 @@ def test_stop_service_graceful(
     log_handler.setLevel(logging.INFO)
     root = logging.getLogger()
     root.addHandler(log_handler)
+    caplog.set_level(logging.INFO, logger="recallium.service_manager")
     try:
         result = stop_service(config)
         assert result == 42
@@ -606,6 +609,10 @@ def test_stop_service_graceful(
         assert captured.out == ""
         assert "Stopping service" in combined
         assert "stopped gracefully" in combined
+        assert any(
+            record.__dict__.get("event") == "service.shutdown"
+            for record in caplog.records
+        )
     finally:
         root.removeHandler(log_handler)
 
@@ -738,11 +745,13 @@ def test_run_server_api(monkeypatch: pytest.MonkeyPatch) -> None:
         config_path: str | None = None,
         host: str | None = None,
         port: int | None = None,
+        log_level: str | None = None,
     ) -> None:
         calls["db_path"] = db_path
         calls["config_path"] = config_path
         calls["host"] = host
         calls["port"] = port
+        calls["log_level"] = log_level
 
     monkeypatch.setattr("recallium.service.run_service", fake_run_service)
     monkeypatch.setattr(sys, "exit", lambda code: None)
@@ -759,6 +768,7 @@ def test_run_server_api(monkeypatch: pytest.MonkeyPatch) -> None:
         "config_path": "/tmp/config.json",
         "host": "127.0.0.9",
         "port": 9876,
+        "log_level": None,
     }
 
 
@@ -772,6 +782,7 @@ def test_run_server_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
         host: str | None = None,
         port: int | None = None,
         service_type: str | None = None,
+        log_level: str | None = None,
     ) -> None:
         calls["db_path"] = db_path
         calls["config_path"] = config_path
@@ -852,6 +863,7 @@ def test_main_entry_point_api(monkeypatch: pytest.MonkeyPatch) -> None:
         config_path: str | None = None,
         host: str | None = None,
         port: int | None = None,
+        log_level: str | None = None,
     ) -> None:
         run_service_calls.append((db_path, config_path, host, port))
 
@@ -870,7 +882,10 @@ def test_main_entry_point_api_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     run_service_calls: list[tuple[str | None, str | None]] = []
 
     def fake_run_service(
-        *, db_path: str | None = None, config_path: str | None = None
+        *,
+        db_path: str | None = None,
+        config_path: str | None = None,
+        log_level: str | None = None,
     ) -> None:
         run_service_calls.append((db_path, config_path))
 

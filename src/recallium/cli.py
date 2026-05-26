@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import logging
 import os
@@ -12,6 +13,8 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Sequence
+
+from platformdirs import user_state_dir
 
 from recallium import NotFoundError, RecalliumCore, RecalliumError, ValidationError
 from recallium.config import (
@@ -23,6 +26,7 @@ from recallium.config import (
     unset_config_value,
     validate_config_file,
 )
+from recallium.logging import setup_logging
 from recallium.models import SearchResult
 from recallium.mcp_server import create_mcp_server
 from recallium.service import run_service
@@ -38,6 +42,12 @@ from recallium.service_manager import (
 from recallium.storage import SQLiteMemoryStore
 
 _log = logging.getLogger(__name__)
+
+
+class _CliLoggingConfig:
+    def __init__(self, *, effective_config: dict[str, Any], log_dir: Path) -> None:
+        self.effective_config = effective_config
+        self.xdg_dirs = {"logs": log_dir}
 
 
 def _parse_metadata(raw_metadata: str | None) -> dict[str, object] | None:
@@ -73,7 +83,7 @@ def _parse_config_value(raw: str) -> Any:
     """Parse a CLI-provided config value as JSON; fall back to string on failure."""
     try:
         return json.loads(raw)
-    except json.JSONDecodeError, ValueError:
+    except ValueError:
         return raw
 
 
@@ -98,6 +108,34 @@ def _load_effective_config(config_path: Path, *, explicit: bool) -> RecalliumCon
     if explicit:
         return RecalliumConfig(config_path)
     return RecalliumConfig()
+
+
+def _setup_cli_logging(
+    config_path: Path,
+    *,
+    log_level: str | None,
+) -> None:
+    """Start file logging before commands that do not build RecalliumCore."""
+
+    def _fallback_config() -> _CliLoggingConfig:
+        effective_config = deepcopy(DEFAULTS)
+        if log_level is not None:
+            effective_config["logging"]["level"] = log_level
+        return _CliLoggingConfig(
+            effective_config=effective_config,
+            log_dir=Path(user_state_dir("recallium")) / "logs",
+        )
+
+    try:
+        if config_path.exists():
+            config = RecalliumConfig(config_path, log_level=log_level)
+        else:
+            config = _fallback_config()
+        setup_logging(config)
+    except OSError:
+        setup_logging(_fallback_config())
+    except ValidationError:
+        setup_logging(_fallback_config())
 
 
 def _directory_writable(path: Path) -> bool:
@@ -211,6 +249,10 @@ def _handle_config_command(
 
         if failures:
             for failure in failures:
+                _log.error(
+                    failure,
+                    extra={"event": "config.doctor_failed"},
+                )
                 print(f"FAIL {failure}", file=sys.stderr)
             return 1
 
@@ -301,6 +343,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "SQLite database path. Overrides the database.path config value. "
             "Defaults to ~/.local/share/recallium/recallium.db."
+        ),
+    )
+    parser.add_argument(
+        "--log-level",
+        dest="log_level",
+        choices=["debug", "info", "warning", "error"],
+        help=(
+            "Override the logging.level config value for this invocation. "
+            "Does not modify the config file."
         ),
     )
 
@@ -737,6 +788,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Resolve config path
     config_path = _resolve_config_path(args.config_path)
     core_config_path = _core_config_path(args.config_path)
+    _setup_cli_logging(config_path, log_level=args.log_level)
+    _log.info(
+        "CLI command started",
+        extra={"event": "cli.command", "context": {"command": args.command}},
+    )
 
     # -- config command ---------------------------------------------------
     if args.command == "config":
@@ -753,7 +809,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         port = args.port
         if host is None or port is None:
             try:
-                cfg = RecalliumConfig(core_config_path)
+                cfg = RecalliumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
                 _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
@@ -778,6 +834,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 port=port,
                 db_path=args.db_path,
                 config_path=core_config_path,
+                log_level=args.log_level,
             )
         except FileNotFoundError as exc:
             _log.error(str(exc), extra={"event": "config.missing"})
@@ -793,7 +850,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             db_path = Path(args.db_path)
         else:
             try:
-                cfg = RecalliumConfig(core_config_path)
+                cfg = RecalliumConfig(core_config_path, log_level=args.log_level)
                 db_path = cfg.resolved_database_path
             except FileNotFoundError as exc:
                 _log.error(str(exc), extra={"event": "config.missing"})
@@ -808,7 +865,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     # -- mcp-stdio command ------------------------------------------------
     if args.command == "mcp-stdio":
         try:
-            core = RecalliumCore(db_path=args.db_path, config_path=core_config_path)
+            core = RecalliumCore(
+                db_path=args.db_path,
+                config_path=core_config_path,
+                log_level=args.log_level,
+            )
         except FileNotFoundError as exc:
             _log.error(str(exc), extra={"event": "config.missing"})
             return 1
@@ -829,7 +890,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "service":
         if args.service_action == "start":
             try:
-                cfg = RecalliumConfig(core_config_path)
+                cfg = RecalliumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
                 _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
@@ -837,7 +898,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
                 return 2
             try:
-                pid = start_service(cfg, args.type, db_path=args.db_path)
+                pid = start_service(
+                    cfg, args.type, db_path=args.db_path, log_level=args.log_level
+                )
                 host = cfg.effective_config["service"]["host"]
                 port = cfg.effective_config["service"]["port"]
                 endpoint = f"http://{host}:{port}"
@@ -865,7 +928,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.service_action == "stop":
             try:
-                cfg = RecalliumConfig(core_config_path)
+                cfg = RecalliumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
                 _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
@@ -881,7 +944,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.service_action == "status":
             try:
-                cfg = RecalliumConfig(core_config_path)
+                cfg = RecalliumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
                 _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
@@ -921,7 +984,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.service_action == "restart":
             try:
-                cfg = RecalliumConfig(core_config_path)
+                cfg = RecalliumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
                 _log.error(str(exc), extra={"event": "config.missing"})
                 return 1
@@ -958,7 +1021,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 1
 
             try:
-                pid = start_service(cfg, service_type, db_path=args.db_path)
+                pid = start_service(
+                    cfg,
+                    service_type,
+                    db_path=args.db_path,
+                    log_level=args.log_level,
+                )
                 host = cfg.effective_config["service"]["host"]
                 port = cfg.effective_config["service"]["port"]
                 print(
@@ -985,7 +1053,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # -- all other commands use RecalliumCore ------------------------------
     try:
-        core = RecalliumCore(db_path=args.db_path, config_path=core_config_path)
+        core = RecalliumCore(
+            db_path=args.db_path, config_path=core_config_path, log_level=args.log_level
+        )
 
         if args.command == "add":
             result = core.add_memory(
