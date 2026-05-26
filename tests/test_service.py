@@ -712,11 +712,19 @@ def test_run_service_builds_core_and_starts_uvicorn(monkeypatch) -> None:
         calls["core"] = core
         return "fake-app"
 
-    def fake_run(app: object, *, host: str, port: int, log_level: str) -> None:
+    def fake_run(
+        app: object,
+        *,
+        host: str,
+        port: int,
+        log_level: str,
+        log_config: dict[str, object] | None,
+    ) -> None:
         calls["app"] = app
         calls["host"] = host
         calls["port"] = port
         calls["log_level"] = log_level
+        calls["log_config"] = log_config
 
     monkeypatch.setattr("recallium.service.RecalliumCore", FakeCore)
     monkeypatch.setattr("recallium.service.create_app", fake_create_app)
@@ -732,6 +740,7 @@ def test_run_service_builds_core_and_starts_uvicorn(monkeypatch) -> None:
     assert calls["host"] == "127.0.0.2"
     assert calls["port"] == 9002
     assert calls["log_level"] == "debug"
+    assert calls["log_config"] is None
 
 
 def test_create_mcp_app_instantiates_fastapi_with_sse_mount(
@@ -768,9 +777,17 @@ def test_run_service_mcp_uses_create_mcp_app(monkeypatch) -> None:
         calls["mcp_core"] = core
         return "fake-mcp-app"
 
-    def fake_run(app: object, *, host: str, port: int, log_level: str) -> None:
+    def fake_run(
+        app: object,
+        *,
+        host: str,
+        port: int,
+        log_level: str,
+        log_config: dict[str, object] | None,
+    ) -> None:
         calls["app"] = app
         calls["host"] = host
+        calls["log_config"] = log_config
 
     monkeypatch.setattr("recallium.service.RecalliumCore", FakeCore)
     monkeypatch.setattr("recallium.service.create_mcp_app", fake_create_mcp_app)
@@ -787,3 +804,4 @@ def test_run_service_mcp_uses_create_mcp_app(monkeypatch) -> None:
     )
 
     assert calls["app"] == "fake-mcp-app"
+    assert calls["log_config"] is None

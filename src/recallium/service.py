@@ -377,4 +377,4 @@ def run_service(
     else:
         app = create_app(core)
 
-    uvicorn.run(app, host=host, port=port, log_level=log_level)
+    uvicorn.run(app, host=host, port=port, log_level=log_level, log_config=None)
