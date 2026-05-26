@@ -132,7 +132,9 @@ def _setup_cli_logging(
         else:
             config = _fallback_config()
         setup_logging(config)
-    except OSError, ValidationError:
+    except OSError:
+        setup_logging(_fallback_config())
+    except ValidationError:
         setup_logging(_fallback_config())
 
 

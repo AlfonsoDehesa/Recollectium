@@ -7,6 +7,7 @@ import logging
 import logging.handlers
 from pathlib import Path
 from unittest.mock import MagicMock
+import warnings
 
 import pytest
 
@@ -249,6 +250,26 @@ class TestSetupLogging:
             and payload["message"] == "uvicorn warning reached file"
             for payload in payloads
         )
+
+    def test_warning_capture_writes_structured_event(self, tmp_path: Path) -> None:
+        config = _make_test_config(tmp_path)
+        setup_logging(config)
+
+        warnings.showwarning("connection leaked", ResourceWarning, "db.py", 7)
+
+        for handler in logging.getLogger("recallium").handlers:
+            handler.flush()
+
+        log_file = tmp_path / "logs" / "recallium.log"
+        payload = json.loads(log_file.read_text(encoding="utf-8").splitlines()[-1])
+        assert payload["event"] == "warning.captured"
+        assert payload["logger"] == "recallium.warnings"
+        assert payload["message"] == "connection leaked"
+        assert payload["context"] == {
+            "category": "ResourceWarning",
+            "filename": "db.py",
+            "lineno": 7,
+        }
 
     def test_handlers_not_duplicated_on_repeated_setup(self, tmp_path: Path) -> None:
         config = _make_test_config(tmp_path)
