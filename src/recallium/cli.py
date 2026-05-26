@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import logging
 import os
@@ -12,6 +13,8 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Sequence
+
+from platformdirs import user_state_dir
 
 from recallium import NotFoundError, RecalliumCore, RecalliumError, ValidationError
 from recallium.config import (
@@ -23,6 +26,7 @@ from recallium.config import (
     unset_config_value,
     validate_config_file,
 )
+from recallium.logging import setup_logging
 from recallium.models import SearchResult
 from recallium.mcp_server import create_mcp_server
 from recallium.service import run_service
@@ -38,6 +42,12 @@ from recallium.service_manager import (
 from recallium.storage import SQLiteMemoryStore
 
 _log = logging.getLogger(__name__)
+
+
+class _CliLoggingConfig:
+    def __init__(self, *, effective_config: dict[str, Any], log_dir: Path) -> None:
+        self.effective_config = effective_config
+        self.xdg_dirs = {"logs": log_dir}
 
 
 def _parse_metadata(raw_metadata: str | None) -> dict[str, object] | None:
@@ -98,6 +108,32 @@ def _load_effective_config(config_path: Path, *, explicit: bool) -> RecalliumCon
     if explicit:
         return RecalliumConfig(config_path)
     return RecalliumConfig()
+
+
+def _setup_cli_logging(
+    config_path: Path,
+    *,
+    log_level: str | None,
+) -> None:
+    """Start file logging before commands that do not build RecalliumCore."""
+
+    def _fallback_config() -> _CliLoggingConfig:
+        effective_config = deepcopy(DEFAULTS)
+        if log_level is not None:
+            effective_config["logging"]["level"] = log_level
+        return _CliLoggingConfig(
+            effective_config=effective_config,
+            log_dir=Path(user_state_dir("recallium")) / "logs",
+        )
+
+    try:
+        if config_path.exists():
+            config = RecalliumConfig(config_path, log_level=log_level)
+        else:
+            config = _fallback_config()
+        setup_logging(config)
+    except OSError, ValidationError:
+        setup_logging(_fallback_config())
 
 
 def _directory_writable(path: Path) -> bool:
@@ -746,6 +782,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Resolve config path
     config_path = _resolve_config_path(args.config_path)
     core_config_path = _core_config_path(args.config_path)
+    _setup_cli_logging(config_path, log_level=args.log_level)
+    _log.info(
+        "CLI command started",
+        extra={"event": "cli.command", "context": {"command": args.command}},
+    )
 
     # -- config command ---------------------------------------------------
     if args.command == "config":

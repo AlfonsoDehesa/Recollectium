@@ -955,6 +955,26 @@ class TestConfigCommand:
         assert stderr == ""
         assert str(config_path) in stdout
 
+    def test_config_path_writes_structured_log_without_creating_config(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        state_home = tmp_path / "state"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+
+        exit_code, stdout, stderr = _run_cli(["config", "--path"], capsys)
+
+        config_path = config_home / "recallium" / "config.json"
+        log_file = state_home / "recallium" / "logs" / "recallium.log"
+        assert exit_code == 0
+        assert stderr == ""
+        assert str(config_path) in stdout
+        assert not config_path.exists()
+        payload = json.loads(log_file.read_text(encoding="utf-8").splitlines()[-1])
+        assert payload["event"] == "cli.command"
+        assert payload["context"] == {"command": "config"}
+
     def test_config_defaults(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
         config_path.parent.mkdir(exist_ok=True)

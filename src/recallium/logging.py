@@ -12,10 +12,16 @@ import sys
 import warnings
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Mapping, Protocol
 
-if TYPE_CHECKING:
-    from recallium.config import RecalliumConfig
+
+class LoggingConfig(Protocol):
+    @property
+    def effective_config(self) -> Mapping[str, Any]: ...
+
+    @property
+    def xdg_dirs(self) -> Mapping[str, Path]: ...
 
 
 def _event_for_record(record: logging.LogRecord) -> str:
@@ -62,7 +68,7 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, sort_keys=True)
 
 
-def setup_logging(config: RecalliumConfig) -> None:
+def setup_logging(config: LoggingConfig) -> None:
     """Bootstrap the ``recallium`` logger hierarchy.
 
     Creates the logs directory (mode 0o700), attaches a
@@ -92,29 +98,37 @@ def setup_logging(config: RecalliumConfig) -> None:
         maxBytes=max_bytes,
         backupCount=backup_count,
     )
+    setattr(file_handler, "_recallium_managed", True)
     file_handler.setFormatter(json_formatter)
     file_handler.setLevel(log_level)
     if log_file.exists():
         log_file.chmod(0o600)
 
     stream_handler = logging.StreamHandler(sys.stderr)
+    setattr(stream_handler, "_recallium_managed", True)
     stream_handler.setFormatter(json_formatter)
     stream_handler.setLevel(logging.WARNING)
 
     root_logger = logging.getLogger("recallium")
     root_logger.setLevel(log_level)
-    # Avoid double-logging if setup is called more than once
-    if not root_logger.handlers:
-        root_logger.addHandler(file_handler)
-        root_logger.addHandler(stream_handler)
+
+    def _replace_managed_handlers(logger: logging.Logger) -> None:
+        for handler in list(logger.handlers):
+            if getattr(handler, "_recallium_managed", False):
+                logger.removeHandler(handler)
+                handler.close()
+
+    _replace_managed_handlers(root_logger)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(stream_handler)
 
     for lib_name in ("uvicorn", "sqlite3", "httpx"):
         lib_logger = logging.getLogger(lib_name)
         lib_logger.setLevel(logging.WARNING)
         lib_logger.propagate = False
-        if not lib_logger.handlers:
-            lib_logger.addHandler(file_handler)
-            lib_logger.addHandler(stream_handler)
+        _replace_managed_handlers(lib_logger)
+        lib_logger.addHandler(file_handler)
+        lib_logger.addHandler(stream_handler)
 
     _warnings_logger = logging.getLogger("recallium.warnings")
 
