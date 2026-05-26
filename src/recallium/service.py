@@ -365,10 +365,11 @@ def run_service(
     db_path: str | None = None,
     config_path: str | Path | None = None,
     service_type: str | None = None,
+    log_level: str | None = None,
 ) -> None:
     import uvicorn
 
-    core = RecalliumCore(db_path=db_path, config_path=config_path)
+    core = RecalliumCore(db_path=db_path, config_path=config_path, log_level=log_level)
     log_level = core.config.effective_config["logging"]["level"]
 
     if service_type == "mcp":

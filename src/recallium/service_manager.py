@@ -195,6 +195,7 @@ def start_service(
     config: RecalliumConfig,
     service_type: str,
     db_path: str | None = None,
+    log_level: str | None = None,
 ) -> int:
     """Start a Recallium daemon subprocess of *service_type* (``"api"`` or ``"mcp"``).
 
@@ -228,6 +229,8 @@ def start_service(
     if db_path is not None:
         cmd.extend(["--db-path", db_path])
     cmd.extend(["--config-path", config_path])
+    if log_level is not None:
+        cmd.extend(["--log-level", log_level])
     cmd.extend(["--host", host, "--port", str(port)])
 
     log_dir = config.xdg_dirs["logs"]
@@ -362,6 +365,7 @@ def _run_server(
     config_path: str | None = None,
     host: str | None = None,
     port: int | None = None,
+    log_level: str | None = None,
 ) -> None:
     """Internal entry point called by the subprocess.
 
@@ -374,6 +378,7 @@ def _run_server(
     service_kwargs: dict[str, Any] = {
         "db_path": db_path,
         "config_path": config_path,
+        "log_level": log_level,
     }
     if host is not None:
         service_kwargs["host"] = host
@@ -412,6 +417,7 @@ if __name__ == "__main__":
     config_path: str | None = None
     host: str | None = None
     port: int | None = None
+    log_level: str | None = None
 
     # Simple argument parsing for the remaining args
     remaining = sys.argv[3:]
@@ -436,6 +442,9 @@ if __name__ == "__main__":
                 )
                 sys.exit(2)
             i += 2
+        elif remaining[i] == "--log-level" and i + 1 < len(remaining):
+            log_level = remaining[i + 1]
+            i += 2
         else:
             _log.error(
                 f"unknown option: {remaining[i]}",
@@ -444,5 +453,10 @@ if __name__ == "__main__":
             sys.exit(2)
 
     _run_server(
-        service_type, db_path=db_path, config_path=config_path, host=host, port=port
+        service_type,
+        db_path=db_path,
+        config_path=config_path,
+        host=host,
+        port=port,
+        log_level=log_level,
     )

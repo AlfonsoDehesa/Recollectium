@@ -695,7 +695,11 @@ def test_run_service_builds_core_and_starts_uvicorn(monkeypatch) -> None:
 
     class FakeCore:
         def __init__(
-            self, *, db_path: str | None, config_path: str | None = None
+            self,
+            *,
+            db_path: str | None,
+            config_path: str | None = None,
+            log_level: str | None = None,
         ) -> None:
             calls["db_path"] = db_path
             self.config = type(
@@ -748,7 +752,11 @@ def test_run_service_mcp_uses_create_mcp_app(monkeypatch) -> None:
 
     class FakeCore:
         def __init__(
-            self, *, db_path: str | None, config_path: str | None = None
+            self,
+            *,
+            db_path: str | None,
+            config_path: str | None = None,
+            log_level: str | None = None,
         ) -> None:
             self.config = type(
                 "FakeConfig",

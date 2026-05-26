@@ -700,6 +700,7 @@ def test_cli_unknown_command_defensive_branch(monkeypatch: pytest.MonkeyPatch) -
         command = "mystery"
         db_path = None
         config_path = None
+        log_level = None
 
     class FakeParser:
         def parse_args(self, argv: object) -> FakeArgs:
@@ -709,7 +710,13 @@ def test_cli_unknown_command_defensive_branch(monkeypatch: pytest.MonkeyPatch) -
             assert message == "unknown command: mystery"
 
     class FakeCore:
-        def __init__(self, *, db_path: object, config_path: object = None) -> None:
+        def __init__(
+            self,
+            *,
+            db_path: object,
+            config_path: object = None,
+            log_level: object = None,
+        ) -> None:
             assert db_path is None
 
     monkeypatch.setattr("recallium.cli._build_parser", lambda: FakeParser())

@@ -817,7 +817,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     # -- mcp-stdio command ------------------------------------------------
     if args.command == "mcp-stdio":
         try:
-            core = RecalliumCore(db_path=args.db_path, config_path=core_config_path)
+            core = RecalliumCore(
+                db_path=args.db_path,
+                config_path=core_config_path,
+                log_level=args.log_level,
+            )
         except FileNotFoundError as exc:
             _log.error(str(exc), extra={"event": "config.missing"})
             return 1
@@ -846,7 +850,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
                 return 2
             try:
-                pid = start_service(cfg, args.type, db_path=args.db_path)
+                pid = start_service(
+                    cfg, args.type, db_path=args.db_path, log_level=args.log_level
+                )
                 host = cfg.effective_config["service"]["host"]
                 port = cfg.effective_config["service"]["port"]
                 endpoint = f"http://{host}:{port}"
@@ -994,7 +1000,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # -- all other commands use RecalliumCore ------------------------------
     try:
-        core = RecalliumCore(db_path=args.db_path, config_path=core_config_path)
+        core = RecalliumCore(
+            db_path=args.db_path, config_path=core_config_path, log_level=args.log_level
+        )
 
         if args.command == "add":
             result = core.add_memory(

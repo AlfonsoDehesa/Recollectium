@@ -913,7 +913,7 @@ def test_start_service_passes_db_path(
 
     start_calls: list = []
 
-    def _mock_start(config, service_type, db_path=None) -> int:
+    def _mock_start(config, service_type, db_path=None, log_level=None) -> int:
         start_calls.append((service_type, db_path))
         return 42
 
@@ -942,7 +942,7 @@ def test_restart_passes_db_path(tmp_path: Path, capsys: CaptureFixture[str]) -> 
 
     start_calls: list = []
 
-    def _mock_start(config, service_type, db_path=None) -> int:
+    def _mock_start(config, service_type, db_path=None, log_level=None) -> int:
         start_calls.append((service_type, db_path))
         return 42
 
