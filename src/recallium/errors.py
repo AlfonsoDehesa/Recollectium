@@ -53,3 +53,11 @@ class ReembeddingFailedError(RecalliumError):
 
 class MigrationError(RecalliumError):
     """Raised when database schema migration fails or is incompatible."""
+
+
+class ServiceError(RecalliumError):
+    """Base class for service lifecycle errors."""
+
+
+class ServiceConflictError(ServiceError):
+    """Raised when starting a conflicting service while another is running."""

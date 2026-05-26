@@ -6,6 +6,8 @@ from recallium.errors import (
     MigrationError,
     NotFoundError,
     RecalliumError,
+    ServiceConflictError,
+    ServiceError,
     ValidationError,
 )
 from recallium.models import (
@@ -27,6 +29,8 @@ __all__ = [
     "ValidationError",
     "NotFoundError",
     "MigrationError",
+    "ServiceError",
+    "ServiceConflictError",
     "SPACE_USER",
     "SPACE_WORKSPACE",
     "STATUS_ACTIVE",

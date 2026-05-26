@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -22,8 +23,17 @@ from recallium.config import (
     validate_config_file,
 )
 from recallium.models import SearchResult
+from recallium.mcp_server import create_mcp_server
 from recallium.service import run_service
 from recallium.service_contract import SERVICE_DEFAULT_HOST, SERVICE_DEFAULT_PORT
+from recallium.errors import ServiceConflictError, ServiceError
+from recallium.service_manager import (
+    check_running_service,
+    get_pid_file_path,
+    read_pid_file,
+    start_service,
+    stop_service,
+)
 from recallium.storage import SQLiteMemoryStore
 
 
@@ -606,6 +616,46 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # -- service ------------------------------------------------------------
+    service_parser = subparsers.add_parser(
+        "service",
+        help="manage Recallium service lifecycle",
+        description="Start, stop, check status, and restart Recallium services.",
+    )
+    service_sub = service_parser.add_subparsers(
+        dest="service_action",
+        required=True,
+        title="service actions",
+        metavar="ACTION",
+    )
+
+    # service start
+    start_parser = service_sub.add_parser("start", help="start a Recallium service")
+    start_parser.add_argument(
+        "type",
+        choices=["api", "mcp"],
+        help="Service type to start: api (REST API) or mcp (MCP HTTP server)",
+    )
+
+    # service stop
+    service_sub.add_parser("stop", help="stop the running Recallium service")
+
+    # service status
+    service_sub.add_parser("status", help="show running service details")
+
+    # service restart
+    restart_parser = service_sub.add_parser(
+        "restart", help="restart the running service"
+    )
+    restart_parser.add_argument(
+        "--type",
+        choices=["api", "mcp"],
+        help=(
+            "Service type to restart (required if no running service is found "
+            "or only a stale PID file exists)"
+        ),
+    )
+
     # -- db-status ---------------------------------------------------------
     subparsers.add_parser(
         "db-status",
@@ -649,6 +699,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         help="Optional positive integer limit for list mode.",
+    )
+
+    # -- mcp-stdio ---------------------------------------------------------
+    subparsers.add_parser(
+        "mcp-stdio",
+        help="run MCP server over stdin/stdout",
+        description=(
+            "Start an MCP (Model Context Protocol) server over stdin/stdout. "
+            "This is intended to be spawned by MCP-compatible clients. "
+            "No PID file is created — the server runs for the lifetime of the client connection."
+        ),
     )
 
     return parser
@@ -737,6 +798,181 @@ def main(argv: Sequence[str] | None = None) -> int:
         store = SQLiteMemoryStore(db_path)
         print(json.dumps(store.migration_status(), sort_keys=True))
         return 0
+
+    # -- mcp-stdio command ------------------------------------------------
+    if args.command == "mcp-stdio":
+        try:
+            core = RecalliumCore(db_path=args.db_path, config_path=core_config_path)
+        except FileNotFoundError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        except ValidationError as exc:
+            print(f"ValidationError: {exc}", file=sys.stderr)
+            return 2
+        try:
+            mcp = create_mcp_server(core)
+            import asyncio
+
+            asyncio.run(mcp.run_stdio_async())
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    # -- service commands --------------------------------------------------
+    if args.command == "service":
+        if args.service_action == "start":
+            try:
+                cfg = RecalliumConfig(core_config_path)
+            except FileNotFoundError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            except ValidationError as exc:
+                print(f"ValidationError: {exc}", file=sys.stderr)
+                return 2
+            try:
+                pid = start_service(cfg, args.type, db_path=args.db_path)
+                host = cfg.effective_config["service"]["host"]
+                port = cfg.effective_config["service"]["port"]
+                endpoint = f"http://{host}:{port}"
+                print(
+                    json.dumps(
+                        {
+                            "status": "started",
+                            "type": args.type,
+                            "pid": pid,
+                            "endpoint": endpoint,
+                        },
+                        sort_keys=True,
+                    )
+                )
+            except ServiceConflictError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            except ServiceError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+            return 0
+
+        if args.service_action == "stop":
+            try:
+                cfg = RecalliumConfig(core_config_path)
+            except FileNotFoundError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            except ValidationError as exc:
+                print(f"ValidationError: {exc}", file=sys.stderr)
+                return 2
+            pid = stop_service(cfg)
+            if pid is not None:
+                print(json.dumps({"status": "stopped", "pid": pid}, sort_keys=True))
+            else:
+                print(json.dumps({"status": "no_service_running"}, sort_keys=True))
+            return 0
+
+        if args.service_action == "status":
+            try:
+                cfg = RecalliumConfig(core_config_path)
+            except FileNotFoundError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            except ValidationError as exc:
+                print(f"ValidationError: {exc}", file=sys.stderr)
+                return 2
+            pid_path = get_pid_file_path(cfg)
+            try:
+                raw_pid_info = read_pid_file(pid_path)
+                running = check_running_service(cfg)
+            except ServiceError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            if running is not None:
+                host = cfg.effective_config["service"]["host"]
+                port = cfg.effective_config["service"]["port"]
+                print(
+                    json.dumps(
+                        {
+                            "running": True,
+                            "type": running["type"],
+                            "pid": running["pid"],
+                            "endpoint": f"http://{host}:{port}",
+                        },
+                        sort_keys=True,
+                    )
+                )
+            else:
+                status_info: dict[str, object] = {"running": False}
+                if raw_pid_info is not None:
+                    status_info["last_service"] = {
+                        "type": raw_pid_info["type"],
+                        "pid": raw_pid_info["pid"],
+                    }
+                print(json.dumps(status_info, sort_keys=True))
+            return 0
+
+        if args.service_action == "restart":
+            try:
+                cfg = RecalliumConfig(core_config_path)
+            except FileNotFoundError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            except ValidationError as exc:
+                print(f"ValidationError: {exc}", file=sys.stderr)
+                return 2
+
+            pid_path = get_pid_file_path(cfg)
+            try:
+                raw_pid_info = read_pid_file(pid_path)
+                running = check_running_service(cfg)
+            except ServiceError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            if running is not None:
+                # Service is running: stop it first, then restart same type
+                service_type = running["type"]
+                print(f"Stopping existing {service_type} service...", file=sys.stderr)
+                stop_service(cfg)
+                time.sleep(0.5)  # let port release before binding again
+            elif raw_pid_info is not None:
+                service_type = raw_pid_info["type"]
+            elif args.type is not None:
+                service_type = args.type
+            else:
+                print(
+                    "No running service found. Use --type to specify which "
+                    "service to restart.",
+                    file=sys.stderr,
+                )
+                return 1
+
+            try:
+                pid = start_service(cfg, service_type, db_path=args.db_path)
+                host = cfg.effective_config["service"]["host"]
+                port = cfg.effective_config["service"]["port"]
+                print(
+                    json.dumps(
+                        {
+                            "status": "restarted",
+                            "type": service_type,
+                            "pid": pid,
+                            "endpoint": f"http://{host}:{port}",
+                        },
+                        sort_keys=True,
+                    )
+                )
+            except ServiceConflictError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            except ServiceError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+            return 0
 
     # -- all other commands use RecalliumCore ------------------------------
     try:

@@ -25,6 +25,7 @@ from recallium.errors import (
     ReembeddingInProgressError,
     ValidationError,
 )
+from recallium.mcp_server import create_mcp_server
 from recallium.service_contract import (
     SERVICE_API_PREFIX,
     SERVICE_DEFAULT_HOST,
@@ -347,14 +348,32 @@ def create_app(core: RecalliumCore) -> FastAPI:
     return app
 
 
+def create_mcp_app(core: RecalliumCore) -> FastAPI:
+    mcp = create_mcp_server(core)
+    app = FastAPI(
+        title="Recallium MCP Server",
+        version="1",
+        description="Local-only MCP server for Recallium Core.",
+    )
+    app.mount("/", mcp.sse_app())
+    return app
+
+
 def run_service(
     host: str = SERVICE_DEFAULT_HOST,
     port: int = SERVICE_DEFAULT_PORT,
     db_path: str | None = None,
     config_path: str | Path | None = None,
+    service_type: str | None = None,
 ) -> None:
     import uvicorn
 
     core = RecalliumCore(db_path=db_path, config_path=config_path)
     log_level = core.config.effective_config["logging"]["level"]
-    uvicorn.run(create_app(core), host=host, port=port, log_level=log_level)
+
+    if service_type == "mcp":
+        app = create_mcp_app(core)
+    else:
+        app = create_app(core)
+
+    uvicorn.run(app, host=host, port=port, log_level=log_level)
