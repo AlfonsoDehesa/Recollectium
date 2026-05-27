@@ -30,6 +30,8 @@ from recallium.service_contract import (
     OPERATION_MEMORIES_SEARCH_WORKSPACE,
     OPERATION_MEMORIES_UPDATE,
     OPERATION_VERSION_READ,
+    OPERATION_WORKSPACES_LIST,
+    OPERATION_WORKSPACES_RENAME,
     SERVICE_API_VERSION,
     SERVICE_CAPABILITIES,
     capabilities_payload,
@@ -62,6 +64,8 @@ def test_service_capabilities_cover_required_operations() -> None:
         OPERATION_EMBEDDING_STATUS,
         OPERATION_EMBEDDING_JOBS_LIST,
         OPERATION_EMBEDDING_JOBS_GET,
+        OPERATION_WORKSPACES_LIST,
+        OPERATION_WORKSPACES_RENAME,
     )
 
 
@@ -214,6 +218,8 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "/v1/embedding/status": ["get"],
         "/v1/embedding/jobs": ["get"],
         "/v1/embedding/jobs/{job_id}": ["get"],
+        "/v1/workspaces": ["get"],
+        "/v1/workspaces/{uid}/rename": ["post"],
     }
     for path, methods in required_paths.items():
         assert path in paths
@@ -229,6 +235,7 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "SearchUserRequest",
         "SearchWorkspaceRequest",
         "UpdateMemoryRequest",
+        "RenameWorkspaceRequest",
     ):
         assert schema_name in schemas
 

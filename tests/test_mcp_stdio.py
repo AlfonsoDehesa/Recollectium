@@ -23,6 +23,8 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
         "update_memory",
         "archive_memory",
         "list_memories",
+        "list_workspaces",
+        "rename_workspace",
     }
     assert set(tools.keys()) == expected
 
