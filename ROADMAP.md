@@ -67,6 +67,9 @@ embedding-using commands always run against the configured model.
   finishes starting.
 - Before any CLI command that needs embeddings completes, verify the configured
   model is ready.
+- On any surface that needs embeddings, if the configured model is not ready,
+  prepare it, then resume and finish the original command, API request, or
+  service operation.
 - Do not check or report model mismatch for commands that do not need
   embeddings.
 - Add a code comment at the central model-readiness wrapper explaining that
