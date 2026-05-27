@@ -179,6 +179,52 @@ class SQLiteMemoryStore:
 
         return self.get_memory(memory_id)
 
+    # -- workspace operations ------------------------------------------------
+
+    def list_workspace_uids(
+        self, *, include_archived: bool = False
+    ) -> list[str]:
+        """Return distinct non-null workspace_uid values, sorted alphabetically."""
+        where_parts = [
+            "workspace_uid IS NOT NULL",
+            "space = 'workspace'",
+        ]
+        values: list[Any] = []
+        if not include_archived:
+            where_parts.append("status != ?")
+            values.append(STATUS_ARCHIVED)
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT workspace_uid FROM memories "
+                "WHERE "
+                + " AND ".join(where_parts)
+                + " ORDER BY workspace_uid ASC",
+                values,
+            ).fetchall()
+
+        return [row["workspace_uid"] for row in rows]
+
+    def rename_workspace(self, old_uid: str, new_uid: str) -> int:
+        """Rename all workspace memories from old_uid to new_uid.
+
+        Returns the number of updated rows.  Raises NotFoundError when
+        *old_uid* has no matching workspace memories.
+        """
+        timestamp = utc_now_iso()
+        with self._connect() as connection:
+            result = connection.execute(
+                "UPDATE memories SET workspace_uid = ?, updated_at = ? "
+                "WHERE workspace_uid = ? AND space = 'workspace'",
+                (new_uid, timestamp, old_uid),
+            )
+
+        if result.rowcount == 0:
+            raise NotFoundError(
+                f"no workspace memories found for uid: {old_uid}"
+            )
+        return result.rowcount
+
     def list_memories(
         self,
         *,
