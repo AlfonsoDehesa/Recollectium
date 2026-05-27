@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import Any, Sequence
 
 from platformdirs import user_state_dir
 
@@ -64,12 +64,19 @@ class _CliLoggingConfig:
         self.xdg_dirs = {"logs": log_dir}
 
 
-class _UninstallConfig:
+class _UninstallConfig(RecalliumConfig):
     def __init__(
-        self, *, effective_config: dict[str, Any], xdg_dirs: dict[str, Path]
+        self,
+        *,
+        effective_config: dict[str, Any],
+        xdg_dirs: dict[str, Path],
+        config_path: Path,
+        database_path: Path,
     ) -> None:
-        self.effective_config = effective_config
-        self.xdg_dirs = xdg_dirs
+        self._effective_config = effective_config
+        self._xdg_dirs = xdg_dirs
+        self._config_file_path = config_path
+        self._resolved_db_path = database_path
 
 
 class _UninstallPlan:
@@ -423,6 +430,8 @@ def _load_uninstall_plan(config_path: Path, *, explicit: bool) -> _UninstallPlan
         config=_UninstallConfig(
             effective_config=effective_config,
             xdg_dirs=xdg_dirs,
+            config_path=config_path,
+            database_path=database_path,
         ),
         config_path=config_path,
         database_path=database_path,
@@ -564,10 +573,15 @@ def _handle_uninstall_command(
 
     plan = _load_uninstall_plan(config_path, explicit=explicit)
     metadata = _load_install_metadata(plan.install_metadata_path)
-    stopped_pid = stop_service(cast(RecalliumConfig, plan.config))
-    service_payload: dict[str, Any] = {"status": "no_service_running"}
-    if stopped_pid is not None:
-        service_payload = {"status": "stopped", "pid": stopped_pid}
+
+    service_payload: dict[str, Any]
+    if args.dry_run:
+        service_payload = {"status": "dry_run", "note": "service would be stopped"}
+    else:
+        stopped_pid = stop_service(plan.config)
+        service_payload = {"status": "no_service_running"}
+        if stopped_pid is not None:
+            service_payload = {"status": "stopped", "pid": stopped_pid}
 
     data_payload: dict[str, Any] = {
         "preserved": not args.purge,
@@ -582,17 +596,33 @@ def _handle_uninstall_command(
     }
 
     if args.purge:
-        if not args.yes_delete_all_recallium_data and not args.dry_run:
-            response = input(
-                "Type 'delete all recallium data' to permanently delete Recallium data: "
+        if args.dry_run:
+            data_payload["purge"] = _purge_targets(plan, dry_run=True)
+        else:
+            preview = _purge_targets(plan, dry_run=True)
+            sys.stderr.write(
+                "The following Recallium-owned paths will be permanently deleted:\n"
             )
-            if response != _PURGE_CONFIRMATION:
-                _log.warning(
-                    "purge cancelled",
-                    extra={"event": "uninstall.purge_cancelled"},
+            for target in preview["targets"]:
+                if target.get("reason") == "missing":
+                    continue
+                sys.stderr.write(f"  {target['path']}\n")
+            sys.stderr.write("\n")
+
+            if not args.yes_delete_all_recallium_data:
+                sys.stderr.write(
+                    "Type 'delete all recallium data' to permanently delete Recallium data: "
                 )
-                return 1
-        data_payload["purge"] = _purge_targets(plan, dry_run=args.dry_run)
+                sys.stderr.flush()
+                response = sys.stdin.readline().rstrip("\n")
+                if response != _PURGE_CONFIRMATION:
+                    _log.warning(
+                        "purge cancelled",
+                        extra={"event": "uninstall.purge_cancelled"},
+                    )
+                    return 1
+
+            data_payload["purge"] = _purge_targets(plan, dry_run=False)
 
     result = {
         "status": "manual_uninstall_required",
@@ -967,8 +997,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--purge",
         action="store_true",
         help=(
-            "Delete Recallium-owned config, data, cache, logs, and runtime paths. "
-            "Without this flag, memories and local data are preserved for reinstall."
+            "Permanently delete your memories and all Recallium-owned config, data, "
+            "cache, logs, and runtime paths. Without this flag, local data is preserved."
         ),
     )
     uninstall_parser.add_argument(
@@ -981,7 +1011,10 @@ def _build_parser() -> argparse.ArgumentParser:
     uninstall_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show purge targets without deleting files or directories.",
+        help=(
+            "Show planned actions without deleting files, stopping services, or "
+            "removing data. Use with --purge to preview full deletion paths."
+        ),
     )
 
     # -- archive -----------------------------------------------------------

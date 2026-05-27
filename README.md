@@ -145,7 +145,7 @@ recallium uninstall --purge --dry-run
 ```
 
 To permanently delete Recallium-owned config, data, cache, logs, and runtime
-paths:
+paths -- **this deletes your memories, and cannot be undone**:
 
 ```bash
 recallium uninstall --purge
@@ -162,7 +162,8 @@ Purge only removes paths that look Recallium-owned and refuses broad paths such
 as your home directory, root directory, or current working directory. If the
 configured cache path appears shared with other tools, Recallium skips it and
 reports why. If a Recallium service is running, uninstall stops it cleanly before
-printing package removal guidance or deleting purge targets.
+printing package removal guidance or deleting purge targets; `--dry-run` shows
+what would happen without stopping the service or deleting files.
 
 ## Data path behavior
 
