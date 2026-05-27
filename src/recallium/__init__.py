@@ -1,5 +1,7 @@
 """Recallium Core package."""
 
+from importlib.metadata import PackageNotFoundError, version
+
 from recallium.config import RecalliumConfig
 from recallium.core import RecalliumCore
 from recallium.errors import (
@@ -40,4 +42,7 @@ __all__ = [
     "setup_logging",
 ]
 
-__version__ = "0.1.0"
+try:
+    __version__ = version("recallium")
+except PackageNotFoundError:  # pragma: no cover - source tree fallback
+    __version__ = "0.1.0"

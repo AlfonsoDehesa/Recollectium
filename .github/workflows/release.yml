@@ -14,27 +14,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Build
-        run: uv build
-
       - name: Extract changelog
         id: changelog
         run: |
           VERSION="${{ github.ref_name }}"
-          sed -n "/^## ${VERSION#v}/,/^## /p" CHANGELOG.md | sed '$d' > body.md
-          echo "CHANGELOG=$(cat body.md)" >> "$GITHUB_OUTPUT"
+          if [ -f CHANGELOG.md ]; then
+            VERSION_NO_PREFIX="${VERSION#v}"
+            sed -n "/^## v\{0,1\}${VERSION_NO_PREFIX}/,/^## /p" CHANGELOG.md | sed '$d' > body.md
+          else
+            touch body.md
+          fi
+          {
+            echo "CHANGELOG<<EOF"
+            cat body.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.changelog.outputs.CHANGELOG }}
-          files: dist/*
           generate_release_notes: true

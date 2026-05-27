@@ -33,6 +33,57 @@ This MVP does not include:
 - On startup and during search, stale profile embeddings are refreshed and tracked as embedding jobs.
 - Use CLI and local service status endpoints to inspect profile state and job progress.
 
+## Install
+
+### Recommended: blank machine bootstrap
+
+You do not need Python, pip, pipx, or uv installed first. The bootstrap
+installer downloads uv, installs Recallium in an isolated tool environment,
+and puts the `recallium` command on PATH.
+
+Linux and macOS:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recallium/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/AlfonsoDehesa/recallium/main/install.ps1 | iex"
+```
+
+Verify the install:
+
+```bash
+recallium --version
+recallium init
+```
+
+`recallium init` creates the config file, data/cache/log/runtime directories,
+SQLite database, runs migrations, and downloads the built-in FastEmbed model.
+It is safe to run more than once.
+
+### Python package managers
+
+If you already have Python 3.12 or newer:
+
+```bash
+pip install recallium
+```
+
+If you prefer isolated CLI tools:
+
+```bash
+pipx install recallium
+```
+
+Try without installing permanently:
+
+```bash
+uvx recallium --version
+```
+
 ## Install for development
 
 Recallium Core requires Python 3.12 or newer. Use `uv` for environment and dependency management.
@@ -55,6 +106,16 @@ Run the CLI through the managed environment:
 ```bash
 uv run recallium --help
 ```
+
+## Updating
+
+```bash
+recallium update
+```
+
+This prints upgrade commands for the bootstrap installer, pip, pipx, and uv
+tool installs. Existing memory updates still use `recallium update <memory_id>
+...`.
 
 ## Data path behavior
 

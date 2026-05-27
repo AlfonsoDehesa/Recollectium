@@ -7,6 +7,7 @@ from copy import deepcopy
 import json
 import logging
 import os
+from importlib.metadata import PackageNotFoundError, version as package_version
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,13 @@ from typing import Any, Sequence
 
 from platformdirs import user_state_dir
 
-from recallium import NotFoundError, RecalliumCore, RecalliumError, ValidationError
+from recallium import (
+    __version__,
+    NotFoundError,
+    RecalliumCore,
+    RecalliumError,
+    ValidationError,
+)
 from recallium.config import (
     DEFAULTS,
     RecalliumConfig,
@@ -26,6 +33,7 @@ from recallium.config import (
     unset_config_value,
     validate_config_file,
 )
+from recallium.embeddings import BuiltinFastEmbedProvider
 from recallium.logging import setup_logging
 from recallium.models import SearchResult
 from recallium.mcp_server import create_mcp_server
@@ -315,6 +323,55 @@ def _handle_config_command(
     return 0
 
 
+def _handle_init_command(
+    config_path: Path,
+    *,
+    explicit: bool,
+    db_path: str | None,
+    log_level: str | None,
+) -> int:
+    """Initialize Recallium config, directories, database, and model cache."""
+    if explicit and not config_path.exists():
+        config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
+        config_path.chmod(0o600)
+
+    cfg = RecalliumConfig(config_path if explicit else None, log_level=log_level)
+    selected_db_path = (
+        Path(db_path) if db_path is not None else cfg.resolved_database_path
+    )
+    SQLiteMemoryStore(selected_db_path)
+    BuiltinFastEmbedProvider().ensure_ready()
+
+    result = {
+        "status": "initialized",
+        "config": str(cfg.config_file_path),
+        "data": str(cfg.xdg_dirs["data"]),
+        "cache": str(cfg.xdg_dirs["cache"]),
+        "logs": str(cfg.xdg_dirs["logs"]),
+        "runtime": str(cfg.xdg_dirs["runtime"]),
+        "database": str(selected_db_path),
+        "embedding_model": cfg.effective_config["embedding"]["model"],
+    }
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def _handle_package_update_command() -> int:
+    """Print upgrade instructions for common install methods."""
+    instructions = {
+        "status": "manual_update_required",
+        "commands": {
+            "bootstrap": "curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recallium/main/install.sh | sh",
+            "pip": "pip install --upgrade recallium",
+            "pipx": "pipx upgrade recallium",
+            "uv_tool": "uv tool upgrade recallium",
+        },
+    }
+    print(json.dumps(instructions, sort_keys=True))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Parser construction
 # ---------------------------------------------------------------------------
@@ -354,12 +411,34 @@ def _build_parser() -> argparse.ArgumentParser:
             "Does not modify the config file."
         ),
     )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Print installed Recallium version and exit.",
+    )
 
     subparsers = parser.add_subparsers(
         dest="command",
-        required=True,
         title="commands",
         metavar="COMMAND",
+    )
+
+    subparsers.add_parser(
+        "init",
+        help="initialize Recallium config, database, and model cache",
+        description=(
+            "Create the config file and XDG directories, run database migrations, "
+            "and download the built-in FastEmbed model so Recallium is ready to use."
+        ),
+    )
+    init_parser = subparsers.choices["init"]
+    init_parser.add_argument(
+        "--db",
+        dest="db_path",
+        help=(
+            "SQLite database path for initialization. Also available as the global "
+            "--db flag before the command."
+        ),
     )
 
     # -- config ----------------------------------------------------------
@@ -604,13 +683,18 @@ def _build_parser() -> argparse.ArgumentParser:
     # -- update ------------------------------------------------------------
     update_parser = subparsers.add_parser(
         "update",
-        help="update editable memory fields",
+        help="update Recallium itself or editable memory fields",
         description=(
-            "Update one or more editable fields on a memory. Updating --content "
-            "also regenerates that memory's embedding."
+            "Without a memory ID, print Recallium package upgrade instructions. "
+            "With a memory ID, update one or more editable fields on that memory. "
+            "Updating --content also regenerates that memory's embedding."
         ),
     )
-    update_parser.add_argument("memory_id", help="Memory ID to update.")
+    update_parser.add_argument(
+        "memory_id",
+        nargs="?",
+        help="Memory ID to update. Omit to print package update instructions.",
+    )
     update_parser.add_argument("--type", help="Replacement memory type.")
     update_parser.add_argument(
         "--content", help="Replacement memory text. Regenerates the stored embedding."
@@ -785,6 +869,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     args = parser.parse_args(argv)
 
+    if getattr(args, "version", False):
+        try:
+            installed_version = package_version("recallium")
+        except PackageNotFoundError:
+            installed_version = __version__
+        print(f"recallium {installed_version}")
+        return 0
+
+    if args.command is None:
+        parser.print_help()
+        return 0
+
     # Resolve config path
     config_path = _resolve_config_path(args.config_path)
     core_config_path = _core_config_path(args.config_path)
@@ -801,6 +897,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             config_path,
             explicit=args.config_path is not None,
         )
+
+    if args.command == "init":
+        try:
+            return _handle_init_command(
+                config_path,
+                explicit=args.config_path is not None,
+                db_path=args.db_path,
+                log_level=args.log_level,
+            )
+        except FileNotFoundError as exc:
+            _log.error(str(exc), extra={"event": "config.missing"})
+            return 1
+        except ValidationError as exc:
+            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
+            return 2
+        except RecalliumError as exc:
+            _log.error(f"{exc.__class__.__name__}: {exc}")
+            return 1
 
     # -- serve command ----------------------------------------------------
     if args.command == "serve":
@@ -1050,6 +1164,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _log.error(str(exc))
                 return 2
             return 0
+
+    if args.command == "update" and args.memory_id is None:
+        return _handle_package_update_command()
 
     # -- all other commands use RecalliumCore ------------------------------
     try:
