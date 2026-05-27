@@ -1694,6 +1694,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValidationError as exc:
             _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
             return 2
+        except EmbeddingReadinessTimeoutError as exc:
+            _log.error(
+                f"EmbeddingReadinessTimeoutError: {exc}\n"
+                "Model preparation timed out. Check your internet connection "
+                "and try 'recallium init' again.",
+                extra={"event": "embedding.readiness_timeout"},
+            )
+            return 1
+        except EmbeddingModelUnavailableError as exc:
+            _log.error(
+                f"EmbeddingModelUnavailableError: {exc}\n"
+                "The embedding model could not be downloaded. "
+                "Check your internet connection and try 'recallium init' again.",
+                extra={"event": "embedding.model_unavailable"},
+            )
+            return 1
+        except EmbeddingProviderUnavailableError as exc:
+            _log.error(
+                f"EmbeddingProviderUnavailableError: {exc}\n"
+                "The embedding provider is unavailable. "
+                "Check your internet connection and try 'recallium init' again.",
+                extra={"event": "embedding.provider_unavailable"},
+            )
+            return 1
         try:
             mcp = create_mcp_server(core)
             import asyncio
