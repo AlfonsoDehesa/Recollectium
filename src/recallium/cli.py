@@ -1873,6 +1873,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             db_path=args.db_path, config_path=core_config_path, log_level=args.log_level
         )
 
+        # Ensure embedding model is ready before commands that need it.
+        # Non-embedding commands (list, get, archive, workspace, db-status,
+        # config) skip this gate — they never touch the embedding provider.
+        _EMBEDDING_COMMANDS = frozenset({"add", "search-user", "search-workspace"})
+        if args.command in _EMBEDDING_COMMANDS:
+            core._ensure_model_ready()
+
         if args.command == "add":
             result = core.add_memory(
                 space=args.space,

@@ -67,7 +67,7 @@ def _make_config(tmp_path: Path) -> Path:
 
 
 def test_ensure_model_ready_noop_when_model_matches(tmp_path: Path):
-    """If model state matches config, ensure_ready is NOT called on explicit gate."""
+    """If model state matches config, ensure_ready is NOT called."""
     state_dir = tmp_path / "state"
     write_model_state(
         state_dir,
@@ -82,8 +82,6 @@ def test_ensure_model_ready_noop_when_model_matches(tmp_path: Path):
         config_path=config,
         embedding_provider=provider,
     )
-    # Init called _ensure_model_ready once; reset the counter
-    provider.ensure_ready_calls.clear()
     core._ensure_model_ready(state_dir=state_dir)
     assert provider.ensure_ready_calls == []
 
