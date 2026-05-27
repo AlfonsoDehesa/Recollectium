@@ -6,6 +6,11 @@
 
 <!-- What files changed and what was done to them. -->
 
+## Roadmap
+
+- [ ] If this PR implements a ROADMAP.md item, ROADMAP.md is updated in this PR
+- [ ] Completed roadmap work is moved into the Completed section
+
 ## Quality gates
 
 - [ ] `uv run ruff check .` passes

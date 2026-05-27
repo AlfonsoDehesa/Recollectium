@@ -125,6 +125,15 @@ Every PR must pass the quality gates before merge:
 Aim for 100 percent coverage on changed code. If that is not feasible,
 explain the uncovered lines in the PR description.
 
+If the PR implements a feature or release-blocker item listed in `ROADMAP.md`,
+update `ROADMAP.md` in the same PR. Move completed work into the `Completed`
+section, mark the completed checklist item, and keep the remaining roadmap
+accurate before the PR is ready for review.
+
+If the PR changes user-facing behavior, docs, configuration, CLI surface, or
+API surface, keep the GitHub Wiki up to date in the same PR alongside the
+README and API docs.
+
 ### Commit style
 
 Keep messages short and descriptive. Use the conventional prefix if it
@@ -200,7 +209,12 @@ confirmed before the version-bump PR is opened.
       subcommand and confirm nothing is missing.
 - [ ] README is current: install instructions, config reference, CLI
       examples, service management, uninstall, Python API examples.
+- [ ] GitHub Wiki is current and in sync with the README and API docs:
+      install, config, CLI reference, service management, uninstall,
+      memory types, API overview, and local access/security.
 - [ ] ROADMAP.md reflects current progress and upcoming version targets.
+- [ ] Completed feature work has been moved into the ROADMAP.md `Completed`
+      section in the same PR that implemented it.
 - [ ] CONTRIBUTING.md is current.
 
 #### Shell completion
