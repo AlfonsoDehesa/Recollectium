@@ -29,26 +29,6 @@ Completed:
 
 Remaining release blockers:
 
-### Packaging and distribution readiness
-
-Release goal: strangers can install Recallium without cloning the repository.
-
-- Verify `pyproject.toml` package metadata: name, version, license, Python
-  version, dependencies, and CLI entry point.
-- Build a wheel and source distribution.
-- Install from the local wheel.
-- Install from the source distribution.
-- Verify `pip install recallium` from the intended package index or local
-  release artifact.
-- Verify `pipx install recallium` from the intended package index or local
-  release artifact.
-- Verify `uv tool install recallium` from the intended package index or local
-  release artifact.
-- Confirm `recallium --version` works after each install method.
-- Confirm `recallium init` works after each install method.
-- Confirm the GitHub release workflow can publish from a version tag.
-- Confirm `CHANGELOG.md` and `pyproject.toml` version match.
-
 ### Workspace UID registry
 
 Release goal: Core has a stable workspace identity contract that adapters can
@@ -197,6 +177,23 @@ Release goal: no embarrassing loose ends before tagging.
 - Tag main.
 - Push the tag.
 - Confirm GitHub Release is created.
+
+### Release publication and distribution
+
+Release goal: once the release exists, publish and verify Recallium as a normal
+Python package.
+
+- Verify `pyproject.toml` package metadata: name, version, license, Python
+  version, dependencies, and CLI entry point.
+- Confirm `CHANGELOG.md` and `pyproject.toml` version match.
+- Build a wheel and source distribution from the release state.
+- Upload to the intended package index after the release is cut.
+- Verify `pip install recallium` from the published package.
+- Verify `pipx install recallium` from the published package.
+- Verify `uv tool install recallium` from the published package.
+- Confirm `recallium --version` works after each install method.
+- Confirm `recallium init` works after each install method.
+- Confirm bootstrap installers can install the released package or release tag.
 
 ## Phase 1.5 (post-1.0.0 follow-up): Post-release polish
 
