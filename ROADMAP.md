@@ -29,19 +29,20 @@ Completed:
 
 Remaining release blockers:
 
-### Workspace UID registry
+### Workspace UID contract
 
 Release goal: Core has a stable workspace identity contract that adapters can
 use without treating filesystem paths as canonical memory buckets.
 
-- [ ] Decide where workspace IDs live.
-- [ ] Decide whether Core creates workspace IDs, reads them, or both.
-- [ ] Define the workspace UID file format if the ID is stored on disk.
-- [ ] Ensure the same repository maps to the same workspace UID across sessions.
-- [ ] Ensure moving a folder does not accidentally create a different memory bucket.
-- [ ] Add CLI or API support if needed to inspect or register a workspace.
-- [ ] Document how adapters should get or create the workspace UID.
-- [ ] Add tests for creating, reading, validating, and reusing workspace IDs.
+- [x] Workspace UIDs are any non-empty string — zero registration, no dotfiles, no git dependency.
+- [x] Core does NOT resolve UIDs from directories. Adapters and agents determine UIDs (guidance: git repo name → dir basename → "root").
+- [x] `workspace.uid_normalization` config key: `normalize` (default, slugifies) or `exact` (passthrough).
+- [x] Normalization applied at the Core storage boundary on every write and lookup.
+- [x] `recallium workspace list` — distinct UIDs from the database (`--include-archived` flag).
+- [x] `recallium workspace rename OLD NEW` — migrate all workspace memories (including archived) to a new UID.
+- [x] HTTP API: `GET /v1/workspaces` and `POST /v1/workspaces/{uid}/rename`.
+- [x] MCP tools: `list_workspaces` and `rename_workspace`.
+- [x] Full test coverage across models, config, storage, core, CLI, API, and MCP layers.
 
 ### Install-time initialization and model readiness
 

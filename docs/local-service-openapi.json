@@ -606,6 +606,111 @@
           }
         }
       }
+    },
+    "/v1/workspaces": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "List Workspaces",
+        "operationId": "list_workspaces_v1_workspaces_get",
+        "parameters": [
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Archived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Workspaces V1 Workspaces Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{uid}/rename": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Rename Workspace",
+        "operationId": "rename_workspace_v1_workspaces__uid__rename_post",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameWorkspaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Rename Workspace V1 Workspaces  Uid  Rename Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -704,6 +809,20 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "RenameWorkspaceRequest": {
+        "properties": {
+          "new_uid": {
+            "type": "string",
+            "minLength": 1,
+            "title": "New Uid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_uid"
+        ],
+        "title": "RenameWorkspaceRequest"
       },
       "SearchUserRequest": {
         "properties": {

@@ -23,6 +23,8 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
         "update_memory",
         "archive_memory",
         "list_memories",
+        "list_workspaces",
+        "rename_workspace",
     }
     assert set(tools.keys()) == expected
 
@@ -223,3 +225,68 @@ def test_search_workspace_memory_round_trip(tmp_path: Path) -> None:
     results = json.loads(result_json)
     assert len(results) >= 1
     assert results[0]["memory"]["id"] == added.id
+
+
+def test_mcp_list_workspaces_returns_array(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecalliumCore(db_path=db_path)
+    core.add_memory(space="workspace", type="fact", content="a", workspace_uid="ws-a")
+    core.add_memory(space="workspace", type="fact", content="b", workspace_uid="ws-b")
+
+    mcp = create_mcp_server(core)
+    fn = mcp._tool_manager._tools["list_workspaces"].fn
+    result = fn(include_archived=False)
+    assert json.loads(result) == ["ws-a", "ws-b"]
+
+
+def test_mcp_rename_workspace_returns_result(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecalliumCore(db_path=db_path)
+    core.add_memory(space="workspace", type="fact", content="a", workspace_uid="old")
+
+    mcp = create_mcp_server(core)
+    fn = mcp._tool_manager._tools["rename_workspace"].fn
+    result = fn(old_uid="old", new_uid="new")
+    data = json.loads(result)
+    assert data["old_uid"] == "old"
+    assert data["new_uid"] == "new"
+    assert data["memories_updated"] == 1
+
+
+def test_mcp_rename_workspace_error_returns_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecalliumCore(db_path=db_path)
+
+    mcp = create_mcp_server(core)
+    fn = mcp._tool_manager._tools["rename_workspace"].fn
+    result = fn(old_uid="nonexistent", new_uid="new")
+    error = json.loads(result)
+    assert "error" in error
+
+
+def test_mcp_list_workspaces_error_returns_json(tmp_path: Path) -> None:
+    """list_workspaces returns error JSON on RecalliumError."""
+    db_path = str(tmp_path / "test.db")
+    core = RecalliumCore(db_path=db_path)
+
+    # Force list_workspaces to raise by corrupting the db
+    mcp = create_mcp_server(core)
+    fn = mcp._tool_manager._tools["list_workspaces"].fn
+
+    # Monkey-patch core to raise on list_workspaces
+    original = core.list_workspaces
+
+    def raise_error(*args, **kwargs):
+        from recallium.errors import RecalliumError
+
+        raise RecalliumError("forced error for test")
+
+    core.list_workspaces = raise_error
+
+    try:
+        result = fn(include_archived=False)
+        error = json.loads(result)
+        assert "error" in error
+        assert "forced error" in error["error"]
+    finally:
+        core.list_workspaces = original

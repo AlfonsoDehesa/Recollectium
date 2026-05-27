@@ -29,6 +29,7 @@ from recallium.models import (
     SPACE_WORKSPACE,
     Memory,
     SearchResult,
+    normalize_workspace_uid,
     validate_limit,
     validate_memory_create_input,
     validate_memory_update_input,
@@ -95,11 +96,12 @@ class RecalliumCore:
         confidence: float | None = None,
         sensitivity: str | None = None,
     ) -> Memory:
+        normalized_uid = self._normalize_uid(workspace_uid)
         payload = validate_memory_create_input(
             space=space,
             memory_type=type,
             content=content,
-            workspace_uid=workspace_uid,
+            workspace_uid=normalized_uid,
             metadata=metadata,
             confidence=confidence,
         )
@@ -180,6 +182,8 @@ class RecalliumCore:
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
         if workspace_uid is None:
             raise ValidationError("workspace_uid is required for workspace search")
+        workspace_uid = self._normalize_uid(workspace_uid)
+        assert workspace_uid is not None
 
         self._ensure_scope_embeddings_ready(
             space=SPACE_WORKSPACE,
@@ -224,6 +228,7 @@ class RecalliumCore:
         limit: int | None = None,
     ) -> list[Memory]:
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
+        workspace_uid = self._normalize_uid(workspace_uid)
 
         return self.store.list_memories(
             space=space,
@@ -351,6 +356,75 @@ class RecalliumCore:
 
     def database_status(self) -> dict[str, object]:
         return self.store.migration_status()
+
+    # -- workspace operations ------------------------------------------------
+
+    def _uid_normalization(self) -> str:
+        """Return the active uid_normalization setting."""
+        workspace = self.config.effective_config.get("workspace")
+        if isinstance(workspace, dict):
+            value = workspace.get("uid_normalization", "normalize")
+            if isinstance(value, str):
+                return value
+        return "normalize"
+
+    def _normalize_uid(self, uid: str | None) -> str | None:
+        """Normalize a workspace UID according to the active config setting."""
+        if uid is None:
+            return None
+        if not uid.strip():
+            raise ValidationError(f"workspace UID must be a non-empty string: {uid!r}")
+        if self._uid_normalization() == "exact":
+            return uid.strip()
+        normalized = normalize_workspace_uid(uid)
+        if not normalized:
+            raise ValidationError(
+                f"workspace UID normalizes to an empty string: {uid!r}"
+            )
+        return normalized
+
+    def list_workspaces(self, *, include_archived: bool = False) -> list[str]:
+        """Return distinct workspace UIDs present in the database."""
+        return self.store.list_workspace_uids(include_archived=include_archived)
+
+    def rename_workspace(self, old_uid: str, new_uid: str) -> dict[str, Any]:
+        """Rename all workspace memories from old_uid to new_uid.
+
+        Both UIDs are normalized per config before the operation.
+        Returns a dict with old_uid, new_uid, and memories_updated count.
+        Raises ValidationError if either UID normalizes to empty.
+        Raises NotFoundError if old_uid has no matching workspace memories.
+        """
+        norm_old = self._normalize_uid(old_uid)
+        norm_new = self._normalize_uid(new_uid)
+        assert (
+            norm_old is not None and norm_new is not None
+        )  # _normalize_uid raises on empty
+
+        if norm_old == norm_new:
+            return {
+                "old_uid": norm_old,
+                "new_uid": norm_new,
+                "memories_updated": 0,
+            }
+
+        count = self.store.rename_workspace(norm_old, norm_new)
+        _log.info(
+            "workspace renamed",
+            extra={
+                "event": "workspace.renamed",
+                "context": {
+                    "old_uid": norm_old,
+                    "new_uid": norm_new,
+                    "memories_updated": count,
+                },
+            },
+        )
+        return {
+            "old_uid": norm_old,
+            "new_uid": norm_new,
+            "memories_updated": count,
+        }
 
     def ensure_embedding_ready(self, *, timeout_seconds: float = 60.0) -> None:
         provider_ready = getattr(self.embedding_provider, "ensure_ready", None)

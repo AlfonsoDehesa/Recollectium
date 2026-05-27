@@ -30,6 +30,8 @@ from recallium.service_contract import (
     OPERATION_MEMORIES_SEARCH_WORKSPACE,
     OPERATION_MEMORIES_UPDATE,
     OPERATION_VERSION_READ,
+    OPERATION_WORKSPACES_LIST,
+    OPERATION_WORKSPACES_RENAME,
     SERVICE_API_VERSION,
     SERVICE_CAPABILITIES,
     capabilities_payload,
@@ -62,6 +64,8 @@ def test_service_capabilities_cover_required_operations() -> None:
         OPERATION_EMBEDDING_STATUS,
         OPERATION_EMBEDDING_JOBS_LIST,
         OPERATION_EMBEDDING_JOBS_GET,
+        OPERATION_WORKSPACES_LIST,
+        OPERATION_WORKSPACES_RENAME,
     )
 
 
@@ -214,6 +218,8 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "/v1/embedding/status": ["get"],
         "/v1/embedding/jobs": ["get"],
         "/v1/embedding/jobs/{job_id}": ["get"],
+        "/v1/workspaces": ["get"],
+        "/v1/workspaces/{uid}/rename": ["post"],
     }
     for path, methods in required_paths.items():
         assert path in paths
@@ -229,6 +235,7 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "SearchUserRequest",
         "SearchWorkspaceRequest",
         "UpdateMemoryRequest",
+        "RenameWorkspaceRequest",
     ):
         assert schema_name in schemas
 
@@ -805,3 +812,101 @@ def test_run_service_mcp_uses_create_mcp_app(monkeypatch) -> None:
 
     assert calls["app"] == "fake-mcp-app"
     assert calls["log_config"] is None
+
+
+# -- workspace API tests --------------------------------------------------
+
+
+def test_get_workspaces_returns_empty_list(tmp_path: Path) -> None:
+    """GET /v1/workspaces on empty database returns empty array."""
+    core = RecalliumCore(db_path=tmp_path / "ws.db")
+    client = _client(core)
+
+    status, payload = _request_json(client, "GET", "/v1/workspaces")
+    assert status == 200
+    assert payload["data"] == []
+
+
+def test_get_workspaces_returns_sorted_uids(tmp_path: Path) -> None:
+    """GET /v1/workspaces returns distinct workspace UIDs sorted."""
+    core = RecalliumCore(db_path=tmp_path / "ws.db")
+    core.add_memory(
+        space="workspace", type="fact", content="a", workspace_uid="project-b"
+    )
+    core.add_memory(
+        space="workspace", type="fact", content="b", workspace_uid="project-a"
+    )
+
+    client = _client(core)
+    status, payload = _request_json(client, "GET", "/v1/workspaces")
+    assert status == 200
+    assert payload["data"] == ["project-a", "project-b"]
+
+
+def test_get_workspaces_include_archived(tmp_path: Path) -> None:
+    """GET /v1/workspaces?include_archived=true includes archived-only UIDs."""
+    core = RecalliumCore(db_path=tmp_path / "ws.db")
+    core.add_memory(
+        space="workspace", type="fact", content="a", workspace_uid="active-ws"
+    )
+    core.add_memory(
+        space="workspace", type="fact", content="b", workspace_uid="archived-ws"
+    )
+    # Archive the second memory
+    memories = core.list_memories(space="workspace", workspace_uid="archived-ws")
+    core.archive_memory(memories[0].id)
+
+    client = _client(core)
+    status, payload = _request_json(
+        client, "GET", "/v1/workspaces?include_archived=true"
+    )
+    assert status == 200
+    assert "archived-ws" in payload["data"]
+
+
+def test_rename_workspace_success(tmp_path: Path) -> None:
+    """POST /v1/workspaces/{uid}/rename migrates memories."""
+    core = RecalliumCore(db_path=tmp_path / "ws.db")
+    core.add_memory(space="workspace", type="fact", content="a", workspace_uid="old-ws")
+
+    client = _client(core)
+    status, payload = _request_json(
+        client,
+        "POST",
+        "/v1/workspaces/old-ws/rename",
+        body={"new_uid": "new-ws"},
+    )
+    assert status == 200
+    assert payload["data"]["old_uid"] == "old-ws"
+    assert payload["data"]["new_uid"] == "new-ws"
+    assert payload["data"]["memories_updated"] == 1
+
+
+def test_rename_workspace_not_found(tmp_path: Path) -> None:
+    """POST /v1/workspaces/{uid}/rename returns 404 for nonexistent UID."""
+    core = RecalliumCore(db_path=tmp_path / "ws.db")
+    client = _client(core)
+
+    status, payload = _request_json(
+        client,
+        "POST",
+        "/v1/workspaces/nonexistent/rename",
+        body={"new_uid": "new-ws"},
+    )
+    assert status == 404
+    assert payload["error"]["code"] == "not_found"
+
+
+def test_rename_workspace_validation_error(tmp_path: Path) -> None:
+    """POST /v1/workspaces/{uid}/rename returns 400 for empty new_uid."""
+    core = RecalliumCore(db_path=tmp_path / "ws.db")
+    core.add_memory(space="workspace", type="fact", content="a", workspace_uid="ws")
+
+    client = _client(core)
+    status, payload = _request_json(
+        client,
+        "POST",
+        "/v1/workspaces/ws/rename",
+        body={"new_uid": "!!!"},
+    )
+    assert status == 400

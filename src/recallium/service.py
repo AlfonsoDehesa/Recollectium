@@ -127,6 +127,12 @@ class UpdateMemoryRequest(BaseModel):
     sensitivity: str | None = None
 
 
+class RenameWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    new_uid: str = Field(min_length=1)
+
+
 def _map_boundary_error(exc: Exception) -> tuple[HTTPStatus, dict[str, Any]]:
     for error_type, status, code in _BOUNDARY_ERROR_MAP:
         if isinstance(exc, error_type):
@@ -344,6 +350,31 @@ def create_app(core: RecalliumCore) -> FastAPI:
     def archive_memory(memory_id: str) -> dict[str, Any]:
         memory = core.archive_memory(memory_id)
         return success_payload(serialize_memory(memory))
+
+    # -- workspace endpoints -----------------------------------------------
+
+    @app.get(f"{SERVICE_API_PREFIX}/workspaces", tags=["workspaces"])
+    def list_workspaces(
+        include_archived: str | None = None,
+    ) -> dict[str, Any]:
+        parsed_include_archived = _parse_optional_bool(
+            include_archived,
+            field_name="include_archived",
+        )
+        uids = core.list_workspaces(
+            include_archived=parsed_include_archived
+            if parsed_include_archived is not None
+            else False,
+        )
+        return success_payload(uids)
+
+    @app.post(
+        f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/rename",
+        tags=["workspaces"],
+    )
+    def rename_workspace(uid: str, body: RenameWorkspaceRequest) -> dict[str, Any]:
+        result = core.rename_workspace(old_uid=uid, new_uid=body.new_uid)
+        return success_payload(result)
 
     return app
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 import math
+import re
 from typing import Any
 
 from recallium.errors import ValidationError
@@ -64,6 +65,31 @@ def _validate_confidence(confidence: Any) -> float | None:
         raise ValidationError("confidence must be between 0 and 1")
 
     return normalized
+
+
+# ---------------------------------------------------------------------------
+# Workspace UID normalization
+# ---------------------------------------------------------------------------
+
+
+def normalize_workspace_uid(raw: str) -> str:
+    """Normalize a workspace UID: lowercase, slugify, collapse dashes.
+
+    Algorithm:
+    1. Lowercase.
+    2. Replace every non-alphanumeric character with a single dash.
+    3. Collapse consecutive dashes into one.
+    4. Strip leading and trailing dashes.
+
+    Returns the empty string when the input contains no alphanumeric
+    characters.  Callers that require a non-empty UID must validate
+    separately.
+    """
+    slug = raw.lower()
+    slug = re.sub(r"[^a-z0-9]", "-", slug)
+    slug = re.sub(r"-+", "-", slug)
+    slug = slug.strip("-")
+    return slug
 
 
 def validate_memory_create_input(

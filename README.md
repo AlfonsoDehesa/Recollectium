@@ -249,6 +249,9 @@ the file).
     "cache": null,
     "logs": null,
     "runtime": null
+  },
+  "workspace": {
+    "uid_normalization": "normalize"
   }
 }
 ```
@@ -269,6 +272,7 @@ the file).
 | `directories.cache` | `null` (XDG default) | Override the cache directory. |
 | `directories.logs` | `null` (XDG default) | Override the logs directory. |
 | `directories.runtime` | `null` (XDG default) | Override the runtime directory. |
+| `workspace.uid_normalization` | `"normalize"` | Workspace UID normalization mode. `"normalize"` (default) lowercases and slugifies UIDs so `Recallium Core` and `recallium-core` resolve to the same workspace. `"exact"` stores and looks up UIDs exactly as provided. |
 
 When `directories.*` is `null` or unset, Recallium uses standard XDG paths:
 
@@ -538,6 +542,18 @@ recallium --db /tmp/recallium.db search-workspace \
 Workspace memories are keyed by a stable workspace UID. Future adapters, such as
 the OpenCode plugin, should create and pass that UID rather than using filesystem
 paths as workspace identity.
+
+List known workspace UIDs:
+
+```bash
+recallium --db /tmp/recallium.db workspace list
+```
+
+Rename a workspace (migrates all its memories to a new UID):
+
+```bash
+recallium --db /tmp/recallium.db workspace rename old-project new-project
+```
 
 All successful CLI commands return JSON.
 

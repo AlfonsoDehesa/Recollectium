@@ -96,4 +96,22 @@ def create_mcp_server(core: RecalliumCore) -> FastMCP:
         except RecalliumError as e:
             return json.dumps({"error": str(e)}, sort_keys=True)
 
+    @mcp.tool()
+    def list_workspaces(include_archived: bool = False) -> str:
+        """List known workspace UIDs. Set include_archived to true to include UIDs that only have archived memories."""
+        try:
+            uids = core.list_workspaces(include_archived=include_archived)
+            return json.dumps(uids, sort_keys=True)
+        except RecalliumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def rename_workspace(old_uid: str, new_uid: str) -> str:
+        """Rename a workspace. Migrates all workspace memories from old_uid to new_uid."""
+        try:
+            result = core.rename_workspace(old_uid=old_uid, new_uid=new_uid)
+            return json.dumps(result, sort_keys=True)
+        except RecalliumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
     return mcp

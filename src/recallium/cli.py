@@ -76,6 +76,7 @@ _COMPLETABLE_CONFIG_KEYS = [
     "directories.cache",
     "directories.logs",
     "directories.runtime",
+    "workspace.uid_normalization",
 ]
 
 
@@ -245,6 +246,16 @@ def _handle_config_command(
             config_path.chmod(0o600)
         raw = load_config_file(config_path)
         set_config_value(raw, args.key, value)
+        # Validate the resulting config before writing
+        try:
+            merged = _deep_merge(deepcopy(DEFAULTS), raw)
+            _validate_config_value(merged)
+        except ValidationError as exc:
+            _log.error(
+                f"ValidationError: {exc}",
+                extra={"event": "config.invalid"},
+            )
+            return 2
         config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
         return 0
 
@@ -857,6 +868,37 @@ def _handle_uninstall_command(
     return 0
 
 
+def _handle_workspace_command(
+    args: argparse.Namespace,
+    *,
+    core: RecalliumCore,
+) -> int:
+    """Handle the `recallium workspace` subcommands."""
+    if args.workspace_action == "list":
+        uids = core.list_workspaces(
+            include_archived=getattr(args, "include_archived", False),
+        )
+        print(json.dumps(uids, sort_keys=True))
+        return 0
+
+    if args.workspace_action == "rename":
+        try:
+            result = core.rename_workspace(
+                old_uid=args.old_uid,
+                new_uid=args.new_uid,
+            )
+            print(json.dumps(result, sort_keys=True))
+            return 0
+        except ValidationError as exc:
+            _log.error(f"ValidationError: {exc}", extra={"event": "workspace.invalid"})
+            return 1
+        except NotFoundError as exc:
+            _log.error(str(exc), extra={"event": "workspace.not_found"})
+            return 1
+
+    return 1  # pragma: no cover — parser enforces valid actions
+
+
 # ---------------------------------------------------------------------------
 # Parser construction
 # ---------------------------------------------------------------------------
@@ -1336,6 +1378,48 @@ def _build_parser() -> argparse.ArgumentParser:
             "This command initializes the database if needed and reports current "
             "and pending schema versions."
         ),
+    )
+
+    # -- workspace ---------------------------------------------------------
+    workspace_parser = subparsers.add_parser(
+        "workspace",
+        help="list and manage workspace UIDs",
+        description="List known workspace UIDs and rename workspaces.",
+    )
+    workspace_sub = workspace_parser.add_subparsers(
+        dest="workspace_action",
+        required=True,
+        title="workspace actions",
+        metavar="ACTION",
+    )
+
+    list_ws_parser = workspace_sub.add_parser(
+        "list",
+        help="list known workspace UIDs",
+        description="List distinct workspace UIDs from the database as a sorted JSON array.",
+    )
+    list_ws_parser.add_argument(
+        "--include-archived",
+        action="store_true",
+        help="Include UIDs that only appear on archived memories.",
+    )
+
+    rename_parser = workspace_sub.add_parser(
+        "rename",
+        help="rename a workspace and migrate its memories",
+        description=(
+            "Rename a workspace by migrating all its memories to a new UID. "
+            "Both UIDs are normalized according to the workspace.uid_normalization "
+            "config setting before the operation. Archived memories are included."
+        ),
+    )
+    rename_parser.add_argument(
+        "old_uid",
+        help="Current workspace UID to rename.",
+    )
+    rename_parser.add_argument(
+        "new_uid",
+        help="New workspace UID to migrate memories to.",
     )
 
     # -- embedding-status --------------------------------------------------
@@ -1836,6 +1920,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "archive":
             result = core.archive_memory(args.memory_id)
+        elif args.command == "workspace":
+            return _handle_workspace_command(args, core=core)
         elif args.command == "embedding-status":
             result = core.active_embedding_status()
         elif args.command == "embedding-jobs":
