@@ -84,6 +84,7 @@ class RecalliumCore:
             tuple[str, str | None, str | None, bool], str
         ] = {}
         self._embedding_job_threads: dict[str, threading.Thread] = {}
+        self._ensure_model_ready()
         startup_job = self._start_startup_reembedding()
         self._startup_reembedding_job_id = startup_job[0] if startup_job else None
 
