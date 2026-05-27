@@ -168,6 +168,23 @@ service outside localhost.
 - Confirm install and service docs recommend local-only defaults.
 - Add release checklist coverage for local access and security assumptions.
 
+### CI uninstall-flow coverage
+
+Release goal: every bootstrap install-smoke path also proves Recallium can be
+uninstalled cleanly.
+
+- Update CI install-smoke jobs to run the appropriate uninstall flow after the
+  install and CLI smoke checks pass.
+- Verify default uninstall preserves Recallium data by default.
+- Verify purge uninstall removes Recallium-managed data only when explicitly
+  requested.
+- Verify managed shell completion cleanup runs during uninstall where that shell
+  completion was installed.
+- Verify uninstall output gives package-manager guidance without failing the CI
+  job for expected package-manager ownership boundaries.
+- Cover Linux, macOS, Windows x86_64, and Windows ARM64 install-smoke jobs where
+  practical.
+
 ### Final release sweep
 
 Release goal: no embarrassing loose ends before tagging.
