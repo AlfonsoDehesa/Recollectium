@@ -820,6 +820,25 @@ def test_run_service_mcp_uses_create_mcp_app(monkeypatch) -> None:
     assert calls["log_config"] is None
 
 
+def test_run_service_exits_cleanly_on_readiness_failure(monkeypatch) -> None:
+    class FailingCore:
+        def __init__(self, *, db_path=None, config_path=None, log_level=None):
+            self.config = type(
+                "FakeConfig",
+                (),
+                {"effective_config": {"logging": {"level": "info"}}},
+            )()
+
+        def _ensure_model_ready(self) -> None:
+            raise Exception("model download failed")
+
+    monkeypatch.setattr("recallium.service.RecalliumCore", FailingCore)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_service(host="127.0.0.1", port=8901, db_path="fail.db")
+    assert exc_info.value.code == 1
+
+
 # -- workspace API tests --------------------------------------------------
 
 

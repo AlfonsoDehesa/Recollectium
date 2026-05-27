@@ -47,6 +47,7 @@ from recallium.config import (
 )
 from recallium.embeddings import BuiltinFastEmbedProvider
 from recallium.logging import setup_logging
+from recallium.model_state import write_model_state
 from recallium.models import SearchResult
 from recallium.mcp_server import create_mcp_server
 from recallium.service import run_service
@@ -419,6 +420,16 @@ def _handle_init_command(
         extra={"event": "init.model_prepare"},
     )
     BuiltinFastEmbedProvider().ensure_ready()
+
+    # Record the prepared model so the readiness gate sees it.
+    model_name = cfg.effective_config["embedding"]["model"]
+    provider = BuiltinFastEmbedProvider()
+    write_model_state(
+        Path(user_state_dir("recallium")),
+        model=model_name,
+        dimensions=provider.dimensions,
+        profile=provider.profile_name,
+    )
 
     result = {
         "status": "initialized",
@@ -1580,6 +1591,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValidationError as exc:
             _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
             return 2
+        except EmbeddingReadinessTimeoutError as exc:
+            _log.error(
+                f"EmbeddingReadinessTimeoutError: {exc}\n"
+                "Model preparation timed out. Check your internet connection "
+                "and try 'recallium init' again.",
+                extra={"event": "embedding.readiness_timeout"},
+            )
+            return 1
+        except EmbeddingModelUnavailableError as exc:
+            _log.error(
+                f"EmbeddingModelUnavailableError: {exc}\n"
+                "The embedding model could not be downloaded. "
+                "Check your internet connection and try 'recallium init' again.",
+                extra={"event": "embedding.model_unavailable"},
+            )
+            return 1
+        except EmbeddingProviderUnavailableError as exc:
+            _log.error(
+                f"EmbeddingProviderUnavailableError: {exc}\n"
+                "The embedding provider is unavailable. "
+                "Check your internet connection and try 'recallium init' again.",
+                extra={"event": "embedding.provider_unavailable"},
+            )
+            return 1
         except RecalliumError as exc:
             _log.error(f"{exc.__class__.__name__}: {exc}")
             return 1
@@ -1652,6 +1687,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config_path=core_config_path,
                 log_level=args.log_level,
             )
+            core._ensure_model_ready()
         except FileNotFoundError as exc:
             _log.error(str(exc), extra={"event": "config.missing"})
             return 1
@@ -1885,9 +1921,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         # Ensure embedding model is ready before commands that need it.
         # Non-embedding commands (list, get, archive, workspace, db-status,
-        # config) skip this gate — they never touch the embedding provider.
+        # config, update metadata-only) skip this gate.
         _EMBEDDING_COMMANDS = frozenset({"add", "search-user", "search-workspace"})
-        if args.command in _EMBEDDING_COMMANDS:
+        _needs_embedding = args.command in _EMBEDDING_COMMANDS or (
+            args.command == "update" and args.content is not None
+        )
+        if _needs_embedding:
             core._ensure_model_ready()
 
         if args.command == "add":
