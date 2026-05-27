@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 import runpy
 from types import SimpleNamespace
@@ -50,6 +51,8 @@ def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
 def test_cli_help_documents_commands_and_flags(capsys) -> None:
     top_level_help = _run_help(["--help"], capsys)
     assert "Recallium Core local memory CLI" in top_level_help
+    assert "--version" in top_level_help
+    assert "initialize Recallium config" in top_level_help
     assert "add a user or workspace memory" in top_level_help
     assert "search memories for one workspace UID" in top_level_help
     assert "embedding-status" in top_level_help
@@ -112,6 +115,60 @@ def test_cli_no_args_prints_help(capsys) -> None:
     assert exit_code == 0
     assert "Recallium Core local memory CLI" in captured.out
     assert captured.err == ""
+
+
+def test_cli_parser_without_command_prints_help(monkeypatch, capsys) -> None:
+    class FakeArgs:
+        version = False
+        command = None
+
+    class FakeParser:
+        def parse_args(self, argv: object) -> FakeArgs:
+            return FakeArgs()
+
+        def print_help(self) -> None:
+            print("fake help")
+
+    monkeypatch.setattr("recallium.cli._build_parser", lambda: FakeParser())
+
+    assert main(["--not-real-for-fake-parser"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "fake help\n"
+
+
+def test_cli_log_level_applies_to_missing_config_fallback(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--log-level", "debug", "config", "--path"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "config.json" in stdout
+
+
+def test_cli_logging_falls_back_after_os_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[object] = []
+
+    def _fake_setup_logging(config: object) -> None:
+        calls.append(config)
+        if len(calls) == 1:
+            raise OSError("disk unavailable")
+
+    monkeypatch.setattr("recallium.cli.setup_logging", _fake_setup_logging)
+
+    from recallium.cli import _setup_cli_logging
+
+    _setup_cli_logging(tmp_path / "missing.json", log_level="debug")
+
+    assert len(calls) == 2
 
 
 def test_module_entrypoint_delegates_to_cli_main(monkeypatch) -> None:
@@ -1547,6 +1604,180 @@ class TestConfigCommand:
         assert "--validate" in help_text
         assert "--path" in help_text
         assert "--defaults" in help_text
+
+
+def test_cli_version_prints_package_version(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("recallium.cli.package_version", lambda _name: "1.2.3")
+
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+
+    assert exit_code == 0
+    assert stdout == "recallium 1.2.3\n"
+    assert stderr == ""
+
+
+def test_cli_version_uses_source_fallback(capsys, monkeypatch) -> None:
+    def _missing_package(_name: str) -> str:
+        raise PackageNotFoundError
+
+    monkeypatch.setattr("recallium.cli.package_version", _missing_package)
+    monkeypatch.setattr("recallium.cli.__version__", "0.1.0-dev")
+
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+
+    assert exit_code == 0
+    assert stdout == "recallium 0.1.0-dev\n"
+    assert stderr == ""
+
+
+def test_cli_version_without_command_does_not_require_subcommand(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+
+    assert exit_code == 0
+    assert stdout.startswith("recallium ")
+    assert stderr == ""
+
+
+def test_cli_init_creates_runtime_files_and_downloads_model(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+    ready_calls: list[object] = []
+
+    def _fake_ensure_ready(self) -> None:
+        ready_calls.append(self)
+
+    monkeypatch.setattr(
+        "recallium.cli.BuiltinFastEmbedProvider.ensure_ready",
+        _fake_ensure_ready,
+    )
+
+    exit_code, stdout, stderr = _run_cli(["init"], capsys)
+
+    payload = json.loads(stdout)
+    config_path = tmp_path / "config" / "recallium" / "config.json"
+    db_path = tmp_path / "data" / "recallium" / "recallium.db"
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["status"] == "initialized"
+    assert payload["config"] == str(config_path)
+    assert payload["database"] == str(db_path)
+    assert payload["embedding_model"] == "jinaai/jina-embeddings-v2-small-en"
+    assert config_path.exists()
+    assert db_path.exists()
+    assert (tmp_path / "cache" / "recallium").is_dir()
+    assert (tmp_path / "state" / "recallium" / "logs").is_dir()
+    assert ready_calls
+
+
+def test_cli_init_explicit_missing_config_creates_file(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "custom" / "config.json"
+    ready_calls: list[object] = []
+
+    monkeypatch.setattr(
+        "recallium.cli.BuiltinFastEmbedProvider.ensure_ready",
+        lambda self: ready_calls.append(self),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["--config", str(config_path), "init"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["config"] == str(config_path)
+    assert config_path.exists()
+    assert ready_calls
+
+
+def test_cli_init_accepts_db_after_subcommand(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    db_path = tmp_path / "custom.db"
+    monkeypatch.setattr(
+        "recallium.cli.BuiltinFastEmbedProvider.ensure_ready",
+        lambda self: None,
+    )
+
+    exit_code, stdout, stderr = _run_cli(["init", "--db", str(db_path)], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["database"] == str(db_path)
+    assert db_path.exists()
+
+
+def test_cli_init_reports_validation_error(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"version": 1, "logging": {"level": "bad"}}))
+
+    exit_code, stdout, stderr = _run_cli(["--config", str(config_path), "init"], capsys)
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "ValidationError:" in stderr
+
+
+def test_cli_init_reports_file_not_found_from_handler(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _raise_file_not_found(*args, **kwargs) -> int:
+        raise FileNotFoundError("config disappeared")
+
+    monkeypatch.setattr("recallium.cli._handle_init_command", _raise_file_not_found)
+
+    exit_code, stdout, stderr = _run_cli(["init"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "config disappeared" in stderr
+
+
+def test_cli_init_reports_model_readiness_error(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    def _raise_readiness_error(self) -> None:
+        raise EmbeddingProviderUnavailableError("model unavailable")
+
+    monkeypatch.setattr(
+        "recallium.cli.BuiltinFastEmbedProvider.ensure_ready",
+        _raise_readiness_error,
+    )
+
+    exit_code, stdout, stderr = _run_cli(["init"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "EmbeddingProviderUnavailableError: model unavailable" in stderr
+
+
+def test_cli_update_without_memory_id_prints_package_update_instructions(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _unexpected_core(*args, **kwargs):
+        raise AssertionError("package update should not initialise RecalliumCore")
+
+    monkeypatch.setattr("recallium.cli.RecalliumCore", _unexpected_core)
+
+    exit_code, stdout, stderr = _run_cli(["update"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["status"] == "manual_update_required"
+    assert "install.sh" in payload["commands"]["bootstrap"]
+    assert payload["commands"]["pip"] == "pip install --upgrade recallium"
 
 
 class TestMcpStdioErrorPaths:

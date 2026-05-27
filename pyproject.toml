@@ -8,13 +8,36 @@ version = "0.1.0"
 description = "Recallium Core local memory engine"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Recallium contributors" },
+]
+keywords = ["ai", "agents", "embeddings", "local-first", "memory", "sqlite"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
+    "cryptography==46.0.3",
     "fastapi>=0.124",
     "fastembed>=0.7.3",
     "mcp>=1.27.1",
     "platformdirs>=4",
     "uvicorn>=0.38",
 ]
+
+[project.urls]
+Homepage = "https://github.com/AlfonsoDehesa/recallium"
+Repository = "https://github.com/AlfonsoDehesa/recallium"
+Issues = "https://github.com/AlfonsoDehesa/recallium/issues"
 
 [dependency-groups]
 dev = [

@@ -192,9 +192,8 @@ Releases are created automatically when a version tag is pushed.
    git push origin v0.2.0
    ```
 
-The `.github/workflows/release.yml` workflow builds the wheel and sdist,
-combines changelog notes with the merged PR list, and creates a GitHub
-Release with both artifacts attached.
+The `.github/workflows/release.yml` workflow combines changelog notes with
+the merged PR list and creates a GitHub Release.
 
 ### CI
 
