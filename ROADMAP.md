@@ -205,6 +205,20 @@ uninstalled cleanly.
 - [ ] Cover Linux, macOS, Windows x86_64, and Windows ARM64 install-smoke jobs where
   practical.
 
+### GitHub Wiki
+
+Release goal: Recallium ships with a public GitHub Wiki that covers every
+user-facing surface at release quality, alongside the README.
+
+- [ ] Create and populate the GitHub Wiki with pages for install, config, CLI
+  reference, service management, uninstall, memory types, API overview, and
+  local access/security.
+- [ ] Keep the Wiki in sync with the README and API docs on every PR that
+  changes user-facing behavior, docs, or configuration.
+- [ ] Add Wiki maintenance to CONTRIBUTING.md, the release checklist, and
+  AGENTS.md so agents and contributors keep it current.
+- [ ] Confirm the Wiki is current and complete during the final release sweep.
+
 ### Final release sweep
 
 Release goal: no embarrassing loose ends before tagging.
