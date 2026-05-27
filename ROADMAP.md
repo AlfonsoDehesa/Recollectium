@@ -15,7 +15,6 @@ Recallium Core is fully installable, runnable, and ready for integration.
 
 In progress:
 
-- One-command bootstrap installer (cross-platform, zero dependencies).
 - Packaging and distribution.
 - Workspace UID registry and OpenCode adapter discovery.
 - CLI polish, shell completion, `--version` flag, and consistent errors.
