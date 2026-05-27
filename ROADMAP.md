@@ -101,6 +101,26 @@ failed.
 - [ ] Add tests for success, timeout, unavailable provider, unavailable model,
   migration progress/status, and user-facing error text.
 
+### Structure around memory types
+
+Release goal: Recallium ships with a defined, documented set of memory types so
+agents, adapters, and users share a common vocabulary instead of guessing at
+freeform strings.
+
+- [ ] Define a stable set of supported memory types: preference, fact, note,
+  decision, task_context, summary, and reflection.
+- [ ] Validate memory type against the supported set during add and update.
+- [ ] Reject unknown memory types with a clear error that lists the allowed
+  values.
+- [ ] Add known-type completion for `--type` in the CLI (both argcomplete and
+  PowerShell).
+- [ ] Document supported memory types and their intended usage in README, CLI
+  help, and API docs.
+- [ ] Keep the schema and endpoints forward-compatible with Phase 2 intent-native
+  naming (`remember`, `recall`, `link`, `forget`).
+- [ ] Add tests for valid types, unknown types, and type completion across both
+  completion engines.
+
 ### OpenCode adapter readiness handoff
 
 Release goal: Core is ready for the future OpenCode adapter even though the
