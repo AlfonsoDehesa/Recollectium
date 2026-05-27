@@ -974,7 +974,9 @@ def test_core_rename_workspace_exact_mode_passthrough(tmp_path: Path) -> None:
     core.config._effective_config["workspace"]["uid_normalization"] = "exact"
 
     core.add_memory(
-        space=SPACE_WORKSPACE, type="fact", content="item",
+        space=SPACE_WORKSPACE,
+        type="fact",
+        content="item",
         workspace_uid="My Project",
     )
     result = core.rename_workspace("My Project", "My New Project")
@@ -993,7 +995,6 @@ def test_core_normalize_uid_rejects_whitespace_only(tmp_path: Path) -> None:
         core.rename_workspace("   ", "valid")
 
 
-
 def test_core_uid_normalization_falls_back_to_normalize(tmp_path: Path) -> None:
     """_uid_normalization returns normalize when config is malformed."""
     core = RecalliumCore(
@@ -1003,4 +1004,3 @@ def test_core_uid_normalization_falls_back_to_normalize(tmp_path: Path) -> None:
     # Corrupt the workspace config to trigger fallback
     core.config._effective_config["workspace"] = None
     assert core._uid_normalization() == "normalize"
-

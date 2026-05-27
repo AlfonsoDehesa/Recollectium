@@ -373,9 +373,7 @@ class RecalliumCore:
         if uid is None:
             return None
         if not uid.strip():
-            raise ValidationError(
-                f"workspace UID must be a non-empty string: {uid!r}"
-            )
+            raise ValidationError(f"workspace UID must be a non-empty string: {uid!r}")
         if self._uid_normalization() == "exact":
             return uid.strip()
         normalized = normalize_workspace_uid(uid)

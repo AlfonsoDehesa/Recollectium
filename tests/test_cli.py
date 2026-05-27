@@ -3095,7 +3095,10 @@ def test_workspace_rename_noop_same_uid(
     result = json.loads(out)
     assert result["memories_updated"] == 0
 
-def test_config_set_rejects_invalid_value(tmp_path: Path, capsys: CaptureFixture[str]) -> None:
+
+def test_config_set_rejects_invalid_value(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
     """config set with an invalid value fails with validation error."""
     # workspace.uid_normalization only accepts 'normalize' or 'exact'
     exit_code, out, err = _run_cli(
@@ -3106,7 +3109,9 @@ def test_config_set_rejects_invalid_value(tmp_path: Path, capsys: CaptureFixture
     assert "ValidationError" in err or "normalize, exact" in err
 
 
-def test_workspace_rename_empty_uid_fails(tmp_path: Path, capsys: CaptureFixture[str]) -> None:
+def test_workspace_rename_empty_uid_fails(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
     """workspace rename with whitespace-only UID returns validation error."""
     db_path = tmp_path / "test.db"
     SQLiteMemoryStore(db_path)
@@ -3116,4 +3121,3 @@ def test_workspace_rename_empty_uid_fails(tmp_path: Path, capsys: CaptureFixture
     )
     assert exit_code == 1
     assert "empty string" in err.lower() or "validation" in err.lower()
-
