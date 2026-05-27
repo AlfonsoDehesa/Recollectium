@@ -43,21 +43,6 @@ use without treating filesystem paths as canonical memory buckets.
 - Document how adapters should get or create the workspace UID.
 - Add tests for creating, reading, validating, and reusing workspace IDs.
 
-### FastEmbed model download UX
-
-Release goal: first-run model setup is understandable and recoverable instead
-of feeling like Recallium silently hung or failed.
-
-- Make `recallium init` clearly explain that it may download the built-in
-  FastEmbed model on first run.
-- Surface clear progress or status messaging around model cache warmup where
-  practical without breaking JSON output contracts.
-- Provide actionable offline guidance when the model cannot be fetched.
-- Preserve machine-readable CLI output for automation.
-- Document the first-run model cache behavior in README install guidance.
-- Add tests for success, timeout, unavailable provider, unavailable model, and
-  user-facing error text.
-
 ### Install-time initialization and model readiness
 
 Release goal: bootstrap install leaves Recallium ready to use by default, and
@@ -93,6 +78,25 @@ embedding-using commands always run against the configured model.
 - Add tests for absent config install, existing config install, missing model,
   changed model, service startup readiness, embedding CLI readiness,
   non-embedding commands skipping model checks, and migration progress/status.
+
+### FastEmbed model download and migration UX
+
+Release goal: first-run model setup and configured-model migration are
+understandable and recoverable instead of feeling like Recallium silently hung or
+failed.
+
+- Make `recallium init` clearly explain that it may download the built-in
+  FastEmbed model on first run.
+- Surface clear progress or status messaging around model cache warmup where
+  practical without breaking JSON output contracts.
+- Surface clear progress or status messaging for embedding migration and
+  re-embedding when the configured model changes.
+- Provide actionable offline guidance when the model cannot be fetched.
+- Preserve machine-readable CLI output for automation.
+- Document first-run model cache behavior and configured-model migration behavior
+  in README install guidance.
+- Add tests for success, timeout, unavailable provider, unavailable model,
+  migration progress/status, and user-facing error text.
 
 ### OpenCode adapter readiness handoff
 
