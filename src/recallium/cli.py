@@ -1305,7 +1305,8 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["bash", "zsh", "fish"],
         help="Shell to generate completion for (default: auto-detect from $SHELL).",
     )
-    completion_parser.add_argument(
+    action_group = completion_parser.add_mutually_exclusive_group()
+    action_group.add_argument(
         "--source",
         action="store_true",
         help=(
@@ -1313,7 +1314,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "consumption. No instructions or human-readable output."
         ),
     )
-    completion_parser.add_argument(
+    action_group.add_argument(
         "--install",
         action="store_true",
         help=(

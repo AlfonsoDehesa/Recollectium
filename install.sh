@@ -123,7 +123,7 @@ configure_shell_completion() {
     bash) rc="${HOME}/.bashrc" ;;
     zsh)  rc="${HOME}/.zshrc" ;;
     fish) rc="${HOME}/.config/fish/config.fish" ;;
-    *)    rc="${HOME}/.profile" ;;
+    *)    rc="${HOME}/.bashrc" ;;  # default to bash per spec
   esac
 
   eval_line='eval "$(recallium completion --source '"${shell}"')"'
