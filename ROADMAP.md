@@ -261,5 +261,7 @@ Recallium fulfills its product promise as a personal intelligence engine.
 
 ## Keeping this up to date
 
-This roadmap is kept in sync with the internal product spec. If you
-complete something listed here, update it.
+This roadmap is kept in sync with the internal product spec. If a PR completes
+something listed here, that same PR must update this file, move the feature into
+the `Completed` section, mark the completed checklist item, and leave the
+remaining roadmap accurate.
