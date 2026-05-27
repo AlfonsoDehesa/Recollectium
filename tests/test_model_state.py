@@ -28,9 +28,9 @@ def test_write_and_read_model_state_round_trips():
         )
         result = read_model_state(state_dir)
         assert result is not None
-        assert result["prepared_model"] == "jinaai/jina-embeddings-v2-small-en"
-        assert result["dimensions"] == 512
-        assert result["profile"] == "builtin-fastembed-jina-v2-small-en-v1"
+        assert result["prepared_model"] == "jinaai/jina-embeddings-v2-small-en"  # type: ignore[reportOptionalSubscript]
+        assert result["dimensions"] == 512  # type: ignore[reportOptionalSubscript]
+        assert result["profile"] == "builtin-fastembed-jina-v2-small-en-v1"  # type: ignore[reportOptionalSubscript]
         assert "prepared_at" in result
 
 
@@ -56,9 +56,9 @@ def test_write_model_state_overwrites_existing():
         # Overwrite
         write_model_state(state_dir, model="new-model", dimensions=256, profile="new")
         result = read_model_state(state_dir)
-        assert result["prepared_model"] == "new-model"
-        assert result["dimensions"] == 256
-        assert result["profile"] == "new"
+        assert result["prepared_model"] == "new-model"  # type: ignore[reportOptionalSubscript]
+        assert result["dimensions"] == 256  # type: ignore[reportOptionalSubscript]
+        assert result["profile"] == "new"  # type: ignore[reportOptionalSubscript]
 
 
 def test_write_model_state_is_atomic():
@@ -80,3 +80,21 @@ def test_read_model_state_returns_none_for_invalid_json():
         (state_dir / "model-state.json").write_text("not json", encoding="utf-8")
         result = read_model_state(state_dir)
         assert result is None
+
+
+def test_write_model_state_cleans_up_tmp_file_on_failure(monkeypatch):
+    """If replace() fails, the temp file is removed before re-raising."""
+    replace_calls = []
+
+    def failing_replace(self, target):
+        replace_calls.append(("replace", str(self), str(target)))
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(Path, "replace", failing_replace)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        state_dir = Path(tmp)
+        with pytest.raises(OSError, match="simulated replace failure"):
+            write_model_state(state_dir, model="m", dimensions=1, profile="p")
+        tmp_files = [f for f in state_dir.glob(".model-state-*.json")]
+        assert len(tmp_files) == 0

@@ -20,7 +20,9 @@ from recallium.config import DEFAULTS
 from recallium.cli import main
 from recallium.errors import (
     EmbeddingGenerationError,
+    EmbeddingModelUnavailableError,
     EmbeddingProviderUnavailableError,
+    EmbeddingReadinessTimeoutError,
     ServiceError,
     ValidationError,
 )
@@ -779,6 +781,66 @@ def test_cli_embedding_error_returns_clear_message(
     assert exit_code == 1
     assert stdout == ""
     assert "EmbeddingProviderUnavailableError: FastEmbed is unavailable" in stderr
+
+
+def test_cli_model_unavailable_error_returns_guidance(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    class UnavailableCore:
+        def __init__(self, *args, **kwargs) -> None:
+            raise EmbeddingModelUnavailableError("failed to load embedding model")
+
+    monkeypatch.setattr("recallium.cli.RecalliumCore", UnavailableCore)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--db",
+            str(tmp_path / "model.db"),
+            "add",
+            "--space",
+            "user",
+            "--type",
+            "note",
+            "--content",
+            "test",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "EmbeddingModelUnavailableError: failed to load embedding model" in stderr
+    assert "recallium init" in stderr
+
+
+def test_cli_readiness_timeout_error_returns_guidance(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    class TimeoutCore:
+        def __init__(self, *args, **kwargs) -> None:
+            raise EmbeddingReadinessTimeoutError("startup timed out")
+
+    monkeypatch.setattr("recallium.cli.RecalliumCore", TimeoutCore)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--db",
+            str(tmp_path / "timeout.db"),
+            "add",
+            "--space",
+            "user",
+            "--type",
+            "note",
+            "--content",
+            "test",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "EmbeddingReadinessTimeoutError: startup timed out" in stderr
+    assert "recallium init" in stderr
 
 
 def test_cli_embedding_generation_error_returns_1(

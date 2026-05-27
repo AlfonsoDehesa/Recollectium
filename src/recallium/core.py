@@ -463,9 +463,7 @@ class RecalliumCore:
         re-embedded via ``_start_startup_reembedding()``.
         """
         resolved_state_dir = state_dir or Path(user_state_dir("recallium"))
-        model_name = str(
-            self.config.effective_config["embedding"]["model"]
-        )
+        model_name = str(self.config.effective_config["embedding"]["model"])
         profile = self.embedding_provider.embedding_profile
         dimensions = profile.get("dimensions")
         profile_name = str(profile.get("profile", ""))
@@ -488,7 +486,9 @@ class RecalliumCore:
         write_model_state(
             resolved_state_dir,
             model=model_name,
-            dimensions=int(dimensions) if isinstance(dimensions, int) and not isinstance(dimensions, bool) else 0,
+            dimensions=int(dimensions)
+            if isinstance(dimensions, int) and not isinstance(dimensions, bool)
+            else 0,
             profile=profile_name,
         )
 

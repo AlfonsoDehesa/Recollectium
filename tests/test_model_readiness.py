@@ -100,7 +100,7 @@ def test_ensure_model_ready_prepares_when_state_missing(tmp_path: Path):
     assert len(provider.ensure_ready_calls) == 1
     state = read_model_state(state_dir)
     assert state is not None
-    assert state["prepared_model"] == _SUPPORTED_MODEL
+    assert state["prepared_model"] == _SUPPORTED_MODEL  # type: ignore[reportOptionalSubscript]
     assert state["dimensions"] == 3
 
 
@@ -120,7 +120,7 @@ def test_ensure_model_ready_prepares_when_model_mismatch(tmp_path: Path):
     core._ensure_model_ready(state_dir=state_dir)
     assert len(provider.ensure_ready_calls) == 1
     state = read_model_state(state_dir)
-    assert state["prepared_model"] == _SUPPORTED_MODEL
+    assert state["prepared_model"] == _SUPPORTED_MODEL  # type: ignore[reportOptionalSubscript]
 
 
 def test_ensure_model_ready_raises_on_provider_failure(tmp_path: Path):
@@ -153,4 +153,40 @@ def test_ensure_model_ready_writes_state_with_provider_dimensions(tmp_path: Path
     )
     core._ensure_model_ready(state_dir=state_dir)
     state = read_model_state(state_dir)
-    assert state["dimensions"] == 768
+    assert state["dimensions"] == 768  # type: ignore[reportOptionalSubscript]
+
+
+def test_ensure_model_ready_falls_back_to_embed_healthcheck(tmp_path: Path):
+    """Provider without ensure_ready() uses embed('healthcheck') fallback."""
+    state_dir = tmp_path / "state"
+
+    class NoEnsureReadyProvider:
+        embedding_profile: dict[str, object] = {
+            "provider": "bare",
+            "model": _SUPPORTED_MODEL,
+            "dimensions": 3,
+            "version": "1",
+            "profile": "bare-profile",
+            "max_tokens": 16,
+            "chunk_tokens": 4,
+            "chunk_overlap_tokens": 0,
+            "query_prompt_policy": "raw",
+        }
+        embed_calls: list[str] = []
+
+        def embed(self, text: str) -> list[float]:
+            self.embed_calls.append(text)
+            return [1.0, 2.0, 3.0]
+
+        def similarity(self, first: list[float], second: list[float]) -> float:
+            return 1.0
+
+    provider = NoEnsureReadyProvider()
+    config = _make_config(tmp_path)
+    core = RecalliumCore(
+        db_path=tmp_path / "test.db",
+        config_path=config,
+        embedding_provider=provider,
+    )
+    core._ensure_model_ready(state_dir=state_dir)
+    assert "healthcheck" in provider.embed_calls
