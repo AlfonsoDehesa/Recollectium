@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 import math
+import re
 from typing import Any
 
 from recallium.errors import ValidationError
@@ -84,8 +85,6 @@ def normalize_workspace_uid(raw: str) -> str:
     characters.  Callers that require a non-empty UID must validate
     separately.
     """
-    import re
-
     slug = raw.lower()
     slug = re.sub(r"[^a-z0-9]", "-", slug)
     slug = re.sub(r"-+", "-", slug)

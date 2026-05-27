@@ -225,3 +225,40 @@ def test_search_workspace_memory_round_trip(tmp_path: Path) -> None:
     results = json.loads(result_json)
     assert len(results) >= 1
     assert results[0]["memory"]["id"] == added.id
+
+
+def test_mcp_list_workspaces_returns_array(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecalliumCore(db_path=db_path)
+    core.add_memory(space="workspace", type="fact", content="a", workspace_uid="ws-a")
+    core.add_memory(space="workspace", type="fact", content="b", workspace_uid="ws-b")
+
+    mcp = create_mcp_server(core)
+    fn = mcp._tool_manager._tools["list_workspaces"].fn
+    result = fn(include_archived=False)
+    assert json.loads(result) == ["ws-a", "ws-b"]
+
+
+def test_mcp_rename_workspace_returns_result(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecalliumCore(db_path=db_path)
+    core.add_memory(space="workspace", type="fact", content="a", workspace_uid="old")
+
+    mcp = create_mcp_server(core)
+    fn = mcp._tool_manager._tools["rename_workspace"].fn
+    result = fn(old_uid="old", new_uid="new")
+    data = json.loads(result)
+    assert data["old_uid"] == "old"
+    assert data["new_uid"] == "new"
+    assert data["memories_updated"] == 1
+
+
+def test_mcp_rename_workspace_error_returns_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecalliumCore(db_path=db_path)
+
+    mcp = create_mcp_server(core)
+    fn = mcp._tool_manager._tools["rename_workspace"].fn
+    result = fn(old_uid="nonexistent", new_uid="new")
+    error = json.loads(result)
+    assert "error" in error

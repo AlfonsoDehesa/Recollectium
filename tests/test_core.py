@@ -962,3 +962,22 @@ def test_core_list_memories_normalizes_workspace_uid(tmp_path: Path) -> None:
         workspace_uid="  my-project  ",
     )
     assert len(memories) == 1
+
+
+def test_core_rename_workspace_exact_mode_passthrough(tmp_path: Path) -> None:
+    """Exact normalization preserves UIDs as-is."""
+    core = RecalliumCore(
+        db_path=tmp_path / "core.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    # Override config to exact mode
+    core.config._effective_config["workspace"]["uid_normalization"] = "exact"
+
+    core.add_memory(
+        space=SPACE_WORKSPACE, type="fact", content="item",
+        workspace_uid="My Project",
+    )
+    result = core.rename_workspace("My Project", "My New Project")
+    assert result["old_uid"] == "My Project"
+    assert result["new_uid"] == "My New Project"
+    assert result["memories_updated"] == 1

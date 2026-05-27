@@ -246,6 +246,16 @@ def _handle_config_command(
             config_path.chmod(0o600)
         raw = load_config_file(config_path)
         set_config_value(raw, args.key, value)
+        # Validate the resulting config before writing
+        try:
+            merged = _deep_merge(deepcopy(DEFAULTS), raw)
+            _validate_config_value(merged)
+        except ValidationError as exc:
+            _log.error(
+                f"ValidationError: {exc}",
+                extra={"event": "config.invalid"},
+            )
+            return 2
         config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
         return 0
 
