@@ -76,6 +76,7 @@ _COMPLETABLE_CONFIG_KEYS = [
     "directories.cache",
     "directories.logs",
     "directories.runtime",
+    "workspace.uid_normalization",
 ]
 
 

@@ -51,6 +51,9 @@ DEFAULTS: dict[str, Any] = {
         "backup_count": 5,
     },
     "directories": {"data": None, "cache": None, "logs": None, "runtime": None},
+    "workspace": {
+        "uid_normalization": "normalize",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -184,6 +187,16 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
                 raise ValidationError(
                     f"directories.{key} must be a string or null (got {type(value).__name__})"
                 )
+
+    # workspace.uid_normalization must be normalize or exact
+    workspace = data.get("workspace", {})
+    if isinstance(workspace, dict):
+        normalization = workspace.get("uid_normalization")
+        if isinstance(normalization, str) and normalization not in {"normalize", "exact"}:
+            raise ValidationError(
+                "workspace.uid_normalization must be one of: normalize, exact "
+                f"(got {normalization!r})"
+            )
 
 
 def _check_type(data: dict[str, Any], key: str, expected: type, path: str) -> None:
