@@ -194,10 +194,19 @@ Release goal: no embarrassing loose ends before tagging.
 - Push the tag.
 - Confirm GitHub Release is created.
 
-### Release publication and distribution
+## Phase 1.5 (post-1.0.0 follow-up): Post-release polish
 
-Release goal: once the release exists, publish and verify Recallium as a normal
-Python package.
+Phase 1.5 is limited to follow-up work that happens after the 1.0.0 release
+path is proven.
+
+### Windows hardening after real user testing
+
+- Harden the Windows installer based on actual user-reported install failures.
+- Harden Windows service, PATH, shell, and profile behavior discovered during
+  real usage.
+- Harden Windows smoke tests based on failures that appear after 1.0.0.
+
+### PyPI publication
 
 - Verify `pyproject.toml` package metadata: name, version, license, Python
   version, dependencies, and CLI entry point.
@@ -209,18 +218,15 @@ Python package.
 - Verify `uv tool install recallium` from the published package.
 - Confirm `recallium --version` works after each install method.
 - Confirm `recallium init` works after each install method.
-- Confirm bootstrap installers can install the released package or release tag.
+- Confirm bootstrap installers can install the published package or release tag.
 
-## Phase 1.5 (post-1.0.0 follow-up): Post-release polish
+### OpenCode plugin work
 
-Phase 1.5 is for useful polish that should not block the first public release.
-It should improve cross-platform feel and adapter ergonomics after the core
-release path is proven.
-
-- Windows installer polish discovered during real user testing.
-- Cross-platform release smoke-test hardening beyond the minimum release gate.
-- Adapter-facing documentation examples and troubleshooting guides.
-- Small CLI usability improvements that do not change the core contract.
+- Build the OpenCode plugin or adapter outside the Core release scope.
+- Consume Core service discovery from the plugin.
+- Consume Core workspace UID behavior from the plugin.
+- Expose Recallium-backed tools inside OpenCode.
+- Add plugin-facing documentation and troubleshooting guides.
 
 ## Phase 2 (v0.2.x): Product intelligence
 
