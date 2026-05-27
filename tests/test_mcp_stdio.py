@@ -262,3 +262,28 @@ def test_mcp_rename_workspace_error_returns_json(tmp_path: Path) -> None:
     result = fn(old_uid="nonexistent", new_uid="new")
     error = json.loads(result)
     assert "error" in error
+
+
+def test_mcp_list_workspaces_error_returns_json(tmp_path: Path) -> None:
+    """list_workspaces returns error JSON on RecalliumError."""
+    db_path = str(tmp_path / "test.db")
+    core = RecalliumCore(db_path=db_path)
+    
+    # Force list_workspaces to raise by corrupting the db
+    mcp = create_mcp_server(core)
+    fn = mcp._tool_manager._tools["list_workspaces"].fn
+    
+    # Monkey-patch core to raise on list_workspaces
+    original = core.list_workspaces
+    def raise_error(*args, **kwargs):
+        from recallium.errors import RecalliumError
+        raise RecalliumError("forced error for test")
+    core.list_workspaces = raise_error
+    
+    try:
+        result = fn(include_archived=False)
+        error = json.loads(result)
+        assert "error" in error
+        assert "forced error" in error["error"]
+    finally:
+        core.list_workspaces = original

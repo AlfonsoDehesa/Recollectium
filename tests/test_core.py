@@ -981,3 +981,26 @@ def test_core_rename_workspace_exact_mode_passthrough(tmp_path: Path) -> None:
     assert result["old_uid"] == "My Project"
     assert result["new_uid"] == "My New Project"
     assert result["memories_updated"] == 1
+
+
+def test_core_normalize_uid_rejects_whitespace_only(tmp_path: Path) -> None:
+    """_normalize_uid raises ValidationError for whitespace-only UIDs."""
+    core = RecalliumCore(
+        db_path=tmp_path / "core.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    with pytest.raises(ValidationError, match="empty string"):
+        core.rename_workspace("   ", "valid")
+
+
+
+def test_core_uid_normalization_falls_back_to_normalize(tmp_path: Path) -> None:
+    """_uid_normalization returns normalize when config is malformed."""
+    core = RecalliumCore(
+        db_path=tmp_path / "core.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    # Corrupt the workspace config to trigger fallback
+    core.config._effective_config["workspace"] = None
+    assert core._uid_normalization() == "normalize"
+

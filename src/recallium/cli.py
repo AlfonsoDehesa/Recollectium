@@ -896,7 +896,7 @@ def _handle_workspace_command(
             _log.error(str(exc), extra={"event": "workspace.not_found"})
             return 1
 
-    return 1
+    return 1  # pragma: no cover — parser enforces valid actions
 
 
 # ---------------------------------------------------------------------------
