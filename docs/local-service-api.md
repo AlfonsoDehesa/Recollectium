@@ -954,7 +954,8 @@ the old UID to a new UID. Both UIDs are normalized according to the
   "data": {
     "old_uid": "recollectium-core",
     "new_uid": "recollectium",
-    "memories_updated": 42
+    "memories_updated": 42,
+    "aliases_updated": 3
   }
 }
 ```
