@@ -919,9 +919,44 @@ def _handle_workspace_command(
     if args.workspace_action == "list":
         uids = core.list_workspaces(
             include_archived=getattr(args, "include_archived", False),
+            include_aliases=getattr(args, "include_aliases", False),
         )
         print(json.dumps(uids, sort_keys=True))
         return 0
+
+    if args.workspace_action == "resolve":
+        try:
+            result = core.resolve_workspace(args.uid)
+            print(json.dumps(result, sort_keys=True))
+            return 0
+        except ValidationError as exc:
+            _log.error(f"ValidationError: {exc}", extra={"event": "workspace.invalid"})
+            return 1
+
+    if args.workspace_action == "alias":
+        try:
+            if args.alias_action == "add":
+                result = core.add_workspace_alias(
+                    canonical_uid=args.canonical_uid,
+                    alias_uid=args.alias_uid,
+                    migrate_existing=getattr(args, "migrate_existing", False),
+                )
+            elif args.alias_action == "list":
+                result = core.list_workspace_aliases(
+                    canonical_uid=getattr(args, "workspace", None)
+                )
+            elif args.alias_action == "remove":
+                result = core.remove_workspace_alias(args.alias_uid)
+            else:  # pragma: no cover — parser enforces valid actions
+                return 1
+            print(json.dumps(result, sort_keys=True))
+            return 0
+        except ValidationError as exc:
+            _log.error(f"ValidationError: {exc}", extra={"event": "workspace.invalid"})
+            return 1
+        except NotFoundError as exc:
+            _log.error(str(exc), extra={"event": "workspace.not_found"})
+            return 1
 
     if args.workspace_action == "rename":
         try:
@@ -1442,7 +1477,7 @@ def _build_parser() -> argparse.ArgumentParser:
     workspace_parser = subparsers.add_parser(
         "workspace",
         help="list and manage workspace UIDs",
-        description="List known workspace UIDs and rename workspaces.",
+        description="List, resolve, rename, and manage aliases for workspace UIDs.",
     )
     workspace_sub = workspace_parser.add_subparsers(
         dest="workspace_action",
@@ -1461,6 +1496,57 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include UIDs that only appear on archived memories.",
     )
+    list_ws_parser.add_argument(
+        "--include-aliases",
+        action="store_true",
+        help="Return workspace objects with nested alias arrays.",
+    )
+
+    resolve_parser = workspace_sub.add_parser(
+        "resolve",
+        help="resolve a workspace UID to its canonical UID",
+        description="Normalize a workspace UID candidate and resolve any alias mapping.",
+    )
+    resolve_parser.add_argument("uid", help="Workspace UID candidate to resolve.")
+
+    alias_parser = workspace_sub.add_parser(
+        "alias",
+        help="manage workspace UID aliases",
+        description="Add, list, and remove workspace UID aliases.",
+    )
+    alias_sub = alias_parser.add_subparsers(
+        dest="alias_action",
+        required=True,
+        title="alias actions",
+        metavar="ACTION",
+    )
+    alias_add_parser = alias_sub.add_parser(
+        "add",
+        help="add a workspace UID alias",
+        description="Create an alias mapping to a canonical workspace UID.",
+    )
+    alias_add_parser.add_argument("canonical_uid", help="Canonical workspace UID.")
+    alias_add_parser.add_argument("alias_uid", help="Alias workspace UID.")
+    alias_add_parser.add_argument(
+        "--migrate-existing",
+        action="store_true",
+        help="Move existing alias workspace memories to the canonical UID in the same transaction.",
+    )
+    alias_list_parser = alias_sub.add_parser(
+        "list",
+        help="list workspace UID aliases",
+        description="List alias mappings, optionally filtered by canonical workspace UID.",
+    )
+    alias_list_parser.add_argument(
+        "--workspace",
+        help="Optional canonical workspace UID filter.",
+    )
+    alias_remove_parser = alias_sub.add_parser(
+        "remove",
+        help="remove a workspace UID alias",
+        description="Remove an alias mapping by alias UID.",
+    )
+    alias_remove_parser.add_argument("alias_uid", help="Alias workspace UID to remove.")
 
     rename_parser = workspace_sub.add_parser(
         "rename",

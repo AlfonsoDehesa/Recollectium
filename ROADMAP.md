@@ -30,23 +30,9 @@ Completed:
 - [x] Install-time init and model readiness: central `_ensure_model_ready()` wrapper with state file tracking, service startup gate, CLI embedding gate, bootstrap install auto-init, offline error guidance.
 - [x] Canonical memory buckets and optional read filters: small canonical user/workspace bucket sets, scope-aware write validation, exact-match optional read filters, CLI/API/MCP/docs alignment, and completion coverage.
 - [x] OpenCode adapter readiness handoff: documented service discovery, health/version/capabilities validation, workspace UID resolution, adapter workflow, and adapter contract docs.
+- [x] Workspace UID aliasing across Core, CLI, API, MCP, docs, and adapter contract: direct aliases, alias resolution for workspace operations, conflict-safe migration with `--migrate-existing`, and rename alias preservation.
 
 Remaining release blockers:
-
-
-### UID aliasing
-
-Release goal: users and adapters can treat multiple workspace UID spellings as
-aliases of one canonical workspace without splitting memory across duplicate
-workspace keys.
-
-- [ ] Add workspace aliases so a canonical workspace UID can own multiple
-  normalized alias names.
-- [ ] Resolve alias hits during recording or search back to the canonical
-  workspace after model-selected workspace UID handling and Core UID
-  normalization.
-- [ ] Expose alias management through the relevant CLI, API, MCP, and plugin
-  surfaces.
 
 ### Update flow
 

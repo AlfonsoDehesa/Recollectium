@@ -368,6 +368,12 @@ Two service types are available:
   - `list_memories` -- list memories, optionally filtered
   - `search_user_memory` -- semantic search across user-space memories
   - `search_workspace_memory` -- semantic search within a workspace
+  - `list_workspaces` -- list known workspace UIDs, optionally with aliases
+  - `rename_workspace` -- migrate a workspace UID to a new UID
+  - `resolve_workspace` -- normalize and resolve a workspace UID candidate
+  - `add_workspace_alias` -- add an alias for a canonical workspace UID
+  - `list_workspace_aliases` -- list aliases for a workspace
+  - `remove_workspace_alias` -- remove an alias mapping
 
 Only one service can run at a time. The service manager uses a PID file to track the running process and prevent conflicts.
 
@@ -568,7 +574,8 @@ project under work. If the project or active subfolder is inside a git-managed
 tree, prefer the git repository name from the repository root. If there is no
 git repo, use the selected project folder name or containing project workspace
 folder name. The plugin passes that UID candidate to Core; Core applies
-`workspace.uid_normalization` at the storage boundary. For local autodiscovery,
+`workspace.uid_normalization` and resolves configured workspace aliases at the
+storage boundary. For local autodiscovery,
 if the service is not running, the plugin should attempt to start the API service
 with `recollectium service start api` before guiding the user. See
 `docs/opencode-adapter-contract.md` for the adapter-side workspace UID and
@@ -580,7 +587,29 @@ List known workspace UIDs:
 recollectium --db /tmp/recollectium.db workspace list
 ```
 
-Rename a workspace (migrates all its memories to a new UID):
+List known workspace UIDs with aliases:
+
+```bash
+recollectium --db /tmp/recollectium.db workspace list --include-aliases
+```
+
+Resolve a UID candidate to its canonical workspace:
+
+```bash
+recollectium --db /tmp/recollectium.db workspace resolve recollectium-core
+```
+
+Add, list, and remove workspace aliases. Use `--migrate-existing` when the alias
+UID already has workspace memories and should be folded into the canonical
+workspace in the same transaction:
+
+```bash
+recollectium --db /tmp/recollectium.db workspace alias add recollectium recollectium-core --migrate-existing
+recollectium --db /tmp/recollectium.db workspace alias list --workspace recollectium
+recollectium --db /tmp/recollectium.db workspace alias remove recollectium-core
+```
+
+Rename a workspace (migrates all its memories and retargets aliases to a new UID):
 
 ```bash
 recollectium --db /tmp/recollectium.db workspace rename old-project new-project

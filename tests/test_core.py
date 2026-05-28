@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import sqlite3
 import threading
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
 
@@ -832,8 +832,8 @@ def test_database_status_surfaces_store_migration_status(tmp_path: Path) -> None
     status = core.database_status()
 
     assert status["db_path"] == str(db_path)
-    assert status["current_version"] == 2
-    assert status["latest_version"] == 2
+    assert status["current_version"] == 3
+    assert status["latest_version"] == 3
     assert status["pending_versions"] == []
     assert status["up_to_date"] is True
 
@@ -996,6 +996,57 @@ def test_core_rename_workspace_exact_mode_passthrough(tmp_path: Path) -> None:
     assert result["memories_updated"] == 1
 
 
+def test_core_rename_workspace_same_uid_includes_aliases_updated(
+    tmp_path: Path,
+) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "same-uid-rename.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    result = core.rename_workspace("My Project", "my-project")
+    assert result == {
+        "old_uid": "my-project",
+        "new_uid": "my-project",
+        "memories_updated": 0,
+        "aliases_updated": 0,
+    }
+
+
+def test_workspace_alias_exact_mode_preserves_alias_case(tmp_path: Path) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "aliases-exact-core.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    core.config._effective_config["workspace"]["uid_normalization"] = "exact"
+
+    core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="fact",
+        content="canonical exact memory",
+        workspace_uid="My Project",
+    )
+    result = core.add_workspace_alias("My Project", "My Project Legacy")
+
+    assert result["migrated_memories"] == 0
+    assert core.resolve_workspace("My Project Legacy") == {
+        "input_uid": "My Project Legacy",
+        "normalized_uid": "My Project Legacy",
+        "canonical_uid": "My Project",
+        "resolved_by_alias": True,
+    }
+
+    alias_memory = core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="fact",
+        content="alias exact memory",
+        workspace_uid="My Project Legacy",
+    )
+    assert alias_memory.workspace_uid == "My Project"
+    assert core.list_workspaces(include_aliases=True) == [
+        {"workspace_uid": "My Project", "aliases": ["My Project Legacy"]}
+    ]
+
+
 def test_core_normalize_uid_rejects_whitespace_only(tmp_path: Path) -> None:
     """_normalize_uid raises ValidationError for whitespace-only UIDs."""
     core = RecollectiumCore(
@@ -1015,3 +1066,99 @@ def test_core_uid_normalization_falls_back_to_normalize(tmp_path: Path) -> None:
     # Corrupt the workspace config to trigger fallback
     core.config._effective_config["workspace"] = None
     assert core._uid_normalization() == "normalize"
+
+
+def test_workspace_alias_resolution_flows_through_core_memory_operations(
+    tmp_path: Path,
+) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "aliases-core.db", embedding_provider=FakeEmbeddingProvider()
+    )
+    canonical = core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="fact",
+        content="canonical workspace memory",
+        workspace_uid="Recollectium",
+    )
+    result = core.add_workspace_alias("Recollectium", "Recollectium Core")
+
+    assert result["migrated_memories"] == 0
+    alias_payload = result["alias"]
+    assert isinstance(alias_payload, dict)
+    alias: dict[str, Any] = alias_payload
+    assert alias["alias_uid"] == "recollectium-core"
+    assert core.resolve_workspace("Recollectium Core") == {
+        "input_uid": "Recollectium Core",
+        "normalized_uid": "recollectium-core",
+        "canonical_uid": "recollectium",
+        "resolved_by_alias": True,
+    }
+
+    alias_memory = core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="fact",
+        content="alias workspace memory",
+        workspace_uid="Recollectium Core",
+    )
+    assert alias_memory.workspace_uid == "recollectium"
+
+    listed = core.list_memories(
+        space=SPACE_WORKSPACE, workspace_uid="Recollectium Core"
+    )
+    assert {memory.id for memory in listed} == {canonical.id, alias_memory.id}
+    searched = core.search_workspace_memories(
+        "alias", workspace_uid="Recollectium Core"
+    )
+    assert searched[0].memory.workspace_uid == "recollectium"
+
+
+def test_workspace_alias_migrate_existing_and_include_aliases(tmp_path: Path) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "aliases-migrate.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    core.add_memory(
+        space=SPACE_WORKSPACE, type="fact", content="old", workspace_uid="Old Name"
+    )
+
+    with pytest.raises(ValidationError, match="Use --migrate-existing"):
+        core.add_workspace_alias("New Name", "Old Name")
+
+    migrated = core.add_workspace_alias("New Name", "Old Name", migrate_existing=True)
+    assert migrated["migrated_memories"] == 1
+    assert [
+        memory.workspace_uid for memory in core.list_memories(space=SPACE_WORKSPACE)
+    ] == ["new-name"]
+    assert core.list_workspaces(include_aliases=True) == [
+        {"workspace_uid": "new-name", "aliases": ["old-name"]}
+    ]
+
+
+def test_workspace_alias_crud_validation_and_rename_updates_aliases(
+    tmp_path: Path,
+) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "aliases-validation.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    core.add_memory(
+        space=SPACE_WORKSPACE, type="fact", content="a", workspace_uid="alpha"
+    )
+    core.add_workspace_alias("alpha", "legacy-alpha")
+
+    with pytest.raises(ValidationError, match="must differ"):
+        core.add_workspace_alias("alpha", "Alpha")
+    with pytest.raises(ValidationError, match="already an alias"):
+        core.add_workspace_alias("legacy-alpha", "older-alpha")
+    with pytest.raises(ValidationError, match="already exists"):
+        core.add_workspace_alias("alpha", "legacy-alpha")
+
+    rename = core.rename_workspace("alpha", "beta")
+    assert rename["aliases_updated"] == 1
+    assert core.resolve_workspace("legacy-alpha")["canonical_uid"] == "beta"
+    assert core.list_workspace_aliases("beta")[0]["alias_uid"] == "legacy-alpha"
+
+    removed = core.remove_workspace_alias("legacy-alpha")
+    assert removed["canonical_uid"] == "beta"
+    with pytest.raises(NotFoundError, match="workspace alias not found"):
+        core.remove_workspace_alias("legacy-alpha")

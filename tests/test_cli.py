@@ -656,8 +656,8 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert stderr == ""
     payload = json.loads(stdout)
     assert payload["db_path"] == str(db_path)
-    assert payload["current_version"] == 2
-    assert payload["latest_version"] == 2
+    assert payload["current_version"] == 3
+    assert payload["latest_version"] == 3
     assert payload["pending_versions"] == []
     assert payload["up_to_date"] is True
 
@@ -3430,3 +3430,109 @@ def test_workspace_rename_empty_uid_fails(
     )
     assert exit_code == 1
     assert "empty string" in err.lower() or "validation" in err.lower()
+
+
+def test_workspace_alias_cli_commands_round_trip(tmp_path, capsys) -> None:
+    db_path = tmp_path / "workspace-alias-cli.db"
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            "workspace",
+            "--type",
+            "fact",
+            "--workspace-uid",
+            "Canonical",
+            "--content",
+            "a",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "workspace", "alias", "add", "Canonical", "Legacy"],
+        capsys,
+    )
+    assert exit_code == 0
+    assert json.loads(stdout)["alias"]["alias_uid"] == "legacy"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "workspace", "resolve", "Legacy"], capsys
+    )
+    assert exit_code == 0
+    assert json.loads(stdout)["canonical_uid"] == "canonical"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "workspace", "list", "--include-aliases"], capsys
+    )
+    assert exit_code == 0
+    assert json.loads(stdout) == [{"workspace_uid": "canonical", "aliases": ["legacy"]}]
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "workspace",
+            "alias",
+            "list",
+            "--workspace",
+            "Canonical",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert json.loads(stdout)[0]["alias_uid"] == "legacy"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "workspace", "alias", "remove", "Legacy"], capsys
+    )
+    assert exit_code == 0
+    assert json.loads(stdout)["alias_uid"] == "legacy"
+
+
+def test_workspace_alias_cli_migrate_existing_conflict(tmp_path, capsys) -> None:
+    db_path = tmp_path / "workspace-alias-cli-conflict.db"
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            "workspace",
+            "--type",
+            "fact",
+            "--workspace-uid",
+            "Legacy",
+            "--content",
+            "a",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "workspace", "alias", "add", "Canonical", "Legacy"],
+        capsys,
+    )
+    assert exit_code == 1
+    assert "Use --migrate-existing" in stderr
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "workspace",
+            "alias",
+            "add",
+            "Canonical",
+            "Legacy",
+            "--migrate-existing",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert json.loads(stdout)["migrated_memories"] == 1

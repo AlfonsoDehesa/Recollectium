@@ -102,11 +102,56 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
-    def list_workspaces(include_archived: bool = False) -> str:
-        """List known workspace UIDs. Set include_archived to true to include UIDs that only have archived memories."""
+    def list_workspaces(
+        include_archived: bool = False, include_aliases: bool = False
+    ) -> str:
+        """List known workspace UIDs, optionally with aliases."""
         try:
-            uids = core.list_workspaces(include_archived=include_archived)
+            uids = core.list_workspaces(
+                include_archived=include_archived, include_aliases=include_aliases
+            )
             return json.dumps(uids, sort_keys=True)
+        except RecollectiumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def resolve_workspace(uid: str) -> str:
+        """Resolve a workspace UID candidate to its canonical UID."""
+        try:
+            return json.dumps(core.resolve_workspace(uid), sort_keys=True)
+        except RecollectiumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def add_workspace_alias(
+        canonical_uid: str, alias_uid: str, migrate_existing: bool = False
+    ) -> str:
+        """Create an alias for a canonical workspace UID."""
+        try:
+            result = core.add_workspace_alias(
+                canonical_uid=canonical_uid,
+                alias_uid=alias_uid,
+                migrate_existing=migrate_existing,
+            )
+            return json.dumps(result, sort_keys=True)
+        except RecollectiumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def list_workspace_aliases(canonical_uid: str | None = None) -> str:
+        """List workspace alias mappings, optionally filtered by canonical UID."""
+        try:
+            aliases = core.list_workspace_aliases(canonical_uid=canonical_uid)
+            return json.dumps(aliases, sort_keys=True)
+        except RecollectiumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def remove_workspace_alias(alias_uid: str) -> str:
+        """Remove a workspace alias mapping."""
+        try:
+            alias = core.remove_workspace_alias(alias_uid)
+            return json.dumps(alias, sort_keys=True)
         except RecollectiumError as e:
             return json.dumps({"error": str(e)}, sort_keys=True)
 
