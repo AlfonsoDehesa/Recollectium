@@ -43,7 +43,7 @@ def test_mcp_tool_add_memory_round_trip(tmp_path: Path) -> None:
     assert "id" in memory
 
     list_fn = mcp._tool_manager._tools["list_memories"].fn
-    list_json = list_fn(space="user")
+    list_json = list_fn(space="user", type="preference")
     memories = json.loads(list_json)
     assert len(memories) >= 1
     assert memories[0]["content"] == "I prefer dark mode"
@@ -58,7 +58,7 @@ def test_mcp_tool_search_user_memory(tmp_path: Path) -> None:
     mcp = create_mcp_server(core)
 
     search_fn = mcp._tool_manager._tools["search_user_memory"].fn
-    result_json = search_fn(query="local memory storage")
+    result_json = search_fn(query="local memory storage", type="fact")
     results = json.loads(result_json)
     assert len(results) >= 1
     assert results[0]["memory"]["id"] == added.id
@@ -104,10 +104,11 @@ def test_mcp_tool_update_memory(tmp_path: Path) -> None:
     mcp = create_mcp_server(core)
 
     update_fn = mcp._tool_manager._tools["update_memory"].fn
-    result_json = update_fn(id=added.id, content="Updated content")
+    result_json = update_fn(id=added.id, type="note", content="Updated content")
     updated = json.loads(result_json)
     assert updated["id"] == added.id
     assert updated["content"] == "Updated content"
+    assert updated["type"] == "note"
 
 
 def test_mcp_tool_errors(tmp_path: Path) -> None:

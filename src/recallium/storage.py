@@ -362,6 +362,7 @@ class SQLiteMemoryStore:
         *,
         embedding_profile: dict[str, object],
         space: str | None = None,
+        memory_type: str | None = None,
         workspace_uid: str | None = None,
         include_archived: bool = False,
     ) -> list[ChunkCandidate]:
@@ -371,6 +372,9 @@ class SQLiteMemoryStore:
         if space is not None:
             where_parts.append("memories.space = ?")
             values.append(space)
+        if memory_type is not None:
+            where_parts.append("memories.type = ?")
+            values.append(memory_type)
         if workspace_uid is not None:
             where_parts.append("memories.workspace_uid = ?")
             values.append(workspace_uid)

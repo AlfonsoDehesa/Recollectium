@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from recallium.core import RecalliumCore
+from recallium.models import ALL_MEMORY_TYPES, USER_MEMORY_TYPES, WORKSPACE_MEMORY_TYPES
 from recallium.errors import ValidationError
 from recallium.service import (
     _map_boundary_error,
@@ -80,6 +81,11 @@ def test_metadata_payload_helpers_are_stable() -> None:
     assert capabilities["data"] == {
         "service_api_version": SERVICE_API_VERSION,
         "capabilities": list(SERVICE_CAPABILITIES),
+        "memory_types": {
+            "user": list(USER_MEMORY_TYPES),
+            "workspace": list(WORKSPACE_MEMORY_TYPES),
+            "all": list(ALL_MEMORY_TYPES),
+        },
     }
 
 
@@ -354,7 +360,7 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
         client,
         "POST",
         "/v1/memories/search_user",
-        {"query": "likes tea"},
+        {"query": "likes tea", "type": "fact"},
     )
     assert status == 200
     assert search_user["data"][0]["memory"]["id"] == user_id
@@ -363,7 +369,7 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
         client,
         "POST",
         "/v1/memories/search_workspace",
-        {"query": "sqlite", "workspace_uid": "ws-1"},
+        {"query": "sqlite", "workspace_uid": "ws-1", "type": "decision"},
     )
     assert status == 200
     assert search_workspace["data"][0]["memory"]["id"] == workspace_id

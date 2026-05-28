@@ -118,10 +118,12 @@ def test_core_user_memory_flow_add_get_search_list_update_archive(
     assert fetched.id == created.id
     assert fetched.last_accessed_at is not None
 
-    search_results = core.search_user_memories("repair defect")
+    search_results = core.search_user_memories("repair defect", type="note")
     assert [result.memory.id for result in search_results] == [created.id]
 
-    listed = core.list_memories(space="user")
+    assert core.search_user_memories("repair defect", type="fact") == []
+
+    listed = core.list_memories(space="user", type="note")
     assert [memory.id for memory in listed] == [created.id]
 
     updated = core.update_memory(created.id, content="Need to write release notes")
@@ -162,14 +164,21 @@ def test_core_workspace_search_isolation_by_workspace_uid(
     assert workspace_a.workspace_uid == "workspace-alpha"
 
     search_a = core.search_workspace_memories(
-        "buy milk", workspace_uid="workspace-alpha"
+        "buy milk", workspace_uid="workspace-alpha", type="task_context"
     )
     assert [result.memory.id for result in search_a] == [workspace_a.id]
 
     search_b = core.search_workspace_memories(
-        "buy milk", workspace_uid="workspace-beta"
+        "buy milk", workspace_uid="workspace-beta", type="task_context"
     )
     assert [result.memory.id for result in search_b] == [workspace_b.id]
+
+    assert (
+        core.search_workspace_memories(
+            "buy milk", workspace_uid="workspace-alpha", type="fact"
+        )
+        == []
+    )
 
     user_results = core.search_user_memories("buy")
     assert user_results == []

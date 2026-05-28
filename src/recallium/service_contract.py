@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from recallium import __version__
-from recallium.models import Memory, SearchResult
+from recallium.models import (
+    ALL_MEMORY_TYPES,
+    USER_MEMORY_TYPES,
+    WORKSPACE_MEMORY_TYPES,
+    Memory,
+    SearchResult,
+)
 
 SERVICE_API_VERSION = "1"
 SERVICE_API_PREFIX = f"/v{SERVICE_API_VERSION}"
@@ -97,6 +103,11 @@ def capabilities_payload() -> dict[str, Any]:
         {
             "service_api_version": SERVICE_API_VERSION,
             "capabilities": list(SERVICE_CAPABILITIES),
+            "memory_types": {
+                "user": list(USER_MEMORY_TYPES),
+                "workspace": list(WORKSPACE_MEMORY_TYPES),
+                "all": list(ALL_MEMORY_TYPES),
+            },
         }
     )
 
