@@ -552,11 +552,14 @@ recallium --db /tmp/recallium.db search-workspace \
 Searches default to all buckets in the selected scope. Add `--type` when you want to narrow the workspace search to a bucket such as `decision` or `task_context`.
 
 Workspace memories are keyed by a stable workspace UID. Future adapters, such as
-the OpenCode plugin, should resolve that UID from the actual directory the
-model is working in, normalize it with Core's `workspace.uid_normalization`
-rules, and pass it into workspace calls rather than letting the model invent or
-type the UID. See `docs/opencode-adapter-contract.md` for the adapter-side
-workspace UID rules.
+the OpenCode plugin, should resolve that UID from the actual workspace boundary
+the host app scoped the agent to. If the path is inside a git-managed tree, the
+canonical boundary is the git repository root; nested subfolders share that same
+workspace UID. If there is no git repo, use the current workspace directory or
+containing workspace folder. Normalize the UID with Core's
+`workspace.uid_normalization` rules and pass it into workspace calls rather than
+letting the model invent or type the UID. See `docs/opencode-adapter-contract.md`
+for the adapter-side workspace UID rules.
 
 List known workspace UIDs:
 

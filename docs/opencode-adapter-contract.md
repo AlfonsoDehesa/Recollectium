@@ -16,10 +16,15 @@ A Recallium adapter should:
 - Allow explicit host, IP, port, or base-URL overrides for deployments where
   the adapter and Recallium are not on the same machine.
 - Validate that the discovered service is healthy and compatible before use.
-- Resolve the current workspace directory to the workspace UID Core will use
-  for that directory.
-- Normalize that UID with Core's workspace UID rules before passing it into
-  Recallium workspace memory operations.
+- Resolve the workspace from the actual working directory the host app scoped
+  the agent to, not from model guesswork.
+- If that directory is inside a git-managed tree, use the git repository root
+  as the canonical workspace boundary. Nested subfolders inherit the same
+  workspace UID.
+- If there is no git-managed tree, use the current workspace directory or its
+  containing workspace folder as the canonical boundary.
+- Normalize the resulting UID with Core's workspace UID rules before passing it
+  into Recallium workspace memory operations.
 - Expose user-memory and workspace-memory operations as separate tools.
 - Treat Recallium Core as the source of truth for memory storage and search.
 
@@ -104,10 +109,14 @@ Recommended adapter behavior:
 
 - Determine the current workspace from the host application's active project,
   current directory, or other workspace context.
-- Derive the workspace UID from the actual directory the model is working in,
-  then normalize it using Core's `workspace.uid_normalization` rules.
-- Pass the resulting UID to Recallium for workspace search, add, list, and
-  rename operations.
+- Use the git repository root as the workspace boundary when the active path is
+  inside a git-managed tree. Subfolders under the same repo do not get separate
+  workspace UIDs.
+- When there is no git repo, use the actual current workspace directory or its
+  containing workspace folder as the boundary.
+- Derive the workspace UID from that boundary, then normalize it using Core's
+  `workspace.uid_normalization` rules.
+- Pass that normalized UID into Recallium workspace memory operations.
 
 If the adapter maintains workspace metadata in a repo-local file, that file is
 an adapter concern, not a Core requirement. Recallium Core does not require any
@@ -161,8 +170,10 @@ or inventing a workspace identity.
 2. Start the local service.
 3. Run `recallium service discover`.
 4. Validate health, version, and capabilities.
-5. Resolve the active workspace UID from the actual directory the model is
-   working in, then normalize it using Core's rules.
+5. Resolve the active workspace UID from the actual workspace boundary the
+   host app scoped the agent to. If that path is inside a git-managed tree, use
+   the git repository root; otherwise use the current workspace directory or
+   containing workspace folder. Normalize it using Core's rules.
 6. Call the memory endpoints needed for the user task.
 
 ## Documentation expectations
