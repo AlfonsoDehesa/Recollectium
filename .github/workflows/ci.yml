@@ -82,6 +82,8 @@ jobs:
       - name: Verify Recollectium on Unix
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           recollectium --version
@@ -99,6 +101,8 @@ jobs:
       - name: Verify Recollectium on Windows
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           recollectium --version
           recollectium upgrade --check --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" | Out-File -Encoding utf8 upgrade-check.json

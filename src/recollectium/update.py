@@ -96,12 +96,16 @@ class GitHubReleaseClient:
     """Fetch latest release metadata from GitHub's REST API."""
 
     def latest_release(self, repo: str) -> ReleaseInfo:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "recollectium",
+        }
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         request = Request(
             f"https://api.github.com/repos/{repo}/releases/latest",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "recollectium",
-            },
+            headers=headers,
         )
         try:
             with urlopen(request, timeout=15) as response:  # noqa: S310 - fixed GitHub API URL

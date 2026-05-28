@@ -478,14 +478,19 @@ def test_github_release_client_success_and_errors(monkeypatch) -> None:
         def read(self) -> bytes:
             return self.payload
 
-    monkeypatch.setattr(
-        "recollectium.update.urlopen",
-        lambda request, timeout: Response(
+    captured_headers: dict[str, str] = {}
+
+    def _success(request, timeout):
+        captured_headers.update(dict(request.header_items()))
+        return Response(
             json_module.dumps({"tag_name": "v1.2.3", "html_url": "url"}).encode()
-        ),
-    )
+        )
+
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setattr("recollectium.update.urlopen", _success)
     release = GitHubReleaseClient().latest_release("owner/repo")
     assert release == ReleaseInfo("1.2.3", "v1.2.3", "url")
+    assert captured_headers["Authorization"] == "Bearer test-token"
 
     monkeypatch.setattr(
         "recollectium.update.urlopen",
