@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import io
 import json
-import logging
 from copy import deepcopy
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
@@ -62,17 +60,9 @@ class FakeEmbeddingProvider:
 
 
 def _run_cli(args: list[str], capsys: CaptureFixture[str]) -> tuple[int, str, str]:
-    log_buf = io.StringIO()
-    log_handler = logging.StreamHandler(log_buf)
-    log_handler.setLevel(logging.WARNING)
-    root = logging.getLogger()
-    root.addHandler(log_handler)
-    try:
-        exit_code = main(args)
-        captured = capsys.readouterr()
-        return exit_code, captured.out, captured.err + log_buf.getvalue()
-    finally:
-        root.removeHandler(log_handler)
+    exit_code = main(args)
+    captured = capsys.readouterr()
+    return exit_code, captured.out, captured.err
 
 
 def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
@@ -275,6 +265,7 @@ def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None
         db_path: str | None,
         config_path: str | None,
         log_level: str | None,
+        cli_structured_errors: bool = False,
     ) -> None:
         call["host"] = host
         call["port"] = port
@@ -322,6 +313,7 @@ def test_cli_serve_uses_default_host_and_port_without_explicit_config(
         db_path: str | None,
         config_path: str | None,
         log_level: str | None,
+        cli_structured_errors: bool = False,
     ) -> None:
         call["host"] = host
         call["port"] = port
@@ -357,6 +349,7 @@ def test_cli_serve_explicit_missing_config_fails_clearly(
         db_path: str | None,
         config_path: str | None,
         log_level: str | None,
+        cli_structured_errors: bool = False,
     ) -> None:
         raise AssertionError("run_service should not run with a missing config")
 
@@ -382,6 +375,7 @@ def test_cli_serve_invalid_config_fails_clearly(
         db_path: str | None,
         config_path: str | None,
         log_level: str | None,
+        cli_structured_errors: bool = False,
     ) -> None:
         raise AssertionError("run_service should not run with invalid config")
 
@@ -411,6 +405,7 @@ def test_cli_serve_explicit_missing_config_fails_after_flag_overrides(
         db_path: str | None,
         config_path: str | None,
         log_level: str | None,
+        cli_structured_errors: bool = False,
     ) -> None:
         raise FileNotFoundError(f"config file not found: {config_path}")
 
@@ -446,6 +441,7 @@ def test_cli_serve_invalid_config_fails_after_flag_overrides(
         db_path: str | None,
         config_path: str | None,
         log_level: str | None,
+        cli_structured_errors: bool = False,
     ) -> None:
         raise ValidationError("invalid JSON in config file")
 
@@ -739,7 +735,9 @@ def test_cli_rejects_invalid_metadata_json_and_non_object(
     )
     assert exit_code == 2
     assert stdout == ""
-    assert "metadata must be valid JSON" in stderr
+    payload = json.loads(stderr)
+    assert payload["status"] == "metadata_invalid"
+    assert "metadata must be valid JSON" in payload["detail"]
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -759,7 +757,9 @@ def test_cli_rejects_invalid_metadata_json_and_non_object(
     )
     assert exit_code == 2
     assert stdout == ""
-    assert "metadata must be a JSON object" in stderr
+    payload = json.loads(stderr)
+    assert payload["status"] == "metadata_invalid"
+    assert "metadata must be a JSON object" in payload["detail"]
 
 
 def test_cli_validation_error_returns_2(tmp_path, capsys) -> None:
@@ -1222,7 +1222,7 @@ class TestConfigCommand:
         exit_code, stdout, stderr = _run_cli(
             ["--config", str(config_path), "config", "--validate"], capsys
         )
-        assert exit_code == 1
+        assert exit_code == 2
         assert "invalid JSON" in stderr
 
     def test_config_validate_missing_file(self, tmp_path, capsys) -> None:
@@ -3186,7 +3186,10 @@ def test_cli_completion_install_refuses_without_confirm_in_non_tty(
     exit_code, stdout, stderr = _run_cli(["completion", "--install", "bash"], capsys)
 
     assert exit_code == 1
-    assert "Cancelled" in stderr or "cancelled" in stderr
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "operation_failed"
+    assert payload["message"] == "Completion installation cancelled."
 
 
 def test_cli_completion_install_accepts_confirm(
@@ -3435,7 +3438,7 @@ def test_workspace_rename_empty_uid_fails(
         ["--db", str(db_path), "workspace", "rename", "   ", "valid"],
         capsys,
     )
-    assert exit_code == 1
+    assert exit_code == 2
     assert "empty string" in err.lower() or "validation" in err.lower()
 
 
@@ -3628,10 +3631,9 @@ def test_cli_upgrade_applies_and_reports_service_restart_failure(
     exit_code, stdout, stderr = _run_cli(["upgrade", "--force"], capsys)
 
     assert exit_code == 1
-    assert stderr == ""
-    payload = json.loads(stdout)
-    assert payload["status"] == "updated"
-    assert payload["services_to_restart"] == ["api"]
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "service_error"
     assert payload["service_restart_errors"] == [
         {"type": "api", "error": "restart failed"}
     ]
@@ -3984,7 +3986,7 @@ def test_workspace_resolve_validation_error(tmp_path, capsys) -> None:
         capsys,
     )
 
-    assert exit_code == 1
+    assert exit_code == 2
     assert stdout == ""
     assert "workspace uid must be a non-empty string" in stderr.lower()
 
@@ -4115,3 +4117,238 @@ def test_cli_upgrade_check_existing_config_error_stays_non_mutating(
     payload = json.loads(stdout)
     assert payload["status"] == "dry_run"
     assert payload["services_to_restart"] == []
+
+
+def test_write_tty_writes_to_controlling_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    writes: list[str] = []
+    flushes: list[bool] = []
+
+    class FakeTty:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def write(self, text: str) -> None:
+            writes.append(text)
+
+        def flush(self) -> None:
+            flushes.append(True)
+
+    monkeypatch.setattr(cli_mod.Path, "open", lambda *args, **kwargs: FakeTty())
+
+    assert cli_mod._write_tty("prompt") is True
+    assert writes == ["prompt"]
+    assert flushes == [True]
+
+
+def test_write_tty_returns_false_when_terminal_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    def _raise(*args, **kwargs):
+        raise OSError("no tty")
+
+    monkeypatch.setattr(cli_mod.Path, "open", _raise)
+
+    assert cli_mod._write_tty("prompt") is False
+
+
+def test_completion_install_interactive_prompt_uses_tty_not_stderr(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    prompts: list[str] = []
+
+    monkeypatch.setattr("recollectium.cli.Path.home", lambda: tmp_path)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdin.readline", lambda: "no\n")
+    monkeypatch.setattr(
+        cli_mod, "_write_tty", lambda text: prompts.append(text) or True
+    )
+
+    exit_code, stdout, stderr = _run_cli(["completion", "--install", "bash"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "operation_failed"
+    assert prompts
+    assert "Will append" in prompts[0]
+
+
+def test_uninstall_purge_interactive_prompt_uses_tty_not_stderr(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    prompts: list[str] = []
+
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdin.readline", lambda: "no\n")
+    monkeypatch.setattr(
+        cli_mod, "_write_tty", lambda text: prompts.append(text) or True
+    )
+
+    exit_code, stdout, stderr = _run_cli(["uninstall", "--purge"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "purge_cancelled"
+    assert prompts == [
+        "Type 'delete all recollectium data' to permanently delete Recollectium data: "
+    ]
+
+
+def test_init_migration_error_returns_structured_json(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.errors import MigrationError
+
+    def _raise(*args, **kwargs):
+        raise MigrationError("boom")
+
+    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", _raise)
+
+    exit_code, stdout, stderr = _run_cli(["init"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "migration_error"
+    assert payload["message"] == "Database migration failed."
+
+
+def test_db_status_migration_error_returns_structured_json(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.errors import MigrationError
+
+    def _raise(*args, **kwargs):
+        raise MigrationError("status boom")
+
+    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", _raise)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(tmp_path / "db-status.db"), "db-status"], capsys
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "migration_error"
+    assert payload["message"] == "Database migration status failed."
+
+
+def test_core_migration_error_returns_structured_json(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.errors import MigrationError
+
+    def _raise(*args, **kwargs):
+        raise MigrationError("core boom")
+
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", _raise)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(tmp_path / "core.db"), "get", "missing"], capsys
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "migration_error"
+    assert payload["message"] == "Database migration failed."
+
+
+def test_core_recollectium_error_returns_operation_failed_json(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.errors import RecollectiumError
+
+    def _raise(*args, **kwargs):
+        raise RecollectiumError("domain boom")
+
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", _raise)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(tmp_path / "core-error.db"), "get", "missing"], capsys
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "operation_failed"
+    assert payload["detail"] == "RecollectiumError: domain boom"
+
+
+def test_cli_serve_service_error_returns_structured_json(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.errors import ServiceError
+
+    def _fake_run_service(**kwargs: object) -> None:
+        raise ServiceError("serve boom")
+
+    monkeypatch.setattr("recollectium.cli.run_service", _fake_run_service)
+
+    exit_code, stdout, stderr = _run_cli(["serve"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "service_error"
+    assert payload["detail"] == "ServiceError: serve boom"
+
+
+def test_cli_serve_embedding_error_returns_structured_json(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.errors import EmbeddingGenerationError
+
+    def _fake_run_service(**kwargs: object) -> None:
+        assert kwargs["cli_structured_errors"] is True
+        raise EmbeddingGenerationError("model readiness failed")
+
+    monkeypatch.setattr("recollectium.cli.run_service", _fake_run_service)
+
+    exit_code, stdout, stderr = _run_cli(["serve"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "embedding_error"
+    assert payload["detail"] == "EmbeddingGenerationError: model readiness failed"
+
+
+def test_cli_serve_recollectium_error_returns_structured_json(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.errors import RecollectiumError
+
+    def _fake_run_service(**kwargs: object) -> None:
+        raise RecollectiumError("serve domain boom")
+
+    monkeypatch.setattr("recollectium.cli.run_service", _fake_run_service)
+
+    exit_code, stdout, stderr = _run_cli(["serve"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "operation_failed"
+    assert payload["detail"] == "RecollectiumError: serve domain boom"

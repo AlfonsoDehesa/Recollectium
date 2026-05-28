@@ -1009,3 +1009,32 @@ def test_http_workspace_alias_conflict_returns_400(tmp_path: Path) -> None:
     assert status == 400
     assert payload["error"]["code"] == "validation_error"
     assert "Use --migrate-existing" in payload["error"]["message"]
+
+
+def test_run_service_raises_embedding_error_for_structured_cli_failures(
+    monkeypatch,
+) -> None:
+    from recollectium.errors import EmbeddingGenerationError
+
+    class FailingCore:
+        def __init__(self, *, db_path=None, config_path=None, log_level=None):
+            self.config = type(
+                "FakeConfig",
+                (),
+                {"effective_config": {"logging": {"level": "info"}}},
+            )()
+
+        def _ensure_model_ready(self) -> None:
+            raise Exception("model download failed")
+
+    monkeypatch.setattr("recollectium.service.RecollectiumCore", FailingCore)
+
+    with pytest.raises(EmbeddingGenerationError) as exc_info:
+        run_service(
+            host="127.0.0.1",
+            port=8902,
+            db_path="fail.db",
+            cli_structured_errors=True,
+        )
+
+    assert "model readiness failed: model download failed" in str(exc_info.value)

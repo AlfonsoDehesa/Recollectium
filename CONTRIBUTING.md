@@ -125,6 +125,13 @@ Every PR must pass the quality gates before merge:
 Aim for 100 percent coverage on changed code. If that is not feasible,
 explain the uncovered lines in the PR description.
 
+Structured logging is also a release gate. Before marking a PR ready,
+confirm that all changed major features, endpoints, and code paths are well
+logged unless logging would be unnecessary or noisy. Changed failure paths
+must emit appropriate structured events. Logs must not pollute stdout JSON
+contracts, and logs must avoid sensitive payloads such as memory content,
+metadata, credentials, tokens, or secrets.
+
 If the PR implements a feature or release-blocker item listed in `ROADMAP.md`,
 update `ROADMAP.md` in the same PR. Move completed work into the `Completed`
 section, mark the completed checklist item, and keep the remaining roadmap
@@ -231,6 +238,9 @@ confirmed before the version-bump PR is opened.
       subcommand and confirm nothing is missing.
 - [ ] README is current: install instructions, config reference, CLI
       examples, service management, uninstall, Python API examples.
+- [ ] CLI failure contracts are documented and still valid: non-argparse failures
+      emit structured JSON on stderr, stdout JSON contracts stay unpolluted, and
+      changed failure paths emit structured logs without sensitive payloads.
 - [ ] GitHub Wiki is current and in sync with the README and API docs:
       install, config, CLI reference, service management, uninstall,
       memory types, API overview, and local access/security.
