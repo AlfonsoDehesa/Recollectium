@@ -29,9 +29,11 @@ from recollectium import (
     ValidationError,
 )
 from recollectium.errors import (
+    EmbeddingGenerationError,
     EmbeddingModelUnavailableError,
     EmbeddingProviderUnavailableError,
     EmbeddingReadinessTimeoutError,
+    MigrationError,
 )
 from recollectium.config import (
     DEFAULTS,
@@ -155,6 +157,10 @@ class _UninstallPlan:
         self.install_metadata_path = install_metadata_path
 
 
+class _MetadataInvalidError(ValidationError):
+    """Raised when CLI --metadata is malformed or not an object."""
+
+
 def _parse_metadata(raw_metadata: str | None) -> dict[str, object] | None:
     if raw_metadata is None:
         return None
@@ -167,11 +173,22 @@ def _parse_metadata(raw_metadata: str | None) -> dict[str, object] | None:
     try:
         parsed = json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise ValidationError(f"metadata must be valid JSON: {exc.msg}") from exc
+        raise _MetadataInvalidError(f"metadata must be valid JSON: {exc.msg}") from exc
 
     if not isinstance(parsed, dict):
-        raise ValidationError("metadata must be a JSON object")
+        raise _MetadataInvalidError("metadata must be a JSON object")
     return parsed
+
+
+def _write_tty(text: str) -> bool:
+    """Write interactive prompt text to the controlling TTY, not stdout/stderr."""
+    try:
+        with Path("/dev/tty").open("w", encoding="utf-8") as tty:
+            tty.write(text)
+            tty.flush()
+    except OSError:
+        return False
+    return True
 
 
 def _to_payload(data: Any) -> Any:
@@ -264,14 +281,11 @@ def _handle_config_command(
             cfg = _load_effective_config(config_path, explicit=explicit)
             value = get_config_value(cfg.effective_config, args.key)
         except FileNotFoundError as exc:
-            _log.error(str(exc), extra={"event": "config.missing"})
-            return 1
+            return _config_missing_error(exc, command="config get")
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-            return 2
+            return _config_invalid_error(exc, command="config get")
         except KeyError as exc:
-            _log.error(f"key not found: {exc}", extra={"event": "config.missing"})
-            return 1
+            return _not_found_error(exc, command="config get")
         print(json.dumps(value, sort_keys=True))
         return 0
 
@@ -290,37 +304,35 @@ def _handle_config_command(
             merged = _deep_merge(deepcopy(DEFAULTS), raw)
             _validate_config_value(merged)
         except ValidationError as exc:
-            _log.error(
-                f"ValidationError: {exc}",
-                extra={"event": "config.invalid"},
-            )
-            return 2
+            return _config_invalid_error(exc, command="config set")
         config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
         return 0
 
     if args.config_action == "unset":
         if not config_path.exists():
-            _log.error(
-                f"config file not found: {config_path}",
-                extra={"event": "config.missing"},
+            return _config_missing_error(
+                FileNotFoundError(f"config file not found: {config_path}"),
+                command="config unset",
             )
-            return 1
         raw = load_config_file(config_path)
         try:
             unset_config_value(raw, args.key)
         except KeyError as exc:
-            _log.error(f"key not found: {exc}", extra={"event": "config.missing"})
-            return 1
+            return _not_found_error(exc, command="config unset")
         config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
         return 0
 
     if args.config_action == "init":
         if config_path.exists() and not args.force:
-            _log.warning(
-                f"config file already exists: {config_path}",
-                extra={"event": "config.missing"},
+            return _emit_cli_failure(
+                status="operation_failed",
+                message="Config file already exists.",
+                detail=f"config file already exists: {config_path}",
+                hint="Use recollectium config init --force to overwrite it.",
+                exit_code=1,
+                command="config init",
+                event="config.exists",
             )
-            return 1
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
         config_path.chmod(0o600)
@@ -330,11 +342,9 @@ def _handle_config_command(
         try:
             cfg = _load_effective_config(config_path, explicit=explicit)
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-            return 2
+            return _config_invalid_error(exc, command="config doctor")
         except FileNotFoundError as exc:
-            _log.error(str(exc), extra={"event": "config.missing"})
-            return 1
+            return _config_missing_error(exc, command="config doctor")
 
         failures: list[str] = []
         print(f"OK config: {cfg.config_file_path}")
@@ -364,12 +374,16 @@ def _handle_config_command(
 
         if failures:
             for failure in failures:
-                _log.error(
-                    failure,
-                    extra={"event": "config.doctor_failed"},
-                )
-                print(f"FAIL {failure}", file=sys.stderr)
-            return 1
+                _log.info(failure, extra={"event": "config.doctor_failed"})
+            return _emit_cli_failure(
+                status="operation_failed",
+                message="Config doctor found filesystem problems.",
+                detail="; ".join(f"FAIL {failure}" for failure in failures),
+                exit_code=1,
+                command="config doctor",
+                event="config.doctor_failed",
+                failures=failures,
+            )
 
         print("Config doctor checks passed")
         return 0
@@ -385,8 +399,15 @@ def _handle_config_command(
         try:
             return subprocess.call([editor, str(config_path)])
         except FileNotFoundError:
-            _log.error(f"editor not found: {editor}", extra={"event": "config.missing"})
-            return 1
+            return _emit_cli_failure(
+                status="operation_failed",
+                message="Editor was not found.",
+                detail=f"editor not found: {editor}",
+                hint="Set EDITOR to an installed editor or edit the config file directly.",
+                exit_code=1,
+                command="config edit",
+                event="config.editor_missing",
+            )
 
     if args.config_action == "reset":
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -402,11 +423,9 @@ def _handle_config_command(
             else:
                 _load_effective_config(config_path, explicit=False)
         except ValidationError as exc:
-            _log.error(str(exc), extra={"event": "config.invalid"})
-            return 1
+            return _config_invalid_error(exc, command="config --validate")
         except FileNotFoundError as exc:
-            _log.error(str(exc), extra={"event": "config.missing"})
-            return 1
+            return _config_missing_error(exc, command="config --validate")
         return 0
 
     if args.path:
@@ -421,11 +440,9 @@ def _handle_config_command(
     try:
         cfg = _load_effective_config(config_path, explicit=explicit)
     except FileNotFoundError as exc:
-        _log.error(str(exc), extra={"event": "config.missing"})
-        return 1
+        return _config_missing_error(exc, command="config")
     except ValidationError as exc:
-        _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-        return 2
+        return _config_invalid_error(exc, command="config")
     print(json.dumps(cfg.effective_config, indent=2, sort_keys=True))
     return 0
 
@@ -478,8 +495,199 @@ def _handle_init_command(
     return 0
 
 
+# -- CLI failure contract -------------------------------------------------
+#
+# Except for argparse-generated help/usage output, command failures print one
+# structured JSON object to stderr and keep stdout reserved for success JSON.
+# Logs are diagnostic telemetry only: they must not be used as CLI control-flow
+# payloads, must not write to stdout, and must avoid sensitive content.
 def _print_json_stderr(payload: dict[str, object]) -> None:
     print(json.dumps(payload, sort_keys=True), file=sys.stderr)
+
+
+def _emit_cli_failure(
+    *,
+    status: str,
+    message: str,
+    exit_code: int,
+    command: str | None = None,
+    detail: str | None = None,
+    hint: str | None = None,
+    event: str = "cli.failure",
+    **fields: object,
+) -> int:
+    payload: dict[str, object] = {"status": status, "message": message}
+    if detail is not None:
+        payload["detail"] = detail
+    if hint is not None:
+        payload["hint"] = hint
+    for key, value in fields.items():
+        if value is not None:
+            payload[key] = value
+    _print_json_stderr(payload)
+    _log.info(
+        "CLI command failed",
+        extra={
+            "event": event,
+            "context": {
+                "command": command,
+                "status": status,
+                "exit_code": exit_code,
+            },
+        },
+    )
+    return exit_code
+
+
+def _config_missing_error(exc: FileNotFoundError, *, command: str | None) -> int:
+    return _emit_cli_failure(
+        status="config_missing",
+        message="Config file was not found.",
+        detail=str(exc),
+        hint="Check the --config path or omit --config to use the default config location.",
+        exit_code=1,
+        command=command,
+        event="config.missing",
+    )
+
+
+def _config_invalid_error(exc: ValidationError, *, command: str | None) -> int:
+    return _emit_cli_failure(
+        status="config_invalid",
+        message="Config is invalid.",
+        detail=f"ValidationError: {exc}",
+        hint="Fix the config file or run recollectium config reset to restore defaults.",
+        exit_code=2,
+        command=command,
+        event="config.invalid",
+    )
+
+
+def _validation_error(
+    exc: ValidationError,
+    *,
+    command: str | None,
+    status: str = "validation_error",
+    event: str = "cli.failure",
+    exit_code: int = 2,
+) -> int:
+    message = "Input validation failed."
+    return _emit_cli_failure(
+        status=status,
+        message=message,
+        detail=f"ValidationError: {exc}",
+        exit_code=exit_code,
+        command=command,
+        event=event,
+    )
+
+
+def _metadata_invalid_error(exc: _MetadataInvalidError) -> int:
+    return _emit_cli_failure(
+        status="metadata_invalid",
+        message="Metadata must be a JSON object.",
+        detail=f"ValidationError: {exc}",
+        hint='Pass metadata as a JSON object, for example --metadata \'{"source": "notes"}\'.',
+        exit_code=2,
+        command="memory metadata",
+        event="memory.metadata_invalid",
+    )
+
+
+def _workspace_validation_error(exc: ValidationError, *, command: str) -> int:
+    detail = str(exc)
+    if (
+        "workspace alias already exists" in detail
+        or "workspace alias conflicts with existing workspace memories" in detail
+    ):
+        return _emit_cli_failure(
+            status="operation_failed",
+            message="Workspace operation could not be completed because of existing resources.",
+            detail=f"ValidationError: {exc}",
+            hint="Resolve the existing workspace or alias conflict and retry.",
+            exit_code=1,
+            command=command,
+            event="workspace.resource_conflict",
+        )
+    return _validation_error(exc, command=command, event="workspace.invalid")
+
+
+def _not_found_error(exc: Exception, *, command: str | None) -> int:
+    return _emit_cli_failure(
+        status="not_found",
+        message="Requested resource was not found.",
+        detail=f"{exc.__class__.__name__}: {exc}",
+        exit_code=1,
+        command=command,
+    )
+
+
+def _service_error(
+    exc: Exception,
+    *,
+    command: str | None,
+    status: str = "service_error",
+    exit_code: int = 1,
+    event: str = "cli.failure",
+) -> int:
+    return _emit_cli_failure(
+        status=status,
+        message="Service operation failed.",
+        detail=f"{exc.__class__.__name__}: {exc}",
+        exit_code=exit_code,
+        command=command,
+        event=event,
+    )
+
+
+def _embedding_error(exc: Exception, *, command: str | None) -> int:
+    if isinstance(exc, EmbeddingReadinessTimeoutError):
+        return _emit_cli_failure(
+            status="embedding_timeout",
+            message="Embedding model readiness timed out.",
+            detail=f"{exc.__class__.__name__}: {exc}",
+            hint="Check your internet connection and retry recollectium init.",
+            exit_code=1,
+            command=command,
+            event="embedding.readiness_timeout",
+        )
+    if isinstance(exc, EmbeddingModelUnavailableError):
+        return _emit_cli_failure(
+            status="embedding_model_unavailable",
+            message="Embedding model could not be loaded or downloaded.",
+            detail=f"{exc.__class__.__name__}: {exc}",
+            hint="Check your internet connection and retry recollectium init.",
+            exit_code=1,
+            command=command,
+            event="embedding.model_unavailable",
+        )
+    if isinstance(exc, EmbeddingProviderUnavailableError):
+        return _emit_cli_failure(
+            status="embedding_provider_unavailable",
+            message="Embedding provider is unavailable.",
+            detail=f"{exc.__class__.__name__}: {exc}",
+            hint="Check the local runtime and retry recollectium init.",
+            exit_code=1,
+            command=command,
+            event="embedding.provider_unavailable",
+        )
+    return _emit_cli_failure(
+        status="embedding_error",
+        message="Embedding operation failed.",
+        detail=f"{exc.__class__.__name__}: {exc}",
+        exit_code=1,
+        command=command,
+    )
+
+
+def _operation_failed_error(exc: Exception, *, command: str | None) -> int:
+    return _emit_cli_failure(
+        status="operation_failed",
+        message="Operation failed.",
+        detail=f"{exc.__class__.__name__}: {exc}",
+        exit_code=1,
+        command=command,
+    )
 
 
 def _handle_upgrade_command(args: argparse.Namespace, config_path: Path) -> int:
@@ -500,16 +708,16 @@ def _handle_upgrade_command(args: argparse.Namespace, config_path: Path) -> int:
         if exc.reason == "no_latest_release" and allow_main:
             latest_release = None
         else:
-            _print_json_stderr(
-                {
-                    "status": "network_error",
-                    "message": "Could not fetch latest Recollectium release from GitHub.",
-                    "detail": str(exc),
-                    "reason": exc.reason,
-                    "hint": "Check your network connection or retry later.",
-                }
+            return _emit_cli_failure(
+                status="network_error",
+                message="Could not fetch latest Recollectium release from GitHub.",
+                detail=str(exc),
+                reason=exc.reason,
+                hint="Check your network connection or retry later.",
+                exit_code=1,
+                command="upgrade",
+                event="upgrade.release_lookup_failed",
             )
-            return 1
 
     source_root = find_source_checkout_root(Path(__file__).resolve())
     plan = build_update_plan(
@@ -554,36 +762,36 @@ def _handle_upgrade_command(args: argparse.Namespace, config_path: Path) -> int:
         return 0
 
     if plan.status == "unsupported_install_method":
-        _print_json_stderr(
-            {
-                "status": plan.status,
-                "message": "Could not determine how Recollectium was installed.",
-                "detail": plan.reason,
-                "hint": "Run recollectium upgrade --install-method pip, pipx, uv_tool, or source if you know the install method.",
-            }
+        return _emit_cli_failure(
+            status=plan.status,
+            message="Could not determine how Recollectium was installed.",
+            detail=plan.reason,
+            hint="Run recollectium upgrade --install-method pip, pipx, uv_tool, or source if you know the install method.",
+            exit_code=2,
+            command="upgrade",
+            event="upgrade.unsupported_install_method",
         )
-        return 2
     if plan.status == "network_error":
-        _print_json_stderr(
-            {
-                "status": plan.status,
-                "message": "Could not fetch latest Recollectium release from GitHub.",
-                "detail": plan.reason,
-                "hint": "Check your network connection or retry later.",
-            }
+        return _emit_cli_failure(
+            status=plan.status,
+            message="Could not fetch latest Recollectium release from GitHub.",
+            detail=plan.reason,
+            hint="Check your network connection or retry later.",
+            exit_code=1,
+            command="upgrade",
+            event="upgrade.network_error",
         )
-        return 1
     if plan.status == "update_failed" and plan.command is None:
-        _print_json_stderr(
-            {
-                **payload,
-                "message": "Could not prepare the Recollectium package upgrade.",
-                "detail": plan.reason,
-                "hint": "Run from a Recollectium source checkout or choose a different --install-method.",
-                "returncode": 1,
-            }
+        return _emit_cli_failure(
+            status="update_failed",
+            message="Could not prepare the Recollectium package upgrade.",
+            detail=plan.reason,
+            hint="Run from a Recollectium source checkout or choose a different --install-method.",
+            returncode=1,
+            exit_code=1,
+            command="upgrade",
+            event="upgrade.prepare_failed",
         )
-        return 1
 
     service_stop_errors: list[dict[str, str]] = []
     if cfg is not None:
@@ -594,8 +802,15 @@ def _handle_upgrade_command(args: argparse.Namespace, config_path: Path) -> int:
                 service_stop_errors.append({"type": service_type, "error": str(exc)})
     if service_stop_errors:
         payload["service_stop_errors"] = service_stop_errors
-        _print_json_stderr(payload)
-        return 1
+        return _emit_cli_failure(
+            status="service_error",
+            message="Could not stop running Recollectium services before upgrade.",
+            detail="; ".join(error["error"] for error in service_stop_errors),
+            service_stop_errors=service_stop_errors,
+            exit_code=1,
+            command="upgrade",
+            event="upgrade.service_stop_failed",
+        )
 
     result = apply_update(
         plan, runner=SubprocessCommandRunner(), timeout_seconds=args.timeout
@@ -626,8 +841,19 @@ def _handle_upgrade_command(args: argparse.Namespace, config_path: Path) -> int:
                     )
         if service_restart_errors:
             payload["service_restart_errors"] = service_restart_errors
-        _print_json_stderr(payload)
-        return result.returncode if 1 <= result.returncode <= 125 else 1
+        return _emit_cli_failure(
+            status="update_failed",
+            message="Recollectium package upgrade failed.",
+            detail=result.stderr or result.stdout or plan.reason,
+            hint="Review stderr, check that the package manager is installed, and retry after resolving the error.",
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            service_restart_errors=service_restart_errors or None,
+            exit_code=result.returncode if 1 <= result.returncode <= 125 else 1,
+            command="upgrade",
+            event="upgrade.update_failed",
+        )
 
     payload["status"] = "updated"
     if cfg is not None:
@@ -641,8 +867,15 @@ def _handle_upgrade_command(args: argparse.Namespace, config_path: Path) -> int:
                 service_restart_errors.append({"type": service_type, "error": str(exc)})
     if service_restart_errors:
         payload["service_restart_errors"] = service_restart_errors
-        print(json.dumps(payload, sort_keys=True))
-        return 1
+        return _emit_cli_failure(
+            status="service_error",
+            message="Recollectium upgraded, but services could not be restarted.",
+            detail="; ".join(error["error"] for error in service_restart_errors),
+            service_restart_errors=service_restart_errors,
+            exit_code=1,
+            command="upgrade",
+            event="upgrade.service_restart_failed",
+        )
     print(json.dumps(payload, sort_keys=True))
     return 0
 
@@ -676,12 +909,14 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
     if shell is None:
         shell = _detect_shell()
     if shell is None:
-        _log.error(
-            "Could not detect shell from $SHELL. "
-            "Pass the shell name explicitly: recollectium completion bash",
-            extra={"event": "completion.unknown_shell"},
+        return _emit_cli_failure(
+            status="validation_error",
+            message="Could not detect shell.",
+            hint="Pass the shell name explicitly, such as recollectium completion bash.",
+            exit_code=2,
+            command="completion",
+            event="completion.unknown_shell",
         )
-        return 2
 
     if args.source:
         output = argcomplete.shellcode(["recollectium"], shell=shell)  # pyright: ignore[reportPrivateImportUsage]
@@ -693,21 +928,28 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
     if args.install:
         rc_filename = _COMPLETION_RC_FILES.get(shell)
         if rc_filename is None:
-            _log.error(
-                f"No rc file mapping for shell {shell}",
-                extra={"event": "completion.unknown_rc"},
+            return _emit_cli_failure(
+                status="operation_failed",
+                message="No shell rc file mapping is available.",
+                detail=f"No rc file mapping for shell {shell}",
+                exit_code=1,
+                command="completion --install",
+                event="completion.unknown_rc",
             )
-            return 1
         rc_path = Path.home() / rc_filename
 
         try:
             existing = rc_path.read_text(encoding="utf-8") if rc_path.exists() else ""
         except OSError as exc:
-            _log.error(
-                f"Could not read rc file {rc_path}: {exc}",
-                extra={"event": "completion.rc_read_error"},
+            return _emit_cli_failure(
+                status="operation_failed",
+                message="Could not read rc file.",
+                detail=str(exc),
+                exit_code=1,
+                command="completion --install",
+                event="completion.rc_read_error",
+                path=str(rc_path),
             )
-            return 1
 
         if eval_line in existing:
             print(
@@ -721,27 +963,35 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
         block = f"{_COMPLETION_BLOCK_START}\n{eval_line}\n{_COMPLETION_BLOCK_END}\n"
 
         if not args.yes:
-            sys.stderr.write(
-                f"Will append the following block to {rc_path}:\n\n{block}\n"
-            )
-            sys.stderr.write("Proceed? Type 'yes' to confirm: ")
+            if sys.stdin.isatty():
+                _write_tty(
+                    f"Will append the following block to {rc_path}:\n\n{block}\n"
+                    "Proceed? Type 'yes' to confirm: "
+                )
             response = sys.stdin.readline().strip()
             if response.lower() != "yes":
-                _log.warning(
-                    "Completion installation cancelled.",
-                    extra={"event": "completion.cancelled"},
+                return _emit_cli_failure(
+                    status="operation_failed",
+                    message="Completion installation cancelled.",
+                    hint="Re-run with --yes to skip the confirmation prompt.",
+                    exit_code=1,
+                    command="completion --install",
+                    event="completion.cancelled",
                 )
-                return 1
 
         try:
             with rc_path.open("a", encoding="utf-8") as f:
                 f.write("\n" + block)
         except OSError as exc:
-            _log.error(
-                f"Could not write to {rc_path}: {exc}",
-                extra={"event": "completion.rc_write_error"},
+            return _emit_cli_failure(
+                status="operation_failed",
+                message=f"Could not write to {rc_path}.",
+                detail=str(exc),
+                exit_code=1,
+                command="completion --install",
+                event="completion.rc_write_error",
+                path=str(rc_path),
             )
-            return 1
 
         print(
             json.dumps(
@@ -1002,11 +1252,14 @@ def _handle_uninstall_command(
 ) -> int:
     """Print uninstall instructions and optionally purge Recollectium-owned data."""
     if args.yes_delete_all_recollectium_data and not args.purge:
-        _log.error(
-            "--yes-delete-all-recollectium-data requires --purge",
-            extra={"event": "uninstall.invalid_flags"},
+        return _emit_cli_failure(
+            status="uninstall_invalid_flags",
+            message="--yes-delete-all-recollectium-data requires --purge.",
+            hint="Add --purge or remove --yes-delete-all-recollectium-data.",
+            exit_code=2,
+            command="uninstall",
+            event="uninstall.invalid_flags",
         )
-        return 2
 
     plan = _load_uninstall_plan(config_path, explicit=explicit)
     metadata = _load_install_metadata(plan.install_metadata_path)
@@ -1038,6 +1291,24 @@ def _handle_uninstall_command(
             data_payload["purge"] = _purge_targets(plan, dry_run=True)
         else:
             preview = _purge_targets(plan, dry_run=True)
+            interactive = sys.stdin.isatty()
+
+            if not args.yes_delete_all_recollectium_data:
+                if interactive:
+                    _write_tty(
+                        "Type 'delete all recollectium data' to permanently delete Recollectium data: "
+                    )
+                response = sys.stdin.readline().rstrip("\n")
+                if response != _PURGE_CONFIRMATION:
+                    return _emit_cli_failure(
+                        status="purge_cancelled",
+                        message="purge cancelled",
+                        hint="Type the exact confirmation phrase to permanently delete Recollectium data.",
+                        exit_code=1,
+                        command="uninstall --purge",
+                        event="uninstall.purge_cancelled",
+                    )
+
             sys.stderr.write(
                 "The following Recollectium-owned paths will be permanently deleted:\n"
             )
@@ -1046,19 +1317,6 @@ def _handle_uninstall_command(
                     continue
                 sys.stderr.write(f"  {target['path']}\n")
             sys.stderr.write("\n")
-
-            if not args.yes_delete_all_recollectium_data:
-                sys.stderr.write(
-                    "Type 'delete all recollectium data' to permanently delete Recollectium data: "
-                )
-                sys.stderr.flush()
-                response = sys.stdin.readline().rstrip("\n")
-                if response != _PURGE_CONFIRMATION:
-                    _log.warning(
-                        "purge cancelled",
-                        extra={"event": "uninstall.purge_cancelled"},
-                    )
-                    return 1
 
             data_payload["purge"] = _purge_targets(plan, dry_run=False)
 
@@ -1097,8 +1355,9 @@ def _handle_workspace_command(
             print(json.dumps(result, sort_keys=True))
             return 0
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "workspace.invalid"})
-            return 1
+            return _validation_error(
+                exc, command="workspace resolve", event="workspace.invalid"
+            )
 
     if args.workspace_action == "alias":
         try:
@@ -1119,11 +1378,9 @@ def _handle_workspace_command(
             print(json.dumps(result, sort_keys=True))
             return 0
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "workspace.invalid"})
-            return 1
+            return _workspace_validation_error(exc, command="workspace alias")
         except NotFoundError as exc:
-            _log.error(str(exc), extra={"event": "workspace.not_found"})
-            return 1
+            return _not_found_error(exc, command="workspace alias")
 
     if args.workspace_action == "rename":
         try:
@@ -1134,11 +1391,9 @@ def _handle_workspace_command(
             print(json.dumps(result, sort_keys=True))
             return 0
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "workspace.invalid"})
-            return 1
+            return _workspace_validation_error(exc, command="workspace rename")
         except NotFoundError as exc:
-            _log.error(str(exc), extra={"event": "workspace.not_found"})
-            return 1
+            return _not_found_error(exc, command="workspace rename")
 
     return 1  # pragma: no cover — parser enforces valid actions
 
@@ -1153,7 +1408,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="recollectium",
         description=(
             "Recollectium Core local memory CLI. Commands print JSON on success and "
-            "write validation or not-found errors to stderr."
+            "structured JSON on stderr for non-argparse failures."
         ),
     )
     parser.add_argument(
@@ -1226,7 +1481,7 @@ def _build_parser() -> argparse.ArgumentParser:
     config_parser.add_argument(
         "--validate",
         action="store_true",
-        help="Validate the config file and exit 0 on success or 1 on error.",
+        help="Validate the config file and exit 0 on success, 1 when a file is missing, or 2 when invalid.",
     )
     config_parser.add_argument(
         "--path",
@@ -1926,38 +2181,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 log_level=args.log_level,
             )
         except FileNotFoundError as exc:
-            _log.error(str(exc), extra={"event": "config.missing"})
-            return 1
+            return _config_missing_error(exc, command="init")
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-            return 2
-        except EmbeddingReadinessTimeoutError as exc:
-            _log.error(
-                f"EmbeddingReadinessTimeoutError: {exc}\n"
-                "Model preparation timed out. Check your internet connection "
-                "and try 'recollectium init' again.",
-                extra={"event": "embedding.readiness_timeout"},
+            return _config_invalid_error(exc, command="init")
+        except (
+            EmbeddingReadinessTimeoutError,
+            EmbeddingModelUnavailableError,
+            EmbeddingProviderUnavailableError,
+            EmbeddingGenerationError,
+        ) as exc:
+            return _embedding_error(exc, command="init")
+        except MigrationError as exc:
+            return _emit_cli_failure(
+                status="migration_error",
+                message="Database migration failed.",
+                detail=str(exc),
+                exit_code=1,
+                command="init",
+                event="database.migration_failed",
             )
-            return 1
-        except EmbeddingModelUnavailableError as exc:
-            _log.error(
-                f"EmbeddingModelUnavailableError: {exc}\n"
-                "The embedding model could not be downloaded. "
-                "Check your internet connection and try 'recollectium init' again.",
-                extra={"event": "embedding.model_unavailable"},
-            )
-            return 1
-        except EmbeddingProviderUnavailableError as exc:
-            _log.error(
-                f"EmbeddingProviderUnavailableError: {exc}\n"
-                "The embedding provider is unavailable. "
-                "Check your internet connection and try 'recollectium init' again.",
-                extra={"event": "embedding.provider_unavailable"},
-            )
-            return 1
         except RecollectiumError as exc:
-            _log.error(f"{exc.__class__.__name__}: {exc}")
-            return 1
+            return _operation_failed_error(exc, command="init")
 
     # -- serve command ----------------------------------------------------
     if args.command == "serve":
@@ -1968,11 +2212,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
-                _log.error(str(exc), extra={"event": "config.missing"})
-                return 1
+                return _config_missing_error(exc, command=args.command)
             except ValidationError as exc:
-                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-                return 2
+                return _config_invalid_error(exc, command=args.command)
             if host is None:
                 host = (
                     cfg.effective_config["service"]["host"]
@@ -1992,13 +2234,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 db_path=args.db_path,
                 config_path=core_config_path,
                 log_level=args.log_level,
+                cli_structured_errors=True,
             )
         except FileNotFoundError as exc:
-            _log.error(str(exc), extra={"event": "config.missing"})
-            return 1
+            return _config_missing_error(exc, command=args.command)
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-            return 2
+            return _config_invalid_error(exc, command=args.command)
+        except (
+            EmbeddingReadinessTimeoutError,
+            EmbeddingModelUnavailableError,
+            EmbeddingProviderUnavailableError,
+            EmbeddingGenerationError,
+        ) as exc:
+            return _embedding_error(exc, command=args.command)
+        except ServiceError as exc:
+            return _service_error(
+                exc, command=args.command, event="serve.service_error"
+            )
+        except RecollectiumError as exc:
+            return _operation_failed_error(exc, command=args.command)
         return 0
 
     # -- db-status command ------------------------------------------------
@@ -2010,13 +2264,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
                 db_path = cfg.resolved_database_path
             except FileNotFoundError as exc:
-                _log.error(str(exc), extra={"event": "config.missing"})
-                return 1
+                return _config_missing_error(exc, command=args.command)
             except ValidationError as exc:
-                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-                return 2
-        store = SQLiteMemoryStore(db_path)
-        print(json.dumps(store.migration_status(), sort_keys=True))
+                return _config_invalid_error(exc, command=args.command)
+        try:
+            store = SQLiteMemoryStore(db_path)
+            print(json.dumps(store.migration_status(), sort_keys=True))
+        except MigrationError as exc:
+            return _emit_cli_failure(
+                status="migration_error",
+                message="Database migration status failed.",
+                detail=str(exc),
+                exit_code=1,
+                command="db-status",
+                event="database.migration_status_failed",
+            )
         return 0
 
     # -- mcp-stdio command ------------------------------------------------
@@ -2029,43 +2291,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             core._ensure_model_ready()
         except FileNotFoundError as exc:
-            _log.error(str(exc), extra={"event": "config.missing"})
-            return 1
+            return _config_missing_error(exc, command=args.command)
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-            return 2
-        except EmbeddingReadinessTimeoutError as exc:
-            _log.error(
-                f"EmbeddingReadinessTimeoutError: {exc}\n"
-                "Model preparation timed out. Check your internet connection "
-                "and try 'recollectium init' again.",
-                extra={"event": "embedding.readiness_timeout"},
-            )
-            return 1
-        except EmbeddingModelUnavailableError as exc:
-            _log.error(
-                f"EmbeddingModelUnavailableError: {exc}\n"
-                "The embedding model could not be downloaded. "
-                "Check your internet connection and try 'recollectium init' again.",
-                extra={"event": "embedding.model_unavailable"},
-            )
-            return 1
-        except EmbeddingProviderUnavailableError as exc:
-            _log.error(
-                f"EmbeddingProviderUnavailableError: {exc}\n"
-                "The embedding provider is unavailable. "
-                "Check your internet connection and try 'recollectium init' again.",
-                extra={"event": "embedding.provider_unavailable"},
-            )
-            return 1
+            return _config_invalid_error(exc, command=args.command)
+        except (
+            EmbeddingReadinessTimeoutError,
+            EmbeddingModelUnavailableError,
+            EmbeddingProviderUnavailableError,
+            EmbeddingGenerationError,
+        ) as exc:
+            return _embedding_error(exc, command=args.command)
         try:
             mcp = create_mcp_server(core)
             import asyncio
 
             asyncio.run(mcp.run_stdio_async())
         except Exception as exc:
-            _log.error(f"Error: {exc}")
-            return 1
+            return _operation_failed_error(exc, command="mcp-stdio")
         return 0
 
     # -- service commands --------------------------------------------------
@@ -2081,25 +2323,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if payload["status"] == "not_running":
                     return 1
             except FileNotFoundError as exc:
-                _log.error(str(exc), extra={"event": "config.missing"})
-                return 1
+                return _config_missing_error(exc, command=args.command)
             except ValidationError as exc:
-                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-                return 2
+                return _config_invalid_error(exc, command=args.command)
             except ServiceError as exc:
-                _log.error(str(exc))
-                return 2
+                return _service_error(exc, command="service discover", exit_code=2)
             return 0
 
         if args.service_action == "start":
             try:
                 cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
-                _log.error(str(exc), extra={"event": "config.missing"})
-                return 1
+                return _config_missing_error(exc, command=args.command)
             except ValidationError as exc:
-                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-                return 2
+                return _config_invalid_error(exc, command=args.command)
             try:
                 pid = start_service(
                     cfg, args.type, db_path=args.db_path, log_level=args.log_level
@@ -2119,25 +2356,31 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             except ServiceConflictError as exc:
-                _log.error(str(exc), extra={"event": "service.startup_rejected"})
-                return 1
+                return _service_error(
+                    exc,
+                    command=f"service {args.service_action}",
+                    status="service_conflict",
+                    event="service.startup_rejected",
+                )
             except ServiceError as exc:
-                _log.error(str(exc))
-                return 1
+                return _service_error(exc, command=f"service {args.service_action}")
             except ValueError as exc:
-                _log.error(str(exc))
-                return 2
+                return _emit_cli_failure(
+                    status="validation_error",
+                    message="Invalid service request.",
+                    detail=str(exc),
+                    exit_code=2,
+                    command=f"service {args.service_action}",
+                )
             return 0
 
         if args.service_action == "stop":
             try:
                 cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
-                _log.error(str(exc), extra={"event": "config.missing"})
-                return 1
+                return _config_missing_error(exc, command=args.command)
             except ValidationError as exc:
-                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-                return 2
+                return _config_invalid_error(exc, command=args.command)
             pid = stop_service(cfg)
             if pid is not None:
                 print(json.dumps({"status": "stopped", "pid": pid}, sort_keys=True))
@@ -2149,18 +2392,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
-                _log.error(str(exc), extra={"event": "config.missing"})
-                return 1
+                return _config_missing_error(exc, command=args.command)
             except ValidationError as exc:
-                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-                return 2
+                return _config_invalid_error(exc, command=args.command)
             pid_path = get_pid_file_path(cfg)
             try:
                 raw_pid_info = read_pid_file(pid_path)
                 running = check_running_service(cfg)
             except ServiceError as exc:
-                _log.error(str(exc))
-                return 1
+                return _service_error(exc, command=f"service {args.service_action}")
             if running is not None:
                 host = cfg.effective_config["service"]["host"]
                 port = cfg.effective_config["service"]["port"]
@@ -2189,19 +2429,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             except FileNotFoundError as exc:
-                _log.error(str(exc), extra={"event": "config.missing"})
-                return 1
+                return _config_missing_error(exc, command=args.command)
             except ValidationError as exc:
-                _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-                return 2
+                return _config_invalid_error(exc, command=args.command)
 
             pid_path = get_pid_file_path(cfg)
             try:
                 raw_pid_info = read_pid_file(pid_path)
                 running = check_running_service(cfg)
             except ServiceError as exc:
-                _log.error(str(exc))
-                return 1
+                return _service_error(exc, command=f"service {args.service_action}")
             if running is not None:
                 # Service is running: stop it first, then restart same type
                 service_type = running["type"]
@@ -2216,12 +2453,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif args.type is not None:
                 service_type = args.type
             else:
-                _log.warning(
-                    "No running service found. Use --type to specify which "
-                    "service to restart.",
-                    extra={"event": "service.no_service"},
+                return _emit_cli_failure(
+                    status="service_not_running",
+                    message="No running service found.",
+                    hint="Use --type to specify which service to restart.",
+                    exit_code=1,
+                    command="service restart",
+                    event="service.no_service",
                 )
-                return 1
 
             try:
                 pid = start_service(
@@ -2244,25 +2483,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             except ServiceConflictError as exc:
-                _log.error(str(exc), extra={"event": "service.startup_rejected"})
-                return 1
+                return _service_error(
+                    exc,
+                    command=f"service {args.service_action}",
+                    status="service_conflict",
+                    event="service.startup_rejected",
+                )
             except ServiceError as exc:
-                _log.error(str(exc))
-                return 1
+                return _service_error(exc, command=f"service {args.service_action}")
             except ValueError as exc:
-                _log.error(str(exc))
-                return 2
+                return _emit_cli_failure(
+                    status="validation_error",
+                    message="Invalid service request.",
+                    detail=str(exc),
+                    exit_code=2,
+                    command=f"service {args.service_action}",
+                )
             return 0
 
     if args.command == "update" and args.memory_id is None:
-        _print_json_stderr(
-            {
-                "status": "validation_error",
-                "message": "Memory ID is required for recollectium update.",
-                "hint": "Use recollectium upgrade to upgrade the installed Recollectium package.",
-            }
+        return _emit_cli_failure(
+            status="validation_error",
+            message="Memory ID is required for recollectium update.",
+            hint="Use recollectium upgrade to upgrade the installed Recollectium package.",
+            exit_code=2,
+            command="update",
         )
-        return 2
 
     if args.command == "upgrade":
         return _handle_upgrade_command(args, config_path)
@@ -2275,17 +2521,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 explicit=args.config_path is not None,
             )
         except FileNotFoundError as exc:
-            _log.error(str(exc), extra={"event": "config.missing"})
-            return 1
+            return _config_missing_error(exc, command=args.command)
         except ValidationError as exc:
-            _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-            return 2
+            return _config_invalid_error(exc, command=args.command)
         except ServiceError as exc:
-            _log.error(str(exc), extra={"event": "uninstall.service_stop_failed"})
-            return 1
+            return _service_error(
+                exc, command="uninstall", event="uninstall.service_stop_failed"
+            )
         except OSError as exc:
-            _log.error(str(exc), extra={"event": "uninstall.purge_failed"})
-            return 1
+            return _emit_cli_failure(
+                status="operation_failed",
+                message="Uninstall purge failed.",
+                detail=str(exc),
+                exit_code=1,
+                command="uninstall",
+                event="uninstall.purge_failed",
+            )
 
     # -- all other commands use RecollectiumCore ------------------------------
     try:
@@ -2364,42 +2615,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             parser.error(f"unknown command: {args.command}")
             return 2
+    except _MetadataInvalidError as exc:
+        return _metadata_invalid_error(exc)
     except ValidationError as exc:
-        _log.error(f"ValidationError: {exc}", extra={"event": "config.invalid"})
-        return 2
+        return _validation_error(exc, command=args.command)
     except NotFoundError as exc:
-        _log.error(f"NotFoundError: {exc}")
-        return 1
+        return _not_found_error(exc, command=args.command)
     except FileNotFoundError as exc:
-        _log.error(str(exc), extra={"event": "config.missing"})
-        return 1
-    except EmbeddingReadinessTimeoutError as exc:
-        _log.error(
-            f"EmbeddingReadinessTimeoutError: {exc}\n"
-            "Model preparation timed out. The model may be downloading slowly. "
-            "Check your internet connection and try 'recollectium init' again.",
-            extra={"event": "embedding.readiness_timeout"},
+        return _config_missing_error(exc, command=args.command)
+    except (
+        EmbeddingReadinessTimeoutError,
+        EmbeddingModelUnavailableError,
+        EmbeddingProviderUnavailableError,
+        EmbeddingGenerationError,
+    ) as exc:
+        return _embedding_error(exc, command=args.command)
+    except MigrationError as exc:
+        return _emit_cli_failure(
+            status="migration_error",
+            message="Database migration failed.",
+            detail=str(exc),
+            exit_code=1,
+            command=args.command,
+            event="database.migration_failed",
         )
-        return 1
-    except EmbeddingModelUnavailableError as exc:
-        _log.error(
-            f"EmbeddingModelUnavailableError: {exc}\n"
-            "The embedding model could not be downloaded. "
-            "Check your internet connection and try 'recollectium init' again.",
-            extra={"event": "embedding.model_unavailable"},
-        )
-        return 1
-    except EmbeddingProviderUnavailableError as exc:
-        _log.error(
-            f"EmbeddingProviderUnavailableError: {exc}\n"
-            "The embedding provider is unavailable. "
-            "Check your internet connection and try 'recollectium init' again.",
-            extra={"event": "embedding.provider_unavailable"},
-        )
-        return 1
     except RecollectiumError as exc:
-        _log.error(f"{exc.__class__.__name__}: {exc}")
-        return 1
+        return _operation_failed_error(exc, command=args.command)
 
     print(json.dumps(_to_payload(result), sort_keys=True))
     return 0

@@ -638,7 +638,17 @@ Rename a workspace (migrates all its memories and retargets aliases to a new UID
 recollectium --db /tmp/recollectium.db workspace rename old-project new-project
 ```
 
-All successful CLI commands return JSON.
+Successful CLI commands that return machine-readable data write JSON to stdout.
+Non-argparse command failures usually write a single structured JSON object to
+stderr and leave stdout empty. Error objects always include `status` and
+`message`, and may include `detail` and `hint` when extra diagnostic or recovery
+guidance is useful. Validation/input/config errors exit with code `2`; runtime,
+resource, not-found, service, database, migration, and embedding failures exit
+with code `1`. The adapter-facing `recollectium service discover` command is the
+intentional exception: when no service is running it exits `1`, writes
+`status: "not_running"` JSON to stdout, and leaves stderr empty. Argparse help
+and usage errors are the only non-JSON stderr exception so shell discovery and
+`--help` workflows stay familiar.
 
 ## Memory buckets
 

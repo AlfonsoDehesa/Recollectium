@@ -439,6 +439,7 @@ def run_service(
     config_path: str | Path | None = None,
     service_type: str | None = None,
     log_level: str | None = None,
+    cli_structured_errors: bool = False,
 ) -> None:
     import uvicorn
 
@@ -451,6 +452,10 @@ def run_service(
     try:
         core._ensure_model_ready()
     except Exception as exc:
+        if cli_structured_errors:
+            from recollectium.errors import EmbeddingGenerationError
+
+            raise EmbeddingGenerationError(f"model readiness failed: {exc}") from exc
         import sys
 
         print(f"recollectium serve: model readiness failed: {exc}", file=sys.stderr)

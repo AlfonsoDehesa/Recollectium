@@ -32,21 +32,9 @@ Completed:
 - [x] OpenCode adapter readiness handoff: documented service discovery, health/version/capabilities validation, workspace UID resolution, adapter workflow, and adapter contract docs.
 - [x] Workspace UID aliasing across Core, CLI, API, MCP, docs, and adapter contract: direct aliases, alias resolution for workspace operations, conflict-safe migration with `--migrate-existing`, and rename alias preservation.
 - [x] Package upgrade flow through `recollectium upgrade`: latest-release checks, pip/pipx/uv/bootstrap/source install methods, dry-run/check modes, service-state preservation, docs, unit tests, and install-smoke CI coverage.
+- [x] CLI error-formatting audit: non-argparse failures return structured JSON on stderr with standardized exit codes, stdout JSON contracts stay clean, and representative failure paths are covered by tests.
 
 Remaining release blockers:
-
-### CLI error-formatting audit
-
-Release goal: users and automation get predictable command failures across the
-whole CLI.
-
-- [ ] Audit every CLI command for consistent exit codes.
-- [ ] Audit stderr messages so validation, not-found, config, service, embedding,
-  and install errors are clear and actionable.
-- [ ] Preserve stdout JSON contracts for successful machine-readable commands.
-- [ ] Confirm commands that are meant for automation return structured JSON where
-  appropriate.
-- [ ] Add or update tests for representative error paths across the CLI.
 
 ### CI uninstall-flow coverage
 
