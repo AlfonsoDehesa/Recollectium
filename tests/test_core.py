@@ -996,6 +996,22 @@ def test_core_rename_workspace_exact_mode_passthrough(tmp_path: Path) -> None:
     assert result["memories_updated"] == 1
 
 
+def test_core_rename_workspace_same_uid_includes_aliases_updated(
+    tmp_path: Path,
+) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "same-uid-rename.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    result = core.rename_workspace("My Project", "my-project")
+    assert result == {
+        "old_uid": "my-project",
+        "new_uid": "my-project",
+        "memories_updated": 0,
+        "aliases_updated": 0,
+    }
+
+
 def test_workspace_alias_exact_mode_preserves_alias_case(tmp_path: Path) -> None:
     core = RecollectiumCore(
         db_path=tmp_path / "aliases-exact-core.db",

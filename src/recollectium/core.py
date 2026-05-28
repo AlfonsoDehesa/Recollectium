@@ -489,6 +489,7 @@ class RecollectiumCore:
                 "old_uid": norm_old,
                 "new_uid": norm_new,
                 "memories_updated": 0,
+                "aliases_updated": 0,
             }
 
         rename_result = self.store.rename_workspace(norm_old, norm_new)
