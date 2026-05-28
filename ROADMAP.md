@@ -31,25 +31,23 @@ Completed:
 
 Remaining release blockers:
 
-### Structure around memory types
+### Canonical memory buckets and optional read filters
 
-Release goal: Recallium ships with a defined, documented set of memory types so
-agents, adapters, and users share a common vocabulary instead of guessing at
-freeform strings.
+Release goal: Recallium ships with a small canonical set of memory buckets that
+agents must choose from when writing, while reads default to scope-only search
+unless a bucket filter is explicitly requested.
 
-- [ ] Define a stable set of supported memory types: preference, fact, note,
-  decision, task_context, summary, and reflection.
-- [ ] Validate memory type against the supported set during add and update.
-- [ ] Reject unknown memory types with a clear error that lists the allowed
-  values.
-- [ ] Add known-type completion for `--type` in the CLI (both argcomplete and
+- [x] Define a stable canonical bucket set for user and workspace memories.
+- [x] Validate memory bucket choice during add and update.
+- [x] Reject unknown buckets with a clear error that lists the allowed values.
+- [x] Add known-bucket completion for `--type` in the CLI (both argcomplete and
   PowerShell).
-- [ ] Document supported memory types and their intended usage in README, CLI
-  help, and API docs.
+- [x] Document supported buckets and their intended usage in README, CLI help,
+  and API docs.
 - [ ] Keep the schema and endpoints forward-compatible with Phase 2 intent-native
   naming (`remember`, `recall`, `link`, `forget`).
-- [ ] Add tests for valid types, unknown types, and type completion across both
-  completion engines.
+- [x] Add tests for valid buckets, unknown buckets, and type completion across
+  both completion engines.
 
 ### OpenCode adapter readiness handoff
 

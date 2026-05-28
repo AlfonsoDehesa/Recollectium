@@ -529,6 +529,8 @@ Search user memories:
 recallium --db /tmp/recallium.db search-user "concise answers"
 ```
 
+Add `--type` when you want to narrow the search to a specific bucket, for example `fact` or `preference`.
+
 Add a workspace memory:
 
 ```bash
@@ -546,6 +548,8 @@ recallium --db /tmp/recallium.db search-workspace \
   "local persistence" \
   --workspace-uid 7f3b0a5e-example-workspace
 ```
+
+Add `--type` when you want to narrow the workspace search to a bucket such as `decision` or `task_context`.
 
 Workspace memories are keyed by a stable workspace UID. Future adapters, such as
 the OpenCode plugin, should create and pass that UID rather than using filesystem
