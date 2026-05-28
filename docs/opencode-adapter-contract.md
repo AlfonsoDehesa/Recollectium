@@ -16,12 +16,12 @@ A Recallium adapter should:
 - Allow explicit host, IP, port, or base-URL overrides for deployments where
   the adapter and Recallium are not on the same machine.
 - Validate that the discovered service is healthy and compatible before use.
-- Resolve the workspace from the actual working directory the host app scoped
-  the agent to, not from model guesswork.
-- If that directory is inside a git-managed tree, use the git repository root
+- Resolve the workspace from the workspace the model/agent selected for the
+  current task, not by inventing a new identity.
+- If that workspace lives inside a git-managed tree, use the git repository root
   as the canonical workspace boundary. Nested subfolders inherit the same
   workspace UID.
-- If there is no git-managed tree, use the current workspace directory or its
+- If there is no git-managed tree, use the selected workspace directory or its
   containing workspace folder as the canonical boundary.
 - Normalize the resulting UID with Core's workspace UID rules before passing it
   into Recallium workspace memory operations.
