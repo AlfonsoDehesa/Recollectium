@@ -37,6 +37,10 @@ from recollectium.service_contract import (
     OPERATION_VERSION_READ,
     OPERATION_WORKSPACES_LIST,
     OPERATION_WORKSPACES_RENAME,
+    OPERATION_WORKSPACES_RESOLVE,
+    OPERATION_WORKSPACES_ALIASES_LIST,
+    OPERATION_WORKSPACES_ALIASES_ADD,
+    OPERATION_WORKSPACES_ALIASES_REMOVE,
     SERVICE_API_VERSION,
     SERVICE_CAPABILITIES,
     capabilities_payload,
@@ -71,6 +75,10 @@ def test_service_capabilities_cover_required_operations() -> None:
         OPERATION_EMBEDDING_JOBS_GET,
         OPERATION_WORKSPACES_LIST,
         OPERATION_WORKSPACES_RENAME,
+        OPERATION_WORKSPACES_RESOLVE,
+        OPERATION_WORKSPACES_ALIASES_LIST,
+        OPERATION_WORKSPACES_ALIASES_ADD,
+        OPERATION_WORKSPACES_ALIASES_REMOVE,
     )
 
 
@@ -229,6 +237,9 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "/v1/embedding/jobs": ["get"],
         "/v1/embedding/jobs/{job_id}": ["get"],
         "/v1/workspaces": ["get"],
+        "/v1/workspaces/resolve": ["get"],
+        "/v1/workspaces/{uid}/aliases": ["get", "post"],
+        "/v1/workspaces/aliases/{alias_uid}": ["delete"],
         "/v1/workspaces/{uid}/rename": ["post"],
     }
     for path, methods in required_paths.items():
@@ -246,6 +257,7 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "SearchWorkspaceRequest",
         "UpdateMemoryRequest",
         "RenameWorkspaceRequest",
+        "AddWorkspaceAliasRequest",
     ):
         assert schema_name in schemas
 
@@ -945,3 +957,55 @@ def test_rename_workspace_validation_error(tmp_path: Path) -> None:
         body={"new_uid": "!!!"},
     )
     assert status == 400
+
+
+def test_http_workspace_alias_routes_resolve_add_list_remove(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "service-aliases.db")
+    core.add_memory(
+        space="workspace", type="fact", content="a", workspace_uid="Canonical"
+    )
+    client = _client(core)
+
+    status, added = _request_json(
+        client,
+        "POST",
+        "/v1/workspaces/Canonical/aliases",
+        {"alias_uid": "Legacy", "migrate_existing": False},
+    )
+    assert status == 200
+    assert added["data"]["alias"]["alias_uid"] == "legacy"
+
+    status, resolved = _request_json(client, "GET", "/v1/workspaces/resolve?uid=Legacy")
+    assert status == 200
+    assert resolved["data"]["canonical_uid"] == "canonical"
+    assert resolved["data"]["resolved_by_alias"] is True
+
+    status, aliases = _request_json(client, "GET", "/v1/workspaces/Canonical/aliases")
+    assert status == 200
+    assert aliases["data"][0]["alias_uid"] == "legacy"
+
+    status, workspaces = _request_json(
+        client, "GET", "/v1/workspaces?include_aliases=true"
+    )
+    assert status == 200
+    assert workspaces["data"] == [{"workspace_uid": "canonical", "aliases": ["legacy"]}]
+
+    status, removed = _request_json(client, "DELETE", "/v1/workspaces/aliases/Legacy")
+    assert status == 200
+    assert removed["data"]["alias_uid"] == "legacy"
+
+
+def test_http_workspace_alias_conflict_returns_400(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "service-alias-conflict.db")
+    core.add_memory(space="workspace", type="fact", content="a", workspace_uid="legacy")
+    client = _client(core)
+
+    status, payload = _request_json(
+        client,
+        "POST",
+        "/v1/workspaces/canonical/aliases",
+        {"alias_uid": "legacy"},
+    )
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    assert "Use --migrate-existing" in payload["error"]["message"]

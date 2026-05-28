@@ -40,13 +40,13 @@ Release goal: users and adapters can treat multiple workspace UID spellings as
 aliases of one canonical workspace without splitting memory across duplicate
 workspace keys.
 
-- [ ] Add workspace aliases so a canonical workspace UID can own multiple
+- [x] Add workspace aliases so a canonical workspace UID can own multiple
   normalized alias names.
-- [ ] Resolve alias hits during recording or search back to the canonical
+- [x] Resolve alias hits during recording or search back to the canonical
   workspace after model-selected workspace UID handling and Core UID
   normalization.
-- [ ] Expose alias management through the relevant CLI, API, MCP, and plugin
-  surfaces.
+- [x] Expose alias management through the relevant CLI, API, MCP, and plugin
+  contracts at the same time so every integration has equivalent behavior.
 
 ### Update flow
 

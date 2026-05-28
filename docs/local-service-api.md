@@ -197,7 +197,11 @@ Response example:
       "embedding.jobs.list",
       "embedding.jobs.get",
       "workspaces.list",
-      "workspaces.rename"
+      "workspaces.rename",
+      "workspaces.resolve",
+      "workspaces.aliases.list",
+      "workspaces.aliases.add",
+      "workspaces.aliases.remove"
     ],
     "memory_types": {
       "user": [
@@ -790,19 +794,129 @@ Unsupported route/method:
 
 ### `GET /v1/workspaces`
 
-List distinct workspace UIDs visible through the API.
+Purpose: list distinct workspace UIDs visible through the API. With `include_aliases=true`, return workspace objects with nested alias arrays.
 
 **Query parameters**
 
 | Param | Type | Default | Description |
 |---|---|---|---|
 | `include_archived` | bool | `false` | Include UIDs that appear only on archived memories. |
+| `include_aliases` | bool | `false` | Return objects shaped as `{workspace_uid, aliases}` instead of UID strings. |
 
 **Response 200**
 
 ```json
 {
   "data": ["generalist-ai", "recollectium"]
+}
+```
+
+**Response 200 with aliases**
+
+```json
+{
+  "data": [
+    {"workspace_uid": "recollectium", "aliases": ["recollectium-core"]}
+  ]
+}
+```
+
+### `GET /v1/workspaces/resolve`
+
+Purpose: normalize a workspace UID candidate and resolve it to the canonical UID if it is an alias.
+
+Example request:
+
+```bash
+curl -sS 'http://127.0.0.1:8765/v1/workspaces/resolve?uid=Recollectium%20Core'
+```
+
+Example response:
+
+```json
+{
+  "data": {
+    "input_uid": "Recollectium Core",
+    "normalized_uid": "recollectium-core",
+    "canonical_uid": "recollectium",
+    "resolved_by_alias": true
+  }
+}
+```
+
+### `GET /v1/workspaces/{uid}/aliases`
+
+Purpose: list aliases for a canonical workspace UID. The `uid` path value is normalized and resolved before filtering.
+
+Example request:
+
+```bash
+curl -sS http://127.0.0.1:8765/v1/workspaces/recollectium/aliases
+```
+
+Example response:
+
+```json
+{
+  "data": [
+    {
+      "alias_uid": "recollectium-core",
+      "canonical_uid": "recollectium",
+      "created_at": "2026-05-28T00:00:00Z",
+      "updated_at": "2026-05-28T00:00:00Z"
+    }
+  ]
+}
+```
+
+### `POST /v1/workspaces/{uid}/aliases`
+
+Purpose: add an alias for a canonical workspace UID. Use `migrate_existing=true` to move existing alias-owned memories into the canonical workspace in the same transaction.
+
+Example request:
+
+```bash
+curl -sS http://127.0.0.1:8765/v1/workspaces/recollectium/aliases \
+  -H 'Content-Type: application/json' \
+  -d '{"alias_uid":"recollectium-core","migrate_existing":false}'
+```
+
+Example response:
+
+```json
+{
+  "data": {
+    "alias": {
+      "alias_uid": "recollectium-core",
+      "canonical_uid": "recollectium",
+      "created_at": "2026-05-28T00:00:00Z",
+      "updated_at": "2026-05-28T00:00:00Z"
+    },
+    "migrated_memories": 0
+  }
+}
+```
+
+### `DELETE /v1/workspaces/aliases/{alias_uid}`
+
+Purpose: remove an alias mapping by alias UID.
+
+Example request:
+
+```bash
+curl -sS -X DELETE http://127.0.0.1:8765/v1/workspaces/aliases/recollectium-core
+```
+
+Example response:
+
+```json
+{
+  "data": {
+    "alias_uid": "recollectium-core",
+    "canonical_uid": "recollectium",
+    "created_at": "2026-05-28T00:00:00Z",
+    "updated_at": "2026-05-28T00:00:00Z"
+  }
 }
 ```
 

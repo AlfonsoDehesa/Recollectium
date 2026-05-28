@@ -135,6 +135,13 @@ class RenameWorkspaceRequest(BaseModel):
     new_uid: str = Field(min_length=1)
 
 
+class AddWorkspaceAliasRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    alias_uid: str = Field(min_length=1)
+    migrate_existing: bool = False
+
+
 def _map_boundary_error(exc: Exception) -> tuple[HTTPStatus, dict[str, Any]]:
     for error_type, status, code in _BOUNDARY_ERROR_MAP:
         if isinstance(exc, error_type):
@@ -360,17 +367,48 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/workspaces", tags=["workspaces"])
     def list_workspaces(
         include_archived: str | None = None,
+        include_aliases: str | None = None,
     ) -> dict[str, Any]:
         parsed_include_archived = _parse_optional_bool(
             include_archived,
             field_name="include_archived",
         )
+        parsed_include_aliases = _parse_optional_bool(
+            include_aliases,
+            field_name="include_aliases",
+        )
         uids = core.list_workspaces(
             include_archived=parsed_include_archived
             if parsed_include_archived is not None
             else False,
+            include_aliases=parsed_include_aliases
+            if parsed_include_aliases is not None
+            else False,
         )
         return success_payload(uids)
+
+    @app.get(f"{SERVICE_API_PREFIX}/workspaces/resolve", tags=["workspaces"])
+    def resolve_workspace(uid: str) -> dict[str, Any]:
+        return success_payload(core.resolve_workspace(uid))
+
+    @app.get(f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/aliases", tags=["workspaces"])
+    def list_workspace_aliases(uid: str) -> dict[str, Any]:
+        return success_payload(core.list_workspace_aliases(canonical_uid=uid))
+
+    @app.post(f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/aliases", tags=["workspaces"])
+    def add_workspace_alias(uid: str, body: AddWorkspaceAliasRequest) -> dict[str, Any]:
+        result = core.add_workspace_alias(
+            canonical_uid=uid,
+            alias_uid=body.alias_uid,
+            migrate_existing=body.migrate_existing,
+        )
+        return success_payload(result)
+
+    @app.delete(
+        f"{SERVICE_API_PREFIX}/workspaces/aliases/{{alias_uid}}", tags=["workspaces"]
+    )
+    def remove_workspace_alias(alias_uid: str) -> dict[str, Any]:
+        return success_payload(core.remove_workspace_alias(alias_uid))
 
     @app.post(
         f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/rename",

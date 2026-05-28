@@ -25,6 +25,10 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
         "list_memories",
         "list_workspaces",
         "rename_workspace",
+        "resolve_workspace",
+        "add_workspace_alias",
+        "list_workspace_aliases",
+        "remove_workspace_alias",
     }
     assert set(tools.keys()) == expected
 
@@ -291,3 +295,31 @@ def test_mcp_list_workspaces_error_returns_json(tmp_path: Path) -> None:
         assert "forced error" in error["error"]
     finally:
         core.list_workspaces = original
+
+
+def test_mcp_workspace_alias_tools_round_trip(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "aliases-mcp.db")
+    core = RecollectiumCore(db_path=db_path)
+    core.add_memory(
+        space="workspace", type="fact", content="a", workspace_uid="canonical"
+    )
+    mcp = create_mcp_server(core)
+
+    expected_tools = {
+        "resolve_workspace",
+        "add_workspace_alias",
+        "list_workspace_aliases",
+        "remove_workspace_alias",
+    }
+    assert expected_tools <= set(mcp._tool_manager._tools)
+
+    add_fn = mcp._tool_manager._tools["add_workspace_alias"].fn
+    resolve_fn = mcp._tool_manager._tools["resolve_workspace"].fn
+    list_fn = mcp._tool_manager._tools["list_workspace_aliases"].fn
+    remove_fn = mcp._tool_manager._tools["remove_workspace_alias"].fn
+
+    added = json.loads(add_fn(canonical_uid="canonical", alias_uid="legacy"))
+    assert added["alias"]["alias_uid"] == "legacy"
+    assert json.loads(resolve_fn(uid="legacy"))["canonical_uid"] == "canonical"
+    assert json.loads(list_fn(canonical_uid="canonical"))[0]["alias_uid"] == "legacy"
+    assert json.loads(remove_fn(alias_uid="legacy"))["alias_uid"] == "legacy"

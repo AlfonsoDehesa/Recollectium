@@ -113,6 +113,10 @@ The current service contract exposes these core capabilities:
 - `embedding.jobs.get`
 - `workspaces.list`
 - `workspaces.rename`
+- `workspaces.resolve`
+- `workspaces.aliases.list`
+- `workspaces.aliases.add`
+- `workspaces.aliases.remove`
 
 The adapter should treat capability names as the compatibility check, not the
 transport details.
@@ -147,7 +151,9 @@ Recommended adapter behavior:
 - Pass the selected UID candidate into Recollectium workspace memory operations.
   Recollectium Core normalizes workspace UIDs at the storage boundary according to
   `workspace.uid_normalization`; the plugin does not need to pre-normalize the
-  value to match Core behavior.
+  value to match Core behavior. Core also resolves configured workspace aliases
+  to their canonical workspace UID before adding, searching, listing, updating,
+  or archiving workspace memories.
 
 If the adapter maintains workspace metadata in a repo-local file, that file is
 an adapter concern, not a Core requirement. Recollectium Core does not require any
@@ -175,6 +181,8 @@ Expose separate tools or actions for:
 - get memory by ID
 - list workspace UIDs
 - rename workspace UID
+- resolve workspace UID candidates
+- add/list/remove workspace UID aliases
 
 Workspace operations should require a workspace UID when the underlying Core
 operation does.
