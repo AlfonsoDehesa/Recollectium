@@ -9,13 +9,19 @@ This document describes the currently implemented FastAPI local HTTP JSON servic
 - It is not a public internet API and has no auth in this slice.
 - If you bind it to a non-local interface, memory contents may be exposed.
 
-Start it with the CLI:
+For the managed service path used by adapters, start the API service with:
+
+```bash
+recallium service start api
+```
+
+For foreground development or debugging, run the same API server directly:
 
 ```bash
 recallium serve
 ```
 
-Or with explicit host/port/database path:
+Or run the foreground server with explicit host/port/database path:
 
 ```bash
 recallium --db /path/to/recallium.db serve --host 127.0.0.1 --port 8765
@@ -87,13 +93,27 @@ Not-running response shape:
 
 `recallium service start api` and `recallium service start mcp` write the running response to `{runtime_dir}/service-discovery.json` after process ownership is verified. `recallium service stop`, `recallium service status`, and `recallium service discover` remove stale Recallium-owned PID and discovery files when they prove the managed process is gone.
 
-Adapters should validate a discovered service before enabling Recallium-backed tools:
+Adapters should validate the target service before enabling Recallium-backed tools:
 
-1. Call `health_url` and require an ok response.
-2. Call `version_url` and verify compatible `service_api_version`.
-3. Call `capabilities_url` and verify every required capability is present.
+1. For local discovery, use the returned `health_url`, `version_url`, and
+   `capabilities_url`. For remote Core config, derive `/v1/health`,
+   `/v1/version`, and `/v1/capabilities` from the configured base URL.
+2. Call the health endpoint and require an ok response.
+3. Call the version endpoint and verify compatible `service_api_version`.
+4. Call the capabilities endpoint and verify every required capability is
+   present.
 
-Adapters should autodiscover Recallium after the host application loads the plugin. Users should not need to manually configure host, port, PID file, runtime path, or service type in adapter config. Host-level plugin registration remains outside Recallium Core.
+Adapters should autodiscover Recallium after the host application loads the
+plugin when the adapter and Core run on the same machine. Users should not need
+to manually configure host, port, PID file, runtime path, or service type for
+that local path. If local autodiscovery reports `not_running`, the plugin should
+attempt `recallium service start api` and then rerun discovery before guiding
+the user. Hosted or remote Core instances are different: the user points the
+plugin at the Core base URL in plugin config, and the adapter validates that
+configured endpoint by calling `/v1/health`, `/v1/version`, and
+`/v1/capabilities`. Host-level plugin registration remains outside Recallium
+Core. See `docs/opencode-adapter-contract.md` for the adapter contract and
+workspace UID rules.
 
 The API is local-only and unauthenticated in Phase 1. Binding to a non-local interface can expose memory contents.
 

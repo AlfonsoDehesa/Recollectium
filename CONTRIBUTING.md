@@ -134,6 +134,28 @@ If the PR changes user-facing behavior, docs, configuration, CLI surface, or
 API surface, keep the GitHub Wiki up to date in the same PR alongside the
 README and API docs.
 
+If the PR changes service discovery, remote Core addressing, version or
+capability validation, or workspace UID behavior, update
+`docs/opencode-adapter-contract.md`, the matching API docs, and the release
+checklist in the same PR.
+
+If the PR changes the SQLite schema, include the migration plan in the PR.
+Schema changes include new tables, columns, indexes, constraints, or data-shape
+changes to existing rows. The migration plan must state:
+
+- The migration module under `src/recallium/migrations/versions/`.
+- How existing rows are populated, defaulted, or intentionally left null.
+- Whether the change is safe to apply lazily on database open.
+- Whether a background backfill or re-embedding job is required after the schema
+  migration.
+- The tests that prove upgrade behavior from the previous schema version.
+
+Semantically required fields must not rely on application code silently inventing
+values for legacy rows unless that behavior is explicitly documented and tested.
+Embedding migration is separate from database migration: provider, model, profile,
+or vector changes belong to the re-embedding path, while table, column, index,
+and data-shape changes belong to SQLite schema migrations.
+
 ### Commit style
 
 Keep messages short and descriptive. Use the conventional prefix if it
@@ -216,6 +238,15 @@ confirmed before the version-bump PR is opened.
 - [ ] Completed feature work has been moved into the ROADMAP.md `Completed`
       section in the same PR that implemented it.
 - [ ] CONTRIBUTING.md is current.
+- [ ] If a PR changes service discovery, remote Core addressing, version or
+      capability validation, or workspace UID behavior, update
+      `docs/opencode-adapter-contract.md` and the matching API docs in the same
+      PR.
+
+#### Database migrations
+
+- [ ] If the release changes the SQLite schema, migration plans are shipped and
+      tested for each schema change.
 
 #### Shell completion
 

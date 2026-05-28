@@ -29,25 +29,79 @@ Completed:
 - [x] Workspace UID contract: normalization, listing, rename, and CLI/API/MCP parity.
 - [x] Install-time init and model readiness: central `_ensure_model_ready()` wrapper with state file tracking, service startup gate, CLI embedding gate, bootstrap install auto-init, offline error guidance.
 - [x] Canonical memory buckets and optional read filters: small canonical user/workspace bucket sets, scope-aware write validation, exact-match optional read filters, CLI/API/MCP/docs alignment, and completion coverage.
+- [x] OpenCode adapter readiness handoff: documented service discovery, health/version/capabilities validation, workspace UID resolution, adapter workflow, and adapter contract docs.
 
 Remaining release blockers:
 
 
-### OpenCode adapter readiness handoff
+### UID aliasing
 
-Release goal: Core is ready for the future OpenCode adapter even though the
-adapter itself is not part of this repository.
+Release goal: users and adapters can treat multiple workspace UID spellings as
+aliases of one canonical workspace without splitting memory across duplicate
+workspace keys.
 
-- [ ] Document exactly how the adapter discovers the running service.
-- [ ] Document how the adapter checks service health, version, and capabilities.
-- [ ] Document how the adapter gets or creates the workspace UID.
-- [ ] Confirm the API has everything the adapter needs for user and workspace
-  memory operations.
-- [ ] Confirm capability names are stable enough for adapter compatibility checks.
-- [ ] Confirm errors are clear when the service is not running or incompatible.
-- [ ] Write an adapter workflow doc: install Core, start service, discover service,
-  validate service, then use memory endpoints.
-- [ ] Add an adapter contract section to the service or API docs if needed.
+- [ ] Add workspace aliases so a canonical workspace UID can own multiple
+  normalized alias names.
+- [ ] Resolve alias hits during recording or search back to the canonical
+  workspace after model-selected workspace UID handling and Core UID
+  normalization.
+- [ ] Expose alias management through the relevant CLI, API, MCP, and plugin
+  surfaces.
+
+### Update flow
+
+Release goal: `recallium update` can check for, download, and apply updates
+without requiring manual reinstall steps.
+
+- [ ] `recallium update` checks the installed version against the latest release.
+- [ ] Supports pip, pipx, and uv install methods.
+- [ ] Bootstrap-installed instances can update through the bootstrap path.
+- [ ] Dry-run mode shows what would be updated without applying changes.
+- [ ] Clear progress and error messaging for network failures, permission issues,
+  and incompatible install methods.
+- [ ] Update preserves user config, data, and service state.
+- [ ] Add tests for version check, update apply, dry-run, and error paths.
+
+### CLI error-formatting audit
+
+Release goal: users and automation get predictable command failures across the
+whole CLI.
+
+- [ ] Audit every CLI command for consistent exit codes.
+- [ ] Audit stderr messages so validation, not-found, config, service, embedding,
+  and install errors are clear and actionable.
+- [ ] Preserve stdout JSON contracts for successful machine-readable commands.
+- [ ] Confirm commands that are meant for automation return structured JSON where
+  appropriate.
+- [ ] Add or update tests for representative error paths across the CLI.
+
+### CI uninstall-flow coverage
+
+Release goal: every bootstrap install-smoke path also proves Recallium can be
+uninstalled cleanly.
+
+- [ ] Update CI install-smoke jobs to run the appropriate uninstall flow after the
+  install and CLI smoke checks pass.
+- [ ] Verify default uninstall preserves Recallium data by default.
+- [ ] Verify purge uninstall removes Recallium-managed data only when explicitly
+  requested.
+- [ ] Verify managed shell completion cleanup runs during uninstall where that shell
+  completion was installed.
+- [ ] Verify uninstall output gives package-manager guidance without failing the CI
+  job for expected package-manager ownership boundaries.
+- [ ] Cover Linux, macOS, Windows x86_64, and Windows ARM64 install-smoke jobs where
+  practical.
+
+### Local access and security documentation audit
+
+Release goal: users understand the local-only security model before exposing the
+service outside localhost.
+
+- [ ] Document that the Phase 1 local service is unauthenticated.
+- [ ] Document that binding to non-local interfaces can expose memory contents.
+- [ ] Confirm README, service API docs, and config docs explain host and port risks.
+- [ ] Confirm install and service docs recommend local-only defaults.
+- [ ] Add release checklist coverage for local access and security assumptions.
 
 ### Rich dynamic PowerShell shell completion
 
@@ -74,61 +128,6 @@ parity for the important Recallium CLI paths.
   cleanup, and dry-run uninstall behavior.
 - [ ] Add docs for manual and automatic PowerShell setup.
 - [ ] Add CI or smoke coverage for the PowerShell completion install path where
-  practical.
-
-### CLI error-formatting audit
-
-Release goal: users and automation get predictable command failures across the
-whole CLI.
-
-- [ ] Audit every CLI command for consistent exit codes.
-- [ ] Audit stderr messages so validation, not-found, config, service, embedding,
-  and install errors are clear and actionable.
-- [ ] Preserve stdout JSON contracts for successful machine-readable commands.
-- [ ] Confirm commands that are meant for automation return structured JSON where
-  appropriate.
-- [ ] Add or update tests for representative error paths across the CLI.
-
-### Local access and security documentation audit
-
-Release goal: users understand the local-only security model before exposing the
-service outside localhost.
-
-- [ ] Document that the Phase 1 local service is unauthenticated.
-- [ ] Document that binding to non-local interfaces can expose memory contents.
-- [ ] Confirm README, service API docs, and config docs explain host and port risks.
-- [ ] Confirm install and service docs recommend local-only defaults.
-- [ ] Add release checklist coverage for local access and security assumptions.
-
-### Update flow
-
-Release goal: `recallium update` can check for, download, and apply updates
-without requiring manual reinstall steps.
-
-- [ ] `recallium update` checks the installed version against the latest release.
-- [ ] Supports pip, pipx, and uv install methods.
-- [ ] Bootstrap-installed instances can update through the bootstrap path.
-- [ ] Dry-run mode shows what would be updated without applying changes.
-- [ ] Clear progress and error messaging for network failures, permission issues,
-  and incompatible install methods.
-- [ ] Update preserves user config, data, and service state.
-- [ ] Add tests for version check, update apply, dry-run, and error paths.
-
-### CI uninstall-flow coverage
-
-Release goal: every bootstrap install-smoke path also proves Recallium can be
-uninstalled cleanly.
-
-- [ ] Update CI install-smoke jobs to run the appropriate uninstall flow after the
-  install and CLI smoke checks pass.
-- [ ] Verify default uninstall preserves Recallium data by default.
-- [ ] Verify purge uninstall removes Recallium-managed data only when explicitly
-  requested.
-- [ ] Verify managed shell completion cleanup runs during uninstall where that shell
-  completion was installed.
-- [ ] Verify uninstall output gives package-manager guidance without failing the CI
-  job for expected package-manager ownership boundaries.
-- [ ] Cover Linux, macOS, Windows x86_64, and Windows ARM64 install-smoke jobs where
   practical.
 
 ### GitHub Wiki
@@ -199,15 +198,22 @@ path is proven.
 
 ### OpenCode plugin work
 
-- [ ] Build the OpenCode plugin or adapter outside the Core release scope.
+Release goal: OpenCode can use Recallium Core through a thin plugin or adapter
+that consumes the Core service contract instead of reimplementing memory logic.
+
+- [ ] Build the OpenCode plugin or adapter.
 - [ ] Consume Core service discovery from the plugin.
+- [ ] Support explicit remote Core base-URL configuration for hosted Core
+  instances and validate those endpoints with health, version, and capabilities.
+- [ ] If local autodiscovery reports the service is not running, attempt to start
+  the local API service before guiding the user.
 - [ ] Consume Core workspace UID behavior from the plugin.
 - [ ] Expose Recallium-backed tools inside OpenCode.
 - [ ] Add plugin-facing documentation and troubleshooting guides.
 
-## Phase 2 (v0.2.x): Product intelligence
+## Phase 2 (v1.x): Product intelligence
 
-Recallium fulfills its product promise as a personal intelligence engine.
+Recallium fulfills its product promise as a personal intelligence engine after the first 1.0 release line is stable.
 
 - [ ] Daily memory maintenance (dreamer reviews and improves the memory set).
 - [ ] User reflection summaries for conversation topics.

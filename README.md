@@ -422,7 +422,15 @@ When a managed service is running, discovery exits `0` and prints JSON with the 
 
 When no managed service is running, discovery exits `1`, prints `status="not_running"`, and includes the next step to start the API service. The command does not create a config file just to inspect discovery state. If PID or discovery metadata is stale, discovery removes the stale Recallium-owned files and reports what was cleaned.
 
-Adapters should autodiscover Recallium after the host application loads the plugin. Users should not need to manually configure host, port, PID file, runtime path, or service type in adapter config. Before using the service, adapters must validate the discovered service by calling `health_url`, `version_url`, and `capabilities_url`.
+Adapters should autodiscover Recallium after the host application loads the
+plugin when the adapter and Core run on the same machine. Users should not need
+to manually configure host, port, PID file, runtime path, or service type for
+that local path. Hosted or remote Core instances are different: the user points
+the plugin at the Core base URL in plugin config. Before using the service,
+adapters must validate the target endpoint by calling health, version, and
+capabilities, whether those URLs came from local discovery or from the configured
+remote base URL. See `docs/opencode-adapter-contract.md` for the full adapter
+contract.
 
 Binding Recallium to a non-local interface can expose memory contents because the Phase 1 local API is unauthenticated.
 
@@ -552,8 +560,19 @@ recallium --db /tmp/recallium.db search-workspace \
 Searches default to all buckets in the selected scope. Add `--type` when you want to narrow the workspace search to a bucket such as `decision` or `task_context`.
 
 Workspace memories are keyed by a stable workspace UID. Future adapters, such as
-the OpenCode plugin, should create and pass that UID rather than using filesystem
-paths as workspace identity.
+the OpenCode plugin, should instruct the model at prompt level to choose the UID
+candidate from the project it is currently working in and making changes to. Use
+the project base folder name, not the full path, and do not use the adapter,
+agent, sandbox, or temporary execution directory when that differs from the
+project under work. If the project or active subfolder is inside a git-managed
+tree, prefer the git repository name from the repository root. If there is no
+git repo, use the selected project folder name or containing project workspace
+folder name. The plugin passes that UID candidate to Core; Core applies
+`workspace.uid_normalization` at the storage boundary. For local autodiscovery,
+if the service is not running, the plugin should attempt to start the API service
+with `recallium service start api` before guiding the user. See
+`docs/opencode-adapter-contract.md` for the adapter-side workspace UID and
+service discovery rules.
 
 List known workspace UIDs:
 
