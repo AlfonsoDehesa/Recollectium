@@ -29,25 +29,10 @@ Completed:
 - [x] Workspace UID contract: normalization, listing, rename, and CLI/API/MCP parity.
 - [x] Install-time init and model readiness: central `_ensure_model_ready()` wrapper with state file tracking, service startup gate, CLI embedding gate, bootstrap install auto-init, offline error guidance.
 - [x] Canonical memory buckets and optional read filters: small canonical user/workspace bucket sets, scope-aware write validation, exact-match optional read filters, CLI/API/MCP/docs alignment, and completion coverage.
+- [x] OpenCode adapter readiness handoff: documented service discovery, health/version/capabilities validation, workspace UID resolution, adapter workflow, and adapter contract docs.
 
 Remaining release blockers:
 
-
-### OpenCode adapter readiness handoff
-
-Release goal: Core is ready for the future OpenCode adapter even though the
-adapter itself is not part of this repository.
-
-- [ ] Document exactly how the adapter discovers the running service.
-- [ ] Document how the adapter checks service health, version, and capabilities.
-- [ ] Document how the adapter gets or creates the workspace UID.
-- [ ] Confirm the API has everything the adapter needs for user and workspace
-  memory operations.
-- [ ] Confirm capability names are stable enough for adapter compatibility checks.
-- [ ] Confirm errors are clear when the service is not running or incompatible.
-- [ ] Write an adapter workflow doc: install Core, start service, discover service,
-  validate service, then use memory endpoints.
-- [ ] Add an adapter contract section to the service or API docs if needed.
 
 ### Rich dynamic PowerShell shell completion
 

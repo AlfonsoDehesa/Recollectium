@@ -196,6 +196,9 @@ confirmed before the version-bump PR is opened.
       the others expose.
 - [ ] `recallium config` get/set/unset covers every configurable key in
       `config.json`.
+- [ ] If a PR changes service discovery, version/capabilities, or workspace UID
+      behavior, update `docs/opencode-adapter-contract.md` and the matching API
+      docs in the same PR.
 
 #### Documentation
 
