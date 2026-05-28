@@ -48,7 +48,14 @@ from recallium.config import (
 from recallium.embeddings import BuiltinFastEmbedProvider
 from recallium.logging import setup_logging
 from recallium.model_state import write_model_state
-from recallium.models import SearchResult
+from recallium.models import (
+    ALL_MEMORY_TYPES,
+    SPACE_USER,
+    SPACE_WORKSPACE,
+    SearchResult,
+    USER_MEMORY_TYPES,
+    WORKSPACE_MEMORY_TYPES,
+)
 from recallium.mcp_server import create_mcp_server
 from recallium.service import run_service
 from recallium.service_contract import SERVICE_DEFAULT_HOST, SERVICE_DEFAULT_PORT
@@ -84,6 +91,19 @@ _COMPLETABLE_CONFIG_KEYS = [
     "directories.runtime",
     "workspace.uid_normalization",
 ]
+
+
+def _memory_type_choices_for_space(space: Any | None) -> tuple[str, ...]:
+    if space == SPACE_USER:
+        return USER_MEMORY_TYPES
+    if space == SPACE_WORKSPACE:
+        return WORKSPACE_MEMORY_TYPES
+    return ALL_MEMORY_TYPES
+
+
+def _memory_type_completer(prefix: str, parsed_args: Any, **_: Any) -> list[str]:
+    choices = _memory_type_choices_for_space(getattr(parsed_args, "space", None))
+    return [choice for choice in choices if choice.startswith(prefix)]
 
 
 class _CliLoggingConfig:
@@ -1110,8 +1130,8 @@ def _build_parser() -> argparse.ArgumentParser:
     add_parser.add_argument(
         "--type",
         required=True,
-        help="Free-form memory type, such as preference, fact, note, decision, or task_context.",
-    )
+        help="Canonical memory type bucket, such as fact, preference, note, decision, or task_context.",
+    ).completer = _memory_type_completer  # pyright: ignore[reportAttributeAccessIssue]
     add_parser.add_argument(
         "--content",
         required=True,
@@ -1143,11 +1163,18 @@ def _build_parser() -> argparse.ArgumentParser:
     search_user_parser = subparsers.add_parser(
         "search-user",
         help="search global user memories",
-        description="Search active user memories semantically and return ranked JSON results.",
+        description=(
+            "Search active user memories semantically and return ranked JSON results. "
+            "Searches default to all user buckets unless --type narrows the scope."
+        ),
     )
     search_user_parser.add_argument(
         "query", help="Search text to match against user memories."
     )
+    search_user_parser.add_argument(
+        "--type",
+        help="Optional canonical type bucket to narrow user search results.",
+    ).completer = ChoicesCompleter(USER_MEMORY_TYPES)  # pyright: ignore[reportAttributeAccessIssue]
     search_user_parser.add_argument(
         "--limit",
         type=int,
@@ -1166,12 +1193,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="search memories for one workspace UID",
         description=(
             "Search active memories for a specific workspace UID and return ranked "
-            "JSON results."
+            "JSON results. Searches default to all workspace buckets unless --type narrows the scope."
         ),
     )
     search_workspace_parser.add_argument(
         "query", help="Search text to match against workspace memories."
     )
+    search_workspace_parser.add_argument(
+        "--type",
+        help="Optional canonical type bucket to narrow workspace search results.",
+    ).completer = ChoicesCompleter(WORKSPACE_MEMORY_TYPES)  # pyright: ignore[reportAttributeAccessIssue]
     search_workspace_parser.add_argument(
         "--workspace-uid",
         required=True,
@@ -1192,7 +1223,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # -- list --------------------------------------------------------------
     list_parser = subparsers.add_parser(
         "list",
-        help="list memories with optional filters",
+        help="list memories with optional filters across all buckets by default",
         description=(
             "List memories as JSON, optionally filtered by space, type, status, "
             "workspace UID, or result limit. Archived memories are hidden unless "
@@ -1202,7 +1233,9 @@ def _build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument(
         "--space", help="Filter by memory space, usually 'user' or 'workspace'."
     )
-    list_parser.add_argument("--type", help="Filter by memory type.")
+    list_parser.add_argument(
+        "--type", help="Filter by canonical memory type bucket."
+    ).completer = ChoicesCompleter(ALL_MEMORY_TYPES)  # pyright: ignore[reportAttributeAccessIssue]
     list_parser.add_argument(
         "--status", help="Filter by memory status, such as active or archived."
     )
@@ -1243,7 +1276,9 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         help="Memory ID to update. Omit to print package update instructions.",
     )
-    update_parser.add_argument("--type", help="Replacement memory type.")
+    update_parser.add_argument(
+        "--type", help="Replacement canonical memory type bucket."
+    ).completer = _memory_type_completer  # pyright: ignore[reportAttributeAccessIssue]
     update_parser.add_argument(
         "--content", help="Replacement memory text. Regenerates the stored embedding."
     )
@@ -1969,6 +2004,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 query=args.query,
                 limit=args.limit,
                 include_archived=args.include_archived,
+                type=args.type,
             )
         elif args.command == "search-workspace":
             result = core.search_workspace_memories(
@@ -1976,6 +2012,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 workspace_uid=args.workspace_uid,
                 limit=args.limit,
                 include_archived=args.include_archived,
+                type=args.type,
             )
         elif args.command == "list":
             result = core.list_memories(

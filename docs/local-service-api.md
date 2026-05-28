@@ -175,8 +175,42 @@ Response example:
       "memories.get",
       "embedding.status",
       "embedding.jobs.list",
-      "embedding.jobs.get"
-    ]
+      "embedding.jobs.get",
+      "workspaces.list",
+      "workspaces.rename"
+    ],
+    "memory_types": {
+      "user": [
+        "fact",
+        "preference",
+        "personal_fact",
+        "social_context",
+        "goal",
+        "communication_style",
+        "note"
+      ],
+      "workspace": [
+        "fact",
+        "decision",
+        "task_context",
+        "configuration",
+        "bug_finding",
+        "note"
+      ],
+      "all": [
+        "fact",
+        "preference",
+        "personal_fact",
+        "social_context",
+        "goal",
+        "communication_style",
+        "note",
+        "decision",
+        "task_context",
+        "configuration",
+        "bug_finding"
+      ]
+    }
   }
 }
 ```
@@ -202,6 +236,7 @@ All successful endpoint responses currently return HTTP `200` with a `{"data": .
 - Required inputs:
   - `query` (string, non-empty)
 - Optional inputs:
+  - `type` (string bucket filter; optional)
   - `limit` (positive integer, default `10`)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
@@ -212,7 +247,7 @@ Example request:
 ```bash
 curl -sS http://127.0.0.1:8765/v1/memories/search_user \
   -H 'Content-Type: application/json' \
-  -d '{"query":"likes tea","limit":5}'
+  -d '{"query":"likes tea","type":"fact","limit":5}'
 ```
 
 Example response:
@@ -251,6 +286,7 @@ Example response:
   - `query` (string, non-empty)
   - `workspace_uid` (string, non-empty)
 - Optional inputs:
+  - `type` (string bucket filter; optional)
   - `limit` (positive integer, default `10`)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
@@ -261,7 +297,7 @@ Example request:
 ```bash
 curl -sS http://127.0.0.1:8765/v1/memories/search_workspace \
   -H 'Content-Type: application/json' \
-  -d '{"query":"sqlite","workspace_uid":"ws-1"}'
+  -d '{"query":"sqlite","workspace_uid":"ws-1","type":"decision"}'
 ```
 
 Example response:

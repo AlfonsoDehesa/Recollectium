@@ -34,6 +34,8 @@ from recallium.models import (
     normalize_workspace_uid,
     validate_limit,
     validate_memory_create_input,
+    validate_memory_type_filter,
+    validate_memory_type_for_space,
     validate_memory_update_input,
 )
 from recallium.config import RecalliumConfig
@@ -146,7 +148,9 @@ class RecalliumCore:
         query: str,
         limit: int = 10,
         include_archived: bool = False,
+        type: str | None = None,
     ) -> list[SearchResult]:
+        validated_type = validate_memory_type_filter(type) if type is not None else None
         self._ensure_scope_embeddings_ready(
             space=SPACE_USER,
             include_archived=include_archived,
@@ -154,6 +158,7 @@ class RecalliumCore:
         )
         candidates = self.store.list_chunk_candidates(
             space=SPACE_USER,
+            memory_type=validated_type,
             embedding_profile=self.embedding_provider.embedding_profile,
             include_archived=include_archived,
         )
@@ -180,12 +185,14 @@ class RecalliumCore:
         workspace_uid: str | None,
         limit: int = 10,
         include_archived: bool = False,
+        type: str | None = None,
     ) -> list[SearchResult]:
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
         if workspace_uid is None:
             raise ValidationError("workspace_uid is required for workspace search")
         workspace_uid = self._normalize_uid(workspace_uid)
         assert workspace_uid is not None
+        validated_type = validate_memory_type_filter(type) if type is not None else None
 
         self._ensure_scope_embeddings_ready(
             space=SPACE_WORKSPACE,
@@ -196,6 +203,7 @@ class RecalliumCore:
         candidates = self.store.list_chunk_candidates(
             space=SPACE_WORKSPACE,
             workspace_uid=workspace_uid,
+            memory_type=validated_type,
             embedding_profile=self.embedding_provider.embedding_profile,
             include_archived=include_archived,
         )
@@ -231,10 +239,11 @@ class RecalliumCore:
     ) -> list[Memory]:
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
         workspace_uid = self._normalize_uid(workspace_uid)
+        validated_type = validate_memory_type_filter(type) if type is not None else None
 
         return self.store.list_memories(
             space=space,
-            memory_type=type,
+            memory_type=validated_type,
             status=status,
             workspace_uid=workspace_uid,
             include_archived=include_archived,
@@ -258,6 +267,7 @@ class RecalliumCore:
         confidence: float | None = None,
         sensitivity: str | None = None,
     ) -> Memory:
+        existing_memory = self.get_memory(memory_id)
         has_model_updates = any(
             value is not None for value in (type, content, metadata, confidence)
         )
@@ -272,6 +282,10 @@ class RecalliumCore:
         else:
             validated = {}
 
+        if type is not None:
+            validated["type"] = validate_memory_type_for_space(
+                existing_memory.space, type
+            )
         if source is not None:
             validated["source"] = _validate_optional_string("source", source)
         if sensitivity is not None:

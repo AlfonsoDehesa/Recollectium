@@ -90,6 +90,7 @@ class SearchUserRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     query: str = Field(min_length=1)
+    type: str | None = Field(default=None, min_length=1)
     limit: int = Field(default=10, ge=1)
     include_archived: bool = False
 
@@ -98,6 +99,7 @@ class SearchWorkspaceRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     query: str = Field(min_length=1)
+    type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
     limit: int = Field(default=10, ge=1)
     include_archived: bool = False
@@ -252,6 +254,7 @@ def create_app(core: RecalliumCore) -> FastAPI:
             query=body.query,
             limit=body.limit,
             include_archived=body.include_archived,
+            type=body.type,
         )
         return success_payload(serialize_search_results(results))
 
@@ -262,6 +265,7 @@ def create_app(core: RecalliumCore) -> FastAPI:
             workspace_uid=body.workspace_uid,
             limit=body.limit,
             include_archived=body.include_archived,
+            type=body.type,
         )
         return success_payload(serialize_search_results(results))
 

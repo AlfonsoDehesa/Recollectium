@@ -12,6 +12,7 @@ from recallium.models import (
     SearchResult,
     validate_limit,
     validate_memory_create_input,
+    validate_memory_type_for_space,
     validate_memory_update_input,
 )
 
@@ -99,6 +100,39 @@ def test_validate_memory_create_input_rejects_invalid_fields() -> None:
             content="hello",
             metadata={"bad": object()},
         )
+
+
+def test_validate_memory_create_input_normalizes_and_validates_type() -> None:
+    payload = validate_memory_create_input(
+        space=SPACE_USER,
+        memory_type="  GOAL  ",
+        content="hello",
+    )
+
+    assert payload["type"] == "goal"
+
+    with pytest.raises(ValidationError, match="user memories"):
+        validate_memory_create_input(
+            space=SPACE_USER,
+            memory_type="task_context",
+            content="hello",
+        )
+
+    with pytest.raises(ValidationError, match="workspace memories"):
+        validate_memory_create_input(
+            space=SPACE_WORKSPACE,
+            memory_type="goal",
+            content="hello",
+            workspace_uid="workspace-alpha",
+        )
+
+
+def test_validate_memory_type_for_space_normalizes_and_rejects_wrong_scope() -> None:
+    assert validate_memory_type_for_space(SPACE_USER, "  GOAL  ") == "goal"
+    assert build_memory(type="  FACT  ").type == "fact"
+
+    with pytest.raises(ValidationError, match="workspace memories"):
+        validate_memory_type_for_space(SPACE_WORKSPACE, "goal")
 
 
 def test_validate_limit_requires_positive_integer() -> None:

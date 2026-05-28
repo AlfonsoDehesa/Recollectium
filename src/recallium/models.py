@@ -15,6 +15,31 @@ SPACE_WORKSPACE = "workspace"
 STATUS_ACTIVE = "active"
 STATUS_ARCHIVED = "archived"
 
+USER_MEMORY_TYPES: tuple[str, ...] = (
+    "fact",
+    "preference",
+    "personal_fact",
+    "social_context",
+    "goal",
+    "communication_style",
+    "note",
+)
+WORKSPACE_MEMORY_TYPES: tuple[str, ...] = (
+    "fact",
+    "decision",
+    "task_context",
+    "configuration",
+    "bug_finding",
+    "note",
+)
+MEMORY_TYPES_BY_SPACE: dict[str, tuple[str, ...]] = {
+    SPACE_USER: USER_MEMORY_TYPES,
+    SPACE_WORKSPACE: WORKSPACE_MEMORY_TYPES,
+}
+ALL_MEMORY_TYPES: tuple[str, ...] = tuple(
+    dict.fromkeys((*USER_MEMORY_TYPES, *WORKSPACE_MEMORY_TYPES))
+)
+
 
 def _validate_non_empty_string(field_name: str, value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
@@ -26,6 +51,46 @@ def _validate_optional_non_empty_string(field_name: str, value: Any) -> str | No
     if value is None:
         return None
     return _validate_non_empty_string(field_name, value)
+
+
+def normalize_memory_type(raw: str) -> str:
+    return _validate_non_empty_string("type", raw).casefold()
+
+
+def canonical_memory_types_for_space(space: str) -> tuple[str, ...]:
+    if space not in MEMORY_TYPES_BY_SPACE:
+        raise ValidationError("space must be one of: user, workspace")
+    return MEMORY_TYPES_BY_SPACE[space]
+
+
+def validate_memory_type_for_space(space: Any, memory_type: Any) -> str:
+    validated_space = _validate_non_empty_string("space", space)
+    if validated_space not in MEMORY_TYPES_BY_SPACE:
+        raise ValidationError("space must be one of: user, workspace")
+
+    normalized_type = normalize_memory_type(memory_type)
+    allowed_types = MEMORY_TYPES_BY_SPACE[validated_space]
+    if normalized_type not in allowed_types:
+        allowed_values = ", ".join(allowed_types)
+        raise ValidationError(
+            f"type must be one of: {allowed_values} for {validated_space} memories"
+        )
+    return normalized_type
+
+
+def validate_memory_type_filter(memory_type: Any, *, space: str | None = None) -> str:
+    normalized_type = normalize_memory_type(memory_type)
+    allowed_types = (
+        ALL_MEMORY_TYPES if space is None else canonical_memory_types_for_space(space)
+    )
+    if normalized_type not in allowed_types:
+        allowed_values = ", ".join(allowed_types)
+        if space is None:
+            raise ValidationError(f"type must be one of: {allowed_values}")
+        raise ValidationError(
+            f"type must be one of: {allowed_values} for {space} memories"
+        )
+    return normalized_type
 
 
 def _validate_metadata(metadata: Any) -> dict[str, Any]:
@@ -117,7 +182,7 @@ def validate_memory_create_input(
 
     return {
         "space": validated_space,
-        "type": _validate_non_empty_string("type", memory_type),
+        "type": validate_memory_type_for_space(validated_space, memory_type),
         "content": _validate_non_empty_string("content", content),
         "workspace_uid": validated_workspace_uid,
         "metadata": _validate_metadata(metadata),
@@ -171,7 +236,7 @@ class Memory:
         if self.space not in {SPACE_USER, SPACE_WORKSPACE}:
             raise ValidationError("space must be one of: user, workspace")
 
-        self.type = _validate_non_empty_string("type", self.type)
+        self.type = validate_memory_type_for_space(self.space, self.type)
         self.content = _validate_non_empty_string("content", self.content)
 
         self.status = _validate_non_empty_string("status", self.status)

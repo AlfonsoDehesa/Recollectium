@@ -529,6 +529,8 @@ Search user memories:
 recallium --db /tmp/recallium.db search-user "concise answers"
 ```
 
+Searches default to all buckets in the selected scope. Add `--type` when you want to narrow the search to a specific bucket, for example `fact` or `preference`.
+
 Add a workspace memory:
 
 ```bash
@@ -547,6 +549,8 @@ recallium --db /tmp/recallium.db search-workspace \
   --workspace-uid 7f3b0a5e-example-workspace
 ```
 
+Searches default to all buckets in the selected scope. Add `--type` when you want to narrow the workspace search to a bucket such as `decision` or `task_context`.
+
 Workspace memories are keyed by a stable workspace UID. Future adapters, such as
 the OpenCode plugin, should create and pass that UID rather than using filesystem
 paths as workspace identity.
@@ -564,6 +568,35 @@ recallium --db /tmp/recallium.db workspace rename old-project new-project
 ```
 
 All successful CLI commands return JSON.
+
+## Memory buckets
+
+Recallium uses a small canonical bucket set. Write operations choose a bucket, while reads default to all buckets in the selected scope and only narrow with `--type` when needed.
+
+User scope:
+
+| Bucket | Use |
+|---|---|
+| `fact` | Stable facts about the user |
+| `preference` | Stable likes, defaults, and style choices |
+| `personal_fact` | Durable facts about the user that are not preferences or relationships |
+| `social_context` | People and relationship mappings around the user |
+| `goal` | Desired future states or ongoing outcomes |
+| `communication_style` | How the user wants the assistant to talk and collaborate |
+| `note` | Catch-all user memory when nothing else fits |
+
+Workspace scope:
+
+| Bucket | Use |
+|---|---|
+| `fact` | Durable truths about the workspace or project |
+| `decision` | Chosen directions with rationale |
+| `task_context` | Active work state and unfinished branch context |
+| `configuration` | Environment and operational setup details |
+| `bug_finding` | Diagnosed issues and root causes |
+| `note` | Catch-all workspace memory when nothing else fits |
+
+Searches default to all buckets in the selected scope. Add `--type` when you want to narrow the search to a specific bucket.
 
 Check embedding profile status:
 

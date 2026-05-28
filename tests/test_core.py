@@ -118,11 +118,15 @@ def test_core_user_memory_flow_add_get_search_list_update_archive(
     assert fetched.id == created.id
     assert fetched.last_accessed_at is not None
 
-    search_results = core.search_user_memories("repair defect")
+    search_results = core.search_user_memories("repair defect", type="note")
     assert [result.memory.id for result in search_results] == [created.id]
 
-    listed = core.list_memories(space="user")
+    assert core.search_user_memories("repair defect", type="decision") == []
+
+    listed = core.list_memories(space="user", type="note")
     assert [memory.id for memory in listed] == [created.id]
+
+    assert core.list_memories(space="user", type="decision") == []
 
     updated = core.update_memory(created.id, content="Need to write release notes")
     assert updated.content == "Need to write release notes"
@@ -148,13 +152,13 @@ def test_core_workspace_search_isolation_by_workspace_uid(
 
     workspace_a = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="Need to purchase milk",
         workspace_uid="workspace-alpha",
     )
     workspace_b = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="Need to purchase bread",
         workspace_uid="workspace-beta",
     )
@@ -162,14 +166,21 @@ def test_core_workspace_search_isolation_by_workspace_uid(
     assert workspace_a.workspace_uid == "workspace-alpha"
 
     search_a = core.search_workspace_memories(
-        "buy milk", workspace_uid="workspace-alpha"
+        "buy milk", workspace_uid="workspace-alpha", type="task_context"
     )
     assert [result.memory.id for result in search_a] == [workspace_a.id]
 
     search_b = core.search_workspace_memories(
-        "buy milk", workspace_uid="workspace-beta"
+        "buy milk", workspace_uid="workspace-beta", type="task_context"
     )
     assert [result.memory.id for result in search_b] == [workspace_b.id]
+
+    assert (
+        core.search_workspace_memories(
+            "buy milk", workspace_uid="workspace-alpha", type="fact"
+        )
+        == []
+    )
 
     user_results = core.search_user_memories("buy")
     assert user_results == []
@@ -198,7 +209,7 @@ def test_workspace_identity_validation(
     with pytest.raises(ValidationError, match="workspace_uid is required"):
         core.add_memory(
             space=SPACE_WORKSPACE,
-            type="task",
+            type="task_context",
             content="Need to purchase milk",
         )
 
@@ -400,7 +411,7 @@ def test_search_reembeds_missing_profile_chunks_below_threshold(tmp_path: Path) 
     core = RecalliumCore(db_path=db_path)
     created = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="calibrate laser cutter",
         workspace_uid="shop",
     )
@@ -680,13 +691,13 @@ def test_deferred_reembedding_scope_safety_and_archived_exclusion(
     user_memory = core.add_memory(space=SPACE_USER, type="fact", content="user alpha")
     workspace_a = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="workspace alpha",
         workspace_uid="workspace-a",
     )
     workspace_b = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="workspace beta",
         workspace_uid="workspace-b",
     )

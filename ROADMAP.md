@@ -28,28 +28,10 @@ Completed:
 - [x] Local service discovery for adapters through `recallium service discover` and `service-discovery.json`.
 - [x] Workspace UID contract: normalization, listing, rename, and CLI/API/MCP parity.
 - [x] Install-time init and model readiness: central `_ensure_model_ready()` wrapper with state file tracking, service startup gate, CLI embedding gate, bootstrap install auto-init, offline error guidance.
+- [x] Canonical memory buckets and optional read filters: small canonical user/workspace bucket sets, scope-aware write validation, exact-match optional read filters, CLI/API/MCP/docs alignment, and completion coverage.
 
 Remaining release blockers:
 
-### Structure around memory types
-
-Release goal: Recallium ships with a defined, documented set of memory types so
-agents, adapters, and users share a common vocabulary instead of guessing at
-freeform strings.
-
-- [ ] Define a stable set of supported memory types: preference, fact, note,
-  decision, task_context, summary, and reflection.
-- [ ] Validate memory type against the supported set during add and update.
-- [ ] Reject unknown memory types with a clear error that lists the allowed
-  values.
-- [ ] Add known-type completion for `--type` in the CLI (both argcomplete and
-  PowerShell).
-- [ ] Document supported memory types and their intended usage in README, CLI
-  help, and API docs.
-- [ ] Keep the schema and endpoints forward-compatible with Phase 2 intent-native
-  naming (`remember`, `recall`, `link`, `forget`).
-- [ ] Add tests for valid types, unknown types, and type completion across both
-  completion engines.
 
 ### OpenCode adapter readiness handoff
 

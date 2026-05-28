@@ -16,20 +16,22 @@ def create_mcp_server(core: RecalliumCore) -> FastMCP:
     mcp = FastMCP("Recallium")
 
     @mcp.tool()
-    def search_user_memory(query: str, limit: int = 10) -> str:
+    def search_user_memory(query: str, type: str | None = None, limit: int = 10) -> str:
         """Search user-space memories by semantic similarity to the query."""
         try:
-            results = core.search_user_memories(query=query, limit=limit)
+            results = core.search_user_memories(query=query, type=type, limit=limit)
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecalliumError as e:
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
-    def search_workspace_memory(query: str, workspace_uid: str, limit: int = 10) -> str:
+    def search_workspace_memory(
+        query: str, workspace_uid: str, type: str | None = None, limit: int = 10
+    ) -> str:
         """Search workspace memories by semantic similarity to the query."""
         try:
             results = core.search_workspace_memories(
-                query=query, workspace_uid=workspace_uid, limit=limit
+                query=query, workspace_uid=workspace_uid, type=type, limit=limit
             )
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecalliumError as e:
@@ -64,10 +66,12 @@ def create_mcp_server(core: RecalliumCore) -> FastMCP:
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
-    def update_memory(id: str, content: str | None = None) -> str:
-        """Update an existing memory's content. Returns the updated memory as JSON."""
+    def update_memory(
+        id: str, type: str | None = None, content: str | None = None
+    ) -> str:
+        """Update an existing memory. Returns the updated memory as JSON."""
         try:
-            memory = core.update_memory(id, content=content)
+            memory = core.update_memory(id, type=type, content=content)
             return json.dumps(memory.to_dict(), sort_keys=True)
         except RecalliumError as e:
             return json.dumps({"error": str(e)}, sort_keys=True)
@@ -84,13 +88,14 @@ def create_mcp_server(core: RecalliumCore) -> FastMCP:
     @mcp.tool()
     def list_memories(
         space: str | None = None,
+        type: str | None = None,
         workspace_uid: str | None = None,
         limit: int | None = None,
     ) -> str:
-        """List memories, optionally filtered by space and workspace UID."""
+        """List memories, optionally filtered by space, type, and workspace UID."""
         try:
             results = core.list_memories(
-                space=space, workspace_uid=workspace_uid, limit=limit
+                space=space, type=type, workspace_uid=workspace_uid, limit=limit
             )
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecalliumError as e:
