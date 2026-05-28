@@ -897,6 +897,18 @@ Example response:
 }
 ```
 
+**Error 400 (existing memories under alias UID)**
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "workspace alias conflicts with existing workspace memories: recollectium-core. Use --migrate-existing to move those memories to recollectium and keep recollectium-core as an alias.",
+    "details": {}
+  }
+}
+```
+
 ### `DELETE /v1/workspaces/aliases/{alias_uid}`
 
 Purpose: remove an alias mapping by alias UID.

@@ -35,8 +35,12 @@ class SQLiteMemoryStore:
         connection.row_factory = sqlite3.Row
         try:
             yield connection
-        finally:
+        except Exception:
+            connection.rollback()
+            raise
+        else:
             connection.commit()
+        finally:
             connection.close()
 
     def migration_status(self) -> dict[str, object]:
@@ -284,6 +288,15 @@ class SQLiteMemoryStore:
                     f"canonical workspace uid is already an alias: {canonical_uid}"
                 )
 
+            alias_is_canonical = connection.execute(
+                "SELECT 1 FROM workspace_aliases WHERE canonical_uid = ?",
+                (alias_uid,),
+            ).fetchone()
+            if alias_is_canonical is not None:
+                raise ValidationError(
+                    f"workspace alias is already a canonical workspace uid: {alias_uid}"
+                )
+
             existing_memories = connection.execute(
                 """
                 SELECT COUNT(*) AS count
@@ -364,6 +377,15 @@ class SQLiteMemoryStore:
         """Rename all workspace memories and preserve aliases for the canonical UID."""
         timestamp = utc_now_iso()
         with self._connect() as connection:
+            new_uid_is_alias = connection.execute(
+                "SELECT 1 FROM workspace_aliases WHERE alias_uid = ?",
+                (new_uid,),
+            ).fetchone()
+            if new_uid_is_alias is not None:
+                raise ValidationError(
+                    f"workspace rename target is already an alias: {new_uid}"
+                )
+
             result = connection.execute(
                 "UPDATE memories SET workspace_uid = ?, updated_at = ? "
                 "WHERE workspace_uid = ? AND space = 'workspace'",

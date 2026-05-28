@@ -6,7 +6,7 @@ from typing import Iterator
 import pytest
 
 from recollectium.embeddings import ContentChunk
-from recollectium.errors import MigrationError, NotFoundError
+from recollectium.errors import MigrationError, NotFoundError, ValidationError
 from recollectium.migrations import Migration, MigrationRunner
 from recollectium.models import (
     SPACE_USER,
@@ -1091,3 +1091,48 @@ def test_workspace_alias_storage_migrate_existing_and_conflicts(tmp_path: Path) 
         store.add_workspace_alias(canonical_uid="new-name", alias_uid="old-name")
     with pytest.raises(Exception, match="already an alias"):
         store.add_workspace_alias(canonical_uid="old-name", alias_uid="older-name")
+
+
+def test_workspace_alias_rejects_alias_chains(tmp_path: Path) -> None:
+    store = SQLiteMemoryStore(tmp_path / "alias-chain.db")
+    store.add_workspace_alias(canonical_uid="b", alias_uid="a")
+
+    with pytest.raises(ValidationError, match="already a canonical workspace uid"):
+        store.add_workspace_alias(canonical_uid="c", alias_uid="b")
+
+    assert store.resolve_workspace_uid("a") == "b"
+    assert store.resolve_workspace_uid("b") == "b"
+
+
+def test_rename_workspace_rejects_alias_target_and_preserves_memories(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteMemoryStore(tmp_path / "rename-alias-target.db")
+    store.insert_memory(
+        build_memory("mem-1", space=SPACE_WORKSPACE, workspace_uid="old"),
+        embedding=[0.1, 0.2],
+        embedding_profile=EMBEDDING_PROFILE,
+    )
+    store.add_workspace_alias(canonical_uid="canonical", alias_uid="target")
+
+    with pytest.raises(ValidationError, match="rename target is already an alias"):
+        store.rename_workspace("old", "target")
+
+    assert store.list_workspace_uids() == ["old"]
+    assert store.resolve_workspace_uid("target") == "canonical"
+
+
+def test_failed_rename_workspace_rolls_back_memory_updates(tmp_path: Path) -> None:
+    store = SQLiteMemoryStore(tmp_path / "rename-rollback.db")
+    store.insert_memory(
+        build_memory("mem-1", space=SPACE_WORKSPACE, workspace_uid="old"),
+        embedding=[0.1, 0.2],
+        embedding_profile=EMBEDDING_PROFILE,
+    )
+    store.add_workspace_alias(canonical_uid="old", alias_uid="new")
+
+    with pytest.raises(ValidationError, match="rename target is already an alias"):
+        store.rename_workspace("old", "new")
+
+    assert store.list_workspace_uids() == ["old"]
+    assert store.resolve_workspace_uid("new") == "old"

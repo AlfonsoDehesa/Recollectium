@@ -574,7 +574,8 @@ project under work. If the project or active subfolder is inside a git-managed
 tree, prefer the git repository name from the repository root. If there is no
 git repo, use the selected project folder name or containing project workspace
 folder name. The plugin passes that UID candidate to Core; Core applies
-`workspace.uid_normalization` at the storage boundary. For local autodiscovery,
+`workspace.uid_normalization` and resolves configured workspace aliases at the
+storage boundary. For local autodiscovery,
 if the service is not running, the plugin should attempt to start the API service
 with `recollectium service start api` before guiding the user. See
 `docs/opencode-adapter-contract.md` for the adapter-side workspace UID and
@@ -602,7 +603,7 @@ Add, list, and remove workspace aliases:
 
 ```bash
 recollectium --db /tmp/recollectium.db workspace alias add recollectium recollectium-core --migrate-existing
-recollectium --db /tmp/recollectium.db workspace alias list recollectium
+recollectium --db /tmp/recollectium.db workspace alias list --workspace recollectium
 recollectium --db /tmp/recollectium.db workspace alias remove recollectium-core
 ```
 
