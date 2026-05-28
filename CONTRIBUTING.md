@@ -269,8 +269,13 @@ confirmed before the version-bump PR is opened.
       succeeds end-to-end.
 - [ ] `pip install recollectium` works from test PyPI or a local wheel.
 - [ ] `pipx install recollectium` works from test PyPI or a local wheel.
-- [ ] `recollectium update` prints correct upgrade commands for each install
-      method.
+- [ ] `recollectium upgrade --check` reports whether a newer release is available
+      without mutating the install.
+- [ ] `recollectium upgrade` applies package upgrades through bootstrap, pip,
+      pipx, uv tool, and source checkout install methods while preserving running
+      service state.
+- [ ] `recollectium upgrade --dry-run` prints the planned upgrade command for each
+      install method without applying changes.
 - [ ] `recollectium uninstall` prints correct package-manager commands for
       each install method and preserves data by default.
 - [ ] `recollectium uninstall --purge` works correctly and safely.

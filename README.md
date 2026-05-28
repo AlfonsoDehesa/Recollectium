@@ -144,15 +144,38 @@ Run the CLI through the managed environment:
 uv run recollectium --help
 ```
 
-## Updating
+## Upgrading Recollectium
 
 ```bash
-recollectium update
+recollectium upgrade
 ```
 
-This prints upgrade commands for the bootstrap installer, pip, pipx, and uv
-tool installs. Existing memory updates still use `recollectium update <memory_id>
-...`.
+`recollectium upgrade` checks the installed version against the latest GitHub
+release and applies an upgrade through the detected install method. It supports
+bootstrap installs, `pip`, `pipx`, `uv tool`, and source checkouts. User
+configuration, data, and memory databases are preserved; only the package files
+and managed service process state are touched. If a managed
+API or MCP service was running before the upgrade, Recollectium stops it and
+restarts that same service type after the package update succeeds.
+
+Use non-mutating modes for automation and previews:
+
+```bash
+recollectium upgrade --check
+recollectium upgrade --dry-run
+```
+
+If install-method detection is ambiguous, pass an explicit method:
+
+```bash
+recollectium upgrade --install-method pip
+recollectium upgrade --install-method pipx
+recollectium upgrade --install-method uv_tool
+recollectium upgrade --install-method source
+```
+
+Package upgrades use `recollectium upgrade`. Memory record edits use
+`recollectium update <memory_id> ...`.
 
 ## Uninstalling
 
