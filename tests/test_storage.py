@@ -92,7 +92,7 @@ def test_store_uses_latest_schema_version(tmp_path: Path) -> None:
         row = connection.execute("PRAGMA user_version").fetchone()
 
     assert row is not None
-    assert row[0] == 2
+    assert row[0] == 3
 
 
 def test_fresh_database_tracks_schema_migrations_metadata(tmp_path: Path) -> None:
@@ -107,7 +107,7 @@ def test_fresh_database_tracks_schema_migrations_metadata(tmp_path: Path) -> Non
             ).fetchall()
         ]
 
-    assert versions == [1, 2]
+    assert versions == [1, 2, 3]
 
 
 def test_fresh_schema_creates_chunk_and_job_tables(tmp_path: Path) -> None:
@@ -189,7 +189,7 @@ def test_v1_database_migrates_to_v2_without_losing_memories(tmp_path: Path) -> N
     with sqlite_connection(db_path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()
     assert version is not None
-    assert version[0] == 2
+    assert version[0] == 3
 
 
 def test_current_v2_database_without_metadata_remains_compatible(
@@ -259,7 +259,7 @@ def test_current_v2_database_without_metadata_remains_compatible(
     store = SQLiteMemoryStore(db_path)
     status = store.migration_status()
 
-    assert status["current_version"] == 2
+    assert status["current_version"] == 3
     assert status["pending_versions"] == []
     assert status["up_to_date"] is True
 
@@ -271,7 +271,7 @@ def test_current_v2_database_without_metadata_remains_compatible(
             ).fetchall()
         ]
 
-    assert versions == [1, 2]
+    assert versions == [1, 2, 3]
 
 
 def test_migration_status_reports_versions_and_pending(tmp_path: Path) -> None:
@@ -281,8 +281,8 @@ def test_migration_status_reports_versions_and_pending(tmp_path: Path) -> None:
     status = store.migration_status()
 
     assert status["db_path"] == str(db_path)
-    assert status["current_version"] == 2
-    assert status["latest_version"] == 2
+    assert status["current_version"] == 3
+    assert status["latest_version"] == 3
     assert status["pending_versions"] == []
     assert status["up_to_date"] is True
 
@@ -969,7 +969,7 @@ def test_rename_workspace_moves_all_memories(tmp_path: Path) -> None:
     )
 
     count = store.rename_workspace("old-project", "new-project")
-    assert count == 2
+    assert count == {"memories_updated": 2, "aliases_updated": 0}
 
     uids = store.list_workspace_uids()
     assert uids == ["new-project"]
@@ -989,7 +989,7 @@ def test_rename_workspace_preserves_user_memories(tmp_path: Path) -> None:
     )
 
     count = store.rename_workspace("ws-1", "ws-2")
-    assert count == 1
+    assert count == {"memories_updated": 1, "aliases_updated": 0}
 
     user_memories = store.list_memories(space=SPACE_USER)
     assert len(user_memories) == 1
@@ -1040,4 +1040,54 @@ def test_rename_workspace_includes_archived(tmp_path: Path) -> None:
     )
 
     count = store.rename_workspace("old-project", "new-project")
-    assert count == 2
+    assert count == {"memories_updated": 2, "aliases_updated": 0}
+
+
+def test_workspace_alias_storage_migration_and_crud(tmp_path: Path) -> None:
+    db_path = tmp_path / "aliases-storage.db"
+    store = SQLiteMemoryStore(db_path)
+    with sqlite_connection(db_path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert version == 3
+    assert "workspace_aliases" in tables
+
+    store.add_workspace_alias(canonical_uid="alpha", alias_uid="legacy-alpha")
+    assert store.resolve_workspace_uid("legacy-alpha") == "alpha"
+    assert store.resolve_workspace_uid("alpha") == "alpha"
+    aliases = store.list_workspace_aliases(canonical_uid="alpha")
+    assert [alias["alias_uid"] for alias in aliases] == ["legacy-alpha"]
+    removed = store.remove_workspace_alias("legacy-alpha")
+    assert removed["canonical_uid"] == "alpha"
+    assert store.list_workspace_aliases() == []
+
+
+def test_workspace_alias_storage_migrate_existing_and_conflicts(tmp_path: Path) -> None:
+    store = SQLiteMemoryStore(tmp_path / "aliases-storage-conflict.db")
+    memory = build_memory(
+        "mem-old",
+        space=SPACE_WORKSPACE,
+        workspace_uid="old-name",
+        type="fact",
+    )
+    store.insert_memory(
+        memory, embedding=[0.1, 0.2], embedding_profile=EMBEDDING_PROFILE
+    )
+
+    with pytest.raises(Exception, match="Use --migrate-existing"):
+        store.add_workspace_alias(canonical_uid="new-name", alias_uid="old-name")
+
+    result = store.add_workspace_alias(
+        canonical_uid="new-name", alias_uid="old-name", migrate_existing=True
+    )
+    assert result["migrated_memories"] == 1
+    assert store.get_memory("mem-old").workspace_uid == "new-name"
+    with pytest.raises(Exception, match="already exists"):
+        store.add_workspace_alias(canonical_uid="new-name", alias_uid="old-name")
+    with pytest.raises(Exception, match="already an alias"):
+        store.add_workspace_alias(canonical_uid="old-name", alias_uid="older-name")

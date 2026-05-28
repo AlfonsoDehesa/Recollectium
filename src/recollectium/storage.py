@@ -10,7 +10,7 @@ import sqlite3
 from typing import Any, Iterator
 
 from recollectium.embeddings import ContentChunk
-from recollectium.errors import NotFoundError
+from recollectium.errors import NotFoundError, ValidationError
 from recollectium.migrations import MigrationRunner
 from recollectium.models import Memory, STATUS_ARCHIVED
 from recollectium.search import ChunkCandidate
@@ -201,12 +201,167 @@ class SQLiteMemoryStore:
 
         return [row["workspace_uid"] for row in rows]
 
-    def rename_workspace(self, old_uid: str, new_uid: str) -> int:
-        """Rename all workspace memories from old_uid to new_uid.
+    def _row_to_workspace_alias(self, row: sqlite3.Row) -> dict[str, str]:
+        return {
+            "alias_uid": row["alias_uid"],
+            "canonical_uid": row["canonical_uid"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
 
-        Returns the number of updated rows.  Raises NotFoundError when
-        *old_uid* has no matching workspace memories.
-        """
+    def resolve_workspace_uid(self, normalized_uid: str) -> str:
+        """Return canonical UID for *normalized_uid* when it is an alias."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT canonical_uid FROM workspace_aliases WHERE alias_uid = ?",
+                (normalized_uid,),
+            ).fetchone()
+        if row is None:
+            return normalized_uid
+        return row["canonical_uid"]
+
+    def get_workspace_alias(self, alias_uid: str) -> dict[str, str] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT alias_uid, canonical_uid, created_at, updated_at
+                FROM workspace_aliases
+                WHERE alias_uid = ?
+                """,
+                (alias_uid,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_workspace_alias(row)
+
+    def list_workspace_aliases(
+        self, *, canonical_uid: str | None = None
+    ) -> list[dict[str, str]]:
+        where_clause = ""
+        values: list[Any] = []
+        if canonical_uid is not None:
+            where_clause = "WHERE canonical_uid = ?"
+            values.append(canonical_uid)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT alias_uid, canonical_uid, created_at, updated_at
+                FROM workspace_aliases
+                """
+                + where_clause
+                + " ORDER BY canonical_uid ASC, alias_uid ASC",
+                values,
+            ).fetchall()
+        return [self._row_to_workspace_alias(row) for row in rows]
+
+    def add_workspace_alias(
+        self,
+        *,
+        canonical_uid: str,
+        alias_uid: str,
+        migrate_existing: bool = False,
+    ) -> dict[str, object]:
+        if alias_uid == canonical_uid:
+            raise ValidationError(
+                "workspace alias must differ from canonical workspace uid"
+            )
+
+        timestamp = utc_now_iso()
+        with self._connect() as connection:
+            existing_alias = connection.execute(
+                "SELECT 1 FROM workspace_aliases WHERE alias_uid = ?",
+                (alias_uid,),
+            ).fetchone()
+            if existing_alias is not None:
+                raise ValidationError(f"workspace alias already exists: {alias_uid}")
+
+            canonical_is_alias = connection.execute(
+                "SELECT 1 FROM workspace_aliases WHERE alias_uid = ?",
+                (canonical_uid,),
+            ).fetchone()
+            if canonical_is_alias is not None:
+                raise ValidationError(
+                    f"canonical workspace uid is already an alias: {canonical_uid}"
+                )
+
+            existing_memories = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM memories
+                WHERE space = 'workspace' AND workspace_uid = ?
+                """,
+                (alias_uid,),
+            ).fetchone()
+            conflicting_count = int(
+                existing_memories["count"] if existing_memories else 0
+            )
+            if conflicting_count > 0 and not migrate_existing:
+                raise ValidationError(
+                    "workspace alias conflicts with existing workspace memories: "
+                    f"{alias_uid}. Use --migrate-existing to move those memories to "
+                    f"{canonical_uid} and keep {alias_uid} as an alias."
+                )
+
+            migrated_memories = 0
+            if migrate_existing:
+                update_result = connection.execute(
+                    """
+                    UPDATE memories
+                    SET workspace_uid = ?, updated_at = ?
+                    WHERE space = 'workspace' AND workspace_uid = ?
+                    """,
+                    (canonical_uid, timestamp, alias_uid),
+                )
+                migrated_memories = update_result.rowcount
+
+            connection.execute(
+                """
+                INSERT INTO workspace_aliases (
+                    alias_uid, canonical_uid, created_at, updated_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (alias_uid, canonical_uid, timestamp, timestamp),
+            )
+
+        alias = self.get_workspace_alias(alias_uid)
+        assert alias is not None
+        return {"alias": alias, "migrated_memories": migrated_memories}
+
+    def remove_workspace_alias(self, alias_uid: str) -> dict[str, str]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT alias_uid, canonical_uid, created_at, updated_at
+                FROM workspace_aliases
+                WHERE alias_uid = ?
+                """,
+                (alias_uid,),
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"workspace alias not found: {alias_uid}")
+            alias = self._row_to_workspace_alias(row)
+            connection.execute(
+                "DELETE FROM workspace_aliases WHERE alias_uid = ?",
+                (alias_uid,),
+            )
+        return alias
+
+    def list_workspace_inventory(
+        self, *, include_archived: bool = False
+    ) -> list[dict[str, object]]:
+        workspaces = self.list_workspace_uids(include_archived=include_archived)
+        aliases_by_canonical: dict[str, list[str]] = {uid: [] for uid in workspaces}
+        for alias in self.list_workspace_aliases():
+            canonical_uid = alias["canonical_uid"]
+            if canonical_uid in aliases_by_canonical:
+                aliases_by_canonical[canonical_uid].append(alias["alias_uid"])
+        return [
+            {"workspace_uid": uid, "aliases": sorted(aliases_by_canonical[uid])}
+            for uid in workspaces
+        ]
+
+    def rename_workspace(self, old_uid: str, new_uid: str) -> dict[str, int]:
+        """Rename all workspace memories and preserve aliases for the canonical UID."""
         timestamp = utc_now_iso()
         with self._connect() as connection:
             result = connection.execute(
@@ -214,10 +369,33 @@ class SQLiteMemoryStore:
                 "WHERE workspace_uid = ? AND space = 'workspace'",
                 (new_uid, timestamp, old_uid),
             )
+            if result.rowcount == 0:
+                raise NotFoundError(f"no workspace memories found for uid: {old_uid}")
 
-        if result.rowcount == 0:
-            raise NotFoundError(f"no workspace memories found for uid: {old_uid}")
-        return result.rowcount
+            self_alias = connection.execute(
+                """
+                SELECT 1 FROM workspace_aliases
+                WHERE alias_uid = ? AND canonical_uid = ?
+                """,
+                (new_uid, old_uid),
+            ).fetchone()
+            if self_alias is not None:
+                raise ValidationError(
+                    "workspace rename would turn an existing alias into a self-alias: "
+                    f"{new_uid}"
+                )
+            alias_result = connection.execute(
+                """
+                UPDATE workspace_aliases
+                SET canonical_uid = ?, updated_at = ?
+                WHERE canonical_uid = ?
+                """,
+                (new_uid, timestamp, old_uid),
+            )
+        return {
+            "memories_updated": result.rowcount,
+            "aliases_updated": alias_result.rowcount,
+        }
 
     def list_memories(
         self,

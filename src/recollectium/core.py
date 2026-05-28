@@ -101,6 +101,8 @@ class RecollectiumCore:
         sensitivity: str | None = None,
     ) -> Memory:
         normalized_uid = self._normalize_uid(workspace_uid)
+        if space == SPACE_WORKSPACE:
+            normalized_uid = self._resolve_workspace_uid(normalized_uid)
         payload = validate_memory_create_input(
             space=space,
             memory_type=type,
@@ -190,7 +192,7 @@ class RecollectiumCore:
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
         if workspace_uid is None:
             raise ValidationError("workspace_uid is required for workspace search")
-        workspace_uid = self._normalize_uid(workspace_uid)
+        workspace_uid = self._resolve_workspace_uid(workspace_uid)
         assert workspace_uid is not None
         validated_type = validate_memory_type_filter(type) if type is not None else None
 
@@ -238,7 +240,7 @@ class RecollectiumCore:
         limit: int | None = None,
     ) -> list[Memory]:
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
-        workspace_uid = self._normalize_uid(workspace_uid)
+        workspace_uid = self._resolve_workspace_uid(workspace_uid)
         validated_type = validate_memory_type_filter(type) if type is not None else None
 
         return self.store.list_memories(
@@ -399,8 +401,70 @@ class RecollectiumCore:
             )
         return normalized
 
-    def list_workspaces(self, *, include_archived: bool = False) -> list[str]:
-        """Return distinct workspace UIDs present in the database."""
+    def _resolve_workspace_uid(self, workspace_uid: str | None) -> str | None:
+        normalized_uid = self._normalize_uid(workspace_uid)
+        if normalized_uid is None:
+            return None
+        return self.store.resolve_workspace_uid(normalized_uid)
+
+    def resolve_workspace(self, uid: str) -> dict[str, object]:
+        normalized_uid = self._normalize_uid(uid)
+        assert normalized_uid is not None
+        canonical_uid = self.store.resolve_workspace_uid(normalized_uid)
+        return {
+            "input_uid": uid,
+            "normalized_uid": normalized_uid,
+            "canonical_uid": canonical_uid,
+            "resolved_by_alias": canonical_uid != normalized_uid,
+        }
+
+    def add_workspace_alias(
+        self,
+        canonical_uid: str,
+        alias_uid: str,
+        *,
+        migrate_existing: bool = False,
+    ) -> dict[str, object]:
+        norm_canonical = self._normalize_uid(canonical_uid)
+        norm_alias = self._normalize_uid(alias_uid)
+        assert norm_canonical is not None and norm_alias is not None
+        result = self.store.add_workspace_alias(
+            canonical_uid=norm_canonical,
+            alias_uid=norm_alias,
+            migrate_existing=migrate_existing,
+        )
+        _log.info(
+            "workspace alias added",
+            extra={
+                "event": "workspace.alias_added",
+                "context": {
+                    "canonical_uid": norm_canonical,
+                    "alias_uid": norm_alias,
+                    "migrated_memories": result["migrated_memories"],
+                },
+            },
+        )
+        return result
+
+    def list_workspace_aliases(
+        self, canonical_uid: str | None = None
+    ) -> list[dict[str, str]]:
+        norm_canonical = self._resolve_workspace_uid(canonical_uid)
+        return self.store.list_workspace_aliases(canonical_uid=norm_canonical)
+
+    def remove_workspace_alias(self, alias_uid: str) -> dict[str, str]:
+        norm_alias = self._normalize_uid(alias_uid)
+        assert norm_alias is not None
+        return self.store.remove_workspace_alias(norm_alias)
+
+    def list_workspaces(
+        self, *, include_archived: bool = False, include_aliases: bool = False
+    ) -> list[str] | list[dict[str, object]]:
+        """Return distinct workspace UIDs, optionally with aliases."""
+        if include_aliases:
+            return self.store.list_workspace_inventory(
+                include_archived=include_archived
+            )
         return self.store.list_workspace_uids(include_archived=include_archived)
 
     def rename_workspace(self, old_uid: str, new_uid: str) -> dict[str, Any]:
@@ -424,7 +488,9 @@ class RecollectiumCore:
                 "memories_updated": 0,
             }
 
-        count = self.store.rename_workspace(norm_old, norm_new)
+        rename_result = self.store.rename_workspace(norm_old, norm_new)
+        count = rename_result["memories_updated"]
+        aliases_updated = rename_result["aliases_updated"]
         _log.info(
             "workspace renamed",
             extra={
@@ -433,6 +499,7 @@ class RecollectiumCore:
                     "old_uid": norm_old,
                     "new_uid": norm_new,
                     "memories_updated": count,
+                    "aliases_updated": aliases_updated,
                 },
             },
         )
@@ -440,6 +507,7 @@ class RecollectiumCore:
             "old_uid": norm_old,
             "new_uid": norm_new,
             "memories_updated": count,
+            "aliases_updated": aliases_updated,
         }
 
     def ensure_embedding_ready(self, *, timeout_seconds: float = 60.0) -> None:
