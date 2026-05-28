@@ -116,7 +116,7 @@ def test_mcp_tool_errors(tmp_path: Path) -> None:
     mcp = create_mcp_server(core)
 
     add_fn = mcp._tool_manager._tools["add_memory"].fn
-    result_json = add_fn(space="invalid", type="test", content="test content")
+    result_json = add_fn(space="invalid", type="fact", content="test content")
     data = json.loads(result_json)
     assert "error" in data
     assert "space must be one of" in data["error"]
@@ -189,7 +189,7 @@ def test_add_memory_workspace_space_mismatch(tmp_path: Path) -> None:
     mcp = create_mcp_server(core)
 
     add_fn = mcp._tool_manager._tools["add_memory"].fn
-    result_json = add_fn(space="workspace", type="test", content="test content")
+    result_json = add_fn(space="workspace", type="fact", content="test content")
     data = json.loads(result_json)
     assert "error" in data
     assert "workspace_uid is required" in data["error"]

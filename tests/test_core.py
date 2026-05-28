@@ -148,13 +148,13 @@ def test_core_workspace_search_isolation_by_workspace_uid(
 
     workspace_a = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="Need to purchase milk",
         workspace_uid="workspace-alpha",
     )
     workspace_b = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="Need to purchase bread",
         workspace_uid="workspace-beta",
     )
@@ -198,7 +198,7 @@ def test_workspace_identity_validation(
     with pytest.raises(ValidationError, match="workspace_uid is required"):
         core.add_memory(
             space=SPACE_WORKSPACE,
-            type="task",
+            type="task_context",
             content="Need to purchase milk",
         )
 
@@ -400,7 +400,7 @@ def test_search_reembeds_missing_profile_chunks_below_threshold(tmp_path: Path) 
     core = RecalliumCore(db_path=db_path)
     created = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="calibrate laser cutter",
         workspace_uid="shop",
     )
@@ -680,13 +680,13 @@ def test_deferred_reembedding_scope_safety_and_archived_exclusion(
     user_memory = core.add_memory(space=SPACE_USER, type="fact", content="user alpha")
     workspace_a = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="workspace alpha",
         workspace_uid="workspace-a",
     )
     workspace_b = core.add_memory(
         space=SPACE_WORKSPACE,
-        type="task",
+        type="task_context",
         content="workspace beta",
         workspace_uid="workspace-b",
     )

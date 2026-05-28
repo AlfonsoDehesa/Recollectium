@@ -34,6 +34,7 @@ from recallium.models import (
     normalize_workspace_uid,
     validate_limit,
     validate_memory_create_input,
+    validate_memory_type_for_space,
     validate_memory_update_input,
 )
 from recallium.config import RecalliumConfig
@@ -258,6 +259,7 @@ class RecalliumCore:
         confidence: float | None = None,
         sensitivity: str | None = None,
     ) -> Memory:
+        existing_memory = self.get_memory(memory_id)
         has_model_updates = any(
             value is not None for value in (type, content, metadata, confidence)
         )
@@ -272,6 +274,10 @@ class RecalliumCore:
         else:
             validated = {}
 
+        if type is not None:
+            validated["type"] = validate_memory_type_for_space(
+                existing_memory.space, type
+            )
         if source is not None:
             validated["source"] = _validate_optional_string("source", source)
         if sensitivity is not None:

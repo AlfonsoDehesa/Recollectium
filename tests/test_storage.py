@@ -419,7 +419,7 @@ def test_update_memory_updates_editable_fields_and_timestamp(tmp_path: Path) -> 
     updated = store.update_memory(
         "mem-1",
         content="Updated memory",
-        type="updated-fact",
+        type="fact",
         metadata={"source": "manual"},
         source="import",
         confidence=0.6,
@@ -429,7 +429,7 @@ def test_update_memory_updates_editable_fields_and_timestamp(tmp_path: Path) -> 
     )
 
     assert updated.content == "Updated memory"
-    assert updated.type == "updated-fact"
+    assert updated.type == "fact"
     assert updated.metadata == {"source": "manual"}
     assert updated.source == "import"
     assert updated.confidence == 0.6
@@ -505,7 +505,7 @@ def test_list_memories_filters_by_space_type_status_workspace(tmp_path: Path) ->
             "w1",
             space=SPACE_WORKSPACE,
             workspace_uid="workspace-a",
-            type="task",
+            type="task_context",
             content="task a",
         ),
         embedding=[0.2],
@@ -516,7 +516,7 @@ def test_list_memories_filters_by_space_type_status_workspace(tmp_path: Path) ->
             "w2",
             space=SPACE_WORKSPACE,
             workspace_uid="workspace-b",
-            type="task",
+            type="task_context",
             content="task b",
         ),
         embedding=[0.3],
@@ -529,7 +529,7 @@ def test_list_memories_filters_by_space_type_status_workspace(tmp_path: Path) ->
     )
     assert [memory.id for memory in workspace_results] == ["w1"]
 
-    task_results = store.list_memories(memory_type="task", include_archived=True)
+    task_results = store.list_memories(memory_type="task_context", include_archived=True)
     assert [memory.id for memory in task_results] == ["w2", "w1"]
 
     archived_only = store.list_memories(status=STATUS_ARCHIVED, include_archived=True)
