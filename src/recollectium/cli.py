@@ -69,6 +69,19 @@ from recollectium.service_manager import (
     stop_service,
 )
 from recollectium.storage import SQLiteMemoryStore
+from recollectium.update import (
+    GitHubReleaseClient,
+    ReleaseInfo,
+    ReleaseLookupError,
+    SubprocessCommandRunner,
+    apply_update,
+    build_update_plan,
+    detect_install_method,
+    fetch_latest_release,
+    find_source_checkout_root,
+    load_install_metadata,
+    plan_to_dict,
+)
 
 _log = logging.getLogger(__name__)
 _INSTALL_METADATA_FILE = "install.json"
@@ -465,18 +478,172 @@ def _handle_init_command(
     return 0
 
 
-def _handle_package_update_command() -> int:
-    """Print upgrade instructions for common install methods."""
-    instructions = {
-        "status": "manual_update_required",
-        "commands": {
-            "bootstrap": "curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.sh | sh",
-            "pip": "pip install --upgrade recollectium",
-            "pipx": "pipx upgrade recollectium",
-            "uv_tool": "uv tool upgrade recollectium",
-        },
-    }
-    print(json.dumps(instructions, sort_keys=True))
+def _print_json_stderr(payload: dict[str, object]) -> None:
+    print(json.dumps(payload, sort_keys=True), file=sys.stderr)
+
+
+def _handle_upgrade_command(args: argparse.Namespace, config_path: Path) -> int:
+    """Check for and optionally apply a Recollectium package upgrade."""
+    metadata = load_install_metadata()
+    install_method = (
+        detect_install_method(metadata)
+        if args.install_method == "auto"
+        else args.install_method
+    )
+    repo = args.repo or "AlfonsoDehesa/recollectium"
+    allow_main = args.allow_main or args.repo is not None
+
+    latest_release: ReleaseInfo | None
+    try:
+        latest_release = fetch_latest_release(GitHubReleaseClient(), repo=repo)
+    except ReleaseLookupError as exc:
+        if exc.reason == "no_latest_release" and allow_main:
+            latest_release = None
+        else:
+            _print_json_stderr(
+                {
+                    "status": "network_error",
+                    "message": "Could not fetch latest Recollectium release from GitHub.",
+                    "detail": str(exc),
+                    "reason": exc.reason,
+                    "hint": "Check your network connection or retry later.",
+                }
+            )
+            return 1
+
+    source_root = find_source_checkout_root(Path(__file__).resolve())
+    plan = build_update_plan(
+        current_version=__version__,
+        latest_release=latest_release,
+        install_method=install_method,
+        metadata=metadata,
+        force=args.force,
+        dry_run=args.dry_run or args.check,
+        allow_main=allow_main,
+        repo=repo,
+        source_root=source_root,
+    )
+    payload = plan_to_dict(plan)
+
+    services_to_restart: list[str] = []
+    cfg: RecollectiumConfig | None = None
+    service_config_path = _core_config_path(
+        str(config_path) if args.config_path is not None else None
+    )
+    should_check_services = not (
+        (args.check or args.dry_run)
+        and (service_config_path is None or not service_config_path.exists())
+    )
+    if should_check_services:
+        try:
+            cfg = RecollectiumConfig(
+                service_config_path,
+                log_level=args.log_level,
+            )
+            running = check_running_service(cfg)
+            if running is not None:
+                services_to_restart.append(str(running["type"]))
+        except (FileNotFoundError, ValidationError, ServiceError):
+            cfg = None
+    payload["services_to_restart"] = services_to_restart
+
+    if plan.status in {"up_to_date", "dry_run", "update_available"} and (
+        args.check or args.dry_run or plan.command is None
+    ):
+        print(json.dumps(payload, sort_keys=True))
+        return 0
+
+    if plan.status == "unsupported_install_method":
+        _print_json_stderr(
+            {
+                "status": plan.status,
+                "message": "Could not determine how Recollectium was installed.",
+                "detail": plan.reason,
+                "hint": "Run recollectium upgrade --install-method pip, pipx, uv_tool, or source if you know the install method.",
+            }
+        )
+        return 2
+    if plan.status == "network_error":
+        _print_json_stderr(
+            {
+                "status": plan.status,
+                "message": "Could not fetch latest Recollectium release from GitHub.",
+                "detail": plan.reason,
+                "hint": "Check your network connection or retry later.",
+            }
+        )
+        return 1
+    if plan.status == "update_failed" and plan.command is None:
+        _print_json_stderr(
+            {
+                **payload,
+                "message": "Could not prepare the Recollectium package upgrade.",
+                "detail": plan.reason,
+                "hint": "Run from a Recollectium source checkout or choose a different --install-method.",
+                "returncode": 1,
+            }
+        )
+        return 1
+
+    service_stop_errors: list[dict[str, str]] = []
+    if cfg is not None:
+        for service_type in services_to_restart:
+            try:
+                stop_service(cfg)
+            except ServiceError as exc:
+                service_stop_errors.append({"type": service_type, "error": str(exc)})
+    if service_stop_errors:
+        payload["service_stop_errors"] = service_stop_errors
+        _print_json_stderr(payload)
+        return 1
+
+    result = apply_update(
+        plan, runner=SubprocessCommandRunner(), timeout_seconds=args.timeout
+    )
+    payload["stdout"] = result.stdout
+    payload["stderr"] = result.stderr
+    service_restart_errors: list[dict[str, str]] = []
+    if result.returncode != 0:
+        payload["status"] = "update_failed"
+        payload["returncode"] = result.returncode
+        payload["message"] = "Recollectium package upgrade failed."
+        payload["detail"] = result.stderr or result.stdout or plan.reason
+        payload["hint"] = (
+            "Review stderr, check that the package manager is installed, and retry after resolving the error."
+        )
+        if cfg is not None:
+            for service_type in services_to_restart:
+                try:
+                    start_service(
+                        cfg,
+                        service_type,
+                        db_path=args.db_path,
+                        log_level=args.log_level,
+                    )
+                except (ServiceConflictError, ServiceError, ValueError) as exc:
+                    service_restart_errors.append(
+                        {"type": service_type, "error": str(exc)}
+                    )
+        if service_restart_errors:
+            payload["service_restart_errors"] = service_restart_errors
+        _print_json_stderr(payload)
+        return result.returncode if 1 <= result.returncode <= 125 else 1
+
+    payload["status"] = "updated"
+    if cfg is not None:
+        for service_type in services_to_restart:
+            try:
+                time.sleep(0.5)
+                start_service(
+                    cfg, service_type, db_path=args.db_path, log_level=args.log_level
+                )
+            except (ServiceConflictError, ServiceError, ValueError) as exc:
+                service_restart_errors.append({"type": service_type, "error": str(exc)})
+    if service_restart_errors:
+        payload["service_restart_errors"] = service_restart_errors
+        print(json.dumps(payload, sort_keys=True))
+        return 1
+    print(json.dumps(payload, sort_keys=True))
     return 0
 
 
@@ -1301,17 +1468,16 @@ def _build_parser() -> argparse.ArgumentParser:
     # -- update ------------------------------------------------------------
     update_parser = subparsers.add_parser(
         "update",
-        help="update Recollectium itself or editable memory fields",
+        help="update editable memory fields",
         description=(
-            "Without a memory ID, print Recollectium package upgrade instructions. "
-            "With a memory ID, update one or more editable fields on that memory. "
+            "Update one or more editable fields on a memory. "
             "Updating --content also regenerates that memory's embedding."
         ),
     )
     update_parser.add_argument(
         "memory_id",
         nargs="?",
-        help="Memory ID to update. Omit to print package update instructions.",
+        help="Memory ID to update. Use `recollectium upgrade` for package upgrades.",
     )
     update_parser.add_argument(
         "--type", help="Replacement canonical memory type bucket."
@@ -1335,6 +1501,56 @@ def _build_parser() -> argparse.ArgumentParser:
     update_parser.add_argument(
         "--sensitivity",
         help="Replacement sensitivity label for privacy-aware handling later.",
+    )
+
+    # -- upgrade -----------------------------------------------------------
+    upgrade_parser = subparsers.add_parser(
+        "upgrade",
+        help="upgrade the installed Recollectium package",
+        description=(
+            "Check the installed Recollectium version against the latest release and "
+            "upgrade through the detected install method. Use --check or --dry-run for "
+            "non-mutating modes."
+        ),
+    )
+    upgrade_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check for an available upgrade and print the plan without applying it.",
+    )
+    upgrade_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the upgrade command that would run without applying it.",
+    )
+    upgrade_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Build and apply an upgrade plan even when versions appear current.",
+    )
+    upgrade_parser.add_argument(
+        "--install-method",
+        choices=["auto", "bootstrap", "pip", "pipx", "uv_tool", "source"],
+        default="auto",
+        help="Override install-method detection. Defaults to auto.",
+    )
+    upgrade_parser.add_argument(
+        "--repo",
+        help=(
+            "GitHub OWNER/REPO to check for releases. Passing this also permits "
+            "main fallback when no release exists."
+        ),
+    )
+    upgrade_parser.add_argument(
+        "--allow-main",
+        action="store_true",
+        help="Permit main-branch fallback for bootstrap/source upgrades if no release exists.",
+    )
+    upgrade_parser.add_argument(
+        "--timeout",
+        type=int,
+        default=600,
+        help="Package-manager command timeout in seconds. Defaults to 600.",
     )
 
     # -- uninstall ---------------------------------------------------------
@@ -1686,7 +1902,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Resolve config path
     config_path = _resolve_config_path(args.config_path)
     core_config_path = _core_config_path(args.config_path)
-    _setup_cli_logging(config_path, log_level=args.log_level)
+    if not (args.command == "upgrade" and (args.check or args.dry_run)):
+        _setup_cli_logging(config_path, log_level=args.log_level)
     _log.info(
         "CLI command started",
         extra={"event": "cli.command", "context": {"command": args.command}},
@@ -2038,7 +2255,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
     if args.command == "update" and args.memory_id is None:
-        return _handle_package_update_command()
+        _print_json_stderr(
+            {
+                "status": "validation_error",
+                "message": "Memory ID is required for recollectium update.",
+                "hint": "Use recollectium upgrade to upgrade the installed Recollectium package.",
+            }
+        )
+        return 2
+
+    if args.command == "upgrade":
+        return _handle_upgrade_command(args, config_path)
 
     if args.command == "uninstall":
         try:

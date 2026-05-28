@@ -31,22 +31,9 @@ Completed:
 - [x] Canonical memory buckets and optional read filters: small canonical user/workspace bucket sets, scope-aware write validation, exact-match optional read filters, CLI/API/MCP/docs alignment, and completion coverage.
 - [x] OpenCode adapter readiness handoff: documented service discovery, health/version/capabilities validation, workspace UID resolution, adapter workflow, and adapter contract docs.
 - [x] Workspace UID aliasing across Core, CLI, API, MCP, docs, and adapter contract: direct aliases, alias resolution for workspace operations, conflict-safe migration with `--migrate-existing`, and rename alias preservation.
+- [x] Package upgrade flow through `recollectium upgrade`: latest-release checks, pip/pipx/uv/bootstrap/source install methods, dry-run/check modes, service-state preservation, docs, unit tests, and install-smoke CI coverage.
 
 Remaining release blockers:
-
-### Update flow
-
-Release goal: `recollectium update` can check for, download, and apply updates
-without requiring manual reinstall steps.
-
-- [ ] `recollectium update` checks the installed version against the latest release.
-- [ ] Supports pip, pipx, and uv install methods.
-- [ ] Bootstrap-installed instances can update through the bootstrap path.
-- [ ] Dry-run mode shows what would be updated without applying changes.
-- [ ] Clear progress and error messaging for network failures, permission issues,
-  and incompatible install methods.
-- [ ] Update preserves user config, data, and service state.
-- [ ] Add tests for version check, update apply, dry-run, and error paths.
 
 ### CLI error-formatting audit
 

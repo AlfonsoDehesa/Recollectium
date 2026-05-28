@@ -85,8 +85,22 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           recollectium --version
+          recollectium upgrade --check --install-method bootstrap --repo "$GITHUB_REPOSITORY" > upgrade-check.json
+          recollectium upgrade --dry-run --install-method bootstrap --repo "$GITHUB_REPOSITORY" > upgrade-dry-run.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in ["upgrade-check.json", "upgrade-dry-run.json"]:
+              payload = json.loads(Path(path).read_text())
+              assert payload["status"] in {"up_to_date", "dry_run"}, payload
+              assert payload["install_method"] == "bootstrap", payload
+          PY
 
       - name: Verify Recollectium on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: recollectium --version
+        run: |
+          recollectium --version
+          recollectium upgrade --check --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" | Out-File -Encoding utf8 upgrade-check.json
+          recollectium upgrade --dry-run --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" | Out-File -Encoding utf8 upgrade-dry-run.json
+          python -c "import json, pathlib; payloads=[json.loads(pathlib.Path(p).read_text(encoding='utf-8-sig')) for p in ['upgrade-check.json','upgrade-dry-run.json']]; assert all(p['status'] in {'up_to_date', 'dry_run'} for p in payloads), payloads; assert all(p['install_method'] == 'bootstrap' for p in payloads), payloads"

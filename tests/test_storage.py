@@ -1136,3 +1136,28 @@ def test_failed_rename_workspace_rolls_back_memory_updates(tmp_path: Path) -> No
 
     assert store.list_workspace_uids() == ["old"]
     assert store.resolve_workspace_uid("new") == "old"
+
+
+def test_get_workspace_alias_returns_none_for_missing_alias(tmp_path: Path) -> None:
+    store = SQLiteMemoryStore(tmp_path / "missing-alias.db")
+
+    assert store.get_workspace_alias("missing") is None
+
+
+def test_rename_workspace_rejects_alias_target(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteMemoryStore(tmp_path / "self-alias-rename.db")
+    store.insert_memory(
+        build_memory(
+            "mem-old",
+            space=SPACE_WORKSPACE,
+            workspace_uid="old-project",
+        ),
+        embedding=[0.1, 0.2],
+        embedding_profile=EMBEDDING_PROFILE,
+    )
+    store.add_workspace_alias(canonical_uid="old-project", alias_uid="new-project")
+
+    with pytest.raises(ValidationError, match="already an alias"):
+        store.rename_workspace("old-project", "new-project")

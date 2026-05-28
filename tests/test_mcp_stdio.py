@@ -323,3 +323,21 @@ def test_mcp_workspace_alias_tools_round_trip(tmp_path: Path) -> None:
     assert json.loads(resolve_fn(uid="legacy"))["canonical_uid"] == "canonical"
     assert json.loads(list_fn(canonical_uid="canonical"))[0]["alias_uid"] == "legacy"
     assert json.loads(remove_fn(alias_uid="legacy"))["alias_uid"] == "legacy"
+
+
+def test_mcp_workspace_alias_error_paths(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    resolve_fn = mcp._tool_manager._tools["resolve_workspace"].fn
+    assert "error" in json.loads(resolve_fn(uid=""))
+
+    add_alias_fn = mcp._tool_manager._tools["add_workspace_alias"].fn
+    assert "error" in json.loads(add_alias_fn(canonical_uid="same", alias_uid="same"))
+
+    list_aliases_fn = mcp._tool_manager._tools["list_workspace_aliases"].fn
+    assert "error" in json.loads(list_aliases_fn(canonical_uid=""))
+
+    remove_alias_fn = mcp._tool_manager._tools["remove_workspace_alias"].fn
+    assert "error" in json.loads(remove_alias_fn(alias_uid="missing"))

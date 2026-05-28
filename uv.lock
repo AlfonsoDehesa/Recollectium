@@ -1225,6 +1225,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "fastembed" },
     { name = "mcp" },
+    { name = "packaging" },
     { name = "platformdirs" },
     { name = "uvicorn" },
 ]
@@ -1246,6 +1247,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.124" },
     { name = "fastembed", specifier = ">=0.7.3" },
     { name = "mcp", specifier = ">=1.27.1" },
+    { name = "packaging", specifier = ">=24" },
     { name = "platformdirs", specifier = ">=4" },
     { name = "uvicorn", specifier = ">=0.38" },
 ]

@@ -31,6 +31,7 @@ dependencies = [
     "fastapi>=0.124",
     "fastembed>=0.7.3",
     "mcp>=1.27.1",
+    "packaging>=24",
     "platformdirs>=4",
     "uvicorn>=0.38",
 ]

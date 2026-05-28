@@ -394,18 +394,6 @@ class SQLiteMemoryStore:
             if result.rowcount == 0:
                 raise NotFoundError(f"no workspace memories found for uid: {old_uid}")
 
-            self_alias = connection.execute(
-                """
-                SELECT 1 FROM workspace_aliases
-                WHERE alias_uid = ? AND canonical_uid = ?
-                """,
-                (new_uid, old_uid),
-            ).fetchone()
-            if self_alias is not None:
-                raise ValidationError(
-                    "workspace rename would turn an existing alias into a self-alias: "
-                    f"{new_uid}"
-                )
             alias_result = connection.execute(
                 """
                 UPDATE workspace_aliases

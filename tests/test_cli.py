@@ -95,6 +95,7 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "embedding-status" in top_level_help
     assert "embedding-jobs" in top_level_help
     assert "db-status" in top_level_help
+    assert "upgrade" in top_level_help
     assert "uninstall" in top_level_help
     assert "completion" in top_level_help
 
@@ -134,6 +135,13 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     update_help = _run_help(["update", "--help"], capsys)
     assert "regenerates" in update_help
     assert "embedding" in update_help
+    assert "recollectium upgrade" in update_help
+
+    upgrade_help = _run_help(["upgrade", "--help"], capsys)
+    assert "--check" in upgrade_help
+    assert "--dry-run" in upgrade_help
+    assert "--install-method" in upgrade_help
+    assert "--allow-main" in upgrade_help
 
     archive_help = _run_help(["archive", "--help"], capsys)
     assert "not hard-deleted" in archive_help
@@ -2063,22 +2071,21 @@ def test_cli_init_reports_generic_recollectium_error(
     assert "RecollectiumError: init failed" in stderr
 
 
-def test_cli_update_without_memory_id_prints_package_update_instructions(
+def test_cli_update_without_memory_id_requires_memory_id(
     capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _unexpected_core(*args, **kwargs):
-        raise AssertionError("package update should not initialise RecollectiumCore")
+        raise AssertionError("missing memory id should not initialise RecollectiumCore")
 
     monkeypatch.setattr("recollectium.cli.RecollectiumCore", _unexpected_core)
 
     exit_code, stdout, stderr = _run_cli(["update"], capsys)
 
-    payload = json.loads(stdout)
-    assert exit_code == 0
-    assert stderr == ""
-    assert payload["status"] == "manual_update_required"
-    assert "install.sh" in payload["commands"]["bootstrap"]
-    assert payload["commands"]["pip"] == "pip install --upgrade recollectium"
+    payload = json.loads(stderr)
+    assert exit_code == 2
+    assert stdout == ""
+    assert payload["status"] == "validation_error"
+    assert "recollectium upgrade" in payload["hint"]
 
 
 def _set_xdg_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -3536,3 +3543,575 @@ def test_workspace_alias_cli_migrate_existing_conflict(tmp_path, capsys) -> None
     )
     assert exit_code == 0
     assert json.loads(stdout)["migrated_memories"] == 1
+
+
+def test_cli_update_without_memory_id_points_to_upgrade(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(["update"], capsys)
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert "recollectium upgrade" in payload["hint"]
+
+
+def test_cli_upgrade_check_prints_non_mutating_plan(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "RecollectiumConfig",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("--check must not create or load default config")
+        ),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--check"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "dry_run"
+    assert payload["install_method"] == "uv_tool"
+    assert payload["latest_version"] == "9.9.9"
+    assert payload["command"] == ["uv", "tool", "upgrade", "recollectium"]
+    assert payload["services_to_restart"] == []
+
+
+def test_cli_upgrade_applies_and_reports_service_restart_failure(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    fake_config = object()
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: fake_config)
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "check_running_service",
+        lambda cfg: {"type": "api", "pid": 123, "process_start_time": 456},
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+    monkeypatch.setattr(cli_mod, "stop_service", lambda cfg: 123)
+
+    def _raise_start(*args, **kwargs):
+        raise ServiceError("restart failed")
+
+    monkeypatch.setattr(cli_mod, "start_service", _raise_start)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--force"], capsys)
+
+    assert exit_code == 1
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "updated"
+    assert payload["services_to_restart"] == ["api"]
+    assert payload["service_restart_errors"] == [
+        {"type": "api", "error": "restart failed"}
+    ]
+
+
+def test_cli_upgrade_release_lookup_error_with_repo_uses_main_fallback(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseLookupError
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("bootstrap", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "bootstrap")
+
+    def _raise(*args, **kwargs):
+        raise ReleaseLookupError("missing", reason="no_latest_release")
+
+    monkeypatch.setattr(cli_mod, "fetch_latest_release", _raise)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["upgrade", "--check", "--repo", "owner/repo"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "dry_run"
+    assert payload["latest_tag"] == "main"
+
+
+def test_cli_upgrade_release_lookup_error_returns_json_stderr(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseLookupError
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+
+    def _raise(*args, **kwargs):
+        raise ReleaseLookupError("offline", reason="release_lookup_failed")
+
+    monkeypatch.setattr(cli_mod, "fetch_latest_release", _raise)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--check"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "network_error"
+    assert payload["reason"] == "release_lookup_failed"
+
+
+def test_cli_upgrade_unknown_install_method_returns_usage_error(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("unknown", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "unknown")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "unsupported_install_method"
+
+
+def test_cli_upgrade_plan_network_error_returns_json_stderr(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("pip", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "pip")
+    monkeypatch.setattr(cli_mod, "fetch_latest_release", lambda client, *, repo: None)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "network_error"
+    assert payload["detail"] == "no_latest_release"
+
+
+def test_cli_upgrade_apply_failure_returns_command_exit(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(126, "", "bad")
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "update_failed"
+    assert payload["stderr"] == "bad"
+
+
+def test_cli_upgrade_success_restarts_running_service(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    calls: list[str] = []
+    fake_config = object()
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: fake_config)
+    monkeypatch.setattr(
+        cli_mod, "check_running_service", lambda cfg: {"type": "mcp", "pid": 1}
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+    monkeypatch.setattr(cli_mod, "stop_service", lambda cfg: calls.append("stop") or 1)
+    monkeypatch.setattr(
+        cli_mod, "start_service", lambda *a, **kw: calls.append("start") or 2
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert calls == ["stop", "start"]
+    payload = json.loads(stdout)
+    assert payload["status"] == "updated"
+    assert payload["services_to_restart"] == ["mcp"]
+
+
+def test_cli_upgrade_ignores_config_errors_when_checking_services(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: object())
+
+    def _raise_config(*args, **kwargs):
+        raise ServiceError("pid file broken")
+
+    monkeypatch.setattr(cli_mod, "check_running_service", _raise_config)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--check"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout)["services_to_restart"] == []
+
+
+def test_cli_upgrade_service_stop_failure_blocks_package_update(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    fake_config = object()
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: fake_config)
+    monkeypatch.setattr(
+        cli_mod, "check_running_service", lambda cfg: {"type": "api", "pid": 1}
+    )
+
+    def _raise_stop(cfg):
+        raise ServiceError("stop failed")
+
+    def _unexpected_apply(*args, **kwargs):
+        raise AssertionError("package update should not run after stop failure")
+
+    monkeypatch.setattr(cli_mod, "stop_service", _raise_stop)
+    monkeypatch.setattr(cli_mod, "apply_update", _unexpected_apply)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["service_stop_errors"] == [{"type": "api", "error": "stop failed"}]
+
+
+def test_cli_upgrade_apply_failure_attempts_service_restore(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    calls: list[str] = []
+    fake_config = object()
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: fake_config)
+    monkeypatch.setattr(
+        cli_mod, "check_running_service", lambda cfg: {"type": "api", "pid": 1}
+    )
+    monkeypatch.setattr(cli_mod, "stop_service", lambda cfg: calls.append("stop") or 1)
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(7, "", "bad")
+    )
+    monkeypatch.setattr(
+        cli_mod, "start_service", lambda *a, **kw: calls.append("start") or 2
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 7
+    assert stdout == ""
+    assert calls == ["stop", "start"]
+    assert json.loads(stderr)["status"] == "update_failed"
+
+
+def test_cli_upgrade_apply_failure_reports_service_restore_failure(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    fake_config = object()
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: fake_config)
+    monkeypatch.setattr(
+        cli_mod, "check_running_service", lambda cfg: {"type": "api", "pid": 1}
+    )
+    monkeypatch.setattr(cli_mod, "stop_service", lambda cfg: 1)
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(3, "", "bad")
+    )
+
+    def _raise_start(*args, **kwargs):
+        raise ServiceError("restore failed")
+
+    monkeypatch.setattr(cli_mod, "start_service", _raise_start)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 3
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "update_failed"
+    assert payload["service_restart_errors"] == [
+        {"type": "api", "error": "restore failed"}
+    ]
+
+
+def test_workspace_resolve_validation_error(tmp_path, capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--db",
+            str(tmp_path / "workspace-resolve-error.db"),
+            "workspace",
+            "resolve",
+            "",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "workspace uid must be a non-empty string" in stderr.lower()
+
+
+def test_workspace_alias_remove_not_found_error(tmp_path, capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--db",
+            str(tmp_path / "workspace-alias-missing.db"),
+            "workspace",
+            "alias",
+            "remove",
+            "missing",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "workspace alias not found" in stderr.lower()
+
+
+def test_cli_upgrade_source_without_checkout_returns_structured_failure(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "find_source_checkout_root", lambda start: None)
+    monkeypatch.setattr(
+        "recollectium.update.find_source_checkout_root", lambda start: None
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("source", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "source")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["upgrade", "--install-method", "source"], capsys
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "update_failed"
+    assert payload["detail"] == "source_checkout_not_found"
+    assert payload["returncode"] == 1
+
+
+def test_cli_upgrade_apply_failure_includes_structured_error_fields(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "check_running_service", lambda cfg: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "apply_update",
+        lambda *a, **kw: CommandResult(9, "", "package manager failed"),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 9
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "update_failed"
+    assert payload["returncode"] == 9
+    assert payload["message"] == "Recollectium package upgrade failed."
+    assert payload["detail"] == "package manager failed"
+    assert payload["hint"]
+
+
+def test_cli_upgrade_check_existing_config_error_stays_non_mutating(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "RecollectiumConfig",
+        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "upgrade", "--check"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "dry_run"
+    assert payload["services_to_restart"] == []
