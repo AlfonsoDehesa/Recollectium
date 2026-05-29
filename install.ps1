@@ -5,6 +5,7 @@ $InstallDir = Join-Path $env:LOCALAPPDATA "uv"
 $UvBin = Join-Path $InstallDir "uv.exe"
 $ToolBin = Join-Path $HOME ".local\bin"
 $ManagedPathEdits = @()
+$ManagedCompletionEdits = @()
 
 function Get-UvArchiveName {
     $arch = $env:PROCESSOR_ARCHITECTURE
@@ -72,6 +73,20 @@ if ($userPath -notlike "*$ToolBin*") {
     [Environment]::SetEnvironmentVariable("Path", "$ToolBin;$userPath", "User")
     $ManagedPathEdits += "User Path: $ToolBin"
 }
+$profilePath = $PROFILE.CurrentUserCurrentHost
+$env:RECOLLECTIUM_POWERSHELL_PROFILE = $profilePath
+try {
+    & $uv tool run --from $package recollectium completion --install powershell --yes | Out-Null
+    $ManagedCompletionEdits += [ordered]@{
+        shell = "powershell"
+        path = $profilePath
+        source_command = "recollectium completion --source powershell"
+    }
+    Write-Host "PowerShell completion configured in $profilePath."
+}
+finally {
+    Remove-Item Env:RECOLLECTIUM_POWERSHELL_PROFILE -ErrorAction SilentlyContinue
+}
 $stateDir = Join-Path $env:LOCALAPPDATA "recollectium"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 $metadataPath = Join-Path $stateDir "install.json"
@@ -80,6 +95,7 @@ $metadata = [ordered]@{
     source_ref = $ref
     installed_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     managed_path_edits = $ManagedPathEdits
+    managed_completion_edits = $ManagedCompletionEdits
 }
 $metadata | ConvertTo-Json | Set-Content -Path $metadataPath -Encoding utf8
 Write-Host "Recollectium installed. Restart your terminal if recollectium is not found, then try: recollectium --version"

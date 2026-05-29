@@ -112,12 +112,19 @@ jobs:
           metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           completion_targets = []
-          for item in metadata.get("managed_path_edits", []):
-              if not isinstance(item, str) or "completion --source" not in item:
+          for item in metadata.get("managed_completion_edits", []):
+              if not isinstance(item, dict):
                   continue
-              path, _, _command = item.partition(": ")
-              if path:
+              path = item.get("path")
+              if isinstance(path, str) and path:
                   completion_targets.append(path)
+          if not completion_targets:
+              for item in metadata.get("managed_path_edits", []):
+                  if not isinstance(item, str) or "completion --source" not in item:
+                      continue
+                  path, _, _command = item.partition(": ")
+                  if path:
+                      completion_targets.append(path)
           assert completion_targets, metadata
           for path_text in completion_targets:
               path = Path(path_text)
@@ -154,6 +161,15 @@ jobs:
           assert any(item.get("removed") is True and item.get("blocks", 0) >= 1 for item in removed), payload
           PY
 
+          # The default bootstrap uninstall now starts a package-removal handoff, so
+          # wait for that delayed handoff, clear any partially removed tool env,
+          # and reinstall the checked-out package before running the purge half of
+          # this smoke test.
+          sleep 2
+          uv tool uninstall recollectium || true
+          uv tool install --force .
+          recollectium --version
+
           recollectium init
           recollectium add --space user --type note --content "CI purge uninstall smoke sentinel" > add-purge.json
           recollectium uninstall --purge --yes-delete-all-recollectium-data > uninstall-purge.json 2> uninstall-purge.stderr
@@ -181,6 +197,12 @@ jobs:
           PY
 
           uv tool uninstall recollectium
+          hash -r
+          if command -v recollectium >/dev/null 2>&1; then
+            echo "recollectium command still exists after uv tool uninstall" >&2
+            command -v recollectium >&2 || true
+            exit 1
+          fi
 
       - name: Verify Recollectium on Windows
         if: runner.os == 'Windows'
@@ -224,6 +246,19 @@ jobs:
 
           Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-default.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; assert pathlib.Path('uninstall-default.stderr').read_text(encoding='utf-8-sig') == ''; payload=json.loads(pathlib.Path('uninstall-default.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'manual_uninstall_required', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; assert payload['data']['preserved'] is True, payload; paths=payload['data']['paths']; assert pathlib.Path(paths['config']).exists(), paths; assert pathlib.Path(paths['database']).exists(), paths"
 
+          $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
+          if (-not $uv) { $uv = Join-Path $env:LOCALAPPDATA "uv\uv.exe" }
+
+          # The default bootstrap uninstall now starts a package-removal handoff, so
+          # wait for that delayed handoff, clear any partially removed tool env,
+          # and reinstall the checked-out package before running the purge half of
+          # this smoke test.
+          Start-Sleep -Seconds 2
+          & $uv tool uninstall recollectium
+          & $uv tool install --force .
+          if ($LASTEXITCODE -ne 0) { throw "uv tool reinstall failed with exit code $LASTEXITCODE" }
+          recollectium --version
+
           Invoke-RecollectiumSmokeCommand -Arguments @("init") -StdoutPath init-purge.json -StderrPath init-purge.stderr
           Invoke-PythonSmokeCheck -Command "import pathlib; assert pathlib.Path('init-purge.stderr').read_text(encoding='utf-8-sig') == ''"
           Invoke-RecollectiumSmokeCommand -Arguments @("add", "--space", "user", "--type", "note", "--content", "CI purge uninstall smoke sentinel") -StdoutPath add-purge.json -StderrPath add-purge.stderr
@@ -231,6 +266,8 @@ jobs:
 
           Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-purge.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; purge_stderr=pathlib.Path('uninstall-purge.stderr').read_text(encoding='utf-8-sig'); assert 'The following Recollectium-owned paths will be permanently deleted:' in purge_stderr, purge_stderr; payload=json.loads(pathlib.Path('uninstall-purge.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'manual_uninstall_required', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; assert payload['data']['preserved'] is False, payload; purge=payload['data']['purge']; assert purge['dry_run'] is False, payload; assert purge['deleted'], payload; paths=payload['data']['paths']; assert not pathlib.Path(paths['config']).exists(), paths; assert not pathlib.Path(paths['database']).exists(), paths"
 
-          $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
-          if (-not $uv) { $uv = Join-Path $env:LOCALAPPDATA "uv\uv.exe" }
           & $uv tool uninstall recollectium
+          if ($LASTEXITCODE -ne 0) { throw "uv tool uninstall failed with exit code $LASTEXITCODE" }
+          if (Get-Command recollectium -ErrorAction SilentlyContinue) {
+            throw "recollectium command still exists after uv tool uninstall"
+          }
