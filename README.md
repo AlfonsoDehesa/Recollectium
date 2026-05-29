@@ -25,6 +25,16 @@ This MVP does not include:
 - First-time model cache download may require network access to fetch `jinaai/jina-embeddings-v2-small-en`.
 - Data is stored in a local SQLite file.
 
+## Local access and security
+
+Recollectium is local-first software. In v1, the API and MCP services are unauthenticated and are not hardened as public network services. The SQLite memory database is not encrypted by Recollectium.
+
+The recommended v1 deployment is to run Recollectium on the same machine as the agent or client and keep services bound to localhost, usually `127.0.0.1`. Binding to a non-local interface, such as `0.0.0.0`, a LAN address, a VPN address, a container bridge, or a public interface, can expose unauthenticated memory operations to anyone who can reach that interface.
+
+Any user, process, or network client with sufficient access to the Recollectium data directory, database file, or unauthenticated service endpoint can read, modify, or delete memories. Because memories influence what agents recall, unauthorized memory changes can also influence agent behavior.
+
+If the agent and Recollectium must run on different machines, expose Recollectium only over private networking with external access controls. For most users, a private overlay network such as Tailscale is the recommended split-machine path. See [SECURITY.md](SECURITY.md) for the full v1 security model.
+
 ## Smart embedding behavior
 
 - Recollectium uses one production embedding path: built-in local FastEmbed.
@@ -293,7 +303,7 @@ the file).
 | `database.path` | `"recollectium.db"` | SQLite database path. Relative paths resolve against the data directory. Absolute paths are used as-is. |
 | `embedding.provider` | `"builtin-fastembed"` | Embedding provider. Only `"builtin-fastembed"` is supported in this release. Other values fail validation. |
 | `embedding.model` | `"jinaai/jina-embeddings-v2-small-en"` | Embedding model name. Only this model is supported in this release. Other values fail validation. |
-| `service.host` | `"127.0.0.1"` | Host interface for the local HTTP service. |
+| `service.host` | `"127.0.0.1"` | Host interface for the local HTTP service. Keep the default localhost bind unless you understand that v1 services are unauthenticated and non-local binds can expose memory contents. See [SECURITY.md](SECURITY.md). |
 | `service.port` | `8765` | TCP port for the local HTTP service. |
 | `logging.level` | `"info"` | Log level for the `recollectium.*` logger hierarchy. Allowed values: `debug`, `info`, `warning`, `error`. |
 | `logging.format` | `"json"` | Log output format. Only `"json"` is supported in this release. |
@@ -367,7 +377,7 @@ recollectium config reset
 | CLI flag | Overrides config key | Applies to |
 |---|---|---|
 | `--db <path>` | `database.path` | All commands |
-| `--host <host>` | `service.host` | `serve` command |
+| `--host <host>` | `service.host` | `serve` command. Non-local binds are risky unless protected by external private networking and access controls. |
 | `--port <port>` | `service.port` | `serve` command |
 | `--log-level <level>` | `logging.level` | Current invocation only; does not modify config |
 | `--config <path>` | — | Loads config from a custom path |
@@ -376,6 +386,8 @@ recollectium config reset
 ## Service Management
 
 Recollectium can run as a long-running service accessible over HTTP. Use the `recollectium service` commands to manage the service lifecycle.
+
+The v1 API and MCP services are unauthenticated and should stay bound to localhost unless you protect access with private networking or equivalent external controls. See [SECURITY.md](SECURITY.md) before changing the service host or exposing Recollectium outside the local machine.
 
 Two service types are available:
 
@@ -454,14 +466,14 @@ When no managed service is running, discovery exits `1`, prints `status="not_run
 Adapters should autodiscover Recollectium after the host application loads the
 plugin when the adapter and Core run on the same machine. Users should not need
 to manually configure host, port, PID file, runtime path, or service type for
-that local path. Hosted or remote Core instances are different: the user points
+that local path. Private-network split-machine Core instances are different: the user points
 the plugin at the Core base URL in plugin config. Before using the service,
 adapters must validate the target endpoint by calling health, version, and
 capabilities, whether those URLs came from local discovery or from the configured
 remote base URL. See `docs/opencode-adapter-contract.md` for the full adapter
 contract.
 
-Binding Recollectium to a non-local interface can expose memory contents because the Phase 1 local API is unauthenticated.
+Binding Recollectium to a non-local interface can expose memory contents because the Phase 1 local API is unauthenticated. See [SECURITY.md](SECURITY.md) for the full v1 security model.
 
 ### Stopping a service
 

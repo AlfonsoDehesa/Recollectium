@@ -244,6 +244,10 @@ confirmed before the version-bump PR is opened.
 - [ ] GitHub Wiki is current and in sync with the README and API docs:
       install, config, CLI reference, service management, uninstall,
       memory types, API overview, and local access/security.
+- [ ] Local access/security assumptions are current: `SECURITY.md`, README,
+      API docs, adapter contract, and Wiki state that v1 services are
+      unauthenticated, localhost-first, not hardened as public services, and
+      risky when bound to non-local interfaces without external protection.
 - [ ] ROADMAP.md reflects current progress and upcoming version targets.
 - [ ] Completed feature work has been moved into the ROADMAP.md `Completed`
       section in the same PR that implemented it.

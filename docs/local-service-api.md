@@ -4,10 +4,15 @@ This document describes the currently implemented FastAPI local HTTP JSON servic
 
 ## Local access and security assumptions
 
+See [`../SECURITY.md`](../SECURITY.md) for the full v1 security model.
+
 - This service is local-first and intended for single-machine use.
 - Default bind is `127.0.0.1` on port `8765`.
-- It is not a public internet API and has no auth in this slice.
-- If you bind it to a non-local interface, memory contents may be exposed.
+- API and MCP services are unauthenticated in v1 and are not public internet APIs.
+- The SQLite memory database is not encrypted by Recollectium.
+- If you bind a service to a non-local interface, memory contents and memory-changing operations may be exposed to anyone who can reach that interface.
+- Any user, process, or network client with sufficient access to the Recollectium data directory, database file, or unauthenticated service endpoint can read, modify, or delete memories. Because memories influence what agents recall, unauthorized memory changes can also influence agent behavior.
+- If an agent must connect from another machine, use private networking with external access controls. For most users, Tailscale is the recommended split-machine path; WireGuard, SSH tunneling, firewall allowlists, or equivalent VPN/overlay networking can also work.
 
 For the managed service path used by adapters, start the API service with:
 
@@ -93,7 +98,7 @@ Not-running response shape:
 
 `recollectium service start api` and `recollectium service start mcp` write the running response to `{runtime_dir}/service-discovery.json` after process ownership is verified. `recollectium service stop`, `recollectium service status`, and `recollectium service discover` remove stale Recollectium-owned PID and discovery files when they prove the managed process is gone.
 
-Adapters should validate the target service before enabling Recollectium-backed tools:
+Adapters should validate the target service before enabling Recollectium-backed tools. This validation confirms compatibility, not authentication or authorization:
 
 1. For local discovery, use the returned `health_url`, `version_url`, and
    `capabilities_url`. For remote Core config, derive `/v1/health`,
@@ -108,14 +113,14 @@ plugin when the adapter and Core run on the same machine. Users should not need
 to manually configure host, port, PID file, runtime path, or service type for
 that local path. If local autodiscovery reports `not_running`, the plugin should
 attempt `recollectium service start api` and then rerun discovery before guiding
-the user. Hosted or remote Core instances are different: the user points the
+the user. Private-network split-machine Core instances are different: the user points the
 plugin at the Core base URL in plugin config, and the adapter validates that
 configured endpoint by calling `/v1/health`, `/v1/version`, and
 `/v1/capabilities`. Host-level plugin registration remains outside Recollectium
 Core. See `docs/opencode-adapter-contract.md` for the adapter contract and
 workspace UID rules.
 
-The API is local-only and unauthenticated in Phase 1. Binding to a non-local interface can expose memory contents.
+The API is local-first and unauthenticated in Phase 1. Binding to a non-local interface can expose memory contents and memory-changing operations. Remote or split-machine access should use private networking with external access controls; see [`../SECURITY.md`](../SECURITY.md).
 
 ## Envelope shapes
 

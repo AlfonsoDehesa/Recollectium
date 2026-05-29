@@ -34,19 +34,9 @@ Completed:
 - [x] Package upgrade flow through `recollectium upgrade`: latest-release checks, pip/pipx/uv/bootstrap/source install methods, dry-run/check modes, service-state preservation, docs, unit tests, and install-smoke CI coverage.
 - [x] CLI error-formatting audit: non-argparse failures return structured JSON on stderr with standardized exit codes, stdout JSON contracts stay clean, and representative failure paths are covered by tests.
 - [x] CI uninstall-flow coverage across bootstrap install-smoke jobs: default uninstall preservation, explicit purge, managed Unix completion cleanup, package-manager guidance assertions, and final `uv tool uninstall recollectium` cleanup.
+- [x] Local access and security documentation audit: canonical `SECURITY.md`, README/API/adapter warnings, release checklist coverage, and private-network guidance for split-machine deployments.
 
 Remaining release blockers:
-
-### Local access and security documentation audit
-
-Release goal: users understand the local-only security model before exposing the
-service outside localhost.
-
-- [ ] Document that the Phase 1 local service is unauthenticated.
-- [ ] Document that binding to non-local interfaces can expose memory contents.
-- [ ] Confirm README, service API docs, and config docs explain host and port risks.
-- [ ] Confirm install and service docs recommend local-only defaults.
-- [ ] Add release checklist coverage for local access and security assumptions.
 
 ### Rich dynamic PowerShell shell completion
 
@@ -148,8 +138,9 @@ that consumes the Core service contract instead of reimplementing memory logic.
 
 - [ ] Build the OpenCode plugin or adapter.
 - [ ] Consume Core service discovery from the plugin.
-- [ ] Support explicit remote Core base-URL configuration for hosted Core
-  instances and validate those endpoints with health, version, and capabilities.
+- [ ] Support explicit remote Core base-URL configuration for private-network
+  split-machine Core instances and validate those endpoints with health, version,
+  and capabilities.
 - [ ] If local autodiscovery reports the service is not running, attempt to start
   the local API service before guiding the user.
 - [ ] Consume Core workspace UID behavior from the plugin.
