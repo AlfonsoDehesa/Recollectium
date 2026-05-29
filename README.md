@@ -466,7 +466,7 @@ When no managed service is running, discovery exits `1`, prints `status="not_run
 Adapters should autodiscover Recollectium after the host application loads the
 plugin when the adapter and Core run on the same machine. Users should not need
 to manually configure host, port, PID file, runtime path, or service type for
-that local path. Hosted or remote Core instances are different: the user points
+that local path. Private-network split-machine Core instances are different: the user points
 the plugin at the Core base URL in plugin config. Before using the service,
 adapters must validate the target endpoint by calling health, version, and
 capabilities, whether those URLs came from local discovery or from the configured

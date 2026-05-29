@@ -103,7 +103,7 @@ authenticate the adapter or authorize access:
 1. Resolve the endpoint:
    - For same-machine use, run `recollectium service discover` and use the returned
      `health_url`, `version_url`, and `capabilities_url`.
-   - For remote or hosted Core use, read the explicit plugin configuration and
+   - For private-network split-machine Core use, read the explicit plugin configuration and
      derive `/v1/health`, `/v1/version`, and `/v1/capabilities` from the
      configured base URL.
 2. Call the health endpoint and require an ok response.

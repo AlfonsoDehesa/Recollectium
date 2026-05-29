@@ -138,8 +138,9 @@ that consumes the Core service contract instead of reimplementing memory logic.
 
 - [ ] Build the OpenCode plugin or adapter.
 - [ ] Consume Core service discovery from the plugin.
-- [ ] Support explicit remote Core base-URL configuration for hosted Core
-  instances and validate those endpoints with health, version, and capabilities.
+- [ ] Support explicit remote Core base-URL configuration for private-network
+  split-machine Core instances and validate those endpoints with health, version,
+  and capabilities.
 - [ ] If local autodiscovery reports the service is not running, attempt to start
   the local API service before guiding the user.
 - [ ] Consume Core workspace UID behavior from the plugin.

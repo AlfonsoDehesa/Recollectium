@@ -113,7 +113,7 @@ plugin when the adapter and Core run on the same machine. Users should not need
 to manually configure host, port, PID file, runtime path, or service type for
 that local path. If local autodiscovery reports `not_running`, the plugin should
 attempt `recollectium service start api` and then rerun discovery before guiding
-the user. Hosted or remote Core instances are different: the user points the
+the user. Private-network split-machine Core instances are different: the user points the
 plugin at the Core base URL in plugin config, and the adapter validates that
 configured endpoint by calling `/v1/health`, `/v1/version`, and
 `/v1/capabilities`. Host-level plugin registration remains outside Recollectium
