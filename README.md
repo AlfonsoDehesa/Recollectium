@@ -31,6 +31,8 @@ Recollectium is local-first software. In v1, the API and MCP services are unauth
 
 The recommended v1 deployment is to run Recollectium on the same machine as the agent or client and keep services bound to localhost, usually `127.0.0.1`. Binding to a non-local interface, such as `0.0.0.0`, a LAN address, a VPN address, a container bridge, or a public interface, can expose unauthenticated memory operations to anyone who can reach that interface.
 
+Any user, process, or network client with sufficient access to the Recollectium data directory, database file, or unauthenticated service endpoint can read, modify, or delete memories. Because memories influence what agents recall, unauthorized memory changes can also influence agent behavior.
+
 If the agent and Recollectium must run on different machines, expose Recollectium only over private networking with external access controls. For most users, a private overlay network such as Tailscale is the recommended split-machine path. See [SECURITY.md](SECURITY.md) for the full v1 security model.
 
 ## Smart embedding behavior

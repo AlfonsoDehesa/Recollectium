@@ -198,9 +198,10 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         title="Recollectium Core Local Service API",
         version="1",
         description=(
-            "Local-only HTTP JSON service contract for Recollectium Core. This slice "
-            "is localhost-first and intentionally has no authentication. Do not "
-            "expose this service publicly."
+            "Local-first HTTP JSON service contract for Recollectium Core. In v1, "
+            "the service is localhost-first, has no authentication, and is not "
+            "hardened as a public network service. Do not expose it publicly. "
+            "Split-machine deployments should use private networking and external access controls."
         ),
         openapi_url="/openapi.json",
         docs_url="/docs",

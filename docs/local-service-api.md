@@ -11,6 +11,7 @@ See [`../SECURITY.md`](../SECURITY.md) for the full v1 security model.
 - API and MCP services are unauthenticated in v1 and are not public internet APIs.
 - The SQLite memory database is not encrypted by Recollectium.
 - If you bind a service to a non-local interface, memory contents and memory-changing operations may be exposed to anyone who can reach that interface.
+- Any user, process, or network client with sufficient access to the Recollectium data directory, database file, or unauthenticated service endpoint can read, modify, or delete memories. Because memories influence what agents recall, unauthorized memory changes can also influence agent behavior.
 - If an agent must connect from another machine, use private networking with external access controls. For most users, Tailscale is the recommended split-machine path; WireGuard, SSH tunneling, firewall allowlists, or equivalent VPN/overlay networking can also work.
 
 For the managed service path used by adapters, start the API service with:

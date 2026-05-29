@@ -69,7 +69,7 @@ Avoid these v1 deployment patterns unless you have added external protections an
 
 - Binding Recollectium to `0.0.0.0` on an untrusted network.
 - Exposing Recollectium on a public IP address.
-- Publishing Recollectium through a public reverse proxy without authentication, TLS, and access controls.
+- Publishing Recollectium through a public reverse proxy. Public reverse-proxy exposure is unsupported for v1 unless an advanced user fully supplies and owns external authentication, TLS, and access controls.
 - Tunneling Recollectium through a public tunnel without restricting who can connect.
 - Assuming Docker, container networking, or a VM boundary alone makes an unauthenticated service safe.
 
@@ -89,4 +89,4 @@ Use a private network path and restrict which clients can reach Recollectium:
 
 Please do not publish sensitive vulnerability details in a public GitHub issue.
 
-Use GitHub private vulnerability reporting for this repository if it is enabled. If private vulnerability reporting is not available, contact the maintainer privately before publishing details so the issue can be assessed and fixed responsibly.
+Use GitHub private vulnerability reporting for this repository if it is enabled. If private vulnerability reporting is unavailable, open a public GitHub issue that asks for a private reporting channel but does not include vulnerability details, proof-of-concept code, private data, or exploit steps.
