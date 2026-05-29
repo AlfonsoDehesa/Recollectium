@@ -895,12 +895,14 @@ _COMPLETION_BLOCK_PATTERN = re.compile(
 )
 
 
-def _detect_shell() -> str:
+def _detect_shell() -> str | None:
     shell_path = os.environ.get("SHELL", "")
     basename = Path(shell_path).name
     if basename in _COMPLETION_RC_FILES:
         return basename
-    return "bash"
+    if sys.platform.startswith("win") or os.environ.get("PSModulePath"):
+        return "powershell"
+    return None
 
 
 def _powershell_profile_path() -> Path:
@@ -958,17 +960,23 @@ def _completion_source(shell: str) -> str:
     return argcomplete.shellcode(["recollectium"], shell=shell)  # pyright: ignore[reportPrivateImportUsage]
 
 
+def _powershell_completion_profile_block() -> str:
+    return r"""
+if (Get-Command recollectium -ErrorAction SilentlyContinue) {
+    Invoke-Expression (& recollectium completion --source powershell)
+}
+""".strip()
+
+
 def _completion_block(shell: str) -> str:
     if shell == "powershell":
-        body = _powershell_completion_script()
+        body = _powershell_completion_profile_block()
     else:
         body = f'eval "$(recollectium completion --source {shell})"'
     return f"{_COMPLETION_BLOCK_START}\n{body}\n{_COMPLETION_BLOCK_END}\n"
 
 
 def _completion_marker(shell: str) -> str:
-    if shell == "powershell":
-        return "recollectium completion --complete-line"
     return f"recollectium completion --source {shell}"
 
 
@@ -1003,6 +1011,15 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
     shell = args.shell
     if shell is None:
         shell = _detect_shell()
+    if shell is None:
+        return _emit_cli_failure(
+            status="validation_error",
+            message="Could not detect a supported shell.",
+            hint="Pass the shell name explicitly, such as recollectium completion --install bash.",
+            exit_code=2,
+            command="completion",
+            event="completion.unknown_shell",
+        )
 
     if args.source:
         output = _completion_source(shell)
@@ -1039,16 +1056,15 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
 
         marker = _completion_marker(shell)
         if marker in existing and _COMPLETION_BLOCK_START not in existing:
-            print(
-                json.dumps(
-                    {
-                        "status": "already_installed",
-                        "rc_file": str(rc_path),
-                        "shell": shell,
-                    },
-                    sort_keys=True,
-                )
-            )
+            response_payload: dict[str, Any] = {
+                "status": "already_installed",
+                "rc_file": str(rc_path),
+                "shell": shell,
+                "updated": False,
+            }
+            if shell == "powershell":
+                response_payload["profile"] = str(rc_path)
+            print(json.dumps(response_payload, sort_keys=True))
             return 0
 
         block = _completion_block(shell)
@@ -1065,16 +1081,15 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
             updated_content += "\n" + block
 
         if marker in existing and block_found and block in existing:
-            print(
-                json.dumps(
-                    {
-                        "status": "already_installed",
-                        "rc_file": str(rc_path),
-                        "shell": shell,
-                    },
-                    sort_keys=True,
-                )
-            )
+            response_payload = {
+                "status": "already_installed",
+                "rc_file": str(rc_path),
+                "shell": shell,
+                "updated": False,
+            }
+            if shell == "powershell":
+                response_payload["profile"] = str(rc_path)
+            print(json.dumps(response_payload, sort_keys=True))
             return 0
 
         if not args.yes:
@@ -1108,12 +1123,15 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
                 path=str(rc_path),
             )
 
-        print(
-            json.dumps(
-                {"status": status, "rc_file": str(rc_path), "shell": shell},
-                sort_keys=True,
-            )
-        )
+        response_payload: dict[str, Any] = {
+            "status": status,
+            "rc_file": str(rc_path),
+            "shell": shell,
+            "updated": status == "updated",
+        }
+        if shell == "powershell":
+            response_payload["profile"] = str(rc_path)
+        print(json.dumps(response_payload, sort_keys=True))
         return 0
 
     if shell == "powershell":

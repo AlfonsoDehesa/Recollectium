@@ -96,7 +96,8 @@ Bootstrap update refreshes the managed completion block instead of appending a
 duplicate, and uninstall removes Recollectium-managed completion blocks while
 preserving unrelated shell/profile content.
 
-To set up completion manually:
+To set up completion manually, let Recollectium detect your shell or pass one
+explicitly if auto-detection cannot identify bash, zsh, fish, or PowerShell:
 
 ```bash
 recollectium completion --install

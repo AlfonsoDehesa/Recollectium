@@ -3344,30 +3344,50 @@ def test_cli_completion_auto_detect_shell(
     assert "recollectium" in stdout
 
 
-def test_cli_completion_unknown_shell_falls_back_to_bash(
+def test_cli_completion_unknown_shell_returns_validation_error(
     capsys: CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("SHELL", raising=False)
+    monkeypatch.delenv("PSModulePath", raising=False)
 
     exit_code, stdout, stderr = _run_cli(["completion"], capsys)
 
-    assert exit_code == 0
-    assert stderr == ""
-    assert 'eval "$(recollectium completion --source bash)"' in stdout
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert payload["message"] == "Could not detect a supported shell."
 
 
-def test_cli_completion_auto_detect_non_standard_shell_falls_back_to_bash(
+def test_cli_completion_auto_detect_non_standard_shell_returns_validation_error(
     capsys: CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("SHELL", "/bin/tcsh")
+    monkeypatch.delenv("PSModulePath", raising=False)
 
     exit_code, stdout, stderr = _run_cli(["completion"], capsys)
 
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert payload["message"] == "Could not detect a supported shell."
+
+
+def test_cli_completion_auto_detect_powershell_from_environment(
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SHELL", raising=False)
+    monkeypatch.setenv("PSModulePath", "C:/Users/example/Documents/PowerShell/Modules")
+
+    exit_code, stdout, stderr = _run_cli(["completion", "--source"], capsys)
+
     assert exit_code == 0
     assert stderr == ""
-    assert 'eval "$(recollectium completion --source bash)"' in stdout
+    assert "Register-ArgumentCompleter" in stdout
 
 
 def test_cli_completion_auto_detect_with_source(
@@ -3425,9 +3445,67 @@ def test_cli_completion_install_powershell_uses_current_user_current_host_profil
     assert payload["status"] == "installed"
     assert payload["shell"] == "powershell"
     assert payload["rc_file"] == str(profile)
+    assert payload["profile"] == str(profile)
+    assert payload["updated"] is False
     content = profile.read_text(encoding="utf-8")
-    assert "Register-ArgumentCompleter" in content
-    assert "recollectium completion --complete-line" in content
+    assert "Get-Command recollectium" in content
+    assert "recollectium completion --source powershell" in content
+    assert "Register-ArgumentCompleter" not in content
+    assert "recollectium completion --complete-line" not in content
+
+
+def test_cli_completion_install_powershell_dedups_existing_source_line(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = tmp_path / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+    profile.parent.mkdir(parents=True)
+    profile.write_text(
+        "recollectium completion --source powershell\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RECOLLECTIUM_POWERSHELL_PROFILE", str(profile))
+
+    exit_code, stdout, stderr = _run_cli(
+        ["completion", "--install", "powershell", "--yes"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "already_installed"
+    assert payload["profile"] == str(profile)
+    assert payload["updated"] is False
+
+
+def test_cli_completion_install_powershell_reports_current_managed_block(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = tmp_path / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+    profile.parent.mkdir(parents=True)
+    profile.write_text(
+        "# >>> recollectium completion >>>\n"
+        "if (Get-Command recollectium -ErrorAction SilentlyContinue) {\n"
+        "    Invoke-Expression (& recollectium completion --source powershell)\n"
+        "}\n"
+        "# <<< recollectium completion <<<\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RECOLLECTIUM_POWERSHELL_PROFILE", str(profile))
+
+    exit_code, stdout, stderr = _run_cli(
+        ["completion", "--install", "powershell", "--yes"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "already_installed"
+    assert payload["profile"] == str(profile)
+    assert payload["updated"] is False
 
 
 def test_cli_completion_install_refreshes_existing_managed_block(

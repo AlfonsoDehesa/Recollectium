@@ -112,12 +112,19 @@ jobs:
           metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           completion_targets = []
-          for item in metadata.get("managed_path_edits", []):
-              if not isinstance(item, str) or "completion --source" not in item:
+          for item in metadata.get("managed_completion_edits", []):
+              if not isinstance(item, dict):
                   continue
-              path, _, _command = item.partition(": ")
-              if path:
+              path = item.get("path")
+              if isinstance(path, str) and path:
                   completion_targets.append(path)
+          if not completion_targets:
+              for item in metadata.get("managed_path_edits", []):
+                  if not isinstance(item, str) or "completion --source" not in item:
+                      continue
+                  path, _, _command = item.partition(": ")
+                  if path:
+                      completion_targets.append(path)
           assert completion_targets, metadata
           for path_text in completion_targets:
               path = Path(path_text)
