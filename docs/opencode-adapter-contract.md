@@ -8,6 +8,16 @@ and workspace UID normalization contract that an adapter needs. The adapter's
 job is to bridge OpenCode's workspace context and agent tool surface to
 Recollectium's local service, not to reimplement memory logic inside OpenCode.
 
+## Security boundary
+
+See [`../SECURITY.md`](../SECURITY.md) for the full Recollectium v1 security model.
+
+Recollectium v1 is local-first. API and MCP services are unauthenticated and are not hardened as public network services. Local discovery is intended for same-machine trusted use. Remote Core endpoint configuration is an advanced deployment mode and requires private networking with external access controls.
+
+Health, version, and capability validation confirms service compatibility. It is not authentication or authorization. Adapters must not treat a reachable, compatible endpoint as proof that the endpoint is safe to expose or safe to share with untrusted clients.
+
+For split-machine deployments, users should connect over private networking. Tailscale is the recommended friendly default for most users; WireGuard, SSH tunneling, firewall allowlists, or equivalent VPN/overlay networking can also work.
+
 ## What the adapter must do
 
 A Recollectium adapter should:
@@ -15,7 +25,9 @@ A Recollectium adapter should:
 - Discover the running local Recollectium service automatically for same-machine
   deployments where practical.
 - Allow explicit remote Core endpoint or base-URL configuration in plugin config
-  for deployments where the adapter and Recollectium are not on the same machine.
+  for deployments where the adapter and Recollectium are not on the same machine,
+  but require the user to protect that endpoint with private networking and
+  external access controls.
 - Validate that the target service is healthy and compatible before use, whether
   it was found by local discovery or supplied through explicit configuration.
 - Instruct the model at prompt level to choose the workspace UID candidate for
@@ -51,7 +63,9 @@ For deployments where the adapter talks to Recollectium Core on another machine,
 the user should configure an explicit endpoint, such as a host, IP, port, or
 base URL. In that mode, the adapter does not need local discovery metadata. It
 should derive the API URLs from the configured base URL, then run the same
-health, version, and capability validation described below.
+health, version, and capability validation described below. Because Recollectium
+v1 services are unauthenticated, that endpoint should only be reachable through
+private networking and external access controls.
 
 Discovery returns JSON that includes:
 
@@ -83,7 +97,8 @@ Adapter behavior:
 ## Validation contract
 
 Before enabling Recollectium-backed tools, the adapter should validate the target
-service in this order:
+service in this order. This validation checks compatibility only; it does not
+authenticate the adapter or authorize access:
 
 1. Resolve the endpoint:
    - For same-machine use, run `recollectium service discover` and use the returned
@@ -211,6 +226,8 @@ identity.
 
 1. Install Recollectium Core.
 2. Start the local service or configure the plugin with the remote Core base URL.
+   Remote Core endpoints must be protected with private networking and external
+   access controls because Recollectium v1 services are unauthenticated.
 3. For same-machine use, run `recollectium service discover`. If the plugin is set
    to local autodiscovery and discovery reports `not_running`, attempt
    `recollectium service start api` and then rerun discovery. For remote Core use,
@@ -232,6 +249,7 @@ When this contract changes, update the corresponding Core docs in the same PR:
 - `docs/local-service-api.md`
 - `ROADMAP.md`
 - `CONTRIBUTING.md` if the maintenance gate changes
+- `SECURITY.md` if service exposure, remote Core addressing, or deployment guidance changes
 
 This document should stay aligned with the live Core service contract and the
 roadmap item's completion status.
