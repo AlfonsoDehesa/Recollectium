@@ -27,6 +27,7 @@
 
 - `init`: initialize config, database, directories, migrations, and model cache.
 - `config`: inspect and edit config.
+- `db-status`: show database schema migration status.
 - `service`: start, stop, restart, status, and discovery for managed services.
 - `serve`: run the API service in the foreground for development.
 - `mcp-stdio`: run MCP over stdio for clients that spawn a child process.

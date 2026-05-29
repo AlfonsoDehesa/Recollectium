@@ -193,10 +193,11 @@ When adding, removing, or changing CLI commands or flags, update CLI help text a
 - Help text for every flag and positional argument.
 - Any important constraints, defaults, formats, or side effects.
 
-Useful help checks:
+Useful help checks for the full command inventory:
 
 ```bash
 uv run recollectium --help
+uv run recollectium init --help
 uv run recollectium add --help
 uv run recollectium search-user --help
 uv run recollectium search-workspace --help
@@ -204,9 +205,17 @@ uv run recollectium list --help
 uv run recollectium get --help
 uv run recollectium update --help
 uv run recollectium archive --help
+uv run recollectium workspace --help
 uv run recollectium config --help
 uv run recollectium service --help
+uv run recollectium serve --help
+uv run recollectium db-status --help
+uv run recollectium embedding-status --help
+uv run recollectium embedding-jobs --help
 uv run recollectium mcp-stdio --help
+uv run recollectium completion --help
+uv run recollectium upgrade --help
+uv run recollectium uninstall --help
 ```
 
 ## Documentation requirements
@@ -217,7 +226,7 @@ Docs are part of the product. If a PR changes user-facing behavior, update the m
 
 `README.md` is the public front door. Keep it focused and link to deeper docs.
 
-The GitHub Wiki is the long-form user and integrator manual. Update it when a PR changes any of these:
+`docs/wiki/` contains the long-form user and integrator manual source pages. Publish those pages to the GitHub Wiki when the GitHub wiki remote is initialized. Update them when a PR changes any of these:
 
 - Installation, upgrade, uninstall, or shell completion.
 - Configuration keys, defaults, validation, or CLI overrides.
@@ -230,7 +239,7 @@ The GitHub Wiki is the long-form user and integrator manual. Update it when a PR
 - Adapter/plugin discovery, remote Core addressing, compatibility validation, or workspace UID behavior.
 - Memory scopes, memory buckets, workspace aliases, embeddings, or background jobs.
 
-The wiki must stay aligned with README, `docs/local-service-api.md`, `docs/local-service-openapi.json`, `docs/opencode-adapter-contract.md`, `SECURITY.md`, and `ROADMAP.md`.
+The wiki source pages and published GitHub Wiki must stay aligned with README, `docs/local-service-api.md`, `docs/local-service-openapi.json`, `docs/opencode-adapter-contract.md`, `SECURITY.md`, and `ROADMAP.md`.
 
 ### API and OpenAPI docs
 
@@ -387,7 +396,7 @@ Before cutting a release, run through this checklist. Every item must be confirm
 - [ ] MCP tools are documented and the docs match every tool the server exposes.
 - [ ] Every CLI command, subcommand, flag, and positional argument has help text. No undocumented paths. Run `recollectium --help` for every subcommand and confirm nothing is missing.
 - [ ] README is current: install, project status, quick start routing, local access/security, and links to wiki and repo docs.
-- [ ] GitHub Wiki is current and in sync with the README and repo docs:
+- [ ] `docs/wiki/` source pages and the published GitHub Wiki are current and in sync with the README and repo docs:
   - [ ] Home
   - [ ] Quick Start
   - [ ] Installation

@@ -78,6 +78,15 @@ recollectium archive MEMORY_ID
 
 Archives a memory. Archived memories are hidden from default list and search results.
 
+
+## db-status
+
+```bash
+recollectium db-status
+```
+
+Shows database schema migration status as JSON.
+
 ## workspace
 
 ```bash

@@ -21,4 +21,4 @@ Plugins and adapters should validate health, version, and capabilities before en
 
 ## Want to add a plugin?
 
-Start with [Adapter and Plugin Integration](Adapter-and-Plugin-Integration) and the canonical [OpenCode adapter contract](https://github.com/AlfonsoDehesa/Recollectium/blob/main/docs/opencode-adapter-contract.md).
+Start with [Adapter and Plugin Integration](Adapter-and-Plugin-Integration.md) and the canonical [OpenCode adapter contract](https://github.com/AlfonsoDehesa/Recollectium/blob/main/docs/opencode-adapter-contract.md).

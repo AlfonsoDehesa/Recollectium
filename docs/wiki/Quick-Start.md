@@ -77,9 +77,9 @@ recollectium service stop
 
 ## Where to go next
 
-- Learn the model: [Concepts](Concepts)
-- Configure paths and service settings: [Configuration](Configuration)
-- Use every command: [CLI Reference](CLI-Reference)
-- Run API or MCP services: [Service Management](Service-Management)
-- Connect an MCP client: [MCP Server](MCP-Server)
-- Call the local HTTP API: [API Reference](API-Reference)
+- Learn the model: [Concepts](Concepts.md)
+- Configure paths and service settings: [Configuration](Configuration.md)
+- Use every command: [CLI Reference](CLI-Reference.md)
+- Run API or MCP services: [Service Management](Service-Management.md)
+- Connect an MCP client: [MCP Server](MCP-Server.md)
+- Call the local HTTP API: [API Reference](API-Reference.md)

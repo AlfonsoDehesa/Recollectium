@@ -49,7 +49,7 @@ recollectium service status
 recollectium service discover
 ```
 
-Look in the logs directory. See [Logs](Logs).
+Look in the logs directory. See [Logs](Logs.md).
 
 A stale PID file is usually cleaned automatically by status or discovery commands.
 

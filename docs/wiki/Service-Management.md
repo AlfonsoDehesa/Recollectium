@@ -82,7 +82,7 @@ recollectium serve --host 127.0.0.1 --port 8765
 
 The service manager writes runtime metadata under the configured runtime directory. It includes a PID file and `service-discovery.json`.
 
-Service stdout and stderr go to service logs in the logs directory. See [Logs](Logs).
+Service stdout and stderr go to service logs in the logs directory. See [Logs](Logs.md).
 
 ## Security reminder
 
