@@ -16,6 +16,8 @@ MCP is best for:
 - one durable Core database shared by multiple agent clients and surfaces;
 - integrations that want Recollectium Core to enforce user memory, workspace memory, memory bucket, archive, and workspace alias rules.
 
+Common stdio MCP clients include Claude Code, Claude Desktop, Cursor, and OpenCode. Common HTTP MCP clients or tools include MCP Inspector, OpenAI Agents SDK, and remote MCP gateways.
+
 If you are building an adapter, web UI, script, service integration, test harness, or anything that talks HTTP directly, use the API instead. If your client supports MCP tools and the integration is agent-facing, MCP is usually the nicer path.
 
 ## Run the MCP server
@@ -71,50 +73,6 @@ recollectium service stop
 Managed mode starts a background MCP service using the configured host and port. It writes PID and discovery files so local adapters can find it.
 
 Default local behavior follows Recollectium's local service configuration. Keep managed MCP bound to localhost unless private networking and external access controls protect it.
-
-## Example client setup
-
-For clients that accept a command plus arguments, configure a local stdio MCP server with:
-
-```text
-command: recollectium
-args: ["mcp-stdio"]
-```
-
-Claude Code supports adding a local stdio MCP server from the command line:
-
-```bash
-claude mcp add --transport stdio recollectium -- recollectium mcp-stdio
-```
-
-Claude Desktop and other JSON-configured MCP clients commonly use an `mcpServers` block:
-
-```json
-{
-  "mcpServers": {
-    "recollectium": {
-      "command": "recollectium",
-      "args": ["mcp-stdio"]
-    }
-  }
-}
-```
-
-OpenCode exposes an `mcp` configuration section. A local Recollectium entry follows the same command/args shape:
-
-```json
-{
-  "mcp": {
-    "recollectium": {
-      "type": "local",
-      "command": ["recollectium", "mcp-stdio"],
-      "enabled": true
-    }
-  }
-}
-```
-
-Exact config file locations and names vary by client. Use the client's MCP docs as the source of truth, then point the client at `recollectium mcp-stdio`.
 
 ## Discovery and compatibility
 

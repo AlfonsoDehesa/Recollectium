@@ -119,7 +119,6 @@
 
 - [What MCP is for](MCP-Server.md#what-mcp-is-for)
 - [Run the MCP server](MCP-Server.md#run-the-mcp-server)
-- [Example client setup](MCP-Server.md#example-client-setup)
 - [Discovery and compatibility](MCP-Server.md#discovery-and-compatibility)
 - [Response format](MCP-Server.md#response-format)
 - [Memory rules](MCP-Server.md#memory-rules)
@@ -134,7 +133,6 @@
 
 - [What API is for](API-Reference.md#what-api-is-for)
 - [Run the API server](API-Reference.md#run-the-api-server)
-- [Example client setup](API-Reference.md#example-client-setup)
 - [Discovery and compatibility](API-Reference.md#discovery-and-compatibility)
 - [Response format](API-Reference.md#response-format)
 - [Memory rules](API-Reference.md#memory-rules)

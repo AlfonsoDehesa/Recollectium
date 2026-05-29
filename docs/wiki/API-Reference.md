@@ -16,6 +16,8 @@ The API is best for:
 - split-machine setups where an agent reaches Core over private networking;
 - integrations that need explicit endpoint, method, schema, and error contracts.
 
+Common API-style integration targets include OpenCode plugins, VS Code extensions, web UIs, LangChain agents, LlamaIndex agents, Semantic Kernel apps, and custom agent adapters.
+
 If an AI client supports MCP, MCP is usually the nicer agent-facing integration path because tools show up directly inside the client. If you are building an adapter, web UI, script, service integration, test harness, or anything that talks HTTP, use the API.
 
 ## Run the API server
@@ -43,22 +45,6 @@ Default connection details:
 - Base URL: `http://127.0.0.1:8765`
 - API prefix: `/v1`
 - Service API version: `1`
-
-## Example client setup
-
-A minimal health check with curl:
-
-```bash
-curl -sS http://127.0.0.1:8765/v1/health
-```
-
-A minimal memory search:
-
-```bash
-curl -sS http://127.0.0.1:8765/v1/memories/search_user \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"editor preferences","limit":5}'
-```
 
 For remote or split-machine Core, point the client at the configured base URL and still call `/v1/health`, `/v1/version`, and `/v1/capabilities` before enabling memory operations. Remote access should use private networking with external access controls. The API does not add authentication in v1.
 
