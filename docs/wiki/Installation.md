@@ -38,8 +38,6 @@ recollectium --help
 recollectium search-user "preferences about wording"
 ```
 
-You should not need to prefix normal commands with `uv` after bootstrap install. `uv` is used internally to install and manage the isolated tool.
-
 ## Package manager installs
 
 If you already have Python 3.12 or newer:
