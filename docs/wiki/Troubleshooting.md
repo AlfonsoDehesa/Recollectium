@@ -2,19 +2,16 @@
 
 ## `recollectium` command not found
 
-Open a new shell after installation. If that does not work, check your PATH and run:
+After a bootstrap install, you should run `recollectium` directly. You should not need to prefix normal commands with `uv`.
+
+Open a new shell after installation. If `recollectium` is still not found, check the directory where uv installs tool executables:
 
 ```bash
+uv tool dir --bin
 uv tool list
 ```
 
-If installed from a source checkout, use:
-
-```bash
-uv run recollectium --help
-```
-
-If `uv` itself is not found, add the uv tool directory to PATH and restart your shell. Common locations are:
+Add the reported bin directory to PATH, then restart your shell. Common defaults are:
 
 ```bash
 # Linux and macOS
@@ -24,14 +21,20 @@ export PATH="$HOME/.local/bin:$PATH"
 $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 ```
 
-If `uv` works but `recollectium` does not, check where uv installed tools and add that directory manually if needed:
+Then verify the installed command directly:
 
 ```bash
-uv tool dir
-uv tool list
+recollectium --version
+recollectium --help
 ```
 
-Then add the reported tool bin directory to your shell startup file, such as `~/.bashrc`, `~/.zshrc`, `config.fish`, or your PowerShell profile.
+If `uv` itself is also not found after bootstrap install, the same PATH issue is likely hiding both `uv` and `recollectium`, because bootstrap installs `uv` into the same user bin directory it tries to place on PATH.
+
+If installed from a source checkout rather than through bootstrap, use the development form from the repository root:
+
+```bash
+uv run recollectium --help
+```
 
 ## First init is slow
 
