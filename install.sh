@@ -6,6 +6,7 @@ INSTALL_DIR="${HOME}/.local/bin"
 UV_BIN="${INSTALL_DIR}/uv"
 MANAGED_PATH_EDIT=""
 COMPLETION_RC=""
+COMPLETION_SHELL=""
 
 info() {
   printf '%s\n' "$1"
@@ -99,42 +100,36 @@ record_install_metadata() {
   escaped_ref=$(json_escape "$ref")
 
   path_edits="["
-  first=1
   if [ -n "$MANAGED_PATH_EDIT" ]; then
     escaped_path_edit=$(json_escape "$MANAGED_PATH_EDIT")
     path_edits="${path_edits}\"${escaped_path_edit}\""
-    first=0
-  fi
-  if [ -n "$COMPLETION_RC" ]; then
-    escaped_completion_edit=$(json_escape "$COMPLETION_RC")
-    if [ $first -eq 0 ]; then
-      path_edits="${path_edits}, "
-    fi
-    path_edits="${path_edits}\"${escaped_completion_edit}\""
   fi
   path_edits="${path_edits}]"
 
-  printf '{\n  "install_method": "bootstrap",\n  "source_ref": "%s",\n  "installed_at": "%s",\n  "managed_path_edits": %s\n}\n' "$escaped_ref" "$installed_at" "$path_edits" > "$metadata_path"
+  completion_edits="["
+  if [ -n "$COMPLETION_RC" ]; then
+    escaped_completion_path=$(json_escape "$COMPLETION_RC")
+    escaped_completion_shell=$(json_escape "$COMPLETION_SHELL")
+    completion_edits="${completion_edits}{\"shell\": \"${escaped_completion_shell}\", \"path\": \"${escaped_completion_path}\", \"source_command\": \"recollectium completion --source ${escaped_completion_shell}\"}"
+  fi
+  completion_edits="${completion_edits}]"
+
+  printf '{\n  "install_method": "bootstrap",\n  "source_ref": "%s",\n  "installed_at": "%s",\n  "managed_path_edits": %s,\n  "managed_completion_edits": %s\n}\n' "$escaped_ref" "$installed_at" "$path_edits" "$completion_edits" > "$metadata_path"
 }
 
 configure_shell_completion() {
-  shell="${SHELL##*/}"
-  case "$shell" in
-    bash) rc="${HOME}/.bashrc" ;;
-    zsh)  rc="${HOME}/.zshrc" ;;
-    fish) rc="${HOME}/.config/fish/config.fish" ;;
-    *)    rc="${HOME}/.bashrc" ;;  # default to bash per spec
+  detected_shell="${SHELL##*/}"
+  case "$detected_shell" in
+    bash) shell="bash"; rc="${HOME}/.bashrc" ;;
+    zsh)  shell="zsh"; rc="${HOME}/.zshrc" ;;
+    fish) shell="fish"; rc="${HOME}/.config/fish/config.fish" ;;
+    *)    shell="bash"; rc="${HOME}/.bashrc" ;;  # default to bash per spec
   esac
 
-  eval_line='eval "$(recollectium completion --source '"${shell}"')"'
-  if [ -f "$rc" ] && grep -F "$eval_line" "$rc" >/dev/null 2>&1; then
-    info "Shell completion already configured in ${rc}."
-    return
-  fi
-
-  mkdir -p "$(dirname "$rc")" 2>/dev/null || true
-  printf '\n# >>> recollectium completion >>>\n%s\n# <<< recollectium completion <<<\n' "$eval_line" >> "$rc"
-  COMPLETION_RC="${rc}: ${eval_line}"
+  PATH="${INSTALL_DIR}:$PATH" "$UV_BIN" tool run --from "$package" recollectium completion --install "$shell" --yes >/dev/null \
+    || fail "failed to configure shell completion"
+  COMPLETION_RC="$rc"
+  COMPLETION_SHELL="$shell"
   info "Shell completion configured in ${rc}."
 }
 

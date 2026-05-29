@@ -885,6 +885,7 @@ _COMPLETION_RC_FILES: dict[str, str] = {
     "zsh": ".zshrc",
     "fish": ".config/fish/config.fish",
 }
+_COMPLETION_SHELLS = ("bash", "zsh", "fish", "powershell")
 _COMPLETION_BLOCK_START = "# >>> recollectium completion >>>"
 _COMPLETION_BLOCK_END = "# <<< recollectium completion <<<"
 _COMPLETION_BLOCK_PATTERN = re.compile(
@@ -894,40 +895,126 @@ _COMPLETION_BLOCK_PATTERN = re.compile(
 )
 
 
-def _detect_shell() -> str | None:
+def _detect_shell() -> str:
     shell_path = os.environ.get("SHELL", "")
-    if not shell_path:
-        return None
     basename = Path(shell_path).name
     if basename in _COMPLETION_RC_FILES:
         return basename
-    return None
+    return "bash"
+
+
+def _powershell_profile_path() -> Path:
+    override = os.environ.get("RECOLLECTIUM_POWERSHELL_PROFILE")
+    if override:
+        return Path(override)
+    if sys.platform.startswith("win"):
+        documents = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Documents"
+        return documents / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+    return Path.home() / ".config" / "powershell" / "Microsoft.PowerShell_profile.ps1"
+
+
+def _completion_target_path(shell: str) -> Path:
+    if shell == "powershell":
+        return _powershell_profile_path()
+    rc_filename = _COMPLETION_RC_FILES.get(shell)
+    if rc_filename is None:
+        raise KeyError(shell)
+    return Path.home() / rc_filename
+
+
+def _powershell_completion_script() -> str:
+    return r"""
+Register-ArgumentCompleter -Native -CommandName recollectium -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+
+    $line = $commandAst.Extent.Text
+    $json = & recollectium completion --complete-line $line --point $cursorPosition 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($json)) {
+        return
+    }
+
+    try {
+        $candidates = $json | ConvertFrom-Json
+    }
+    catch {
+        return
+    }
+
+    foreach ($candidate in $candidates) {
+        [System.Management.Automation.CompletionResult]::new(
+            $candidate,
+            $candidate,
+            [System.Management.Automation.CompletionResultType]::ParameterValue,
+            $candidate
+        )
+    }
+}
+""".strip()
+
+
+def _completion_source(shell: str) -> str:
+    if shell == "powershell":
+        return _powershell_completion_script()
+    return argcomplete.shellcode(["recollectium"], shell=shell)  # pyright: ignore[reportPrivateImportUsage]
+
+
+def _completion_block(shell: str) -> str:
+    if shell == "powershell":
+        body = _powershell_completion_script()
+    else:
+        body = f'eval "$(recollectium completion --source {shell})"'
+    return f"{_COMPLETION_BLOCK_START}\n{body}\n{_COMPLETION_BLOCK_END}\n"
+
+
+def _completion_marker(shell: str) -> str:
+    if shell == "powershell":
+        return "recollectium completion --complete-line"
+    return f"recollectium completion --source {shell}"
+
+
+def _completion_candidates(line: str, point: int | None) -> list[str]:
+    parser = _build_parser()
+    prequote, prefix, _suffix, words, last_wordbreak_pos = argcomplete.split_line(  # pyright: ignore[reportPrivateImportUsage]
+        line, point
+    )
+    finder = argcomplete.CompletionFinder(parser)  # pyright: ignore[reportPrivateImportUsage]
+    raw = finder._get_completions(  # pyright: ignore[reportPrivateUsage]
+        words,
+        prefix,
+        prequote,
+        last_wordbreak_pos,
+    )
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        candidate = item.rstrip()
+        if candidate not in seen:
+            candidates.append(candidate)
+            seen.add(candidate)
+    return candidates
 
 
 def _handle_completion_command(args: argparse.Namespace) -> int:
+    if args.complete_line is not None:
+        candidates = _completion_candidates(args.complete_line, args.point)
+        print(json.dumps(candidates, sort_keys=True))
+        return 0
+
     shell = args.shell
     if shell is None:
         shell = _detect_shell()
-    if shell is None:
-        return _emit_cli_failure(
-            status="validation_error",
-            message="Could not detect shell.",
-            hint="Pass the shell name explicitly, such as recollectium completion bash.",
-            exit_code=2,
-            command="completion",
-            event="completion.unknown_shell",
-        )
 
     if args.source:
-        output = argcomplete.shellcode(["recollectium"], shell=shell)  # pyright: ignore[reportPrivateImportUsage]
+        output = _completion_source(shell)
         sys.stdout.write(output)
+        if not output.endswith("\n"):
+            sys.stdout.write("\n")
         return 0
 
-    eval_line = f'eval "$(recollectium completion --source {shell})"'
-
     if args.install:
-        rc_filename = _COMPLETION_RC_FILES.get(shell)
-        if rc_filename is None:
+        try:
+            rc_path = _completion_target_path(shell)
+        except KeyError:
             return _emit_cli_failure(
                 status="operation_failed",
                 message="No shell rc file mapping is available.",
@@ -936,7 +1023,6 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
                 command="completion --install",
                 event="completion.unknown_rc",
             )
-        rc_path = Path.home() / rc_filename
 
         try:
             existing = rc_path.read_text(encoding="utf-8") if rc_path.exists() else ""
@@ -951,21 +1037,50 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
                 path=str(rc_path),
             )
 
-        if eval_line in existing:
+        marker = _completion_marker(shell)
+        if marker in existing and _COMPLETION_BLOCK_START not in existing:
             print(
                 json.dumps(
-                    {"status": "already_installed", "rc_file": str(rc_path)},
+                    {
+                        "status": "already_installed",
+                        "rc_file": str(rc_path),
+                        "shell": shell,
+                    },
                     sort_keys=True,
                 )
             )
             return 0
 
-        block = f"{_COMPLETION_BLOCK_START}\n{eval_line}\n{_COMPLETION_BLOCK_END}\n"
+        block = _completion_block(shell)
+        status = "installed"
+        updated_content = existing
+        block_found = _COMPLETION_BLOCK_PATTERN.search(existing) is not None
+        if block_found:
+            updated_content = _COMPLETION_BLOCK_PATTERN.sub("\n" + block, existing)
+            status = "updated"
+        else:
+            updated_content = existing + (
+                "\n" if existing and not existing.endswith("\n") else ""
+            )
+            updated_content += "\n" + block
+
+        if marker in existing and block_found and block in existing:
+            print(
+                json.dumps(
+                    {
+                        "status": "already_installed",
+                        "rc_file": str(rc_path),
+                        "shell": shell,
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0
 
         if not args.yes:
             if sys.stdin.isatty():
                 _write_tty(
-                    f"Will append the following block to {rc_path}:\n\n{block}\n"
+                    f"Will append or refresh the following managed block in {rc_path}:\n\n{block}\n"
                     "Proceed? Type 'yes' to confirm: "
                 )
             response = sys.stdin.readline().strip()
@@ -980,8 +1095,8 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
                 )
 
         try:
-            with rc_path.open("a", encoding="utf-8") as f:
-                f.write("\n" + block)
+            rc_path.parent.mkdir(parents=True, exist_ok=True)
+            rc_path.write_text(updated_content, encoding="utf-8")
         except OSError as exc:
             return _emit_cli_failure(
                 status="operation_failed",
@@ -995,24 +1110,38 @@ def _handle_completion_command(args: argparse.Namespace) -> int:
 
         print(
             json.dumps(
-                {"status": "installed", "rc_file": str(rc_path)},
+                {"status": status, "rc_file": str(rc_path), "shell": shell},
                 sort_keys=True,
             )
         )
         return 0
 
-    instructions = [
-        f"Add this line to your shell rc file for {shell} tab completion:",
-        "",
-        f"  {eval_line}",
-        "",
-        "Or run this to install it automatically:",
-        "",
-        f"  recollectium completion --install {shell}",
-        "",
-        "After adding the line, restart your shell or run:",
-        f"  source ~/{_COMPLETION_RC_FILES[shell]}",
-    ]
+    if shell == "powershell":
+        instructions = [
+            "Add this block to $PROFILE.CurrentUserCurrentHost for PowerShell tab completion:",
+            "",
+            "  recollectium completion powershell --source | Invoke-Expression",
+            "",
+            "Or run this to install it automatically:",
+            "",
+            "  recollectium completion --install powershell",
+            "",
+            "For all hosts, manually add the same source command to $PROFILE.CurrentUserAllHosts.",
+        ]
+    else:
+        eval_line = f'eval "$(recollectium completion --source {shell})"'
+        instructions = [
+            f"Add this line to your shell rc file for {shell} tab completion:",
+            "",
+            f"  {eval_line}",
+            "",
+            "Or run this to install it automatically:",
+            "",
+            f"  recollectium completion --install {shell}",
+            "",
+            "After adding the line, restart your shell or run:",
+            f"  source ~/{_COMPLETION_RC_FILES[shell]}",
+        ]
     sys.stdout.write("\n".join(instructions) + "\n")
     return 0
 
@@ -1118,6 +1247,41 @@ def _uninstall_package_instructions(
     }
 
 
+def _bootstrap_package_uninstall_status(
+    metadata: dict[str, Any] | None,
+    *,
+    dry_run: bool,
+) -> dict[str, Any]:
+    command = "uv tool uninstall recollectium"
+    if not metadata or metadata.get("install_method") != "bootstrap":
+        return {"status": "manual", "command": command}
+    if dry_run:
+        return {"status": "dry_run", "command": command}
+
+    if sys.platform.startswith("win"):
+        popen_cmd = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "Start-Sleep -Seconds 1; uv tool uninstall recollectium",
+        ]
+    else:
+        popen_cmd = ["sh", "-c", "sleep 1; uv tool uninstall recollectium"]
+    try:
+        subprocess.Popen(  # noqa: S603 - command is fixed, no user input.
+            popen_cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=not sys.platform.startswith("win"),
+        )
+    except OSError as exc:
+        return {"status": "failed", "command": command, "error": str(exc)}
+    return {"status": "started", "command": command}
+
+
 def _completion_rc_paths(metadata: dict[str, Any] | None) -> list[Path]:
     raw_paths: list[Path] = []
     if metadata is not None:
@@ -1130,8 +1294,18 @@ def _completion_rc_paths(metadata: dict[str, Any] | None) -> list[Path]:
                     continue
                 raw_paths.append(Path(item.split(": ", 1)[0]))
 
+        raw_completion_edits = metadata.get("managed_completion_edits")
+        if isinstance(raw_completion_edits, list):
+            for item in raw_completion_edits:
+                if not isinstance(item, dict):
+                    continue
+                raw_path = item.get("path")
+                if isinstance(raw_path, str):
+                    raw_paths.append(Path(raw_path))
+
     home = Path.home()
     raw_paths.extend(home / filename for filename in _COMPLETION_RC_FILES.values())
+    raw_paths.append(_powershell_profile_path())
 
     paths: list[Path] = []
     seen: set[Path] = set()
@@ -1341,9 +1515,13 @@ def _handle_uninstall_command(
             logging.shutdown()
             data_payload["purge"] = _purge_targets(plan, dry_run=False)
 
+    package_payload = _uninstall_package_instructions(metadata)
+    package_payload["uninstall"] = _bootstrap_package_uninstall_status(
+        metadata, dry_run=args.dry_run
+    )
     result = {
         "status": "manual_uninstall_required",
-        "package": _uninstall_package_instructions(metadata),
+        "package": package_payload,
         "service": service_payload,
         "shell_completion": completion_payload,
         "data": data_payload,
@@ -2112,7 +2290,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "completion",
         help="print shell completion setup instructions",
         description=(
-            "Print shell completion setup instructions for bash, zsh, or fish. "
+            "Print shell completion setup instructions for bash, zsh, fish, or PowerShell. "
             "With --source, prints only the raw completion function definition "
             "for eval consumption."
         ),
@@ -2120,8 +2298,8 @@ def _build_parser() -> argparse.ArgumentParser:
     completion_parser.add_argument(
         "shell",
         nargs="?",
-        choices=["bash", "zsh", "fish"],
-        help="Shell to generate completion for (default: auto-detect from $SHELL).",
+        choices=list(_COMPLETION_SHELLS),
+        help="Shell to generate completion for (default: auto-detect from $SHELL, falling back to bash).",
     )
     action_group = completion_parser.add_mutually_exclusive_group()
     action_group.add_argument(
@@ -2136,10 +2314,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "--install",
         action="store_true",
         help=(
-            "Append the completion eval line to the current shell's rc file "
+            "Write completion setup to the shell's startup file "
             "inside a managed comment block. Prompts for confirmation before "
             "modifying any file."
         ),
+    )
+    action_group.add_argument(
+        "--complete-line",
+        help=argparse.SUPPRESS,
+    )
+    completion_parser.add_argument(
+        "--point",
+        type=int,
+        help=argparse.SUPPRESS,
     )
     completion_parser.add_argument(
         "--yes",

@@ -2404,6 +2404,109 @@ def test_cli_uninstall_removes_completion_block_from_install_metadata_path(
     ]
 
 
+def test_cli_uninstall_removes_powershell_completion_from_structured_metadata(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    profile = tmp_path / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+    profile.parent.mkdir(parents=True)
+    profile.write_text(
+        "before\n"
+        "# >>> recollectium completion >>>\n"
+        "if (Get-Command recollectium -ErrorAction SilentlyContinue) {\n"
+        "    Invoke-Expression (& recollectium completion --source powershell)\n"
+        "}\n"
+        "# <<< recollectium completion <<<\n"
+        "after\n",
+        encoding="utf-8",
+    )
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "managed_completion_edits": [
+                    {
+                        "shell": "powershell",
+                        "path": str(profile),
+                        "source_command": "recollectium completion --source powershell",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert profile.read_text(encoding="utf-8") == "before\nafter\n"
+    assert payload["shell_completion"]["removed"] == [
+        {"path": str(profile), "removed": True, "blocks": 1}
+    ]
+
+
+def test_cli_uninstall_bootstrap_starts_package_removal_handoff(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+    popen_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    class FakePopen:
+        def __init__(self, cmd: list[str], **kwargs: Any) -> None:
+            popen_calls.append((cmd, kwargs))
+
+    monkeypatch.setattr("recollectium.cli.subprocess.Popen", FakePopen)
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["package"]["uninstall"]["status"] == "started"
+    assert (
+        payload["package"]["uninstall"]["command"] == "uv tool uninstall recollectium"
+    )
+    assert popen_calls
+    assert "uv tool uninstall recollectium" in " ".join(popen_calls[0][0])
+
+
+def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+    popen_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.Popen",
+        lambda cmd, **kwargs: popen_calls.append(cmd),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["uninstall", "--dry-run"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["package"]["uninstall"]["status"] == "dry_run"
+    assert popen_calls == []
+
+
 def test_cli_uninstall_completion_cleanup_skips_duplicate_metadata_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3117,6 +3220,19 @@ def test_cli_completion_default_prints_human_readable_instructions_fish(
     assert "recollectium completion --install fish" in stdout
 
 
+def test_cli_completion_powershell_prints_human_readable_instructions(
+    capsys: CaptureFixture[str],
+) -> None:
+    exit_code, stdout, stderr = _run_cli(["completion", "powershell"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "$PROFILE.CurrentUserCurrentHost" in stdout
+    assert "recollectium completion powershell --source" in stdout
+    assert "recollectium completion --install powershell" in stdout
+    assert "$PROFILE.CurrentUserAllHosts" in stdout
+
+
 def test_cli_completion_source_bash_prints_shellcode(
     capsys: CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -3151,6 +3267,49 @@ def test_cli_completion_source_fish_prints_shellcode(
     assert len(stdout) > 0
 
 
+def test_cli_completion_source_powershell_prints_dynamic_wrapper(
+    capsys: CaptureFixture[str],
+) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["completion", "--source", "powershell"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Register-ArgumentCompleter" in stdout
+    assert "recollectium completion --complete-line" in stdout
+    assert "CompletionResult" in stdout
+
+
+def test_cli_completion_dynamic_helper_completes_commands(
+    capsys: CaptureFixture[str],
+) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["completion", "--complete-line", "recollectium conf"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == ["config"]
+
+
+def test_cli_completion_dynamic_helper_completes_config_keys(
+    capsys: CaptureFixture[str],
+) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["completion", "--complete-line", "recollectium config get log"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == [
+        "logging.level",
+        "logging.format",
+        "logging.max_bytes",
+        "logging.backup_count",
+    ]
+
+
 def test_cli_completion_auto_detect_shell(
     capsys: CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -3164,7 +3323,7 @@ def test_cli_completion_auto_detect_shell(
     assert "recollectium" in stdout
 
 
-def test_cli_completion_unknown_shell(
+def test_cli_completion_unknown_shell_falls_back_to_bash(
     capsys: CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3172,12 +3331,12 @@ def test_cli_completion_unknown_shell(
 
     exit_code, stdout, stderr = _run_cli(["completion"], capsys)
 
-    assert exit_code == 2
-    assert stderr != ""
-    assert "Could not detect shell" in stderr
+    assert exit_code == 0
+    assert stderr == ""
+    assert 'eval "$(recollectium completion --source bash)"' in stdout
 
 
-def test_cli_completion_auto_detect_non_standard_shell(
+def test_cli_completion_auto_detect_non_standard_shell_falls_back_to_bash(
     capsys: CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3185,8 +3344,9 @@ def test_cli_completion_auto_detect_non_standard_shell(
 
     exit_code, stdout, stderr = _run_cli(["completion"], capsys)
 
-    assert exit_code == 2
-    assert "Could not detect shell" in stderr
+    assert exit_code == 0
+    assert stderr == ""
+    assert 'eval "$(recollectium completion --source bash)"' in stdout
 
 
 def test_cli_completion_auto_detect_with_source(
@@ -3219,10 +3379,64 @@ def test_cli_completion_install_yes_writes_rc_file(
     payload = json.loads(stdout)
     assert payload["status"] == "installed"
     assert payload["rc_file"] == str(rc_path)
+    assert payload["shell"] == "bash"
     content = rc_path.read_text(encoding="utf-8")
     assert "# >>> recollectium completion >>>" in content
     assert 'eval "$(recollectium completion --source bash)"' in content
     assert "# <<< recollectium completion <<<" in content
+
+
+def test_cli_completion_install_powershell_uses_current_user_current_host_profile(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = tmp_path / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+    monkeypatch.setenv("RECOLLECTIUM_POWERSHELL_PROFILE", str(profile))
+
+    exit_code, stdout, stderr = _run_cli(
+        ["completion", "--install", "powershell", "--yes"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "installed"
+    assert payload["shell"] == "powershell"
+    assert payload["rc_file"] == str(profile)
+    content = profile.read_text(encoding="utf-8")
+    assert "Register-ArgumentCompleter" in content
+    assert "recollectium completion --complete-line" in content
+
+
+def test_cli_completion_install_refreshes_existing_managed_block(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rc_path = tmp_path / ".bashrc"
+    rc_path.write_text(
+        "before\n"
+        "# >>> recollectium completion >>>\n"
+        "old completion\n"
+        "# <<< recollectium completion <<<\n"
+        "after\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("recollectium.cli.Path.home", lambda: tmp_path)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["completion", "--install", "bash", "--yes"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "updated"
+    content = rc_path.read_text(encoding="utf-8")
+    assert "old completion" not in content
+    assert content.count("# >>> recollectium completion >>>") == 1
+    assert 'eval "$(recollectium completion --source bash)"' in content
 
 
 def test_cli_completion_install_dedup_when_already_present(
@@ -3325,14 +3539,14 @@ def test_cli_completion_unwritable_rc_file(
     rc_path.write_text("", encoding="utf-8")
     monkeypatch.setattr("recollectium.cli.Path.home", lambda: tmp_path)
 
-    original_open = Path.open
+    original_write_text = Path.write_text
 
-    def _fake_open(self: Path, *args: Any, **kwargs: Any) -> Any:
-        if self == rc_path and args == ("a",):
+    def _fake_write_text(self: Path, *args: Any, **kwargs: Any) -> int:
+        if self == rc_path:
             raise OSError("Permission denied")
-        return original_open(self, *args, **kwargs)
+        return original_write_text(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "open", _fake_open)
+    monkeypatch.setattr(Path, "write_text", _fake_write_text)
 
     exit_code, stdout, stderr = _run_cli(
         ["completion", "--install", "bash", "--yes"], capsys
