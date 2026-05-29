@@ -129,16 +129,16 @@
 <details>
 <summary><a href="API-Reference.md">API Reference</a></summary>
 
-- [What the API is for](API-Reference.md#what-the-api-is-for)
-- [Base URL](API-Reference.md#base-url)
-- [Service endpoints](API-Reference.md#service-endpoints)
-- [Memory endpoints](API-Reference.md#memory-endpoints)
-- [Embedding endpoints](API-Reference.md#embedding-endpoints)
-- [Workspace endpoints](API-Reference.md#workspace-endpoints)
-- [Response envelope](API-Reference.md#response-envelope)
-- [Example: health](API-Reference.md#example-health)
-- [Example: add memory](API-Reference.md#example-add-memory)
-- [Security reminder](API-Reference.md#security-reminder)
+- [Local access and security assumptions](API-Reference.md#local-access-and-security-assumptions)
+- [Base URL and versioning](API-Reference.md#base-url-and-versioning)
+- [Adapter discovery workflow](API-Reference.md#adapter-discovery-workflow)
+- [Envelope shapes](API-Reference.md#envelope-shapes)
+- [Version and capability discovery](API-Reference.md#version-and-capability-discovery)
+- [Workspace UID requirements](API-Reference.md#workspace-uid-requirements)
+- [Endpoints](API-Reference.md#endpoints)
+- [Memory object shape](API-Reference.md#memory-object-shape)
+- [Error codes and common failures](API-Reference.md#error-codes-and-common-failures)
+- [Workspace operations](API-Reference.md#workspace-operations)
 
 </details>
 

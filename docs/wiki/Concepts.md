@@ -65,11 +65,28 @@ recollectium workspace rename old-project new-project
 
 Recollectium uses local FastEmbed embeddings with `jinaai/jina-embeddings-v2-small-en`.
 
+Embeddings are what make semantic search work. When you add or update memory content, Recollectium turns that text into a local vector representation and stores it with the memory. Later, searches compare the query embedding to stored memory embeddings and return the closest matches by meaning.
+
 First initialization downloads the model cache. Searches and memory writes use the local model after that.
+
+### Embedding migration and re-embedding
+
+Embedding profiles can change over time. A future release may support additional models, dimensions, chunking rules, or provider profiles. When Recollectium detects memories whose stored embeddings do not match the active embedding profile, it can schedule re-embedding work so old memories become searchable with the current profile.
+
+This is why embedding status and embedding jobs exist:
+
+- `embedding-status` shows the active provider, model, dimensions, profile metadata, runtime status, and recent jobs.
+- `embedding-jobs` lists background work that prepares or refreshes embeddings.
+- A job can be `pending`, `in_progress`, `completed`, or `failed`.
+- If re-embedding is still running or failed, API calls may report structured embedding errors with a job ID and status path.
 
 Inspect embedding state:
 
 ```bash
 recollectium embedding-status
 recollectium embedding-jobs
+recollectium embedding-jobs --state failed
+recollectium embedding-jobs --job-id JOB_ID
 ```
+
+For normal users, this usually only matters during first install, after an upgrade, or when troubleshooting search quality. For adapter authors, these commands and the matching API endpoints are the compatibility and readiness checks for semantic memory.

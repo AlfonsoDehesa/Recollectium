@@ -1,7 +1,7 @@
 # About the Author
 
-Recollectium was created by Alfonso Dehesa.
+Recollectium was created by [Alfonso Dehesa](https://github.com/AlfonsoDehesa).
 
-The project grew from a practical need: AI agents should remember useful context across tools and projects without trapping that memory inside one chat client or hosted product.
+Alfonso is a strong advocate for open source code, community-driven development, and user-owned AI infrastructure. Recollectium grew from a practical belief: useful agent memory should be portable, inspectable, and controlled by the person it serves, not locked inside one hosted chat product.
 
-GitHub: [AlfonsoDehesa](https://github.com/AlfonsoDehesa)
+The project is built to invite contribution. If you care about local-first AI, durable memory, agent interoperability, or open tooling, Recollectium is meant to be a place where that work can grow.

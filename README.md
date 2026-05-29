@@ -8,24 +8,28 @@ Local-first memory for AI agents.
 
 ## About
 
-Recollectium is a Python-first, local-first memory framework for AI agents. It gives agents a durable place to store and search what should survive across chats, projects, and tools, without tying that memory to one client.
+Recollectium is a Python-first, local-first memory framework for AI agents. It gives agents a durable place to store and search what should survive across chats, projects, tools, and model providers, without tying that memory to one client.
+
+The goal is simple: your agent should not have to get to know you from scratch every time you open a new session. Preferences, project decisions, configuration notes, task context, and important facts should live somewhere you control, somewhere agents can search semantically, inspect plainly, and carry across tools.
 
 Recollectium Core owns the memory engine: SQLite storage, embeddings, search, migrations, local service APIs, MCP tools, service lifecycle, structured logging, and adapter-facing discovery. Adapters stay thin. They bring host context to Core, then let Core handle memory semantics.
 
-OpenCode is an important first adapter target, but Recollectium is not built around one client. The goal is portable memory infrastructure for agents.
+OpenCode is an important first adapter target, but Recollectium is not built around one client. The goal is portable memory infrastructure for any agent that can use a CLI, Python package, local HTTP API, or MCP server.
 
 ## Why another memory engine?
 
-Most agent memory falls into one of a few awkward buckets: no durable memory, memory trapped inside one client, memory that mixes personal preferences with project facts, or memory that is hard to inspect and maintain.
+Most agent memory falls into one of a few awkward buckets: no durable memory, memory trapped inside one hosted client, memory that mixes personal preferences with project facts, or memory that is hard to inspect, move, and maintain.
 
-Recollectium is built around a few simple ideas:
+Recollectium is built around these principles:
 
-- Local-first by default.
-- User memory and workspace memory are separate.
-- Memory is inspectable, editable, searchable, archivable, and portable.
-- The same Core is reachable through the CLI, Python API, local HTTP API, and MCP.
-- Adapters should not reimplement memory logic or own durable memory state.
-- Normal recall should be easy for agents: search by scope first, filter by type only when it helps.
+- **Local-first by default.** No memory leaves your machine unless you allow it. You own the data, the database, and the runtime.
+- **Semantic recall.** Human memory does not work by exact string matching. Agent memory should not either. Recollectium uses local embeddings so agents can find the closest useful memories by meaning, not just by keywords.
+- **User space as first-class context.** Workspace memory matters, but user memory is often the most valuable signal. An agent that understands your durable preferences, style, goals, and working patterns will work better for you across every project.
+- **Easily self-hostable by design.** No paid memory provider, no hosted lock-in, no dependency maze. Install with one command and keep going.
+- **Provider agnostic.** Use any AI provider, any model, any agent, closed source or open source. If you switch platforms, your memory comes with you.
+- **Multi-platform and multi-surface.** Recollectium works through CLI, Python, local HTTP API, MCP stdio, and managed MCP service mode. It is usable from agents, scripts, plugins, and Python projects.
+- **No feature compromise.** Higher-level memory workflows such as dreamer agents, context managers, summarizers, and richer adapter integrations can build on the same Core instead of inventing separate storage.
+- **Open source and community driven.** Recollectium is built for people who want inspectable, portable, community-improved agent memory. Your memory, your way.
 
 ## Quick start
 

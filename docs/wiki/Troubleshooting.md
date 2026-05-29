@@ -14,6 +14,25 @@ If installed from a source checkout, use:
 uv run recollectium --help
 ```
 
+If `uv` itself is not found, add the uv tool directory to PATH and restart your shell. Common locations are:
+
+```bash
+# Linux and macOS
+export PATH="$HOME/.local/bin:$PATH"
+
+# Windows PowerShell
+$env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+```
+
+If `uv` works but `recollectium` does not, check where uv installed tools and add that directory manually if needed:
+
+```bash
+uv tool dir
+uv tool list
+```
+
+Then add the reported tool bin directory to your shell startup file, such as `~/.bashrc`, `~/.zshrc`, `config.fish`, or your PowerShell profile.
+
 ## First init is slow
 
 The first `recollectium init` downloads the local FastEmbed model cache. This can take 30 to 120 seconds.

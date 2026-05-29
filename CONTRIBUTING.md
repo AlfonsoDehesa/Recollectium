@@ -10,6 +10,15 @@ There are three main ways to contribute:
 - Submit a pull request from a feature branch.
 - Improve docs, examples, or release checklists when behavior changes.
 
+The short version:
+
+1. Branch from current `main`.
+2. Keep the PR focused.
+3. Update docs with behavior changes.
+4. Run the required quality gates.
+5. Put the status of every gate in the PR body or final PR comment.
+6. Do not merge until CI is green and the review is resolved.
+
 Recollectium uses `uv` for Python environment management, ruff for formatting and linting, pyright for type checks, and pytest for tests. We target 100 percent coverage on changed code.
 
 ## Ways to contribute
@@ -129,6 +138,14 @@ address feedback
 
 Open a PR when there is a concrete change to review. Draft PRs are fine for early feedback. Keep follow-up work on the same PR until the review is done.
 
+Before marking a PR ready, make sure the PR description includes:
+
+- A concise summary of the change.
+- The reason for the change.
+- The exact commands used for verification.
+- Documentation updated, or a clear explanation for why no docs changed.
+- Risk notes, compatibility notes, and follow-up items if any.
+
 The PR template includes a quality gate checklist. Fill it out before marking the PR ready for review.
 
 ### Review and follow-up commits
@@ -136,6 +153,17 @@ The PR template includes a quality gate checklist. Fill it out before marking th
 PRs are reviewed by a codebase administrator and merged to `main` once they pass. When you are ready for review, mark the PR ready or leave a comment asking for review.
 
 Replies and follow-up commits happen on the same PR. Do not open a new PR for review fixes unless the maintainer asks for one.
+
+When review feedback is in:
+
+1. Read every comment before making changes.
+2. Group related fixes into focused commits.
+3. Update tests and docs with the fix, not afterward.
+4. Run the right quality gate for the scope of the change.
+5. Push the branch.
+6. Reply to the review with what changed and which checks passed.
+
+A review is not resolved just because a commit was pushed. The final PR state should make it easy for the reviewer to see that each requested change was handled.
 
 ## Quality gates
 
@@ -352,23 +380,33 @@ The release workflow combines changelog notes with an auto-generated list of mer
 
 ### Release process
 
-Releases are created automatically when a version tag is pushed.
+Releases are created automatically when a version tag is pushed. Maintainers should do the release from a clean `main` checkout after the release-prep PR is merged.
 
 1. Run the pre-release checklist below and confirm every item.
-2. Open a PR that does exactly two things:
+2. Open a release-prep PR that does exactly these things:
    - Bumps `version` in `pyproject.toml`.
    - Adds the release section to `CHANGELOG.md`.
-3. Merge the PR.
-4. Tag and push from `main`:
+   - Updates docs only if the checklist uncovered a docs gap.
+3. Wait for CI and review to pass.
+4. Merge the release-prep PR.
+5. Tag and push from `main`:
 
    ```bash
    git checkout main
    git pull --ff-only origin main
+   git status --short
    git tag v1.0.0
    git push origin v1.0.0
    ```
 
 The `.github/workflows/release.yml` workflow combines changelog notes with the merged PR list and creates a GitHub Release.
+
+After the release workflow completes:
+
+- Confirm the GitHub Release exists and includes the changelog section.
+- Confirm package install paths work from the published artifact once available.
+- Confirm README and wiki links resolve.
+- If the GitHub Wiki has been initialized, sync `docs/wiki/` to the wiki repository.
 
 ### CI
 

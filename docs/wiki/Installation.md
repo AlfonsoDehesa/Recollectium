@@ -1,5 +1,11 @@
 # Installation
 
+Recollectium is designed to be a one-command, hassle-free install. The bootstrap installer installs `uv` if needed, installs Recollectium as a `uv tool`, initializes the local runtime, and makes the `recollectium` command available on your PATH when possible.
+
+Every release is tested through install-smoke checks across Linux, macOS, Windows, x86_64, and ARM64. The recommended install path is the same path CI verifies for users.
+
+Use these commands:
+
 ## Recommended bootstrap install
 
 Linux and macOS:
