@@ -8,27 +8,27 @@ Local-first memory for AI agents.
 
 ## About
 
-Agents deserve a memory that survives the tab closing.
+Agents work better when they can remember what already happened.
 
-Recollectium gives AI agents a real memory layer: local, inspectable, searchable, portable, and yours. It keeps the stuff that usually evaporates between sessions: preferences, project decisions, setup scars, debugging context, working style, and the hard-earned details that make an agent useful instead of merely available.
+Recollectium gives AI agents a local, inspectable memory layer. It keeps the context that usually evaporates between sessions: preferences, project decisions, setup notes, debugging context, working style, and the hard-earned details that make an agent more useful over time.
 
-Core handles the heavy machinery: SQLite storage, local embeddings, semantic search, migrations, local service APIs, MCP tools, service lifecycle, structured logs, and adapter discovery. Adapters stay thin. They bring the current workspace context, then let Core handle memory the same way every time.
+Core handles the durable parts: SQLite storage, local embeddings, semantic search, migrations, local service APIs, MCP tools, service lifecycle, structured logs, and adapter discovery. Adapters stay thin. They bring the current workspace context, then let Core handle memory the same way every time.
 
-OpenCode is the first major adapter target, but Recollectium is built for the bigger world already arriving: agents, models, and interfaces keep changing, while one memory store survives the churn.
+OpenCode is the first major adapter target, but Recollectium is built for a world with many agents, many models, and many interfaces sharing one memory store.
 
 ## Why another memory engine?
 
-Because most agent memory is either missing, trapped, blurry, or impossible to trust.
+Because most agent memory is either missing, trapped in one client, mixed across contexts, or hard to inspect and move.
 
 Recollectium is built around a few stubborn ideas:
 
 - **Memory belongs to the user.** Your machine, your database, your runtime. Memory leaves only when you choose to send it somewhere else.
 - **Recall should work by meaning.** Human memory does not depend on exact strings. Agent memory should not either. Recollectium uses local embeddings so agents can find what matters even when the words do not match.
-- **Personal context matters.** Project facts are useful. Durable user memory is the force multiplier: preferences, style, goals, habits, and the patterns that make an assistant feel like it has been paying attention.
+- **Personal context matters.** Project facts are useful. Durable user memory is the multiplier: preferences, style, goals, habits, and the patterns that make an assistant feel like it has been paying attention.
 - **Setup should stay boring.** Install it, initialize it, and keep moving, without signing up for a hosted memory provider or fighting a dependency maze.
 - **Models should be replaceable.** Use the agents, providers, and clients you like. If you switch tools, your memory comes with you.
 - **One Core, many surfaces.** CLI, Python, local HTTP API, MCP stdio, and managed MCP service mode all talk to the same memory engine.
-- **The future needs a foundation.** Dreamer agents, context managers, summarizers, and richer adapter integrations should build on shared memory instead of inventing another private notebook.
+- **The future needs a shared foundation.** Dreamer agents, context managers, summarizers, and richer adapter integrations should build on one memory layer instead of inventing a new store each time.
 - **Open source means no mystery box.** Inspect it, run it, back it up, move it, fork it, improve it.
 
 ## Quick start
