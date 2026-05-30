@@ -567,15 +567,18 @@ def _run_server(
 # Module-level __main__ support for subprocess invocation
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the service-manager subprocess CLI."""
+    args = list(sys.argv[1:] if argv is None else argv)
     # When spawned as: python -m recollectium.service_manager _run_server <type> [...]
-    if len(sys.argv) < 2 or sys.argv[1] != "_run_server":
+    if len(args) < 2 or args[0] != "_run_server":
         _log.error(
             "usage: python -m recollectium.service_manager _run_server <api|mcp> [--db-path PATH] [--config-path PATH] [--host HOST] [--port PORT]"
         )
-        sys.exit(2)
+        return 2
 
-    service_type = sys.argv[2]
+    service_type = args[1]
     db_path: str | None = None
     config_path: str | None = None
     host: str | None = None
@@ -583,7 +586,7 @@ if __name__ == "__main__":
     log_level: str | None = None
 
     # Simple argument parsing for the remaining args
-    remaining = sys.argv[3:]
+    remaining = args[2:]
     i = 0
     while i < len(remaining):
         if remaining[i] == "--db-path" and i + 1 < len(remaining):
@@ -603,7 +606,7 @@ if __name__ == "__main__":
                     f"invalid port: {remaining[i + 1]!r}",
                     extra={"event": "config.invalid"},
                 )
-                sys.exit(2)
+                return 2
             i += 2
         elif remaining[i] == "--log-level" and i + 1 < len(remaining):
             log_level = remaining[i + 1]
@@ -613,7 +616,7 @@ if __name__ == "__main__":
                 f"unknown option: {remaining[i]}",
                 extra={"event": "config.invalid"},
             )
-            sys.exit(2)
+            return 2
 
     _run_server(
         service_type,
@@ -623,3 +626,8 @@ if __name__ == "__main__":
         port=port,
         log_level=log_level,
     )
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

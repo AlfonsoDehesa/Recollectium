@@ -6,7 +6,6 @@ import io
 import json
 import logging
 import os
-import runpy
 import signal
 import subprocess
 import sys
@@ -28,6 +27,7 @@ from recollectium.service_manager import (
     get_pid_file_path,
     is_pid_alive,
     is_recollectium_service_process,
+    main as service_manager_main,
     read_pid_file,
     remove_discovery_file,
     remove_pid_file,
@@ -1238,43 +1238,11 @@ def test_run_server_unknown_type(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# __main__ block
+# service-manager subprocess CLI
 # ---------------------------------------------------------------------------
-#
-# runpy.run_module re-executes the module in a fresh namespace with
-# __name__ == "__main__".  In that namespace, all functions (including
-# _run_server) are redefined from the source.  Monkeypatching
-# recollectium.service_manager._run_server does NOT affect the exec'd copy.
-# Instead we mock the things that the exec'd code will reach: sys.exit
-# (same sys module object) and recollectium.service.run_service (lazy-imported
-# inside _run_server).  We always mock sys.exit to raise SystemExit so
-# that the arg-parsing loop and exit paths don't get stuck.
-
-
-def _fake_exit(code: object = 0) -> None:
-    raise SystemExit(code)
 
 
 def test_main_entry_point_api(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "recollectium.service_manager",
-            "_run_server",
-            "api",
-            "--db-path",
-            "/tmp/db",
-            "--config-path",
-            "/tmp/config.json",
-            "--host",
-            "127.0.0.9",
-            "--port",
-            "9876",
-        ],
-    )
-    monkeypatch.setattr(sys, "exit", _fake_exit)
-
     run_service_calls: list[tuple[str | None, str | None, str | None, int | None]] = []
 
     def fake_run_service(
@@ -1289,16 +1257,26 @@ def test_main_entry_point_api(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("recollectium.service.run_service", fake_run_service)
 
-    runpy.run_module("recollectium.service_manager", run_name="__main__")
+    exit_code = service_manager_main(
+        [
+            "_run_server",
+            "api",
+            "--db-path",
+            "/tmp/db",
+            "--config-path",
+            "/tmp/config.json",
+            "--host",
+            "127.0.0.9",
+            "--port",
+            "9876",
+        ]
+    )
+
+    assert exit_code == 0
     assert run_service_calls == [("/tmp/db", "/tmp/config.json", "127.0.0.9", 9876)]
 
 
 def test_main_entry_point_api_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        sys, "argv", ["recollectium.service_manager", "_run_server", "api"]
-    )
-    monkeypatch.setattr(sys, "exit", _fake_exit)
-
     run_service_calls: list[tuple[str | None, str | None]] = []
 
     def fake_run_service(
@@ -1311,59 +1289,25 @@ def test_main_entry_point_api_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("recollectium.service.run_service", fake_run_service)
 
-    runpy.run_module("recollectium.service_manager", run_name="__main__")
+    exit_code = service_manager_main(["_run_server", "api"])
+
+    assert exit_code == 0
     assert run_service_calls == [(None, None)]
 
 
-def test_main_entry_point_insufficient_args(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(sys, "argv", ["recollectium.service_manager"])
-    monkeypatch.setattr(sys, "exit", _fake_exit)
-
-    with pytest.raises(SystemExit) as exc_info:
-        runpy.run_module("recollectium.service_manager", run_name="__main__")
-    assert exc_info.value.code == 2
+def test_main_entry_point_insufficient_args() -> None:
+    assert service_manager_main([]) == 2
 
 
-def test_main_entry_point_unknown_option(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["recollectium.service_manager", "_run_server", "api", "--bad-flag"],
-    )
-    monkeypatch.setattr(sys, "exit", _fake_exit)
-
-    with pytest.raises(SystemExit) as exc_info:
-        runpy.run_module("recollectium.service_manager", run_name="__main__")
-    assert exc_info.value.code == 2
+def test_main_entry_point_unknown_option() -> None:
+    assert service_manager_main(["_run_server", "api", "--bad-flag"]) == 2
 
 
-def test_main_entry_point_invalid_port(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["recollectium.service_manager", "_run_server", "api", "--port", "bad"],
-    )
-    monkeypatch.setattr(sys, "exit", _fake_exit)
-
-    with pytest.raises(SystemExit) as exc_info:
-        runpy.run_module("recollectium.service_manager", run_name="__main__")
-    assert exc_info.value.code == 2
+def test_main_entry_point_invalid_port() -> None:
+    assert service_manager_main(["_run_server", "api", "--port", "bad"]) == 2
 
 
 def test_main_entry_point_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["recollectium.service_manager", "_run_server", "api", "--log-level", "debug"],
-    )
-    monkeypatch.setattr(sys, "exit", _fake_exit)
-
     run_service_calls: list[str | None] = []
 
     def fake_run_service(
@@ -1376,16 +1320,11 @@ def test_main_entry_point_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("recollectium.service.run_service", fake_run_service)
 
-    runpy.run_module("recollectium.service_manager", run_name="__main__")
+    exit_code = service_manager_main(["_run_server", "api", "--log-level", "debug"])
+
+    assert exit_code == 0
     assert run_service_calls == ["debug"]
 
 
-def test_main_entry_point_not_run_server(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(sys, "argv", ["recollectium.service_manager", "not_run_server"])
-    monkeypatch.setattr(sys, "exit", _fake_exit)
-
-    with pytest.raises(SystemExit) as exc_info:
-        runpy.run_module("recollectium.service_manager", run_name="__main__")
-    assert exc_info.value.code == 2
+def test_main_entry_point_not_run_server() -> None:
+    assert service_manager_main(["not_run_server"]) == 2
