@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import tomllib
 from copy import deepcopy
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
@@ -16,6 +17,7 @@ from unittest.mock import patch
 import pytest
 from pytest import CaptureFixture
 
+import recollectium.cli as cli_module
 from recollectium.config import DEFAULTS
 from recollectium.cli import (
     _emit_failure_payload,
@@ -799,6 +801,15 @@ class _BrokenTTYBuffer(io.StringIO):
 def test_cli_color_detection_handles_non_tty_streams() -> None:
     assert _supports_color(object()) is False
     assert _supports_color(_BrokenTTYBuffer()) is False
+
+
+def test_cli_human_output_uses_rich_as_direct_dependency() -> None:
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = pyproject["project"]["dependencies"]
+
+    assert cli_module.Console.__module__.startswith("rich.")
+    assert cli_module.Text.__module__.startswith("rich.")
+    assert any(dependency.partition(">=")[0] == "rich" for dependency in dependencies)
 
 
 def test_cli_human_readable_success_uses_color_on_tty(monkeypatch) -> None:

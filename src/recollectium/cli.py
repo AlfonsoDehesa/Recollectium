@@ -16,8 +16,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from io import StringIO
 from pathlib import Path
 from typing import Any, Sequence
+
+from rich.console import Console
+from rich.text import Text
 
 from platformdirs import user_state_dir
 
@@ -210,11 +214,10 @@ def _json_scalar(value: Any) -> str:
     return json.dumps(value, sort_keys=True)
 
 
-_ANSI_RESET = "\x1b[0m"
-_ANSI_BOLD = "\x1b[1m"
-_ANSI_HEADING = "\x1b[1;36m"
-_ANSI_ERROR = "\x1b[1;31m"
-_ANSI_HINT = "\x1b[33m"
+_RICH_BOLD = "bold"
+_RICH_HEADING = "bold cyan"
+_RICH_ERROR = "bold red"
+_RICH_HINT = "yellow"
 
 
 def _supports_color(stream: Any) -> bool:
@@ -227,10 +230,20 @@ def _supports_color(stream: Any) -> bool:
         return False
 
 
-def _style(text: str, color: str, *, enabled: bool) -> str:
+def _style(text: str, style: str, *, enabled: bool) -> str:
     if not enabled:
         return text
-    return f"{color}{text}{_ANSI_RESET}"
+    stream = StringIO()
+    console = Console(
+        file=stream,
+        force_terminal=True,
+        color_system="standard",
+        legacy_windows=False,
+        soft_wrap=True,
+        width=120,
+    )
+    console.print(Text(text, style=style), end="")
+    return stream.getvalue()
 
 
 def _humanize_key(key: str) -> str:
@@ -238,7 +251,7 @@ def _humanize_key(key: str) -> str:
 
 
 def _format_label(label: str, *, color: bool) -> str:
-    return _style(f"{label}:", _ANSI_BOLD, enabled=color)
+    return _style(f"{label}:", _RICH_BOLD, enabled=color)
 
 
 def _format_mapping_lines(
@@ -291,7 +304,7 @@ def _format_memory(
         headline += f" ({', '.join(details)})"
     if score is not None:
         headline += f" score={score}"
-    lines = [_style(headline, _ANSI_HEADING, enabled=color)]
+    lines = [_style(headline, _RICH_HEADING, enabled=color)]
     for key in ("space", "workspace_uid", "source", "confidence", "sensitivity"):
         if memory.get(key) is not None:
             lines.append(
@@ -332,7 +345,7 @@ def _format_human_output(
             lines = [
                 _style(
                     f"{len(payload)} result{'s' if len(payload) != 1 else ''}",
-                    _ANSI_HEADING,
+                    _RICH_HEADING,
                     enabled=color,
                 )
             ]
@@ -361,7 +374,7 @@ def _format_human_output(
         return (
             "\n".join(
                 [
-                    _style(title, _ANSI_HEADING, enabled=color),
+                    _style(title, _RICH_HEADING, enabled=color),
                     *_format_memory(payload, color=color),
                 ]
             )
@@ -369,43 +382,43 @@ def _format_human_output(
         )
 
     if command == "config set":
-        heading = _style("Config updated:", _ANSI_HEADING, enabled=color)
+        heading = _style("Config updated:", _RICH_HEADING, enabled=color)
         return (
             f"{heading} {payload.get('key')} = {_json_scalar(payload.get('value'))}\n"
         )
     if command == "config unset":
-        heading = _style("Config key removed:", _ANSI_HEADING, enabled=color)
+        heading = _style("Config key removed:", _RICH_HEADING, enabled=color)
         return f"{heading} {payload.get('key')}\n"
     if command == "config init":
-        heading = _style("Config initialized:", _ANSI_HEADING, enabled=color)
+        heading = _style("Config initialized:", _RICH_HEADING, enabled=color)
         return f"{heading} {payload.get('path')}\n"
     if command == "config reset":
-        heading = _style("Config reset to defaults:", _ANSI_HEADING, enabled=color)
+        heading = _style("Config reset to defaults:", _RICH_HEADING, enabled=color)
         return f"{heading} {payload.get('path')}\n"
     if command == "config doctor":
-        lines = [_style("Config doctor", _ANSI_HEADING, enabled=color)]
+        lines = [_style("Config doctor", _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
     if command == "config":
         return (
-            _style("Effective configuration", _ANSI_HEADING, enabled=color)
+            _style("Effective configuration", _RICH_HEADING, enabled=color)
             + "\n"
             + "\n".join(_format_mapping_lines(payload, indent=2, color=color))
             + "\n"
         )
 
     if command == "init":
-        lines = [_style("Recollectium initialized", _ANSI_HEADING, enabled=color)]
+        lines = [_style("Recollectium initialized", _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
     if command and command.startswith("workspace"):
-        lines = [_style("Workspace result", _ANSI_HEADING, enabled=color)]
+        lines = [_style("Workspace result", _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
     if command and command.startswith("service"):
-        lines = [_style("Service result", _ANSI_HEADING, enabled=color)]
+        lines = [_style("Service result", _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
@@ -418,11 +431,11 @@ def _format_human_output(
         "completion",
     }:
         heading = _humanize_key(command)
-        lines = [_style(heading, _ANSI_HEADING, enabled=color)]
+        lines = [_style(heading, _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
-    lines = [_style(_humanize_key(command or "result"), _ANSI_HEADING, enabled=color)]
+    lines = [_style(_humanize_key(command or "result"), _RICH_HEADING, enabled=color)]
     lines.extend(_format_mapping_lines(payload, indent=2, color=color))
     return "\n".join(lines) + "\n"
 
@@ -862,7 +875,7 @@ def _set_cli_output_format(output_format: str) -> None:
 def _format_human_error(payload: dict[str, object], *, color: bool = False) -> str:
     lines = [
         _style(
-            str(payload.get("message") or "Command failed."), _ANSI_ERROR, enabled=color
+            str(payload.get("message") or "Command failed."), _RICH_ERROR, enabled=color
         )
     ]
     status = payload.get("status")
@@ -875,7 +888,7 @@ def _format_human_error(payload: dict[str, object], *, color: bool = False) -> s
     if hint is not None:
         lines.append(
             f"  {_format_label('Hint', color=color)} "
-            f"{_style(_json_scalar(hint), _ANSI_HINT, enabled=color)}"
+            f"{_style(_json_scalar(hint), _RICH_HINT, enabled=color)}"
         )
     for key, value in payload.items():
         if key in {"message", "status", "detail", "hint"}:
