@@ -2,10 +2,6 @@
   <img src="docs/assets/recollectium-banner.png" alt="Recollectium" width="100%">
 </p>
 
-# Recollectium
-
-Local-first memory for AI agents.
-
 ## About
 
 Agents work better when they can remember what already happened.
