@@ -1,6 +1,6 @@
 # Quick Start
 
-This page installs Recollectium, initializes it, adds a memory, searches it, and starts the local API service.
+This page gets Recollectium installed, initialized, and doing useful work quickly.
 
 ## 1. Install
 

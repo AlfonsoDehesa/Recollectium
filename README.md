@@ -8,28 +8,28 @@ Local-first memory for AI agents.
 
 ## About
 
-Recollectium is local memory infrastructure for AI agents. It stores inspectable memory that you can run, query, migrate, back up, and connect to the tools you already use.
+Agents deserve a memory that survives the tab closing.
 
-Each new agent session should be able to pick up useful context from previous work. Recollectium stores preferences, project decisions, setup notes, debugging context, and recurring working patterns in a local database you control.
+Recollectium gives AI agents a real memory layer: local, inspectable, searchable, portable, and yours. It keeps the stuff that usually evaporates between sessions: preferences, project decisions, setup scars, debugging context, working style, and the hard-earned details that make an agent useful instead of merely available.
 
-Core handles the serious parts: SQLite storage, local embeddings, semantic search, migrations, local service APIs, MCP tools, service lifecycle, structured logs, and adapter-facing discovery. Adapters stay thin. They bring the current workspace context, then let Core handle memory correctly and consistently.
+Core handles the heavy machinery: SQLite storage, local embeddings, semantic search, migrations, local service APIs, MCP tools, service lifecycle, structured logs, and adapter discovery. Adapters stay thin. They bring the current workspace context, then let Core handle memory the same way every time.
 
-OpenCode is the first major adapter target, but Recollectium is not tied to one client. It is meant for users who switch between agents, models, and interfaces but want one shared memory store.
+OpenCode is the first major adapter target, but Recollectium is built for the bigger world already arriving: agents, models, and interfaces keep changing, while one memory store survives the churn.
 
 ## Why another memory engine?
 
-Agent memory is often missing, locked inside one hosted client, mixed across personal and project context, or hard to inspect and move.
+Because most agent memory is either missing, trapped, blurry, or impossible to trust.
 
-Recollectium is built around these principles:
+Recollectium is built around a few stubborn ideas:
 
-- **Local-first by default.** No memory leaves your machine unless you allow it. You own the data, the database, and the runtime.
-- **Semantic recall.** Recollectium uses local embeddings so agents can find related memories by meaning, not only by keyword.
-- **User memory.** Store durable preferences, style notes, goals, and working patterns separately from workspace memory.
-- **Self-hostable.** Install with one command and keep memory storage local unless you configure otherwise.
-- **Provider agnostic.** Use the same memory store across AI providers, models, and agents.
-- **Multiple interfaces.** Recollectium works through CLI, Python, local HTTP API, MCP stdio, and managed MCP service mode.
-- **Shared Core for memory workflows.** Dreamer agents, context managers, summarizers, and adapter integrations can use the same storage and search layer.
-- **Open source.** Recollectium keeps agent memory inspectable, portable, and available for community improvement.
+- **Memory belongs to the user.** Your machine, your database, your runtime. Memory leaves only when you choose to send it somewhere else.
+- **Recall should work by meaning.** Human memory does not depend on exact strings. Agent memory should not either. Recollectium uses local embeddings so agents can find what matters even when the words do not match.
+- **Personal context matters.** Project facts are useful. Durable user memory is the force multiplier: preferences, style, goals, habits, and the patterns that make an assistant feel like it has been paying attention.
+- **Setup should stay boring.** Install it, initialize it, and keep moving, without signing up for a hosted memory provider or fighting a dependency maze.
+- **Models should be replaceable.** Use the agents, providers, and clients you like. If you switch tools, your memory comes with you.
+- **One Core, many surfaces.** CLI, Python, local HTTP API, MCP stdio, and managed MCP service mode all talk to the same memory engine.
+- **The future needs a foundation.** Dreamer agents, context managers, summarizers, and richer adapter integrations should build on shared memory instead of inventing another private notebook.
+- **Open source means no mystery box.** Inspect it, run it, back it up, move it, fork it, improve it.
 
 ## Quick start
 
