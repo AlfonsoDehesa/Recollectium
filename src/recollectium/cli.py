@@ -210,30 +210,63 @@ def _json_scalar(value: Any) -> str:
     return json.dumps(value, sort_keys=True)
 
 
+_ANSI_RESET = "\x1b[0m"
+_ANSI_BOLD = "\x1b[1m"
+_ANSI_HEADING = "\x1b[1;36m"
+_ANSI_ERROR = "\x1b[1;31m"
+_ANSI_HINT = "\x1b[33m"
+
+
+def _supports_color(stream: Any) -> bool:
+    isatty = getattr(stream, "isatty", None)
+    if not callable(isatty):
+        return False
+    try:
+        return bool(isatty())
+    except OSError:
+        return False
+
+
+def _style(text: str, color: str, *, enabled: bool) -> str:
+    if not enabled:
+        return text
+    return f"{color}{text}{_ANSI_RESET}"
+
+
 def _humanize_key(key: str) -> str:
     return key.replace("_", " ").replace("-", " ").capitalize()
 
 
-def _format_mapping_lines(mapping: dict[str, Any], *, indent: int = 0) -> list[str]:
+def _format_label(label: str, *, color: bool) -> str:
+    return _style(f"{label}:", _ANSI_BOLD, enabled=color)
+
+
+def _format_mapping_lines(
+    mapping: dict[str, Any], *, indent: int = 0, color: bool = False
+) -> list[str]:
     lines: list[str] = []
     prefix = " " * indent
     for key, value in mapping.items():
         label = _humanize_key(str(key))
         if isinstance(value, dict):
-            lines.append(f"{prefix}{label}:")
-            lines.extend(_format_mapping_lines(value, indent=indent + 2))
+            lines.append(f"{prefix}{_format_label(label, color=color)}")
+            lines.extend(_format_mapping_lines(value, indent=indent + 2, color=color))
         elif isinstance(value, list):
             if not value:
-                lines.append(f"{prefix}{label}: none")
+                lines.append(f"{prefix}{_format_label(label, color=color)} none")
             else:
-                lines.append(f"{prefix}{label}:")
+                lines.append(f"{prefix}{_format_label(label, color=color)}")
                 for item in value:
                     if isinstance(item, dict):
-                        lines.extend(_format_mapping_lines(item, indent=indent + 2))
+                        lines.extend(
+                            _format_mapping_lines(item, indent=indent + 2, color=color)
+                        )
                     else:
                         lines.append(f"{' ' * (indent + 2)}- {_json_scalar(item)}")
         elif value is not None:
-            lines.append(f"{prefix}{label}: {_json_scalar(value)}")
+            lines.append(
+                f"{prefix}{_format_label(label, color=color)} {_json_scalar(value)}"
+            )
     return lines
 
 
@@ -243,7 +276,9 @@ def _memory_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _format_memory(payload: dict[str, Any], *, index: int | None = None) -> list[str]:
+def _format_memory(
+    payload: dict[str, Any], *, index: int | None = None, color: bool = False
+) -> list[str]:
     memory = _memory_payload(payload)
     title_prefix = f"{index}. " if index is not None else ""
     memory_id = memory.get("id", "unknown")
@@ -256,24 +291,36 @@ def _format_memory(payload: dict[str, Any], *, index: int | None = None) -> list
         headline += f" ({', '.join(details)})"
     if score is not None:
         headline += f" score={score}"
-    lines = [headline]
+    lines = [_style(headline, _ANSI_HEADING, enabled=color)]
     for key in ("space", "workspace_uid", "source", "confidence", "sensitivity"):
         if memory.get(key) is not None:
-            lines.append(f"  {_humanize_key(key)}: {_json_scalar(memory[key])}")
+            lines.append(
+                f"  {_format_label(_humanize_key(key), color=color)} "
+                f"{_json_scalar(memory[key])}"
+            )
     content = memory.get("content")
     if content is not None:
-        lines.append(f"  Content: {content}")
+        lines.append(f"  {_format_label('Content', color=color)} {content}")
     metadata = memory.get("metadata")
     if metadata:
-        lines.append(f"  Metadata: {json.dumps(metadata, sort_keys=True)}")
+        lines.append(
+            f"  {_format_label('Metadata', color=color)} "
+            f"{json.dumps(metadata, sort_keys=True)}"
+        )
     for key in ("created_at", "updated_at", "archived_at"):
         if memory.get(key):
-            lines.append(f"  {_humanize_key(key)}: {memory[key]}")
+            lines.append(
+                f"  {_format_label(_humanize_key(key), color=color)} {memory[key]}"
+            )
     return lines
 
 
 def _format_human_output(
-    payload: Any, *, command: str | None = None, label: str | None = None
+    payload: Any,
+    *,
+    command: str | None = None,
+    label: str | None = None,
+    color: bool = False,
 ) -> str:
     payload = _to_payload(payload)
     if payload is None:
@@ -282,10 +329,16 @@ def _format_human_output(
         if not payload:
             return "No results\n"
         if all(isinstance(item, dict) for item in payload):
-            lines = [f"{len(payload)} result{'s' if len(payload) != 1 else ''}"]
+            lines = [
+                _style(
+                    f"{len(payload)} result{'s' if len(payload) != 1 else ''}",
+                    _ANSI_HEADING,
+                    enabled=color,
+                )
+            ]
             for index, item in enumerate(payload, start=1):
                 if "content" in item or "memory" in item:
-                    lines.extend(_format_memory(item, index=index))
+                    lines.extend(_format_memory(item, index=index, color=color))
                 else:
                     lines.append(f"{index}. {json.dumps(item, sort_keys=True)}")
             return "\n".join(lines) + "\n"
@@ -303,7 +356,15 @@ def _format_human_output(
             title = "Memory updated"
         elif command == "archive":
             title = "Memory archived"
-        return "\n".join([title, *_format_memory(payload)]) + "\n"
+        return (
+            "\n".join(
+                [
+                    _style(title, _ANSI_HEADING, enabled=color),
+                    *_format_memory(payload, color=color),
+                ]
+            )
+            + "\n"
+        )
 
     if command == "config get" and label is not None:
         return f"{label}: {_json_scalar(payload)}\n"
@@ -316,29 +377,30 @@ def _format_human_output(
     if command == "config reset":
         return f"Config reset to defaults: {payload.get('path')}\n"
     if command == "config doctor":
-        lines = ["Config doctor"]
-        lines.extend(_format_mapping_lines(payload, indent=2))
+        lines = [_style("Config doctor", _ANSI_HEADING, enabled=color)]
+        lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
     if command == "config":
         return (
-            "Effective configuration\n"
-            + "\n".join(_format_mapping_lines(payload, indent=2))
+            _style("Effective configuration", _ANSI_HEADING, enabled=color)
+            + "\n"
+            + "\n".join(_format_mapping_lines(payload, indent=2, color=color))
             + "\n"
         )
 
     if command == "init":
-        lines = ["Recollectium initialized"]
-        lines.extend(_format_mapping_lines(payload, indent=2))
+        lines = [_style("Recollectium initialized", _ANSI_HEADING, enabled=color)]
+        lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
     if command and command.startswith("workspace"):
-        lines = ["Workspace result"]
-        lines.extend(_format_mapping_lines(payload, indent=2))
+        lines = [_style("Workspace result", _ANSI_HEADING, enabled=color)]
+        lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
     if command and command.startswith("service"):
-        lines = ["Service result"]
-        lines.extend(_format_mapping_lines(payload, indent=2))
+        lines = [_style("Service result", _ANSI_HEADING, enabled=color)]
+        lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
     if command in {
@@ -350,12 +412,12 @@ def _format_human_output(
         "completion",
     }:
         heading = _humanize_key(command)
-        lines = [heading]
-        lines.extend(_format_mapping_lines(payload, indent=2))
+        lines = [_style(heading, _ANSI_HEADING, enabled=color)]
+        lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
-    lines = [_humanize_key(command or "result")]
-    lines.extend(_format_mapping_lines(payload, indent=2))
+    lines = [_style(_humanize_key(command or "result"), _ANSI_HEADING, enabled=color)]
+    lines.extend(_format_mapping_lines(payload, indent=2, color=color))
     return "\n".join(lines) + "\n"
 
 
@@ -369,7 +431,14 @@ def _emit_success(
 ) -> None:
     payload = _to_payload(payload)
     if output_format == CLI_OUTPUT_HUMAN_READABLE:
-        sys.stdout.write(_format_human_output(payload, command=command, label=label))
+        sys.stdout.write(
+            _format_human_output(
+                payload,
+                command=command,
+                label=label,
+                color=_supports_color(sys.stdout),
+            )
+        )
         return
     print(json.dumps(payload, indent=json_indent, sort_keys=True))
 
@@ -784,27 +853,39 @@ def _set_cli_output_format(output_format: str) -> None:
     _CURRENT_CLI_OUTPUT_FORMAT = output_format
 
 
-def _format_human_error(payload: dict[str, object]) -> str:
-    lines = [str(payload.get("message") or "Command failed.")]
+def _format_human_error(payload: dict[str, object], *, color: bool = False) -> str:
+    lines = [
+        _style(
+            str(payload.get("message") or "Command failed."), _ANSI_ERROR, enabled=color
+        )
+    ]
     status = payload.get("status")
     if status is not None:
-        lines.append(f"  Status: {_json_scalar(status)}")
+        lines.append(f"  {_format_label('Status', color=color)} {_json_scalar(status)}")
     detail = payload.get("detail")
     if detail is not None:
-        lines.append(f"  Detail: {_json_scalar(detail)}")
+        lines.append(f"  {_format_label('Detail', color=color)} {_json_scalar(detail)}")
     hint = payload.get("hint")
     if hint is not None:
-        lines.append(f"  Hint: {_json_scalar(hint)}")
+        lines.append(
+            f"  {_format_label('Hint', color=color)} "
+            f"{_style(_json_scalar(hint), _ANSI_HINT, enabled=color)}"
+        )
     for key, value in payload.items():
         if key in {"message", "status", "detail", "hint"}:
             continue
-        lines.append(f"  {_humanize_key(key)}: {_json_scalar(value)}")
+        lines.append(
+            f"  {_format_label(_humanize_key(key), color=color)} {_json_scalar(value)}"
+        )
     return "\n".join(lines)
 
 
 def _emit_failure_payload(payload: dict[str, object]) -> None:
     if _CURRENT_CLI_OUTPUT_FORMAT == CLI_OUTPUT_HUMAN_READABLE:
-        print(_format_human_error(payload), file=sys.stderr)
+        print(
+            _format_human_error(payload, color=_supports_color(sys.stderr)),
+            file=sys.stderr,
+        )
         return
     _print_json_stderr(payload)
 

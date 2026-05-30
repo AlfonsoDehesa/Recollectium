@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 from copy import deepcopy
 from importlib.metadata import PackageNotFoundError
@@ -17,10 +18,14 @@ from pytest import CaptureFixture
 
 from recollectium.config import DEFAULTS
 from recollectium.cli import (
+    _emit_failure_payload,
+    _emit_success,
     _extract_cli_output_override,
     _format_human_error,
     _format_human_output,
     _resolve_output_format,
+    _set_cli_output_format,
+    _supports_color,
     main,
 )
 from recollectium.models import (
@@ -771,8 +776,83 @@ def test_cli_human_readable_flag_formats_success_output(tmp_path, capsys) -> Non
     assert stdout.startswith("Db status\n")
     assert "Db path:" in stdout
     assert "Up to date: true" in stdout
+    assert "\x1b[" not in stdout
     with pytest.raises(json.JSONDecodeError):
         json.loads(stdout)
+
+
+class _TTYBuffer(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+class _NonTTYBuffer(io.StringIO):
+    def isatty(self) -> bool:
+        return False
+
+
+class _BrokenTTYBuffer(io.StringIO):
+    def isatty(self) -> bool:
+        raise OSError("tty unavailable")
+
+
+def test_cli_color_detection_handles_non_tty_streams() -> None:
+    assert _supports_color(object()) is False
+    assert _supports_color(_BrokenTTYBuffer()) is False
+
+
+def test_cli_human_readable_success_uses_color_on_tty(monkeypatch) -> None:
+    stream = _TTYBuffer()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        {"up_to_date": True, "pending_versions": []},
+        output_format="human_readable",
+        command="db-status",
+    )
+
+    output = stream.getvalue()
+    assert output.startswith("\x1b[1;36mDb status\x1b[0m\n")
+    assert "\x1b[1mUp to date:\x1b[0m true" in output
+    assert "\x1b[" in output
+
+
+def test_cli_human_readable_success_does_not_color_non_tty(monkeypatch) -> None:
+    stream = _NonTTYBuffer()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        {"up_to_date": True},
+        output_format="human_readable",
+        command="db-status",
+    )
+
+    output = stream.getvalue()
+    assert output.startswith("Db status\n")
+    assert "\x1b[" not in output
+
+
+def test_cli_human_readable_errors_use_color_on_tty(monkeypatch) -> None:
+    stream = _TTYBuffer()
+    monkeypatch.setattr("sys.stderr", stream)
+    _set_cli_output_format("human_readable")
+
+    try:
+        _emit_failure_payload(
+            {
+                "status": "config_invalid",
+                "message": "Config is invalid.",
+                "detail": "ValidationError: bad value",
+                "hint": "Fix the config file.",
+            }
+        )
+    finally:
+        _set_cli_output_format("json")
+
+    output = stream.getvalue()
+    assert output.startswith("\x1b[1;31mConfig is invalid.\x1b[0m\n")
+    assert "\x1b[1mStatus:\x1b[0m config_invalid" in output
+    assert "\x1b[33mFix the config file.\x1b[0m" in output
 
 
 def test_cli_human_readable_is_default_output(tmp_path, capsys) -> None:
