@@ -1,8 +1,8 @@
 # Changelog
 
-Recollectium v1.0.0 is here! 🎉
+Recollectium v1.0 is here! 🎉
 
-This first release turns the idea into a real local-first memory system for agents: private by default, useful from the CLI, scriptable through the API, and ready for MCP workflows. It includes the core memory engine, semantic search, workspace identity, service discovery, install and upgrade flows, shell completion, docs, tests, and the release machinery needed to keep it moving. The exciting part is what this unlocks: a durable memory layer for agents without asking users to hand their context to someone else's cloud. This is the foundation, and now the fun part starts: building adapters, workflows, and better agent experiences on top of it. 🚀
+This release provides working embedding-powered semantic memory for agents, exposed through a pretty CLI, JSON CLI, MCP stdio, MCP HTTP, and an HTTP API.
 
 ## Unreleased
 
