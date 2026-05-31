@@ -18,6 +18,10 @@ from urllib.request import Request, urlopen
 from packaging.version import InvalidVersion, Version
 from platformdirs import user_state_dir
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 InstallMethod = Literal["bootstrap", "pip", "pipx", "uv_tool", "source", "unknown"]
 CommandSpec = list[str] | list[list[str]]
 UpdateStatus = Literal[
@@ -248,7 +252,15 @@ def fetch_latest_release(
         raise ReleaseLookupError(
             "Invalid GitHub repository path.", reason="invalid_repo"
         )
-    return client.latest_release(repo)
+    release = client.latest_release(repo)
+    _log.info(
+        "Fetched latest release",
+        extra={
+            "event": "update.release_fetched",
+            "context": {"repo": repo, "tag": release.tag, "version": release.version},
+        },
+    )
+    return release
 
 
 def build_update_plan(
@@ -265,6 +277,17 @@ def build_update_plan(
     source_root: Path | None = None,
 ) -> UpdatePlan:
     """Compare versions and return the exact update command or no-op state."""
+    _log.info(
+        "Building update plan",
+        extra={
+            "event": "update.plan_building",
+            "context": {
+                "current_version": current_version,
+                "install_method": install_method,
+                "dry_run": dry_run,
+            },
+        },
+    )
     metadata_path = str(metadata.metadata_path) if metadata.metadata_path else None
     if install_method == "unknown":
         return UpdatePlan(
@@ -384,7 +407,21 @@ def apply_update(
 ) -> CommandResult:
     """Run the plan command and return captured output."""
     if plan.command is None:
+        _log.info(
+            "Update skipped — nothing to apply",
+            extra={"event": "update.apply_skipped", "context": {"status": plan.status}},
+        )
         return CommandResult(0, "", "")
+    _log.info(
+        "Applying update",
+        extra={
+            "event": "update.applying",
+            "context": {
+                "install_method": plan.install_method,
+                "latest_version": plan.latest_version,
+            },
+        },
+    )
     if plan.install_method == "source":
         if plan.cwd is None:
             return CommandResult(1, "", "source checkout not found")
@@ -396,6 +433,10 @@ def apply_update(
         if dirty.returncode != 0:
             return dirty
         if dirty.stdout.strip():
+            _log.error(
+                "Update blocked — source checkout dirty",
+                extra={"event": "update.source_dirty", "context": {}},
+            )
             return CommandResult(
                 1,
                 "",
@@ -412,6 +453,16 @@ def apply_update(
             stdout_parts.append(result.stdout)
             stderr_parts.append(result.stderr)
             if result.returncode != 0:
+                _log.error(
+                    "Update command failed",
+                    extra={
+                        "event": "update.command_failed",
+                        "context": {
+                            "returncode": result.returncode,
+                            "command": command,
+                        },
+                    },
+                )
                 return CommandResult(
                     result.returncode, "".join(stdout_parts), "".join(stderr_parts)
                 )
@@ -420,8 +471,38 @@ def apply_update(
     command = plan.command if _is_single_command(plan.command) else []
     executable = command[0]
     if shutil.which(executable) is None:
+        _log.error(
+            "Update blocked — executable not found",
+            extra={
+                "event": "update.executable_missing",
+                "context": {"executable": executable},
+            },
+        )
         return CommandResult(1, "", f"{executable} is not available on PATH")
-    return runner.run(command, timeout_seconds=timeout_seconds, cwd=plan.cwd)
+    result = runner.run(command, timeout_seconds=timeout_seconds, cwd=plan.cwd)
+    if result.returncode == 0:
+        _log.info(
+            "Update applied successfully",
+            extra={
+                "event": "update.apply_succeeded",
+                "context": {
+                    "install_method": plan.install_method,
+                    "latest_version": plan.latest_version,
+                },
+            },
+        )
+    else:
+        _log.error(
+            "Update failed",
+            extra={
+                "event": "update.apply_failed",
+                "context": {
+                    "returncode": result.returncode,
+                    "stderr": result.stderr[:200],
+                },
+            },
+        )
+    return result
 
 
 def plan_to_dict(plan: UpdatePlan) -> dict[str, object]:

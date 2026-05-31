@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from mcp.server.fastmcp import FastMCP
 
 from recollectium.core import RecollectiumCore
 from recollectium.errors import RecollectiumError
+
+_log = logging.getLogger(__name__)
 
 
 def create_mcp_server(core: RecollectiumCore) -> FastMCP:
@@ -32,6 +35,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "search_user_memory",
+                extra={
+                    "event": "mcp.search_user_memory_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -53,6 +64,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "search_workspace_memory",
+                extra={
+                    "event": "mcp.search_workspace_memory_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -93,6 +112,11 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return json.dumps(memory.to_dict(), sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "add_memory",
+                extra={"event": "mcp.add_memory_failed", "context": {"error": str(e)}},
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -102,6 +126,11 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             memory = core.get_memory(id)
             return json.dumps(memory.to_dict(), sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "get_memory",
+                extra={"event": "mcp.get_memory_failed", "context": {"error": str(e)}},
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -140,6 +169,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return json.dumps(memory.to_dict(), sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "update_memory",
+                extra={
+                    "event": "mcp.update_memory_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -149,6 +186,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             memory = core.archive_memory(id)
             return json.dumps(memory.to_dict(), sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "archive_memory",
+                extra={
+                    "event": "mcp.archive_memory_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -172,6 +217,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "list_memories",
+                extra={
+                    "event": "mcp.list_memories_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -185,6 +238,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return json.dumps(uids, sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "list_workspaces",
+                extra={
+                    "event": "mcp.list_workspaces_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -193,6 +254,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         try:
             return json.dumps(core.resolve_workspace(uid), sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "resolve_workspace",
+                extra={
+                    "event": "mcp.resolve_workspace_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -208,6 +277,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return json.dumps(result, sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "add_workspace_alias",
+                extra={
+                    "event": "mcp.add_workspace_alias_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -217,6 +294,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             aliases = core.list_workspace_aliases(canonical_uid=canonical_uid)
             return json.dumps(aliases, sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "list_workspace_aliases",
+                extra={
+                    "event": "mcp.list_workspace_aliases_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -226,6 +311,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             alias = core.remove_workspace_alias(alias_uid)
             return json.dumps(alias, sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "remove_workspace_alias",
+                extra={
+                    "event": "mcp.remove_workspace_alias_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -235,6 +328,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             result = core.rename_workspace(old_uid=old_uid, new_uid=new_uid)
             return json.dumps(result, sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "rename_workspace",
+                extra={
+                    "event": "mcp.rename_workspace_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -244,6 +345,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             status = core.active_embedding_status()
             return json.dumps(status, sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "embedding_status",
+                extra={
+                    "event": "mcp.embedding_status_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -256,6 +365,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             jobs = core.list_embedding_jobs(state=state, limit=limit)
             return json.dumps(jobs, sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "embedding_jobs",
+                extra={
+                    "event": "mcp.embedding_jobs_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
@@ -265,6 +382,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             job = core.get_embedding_job(job_id)
             return json.dumps(job, sort_keys=True)
         except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "get_embedding_job",
+                extra={
+                    "event": "mcp.get_embedding_job_failed",
+                    "context": {"error": str(e)},
+                },
+            )
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     return mcp

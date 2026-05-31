@@ -43,6 +43,10 @@ from recollectium.service_contract import (
     version_payload,
 )
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 
 _BOUNDARY_ERROR_MAP: tuple[tuple[type[Exception], HTTPStatus, str], ...] = (
     (ValidationError, HTTPStatus.BAD_REQUEST, "validation_error"),
@@ -242,6 +246,18 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         _request: Request, exc: Exception
     ) -> JSONResponse:
         status, payload = _map_boundary_error(exc)
+        _log.error(
+            "HTTP request failed: %s",
+            str(exc),
+            extra={
+                "event": "service.request_failed",
+                "context": {
+                    "error_type": type(exc).__name__,
+                    "http_status": int(status),
+                    "error_code": payload.get("error", "unknown"),
+                },
+            },
+        )
         return _json_response(status, payload)
 
     @app.get(f"{SERVICE_API_PREFIX}/health", tags=["service"])
@@ -264,6 +280,17 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             include_archived=body.include_archived,
             type=body.type,
         )
+        _log.info(
+            "search_user_memories completed",
+            extra={
+                "event": "service.search_user_completed",
+                "context": {
+                    "query_len": len(body.query),
+                    "limit": body.limit,
+                    "result_count": len(results),
+                },
+            },
+        )
         return success_payload(serialize_search_results(results))
 
     @app.post(f"{SERVICE_API_PREFIX}/memories/search_workspace", tags=["memories"])
@@ -274,6 +301,18 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             limit=body.limit,
             include_archived=body.include_archived,
             type=body.type,
+        )
+        _log.info(
+            "search_workspace_memories completed",
+            extra={
+                "event": "service.search_workspace_completed",
+                "context": {
+                    "query_len": len(body.query),
+                    "workspace_uid": body.workspace_uid,
+                    "limit": body.limit,
+                    "result_count": len(results),
+                },
+            },
         )
         return success_payload(serialize_search_results(results))
 
@@ -310,6 +349,18 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             confidence=body.confidence,
             sensitivity=body.sensitivity,
         )
+        _log.info(
+            "add_memory completed",
+            extra={
+                "event": "service.add_memory_completed",
+                "context": {
+                    "memory_id": memory.id,
+                    "space": body.space,
+                    "type": body.type,
+                    "workspace_uid": body.workspace_uid,
+                },
+            },
+        )
         return success_payload(serialize_memory(memory))
 
     @app.get(f"{SERVICE_API_PREFIX}/memories", tags=["memories"])
@@ -335,11 +386,35 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             else False,
             limit=_parse_optional_positive_int(limit, field_name="limit"),
         )
+        _log.info(
+            "list_memories completed",
+            extra={
+                "event": "service.list_memories_completed",
+                "context": {
+                    "space": space,
+                    "type": type,
+                    "status": status,
+                    "workspace_uid": workspace_uid,
+                    "result_count": len(memories),
+                },
+            },
+        )
         return success_payload(serialize_memories(memories))
 
     @app.get(f"{SERVICE_API_PREFIX}/memories/{{memory_id}}", tags=["memories"])
     def get_memory(memory_id: str) -> dict[str, Any]:
         memory = core.get_memory(memory_id)
+        _log.info(
+            "get_memory completed",
+            extra={
+                "event": "service.get_memory_completed",
+                "context": {
+                    "memory_id": memory_id,
+                    "space": memory.space,
+                    "type": memory.type,
+                },
+            },
+        )
         return success_payload(serialize_memory(memory))
 
     @app.patch(f"{SERVICE_API_PREFIX}/memories/{{memory_id}}", tags=["memories"])
@@ -353,6 +428,13 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             confidence=body.confidence,
             sensitivity=body.sensitivity,
         )
+        _log.info(
+            "update_memory completed",
+            extra={
+                "event": "service.update_memory_completed",
+                "context": {"memory_id": memory_id, "type": body.type},
+            },
+        )
         return success_payload(serialize_memory(memory))
 
     @app.post(
@@ -361,6 +443,13 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     )
     def archive_memory(memory_id: str) -> dict[str, Any]:
         memory = core.archive_memory(memory_id)
+        _log.info(
+            "archive_memory completed",
+            extra={
+                "event": "service.archive_memory_completed",
+                "context": {"memory_id": memory_id},
+            },
+        )
         return success_payload(serialize_memory(memory))
 
     # -- workspace endpoints -----------------------------------------------
@@ -403,13 +492,28 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             alias_uid=body.alias_uid,
             migrate_existing=body.migrate_existing,
         )
+        _log.info(
+            "add_workspace_alias completed",
+            extra={
+                "event": "service.add_workspace_alias_completed",
+                "context": {"canonical_uid": uid, "alias_uid": body.alias_uid},
+            },
+        )
         return success_payload(result)
 
     @app.delete(
         f"{SERVICE_API_PREFIX}/workspaces/aliases/{{alias_uid}}", tags=["workspaces"]
     )
     def remove_workspace_alias(alias_uid: str) -> dict[str, Any]:
-        return success_payload(core.remove_workspace_alias(alias_uid))
+        result = core.remove_workspace_alias(alias_uid)
+        _log.info(
+            "remove_workspace_alias completed",
+            extra={
+                "event": "service.remove_workspace_alias_completed",
+                "context": {"alias_uid": alias_uid},
+            },
+        )
+        return success_payload(result)
 
     @app.post(
         f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/rename",
@@ -417,6 +521,17 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     )
     def rename_workspace(uid: str, body: RenameWorkspaceRequest) -> dict[str, Any]:
         result = core.rename_workspace(old_uid=uid, new_uid=body.new_uid)
+        _log.info(
+            "rename_workspace completed",
+            extra={
+                "event": "service.rename_workspace_completed",
+                "context": {
+                    "old_uid": uid,
+                    "new_uid": body.new_uid,
+                    "memories_updated": result.get("memories_updated"),
+                },
+            },
+        )
         return success_payload(result)
 
     return app
