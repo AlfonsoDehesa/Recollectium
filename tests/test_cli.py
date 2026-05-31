@@ -3699,6 +3699,7 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     skipped = payload["data"]["purge"]["skipped"]
     assert exit_code == 0
     assert "permanently deleted" in stderr
+    assert str(shared_cache) not in stderr
     assert shared_cache.exists()
     assert any(
         item["path"] == str(shared_cache) and item["reason"] == "not_recollectium_owned"
@@ -3727,6 +3728,7 @@ def test_cli_uninstall_purge_skips_explicit_config_outside_recollectium_dir(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert "permanently deleted" in stderr
+    assert str(config_path) not in stderr
     assert config_path.exists()
     assert any(
         item["path"] == str(config_path) and item["reason"] == "not_recollectium_owned"
@@ -5425,7 +5427,9 @@ def test_cli_upgrade_check_explicit_config_creates_no_xdg_directories(
     )
 
     def _unexpected_config(*args, **kwargs):
-        raise AssertionError("upgrade --check must not load config or discover services")
+        raise AssertionError(
+            "upgrade --check must not load config or discover services"
+        )
 
     monkeypatch.setattr(cli_mod, "RecollectiumConfig", _unexpected_config)
 

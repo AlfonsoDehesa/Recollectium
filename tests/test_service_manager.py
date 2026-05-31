@@ -349,7 +349,9 @@ def test_is_recollectium_service_process_no_proc_metadata_falls_back_to_alive_pi
     monkeypatch.setattr(
         "recollectium.service_manager.get_process_start_time", lambda pid: None
     )
-    monkeypatch.setattr("recollectium.service_manager.get_process_cmdline", lambda pid: None)
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_cmdline", lambda pid: None
+    )
 
     assert is_recollectium_service_process(123, "api", None) is True
 

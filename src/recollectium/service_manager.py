@@ -116,8 +116,8 @@ def _get_ps_process_start_time(pid: int) -> int | None:
 def _get_windows_process_start_time(pid: int) -> int | None:
     """Return Windows process creation ticks for *pid*, if available."""
     command = (
-        "$p = Get-CimInstance Win32_Process -Filter \"ProcessId = "
-        f"{pid}\"; if ($null -ne $p) "
+        '$p = Get-CimInstance Win32_Process -Filter "ProcessId = '
+        f'{pid}"; if ($null -ne $p) '
         "{ [Console]::Write([Management.ManagementDateTimeConverter]::"
         "ToDateTime($p.CreationDate).ToUniversalTime().Ticks) }"
     )
@@ -189,8 +189,8 @@ def _get_ps_process_cmdline(pid: int) -> list[str] | None:
 def _get_windows_process_cmdline(pid: int) -> list[str] | None:
     """Return Windows process command line for *pid*, if available."""
     command = (
-        "$p = Get-CimInstance Win32_Process -Filter \"ProcessId = "
-        f"{pid}\"; if ($null -ne $p -and $null -ne $p.CommandLine) "
+        '$p = Get-CimInstance Win32_Process -Filter "ProcessId = '
+        f'{pid}"; if ($null -ne $p -and $null -ne $p.CommandLine) '
         "{ [Console]::Write($p.CommandLine) }"
     )
     try:
@@ -242,7 +242,7 @@ def is_recollectium_service_process(
 
     cmdline = get_process_cmdline(pid)
     if cmdline is None:
-        return process_start_time is None or current_start_time == process_start_time
+        return process_start_time is None
     return (
         _cmdline_contains(cmdline, "recollectium.service_manager")
         and _cmdline_contains(cmdline, "_run_server")

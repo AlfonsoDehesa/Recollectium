@@ -1155,7 +1155,8 @@ def _handle_upgrade_command(
         str(config_path) if args.config_path is not None else None
     )
     should_check_services = not args.check and not (
-        args.dry_run and (service_config_path is None or not service_config_path.exists())
+        args.dry_run
+        and (service_config_path is None or not service_config_path.exists())
     )
     if should_check_services:
         try:
@@ -1915,7 +1916,7 @@ def _handle_uninstall_command(
                 "The following Recollectium-owned paths will be permanently deleted:\n"
             )
             for target in preview["targets"]:
-                if target.get("reason") == "missing":
+                if target.get("reason") != "dry_run":
                     continue
                 sys.stderr.write(f"  {target['path']}\n")
             sys.stderr.write("\n")
