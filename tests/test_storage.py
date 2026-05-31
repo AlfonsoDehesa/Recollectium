@@ -361,6 +361,16 @@ def test_newer_database_version_raises_migration_error(tmp_path: Path) -> None:
     with pytest.raises(MigrationError):
         SQLiteMemoryStore(db_path)
 
+    with sqlite_connection(db_path) as connection:
+        schema_migrations = connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'schema_migrations'
+            """
+        ).fetchone()
+
+    assert schema_migrations is None
+
 
 def test_migration_runner_rejects_invalid_versions(tmp_path: Path) -> None:
     db_path = tmp_path / "invalid-versions.db"

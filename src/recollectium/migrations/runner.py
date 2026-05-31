@@ -145,13 +145,13 @@ class MigrationRunner:
     def migrate(self) -> MigrationStatus:
         latest_version = self._latest_version()
         with self._connect() as connection:
-            self._ensure_metadata_table(connection)
             current_version = self._read_user_version(connection)
             if current_version > latest_version:
                 raise MigrationError(
                     "database schema version is newer than this Recollectium build supports"
                 )
 
+            self._ensure_metadata_table(connection)
             self._reconcile_existing_metadata(
                 connection, current_version=current_version
             )
