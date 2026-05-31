@@ -2,10 +2,9 @@
 
 ## Phase 1 (v1.0.0): Release-ready core
 
-Recollectium Core is installable, runnable, documented, and ready for the first
-public release. The local service, CLI, API, bootstrap installers, service
-lifecycle, shell completion for Unix shells, uninstall behavior, and service
-discovery are already in place.
+Recollectium Core has the major install, service, CLI, API, lifecycle,
+completion, uninstall, and discovery surfaces in place. The remaining release
+blockers below must be completed before the first public release.
 
 Completed:
 
