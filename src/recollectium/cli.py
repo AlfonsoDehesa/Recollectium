@@ -1777,13 +1777,46 @@ def _schedule_windows_package_removal(command: list[str]) -> dict[str, Any]:
         close_fds=True,
         creationflags=creationflags,
     )
+    removed_launchers = _remove_windows_launchers()
     return {
         "status": "scheduled",
         "command": " ".join(command),
         "argv": command,
         "helper_pid": helper.pid,
+        "removed_launchers": removed_launchers,
         "hint": "Package removal was handed off and will finish after this process exits.",
     }
+
+
+def _remove_windows_launchers() -> list[dict[str, Any]]:
+    directories = {Path.home() / ".local" / "bin"}
+    directories.update(
+        Path(item) for item in os.environ.get("PATH", "").split(os.pathsep) if item
+    )
+    filenames = [
+        "recollectium.exe",
+        "recollectium.cmd",
+        "recollectium.bat",
+        "recollectium.ps1",
+        "recollectium",
+    ]
+    results: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for directory in directories:
+        for filename in filenames:
+            path = (directory / filename).expanduser().resolve(strict=False)
+            if path in seen:
+                continue
+            seen.add(path)
+            if not path.exists():
+                continue
+            try:
+                path.unlink()
+            except OSError as exc:
+                results.append({"path": str(path), "removed": False, "error": str(exc)})
+            else:
+                results.append({"path": str(path), "removed": True})
+    return results
 
 
 def _remove_installed_package(
