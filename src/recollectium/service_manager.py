@@ -402,9 +402,12 @@ def _log_service_crashed(data: dict[str, Any], reason: str) -> None:
 def is_pid_alive(pid: int) -> bool:
     """Return ``True`` if a process with *pid* is currently alive.
 
-    Uses ``os.kill(pid, 0)`` which sends signal 0 — a no-op that only checks
-    whether the process exists and we have permission to signal it.
+    POSIX uses ``os.kill(pid, 0)``, which sends signal 0 as a no-op existence
+    check. Windows does not support signal 0 as a harmless probe, so it uses a
+    Win32 process handle query instead.
     """
+    if sys.platform == "win32":
+        return _is_windows_pid_alive(pid)
     try:
         os.kill(pid, 0)
         return True
@@ -412,6 +415,32 @@ def is_pid_alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True  # process exists, we just can't signal it
+
+
+def _is_windows_pid_alive(pid: int) -> bool:
+    """Return whether *pid* exists on Windows without signalling it."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return False
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    handle = ctypes.windll.kernel32.OpenProcess(  # type: ignore[attr-defined]
+        process_query_limited_information, False, pid
+    )
+    if not handle:
+        return False
+    try:
+        exit_code = wintypes.DWORD()
+        if not ctypes.windll.kernel32.GetExitCodeProcess(  # type: ignore[attr-defined]
+            handle, ctypes.byref(exit_code)
+        ):
+            return False
+        return exit_code.value == still_active
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

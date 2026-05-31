@@ -287,6 +287,28 @@ def test_is_pid_alive_permission_error_returns_true(
     assert is_pid_alive(1) is True
 
 
+def test_is_pid_alive_uses_windows_non_signalling_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+
+    def fail_if_called(pid: int, sig: int) -> None:
+        raise AssertionError("Windows liveness checks must not call os.kill")
+
+    def fake_windows_probe(pid: int) -> bool:
+        calls.append(pid)
+        return True
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(os, "kill", fail_if_called)
+    monkeypatch.setattr(
+        "recollectium.service_manager._is_windows_pid_alive", fake_windows_probe
+    )
+
+    assert is_pid_alive(1234) is True
+    assert calls == [1234]
+
+
 def test_get_process_start_time_current_process() -> None:
     assert get_process_start_time(os.getpid()) is not None
 
