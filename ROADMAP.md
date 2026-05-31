@@ -36,7 +36,7 @@ Completed:
 - [x] CI uninstall-flow coverage across bootstrap install-smoke jobs: default uninstall preservation, explicit purge, managed Unix completion cleanup, package-manager guidance assertions, and final `uv tool uninstall recollectium` cleanup.
 - [x] Local access and security documentation audit: canonical `SECURITY.md`, README/API/adapter warnings, release checklist coverage, and private-network guidance for split-machine deployments.
 - [x] PowerShell completion lifecycle: dynamic `Register-ArgumentCompleter` wrapper, install/update/uninstall managed profile blocks, bootstrap metadata, and tests.
-- [x] Public docs and wiki release pass: focused README with banner and wiki routing, reorganized CONTRIBUTING.md, clarified SECURITY.md, wiki source pages for every release surface, and release checklist coverage for wiki maintenance.
+- [x] Public docs and wiki release pass: focused README with banner and wiki routing, reorganized CONTRIBUTING.md, clarified SECURITY.md, GitHub Wiki pages for every release surface, and release checklist coverage for wiki maintenance.
 - [x] Configurable CLI output: `cli_output` defaults to human-readable rendering for terminal use, JSON remains available for automation, and `--json` / `--human-readable` override the config per invocation.
 - [x] TTY-aware CLI color: human-readable CLI output uses Rich-backed ANSI color on TTY streams while pipes, captured output, and JSON mode stay uncolored.
 

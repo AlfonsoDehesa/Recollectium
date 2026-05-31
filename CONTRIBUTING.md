@@ -133,7 +133,7 @@ One or two sentences describing the change.
 ## Documentation
 
 - [ ] `README.md` updated, or not applicable because ...
-- [ ] `docs/wiki/` updated, or not applicable because ...
+- [ ] GitHub Wiki updated, or not applicable because ...
 - [ ] `docs/local-service-api.md` updated, or not applicable because ...
 - [ ] `docs/local-service-openapi.json` updated, or not applicable because ...
 - [ ] `docs/opencode-adapter-contract.md` updated, or not applicable because ...
@@ -268,7 +268,7 @@ Docs are part of the product. If a PR changes user-facing behavior, update the m
 Canonical docs:
 
 - `README.md`: public front door, install overview, status, quick start, local access/security summary, and links to deeper docs.
-- `docs/wiki/`: long-form user and integrator manual source pages. Keep these aligned with the published GitHub Wiki when the wiki remote is initialized.
+- GitHub Wiki: long-form user and integrator manual. Keep wiki changes aligned with the same PR whenever behavior, docs, configuration, CLI, API, MCP, service lifecycle, logs, install, uninstall, security guidance, or adapter contracts change.
 - `docs/local-service-api.md`: human-readable local API reference.
 - `docs/local-service-openapi.json`: machine-readable local API contract served by the service.
 - `docs/opencode-adapter-contract.md`: canonical adapter/plugin contract for OpenCode and related integrations.
@@ -455,7 +455,7 @@ Every item in this gate must be confirmed before the release-prep PR is merged.
 #### Documentation readiness
 
 - [ ] `README.md` is current.
-- [ ] `docs/wiki/` source pages are current and match the published GitHub Wiki when the wiki remote is initialized.
+- [ ] GitHub Wiki is current.
 - [ ] `docs/local-service-api.md` matches the running service.
 - [ ] `docs/local-service-openapi.json` matches the served OpenAPI contract.
 - [ ] `docs/opencode-adapter-contract.md` is current for adapter/plugin discovery, compatibility, remote Core addressing, and workspace UID behavior.
@@ -520,6 +520,6 @@ After the release workflow completes:
 - [ ] Confirm the GitHub Release exists and includes the changelog section.
 - [ ] Confirm package install paths work from the published artifact once available.
 - [ ] Confirm README and wiki links resolve.
-- [ ] If the GitHub Wiki has been initialized, sync `docs/wiki/` to the wiki repository.
+- [ ] Confirm the GitHub Wiki is current.
 
-For questions, open an issue using the available template. The repo and wiki are the source of truth for public project docs.
+For questions, open an issue using the available template. The repo docs and GitHub Wiki are the source of truth for public project docs.
