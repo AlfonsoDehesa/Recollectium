@@ -1,6 +1,8 @@
 # Changelog
 
-This is the first public release of Recollectium, and it is a big one: a local-first memory engine for agents, ready to install, run, integrate, and build on.
+Recollectium v1.0.0 is here! 🎉
+
+This first release turns the idea into a real local-first memory system for agents: private by default, useful from the CLI, scriptable through the API, and ready for MCP workflows. It includes the core memory engine, semantic search, workspace identity, service discovery, install and upgrade flows, shell completion, docs, tests, and the release machinery needed to keep it moving. I am genuinely excited about this one because it gives agents a durable memory layer without asking users to hand their context to someone else's cloud. This is the foundation, and now the fun part starts: building adapters, workflows, and better agent experiences on top of it. 🚀
 
 ## Unreleased
 
