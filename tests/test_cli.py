@@ -3081,8 +3081,8 @@ def test_cli_uninstall_uses_windows_bootstrap_metadata_path(
     )
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
     monkeypatch.setattr(
-        "recollectium.cli.subprocess.run",
-        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "recollectium.cli.subprocess.Popen",
+        lambda *_args, **_kwargs: SimpleNamespace(pid=1234),
     )
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
@@ -3092,6 +3092,7 @@ def test_cli_uninstall_uses_windows_bootstrap_metadata_path(
     assert stderr == ""
     assert payload["package"]["install_method"] == "bootstrap"
     assert payload["package"]["source_ref"] == "ci"
+    assert payload["package"]["uninstall"]["status"] == "scheduled"
 
 
 def test_cli_uninstall_purge_closes_log_handlers_before_deleting_logs(

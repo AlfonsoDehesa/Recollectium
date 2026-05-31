@@ -1718,14 +1718,18 @@ def _uninstall_package_instructions(
     }
 
 
+def _safe_which(name: str) -> str | None:
+    try:
+        return shutil.which(name)
+    except AttributeError:
+        return None
+
+
 def _resolve_executable(name: str) -> str:
     if not sys.platform.startswith("win"):
         return name
 
-    try:
-        resolved = shutil.which(name)
-    except AttributeError:
-        resolved = None
+    resolved = _safe_which(name)
     if resolved is not None:
         return resolved
 
@@ -1750,6 +1754,36 @@ def _package_uninstall_command(install_method: str) -> list[str] | None:
         "pipx": [_resolve_executable("pipx"), "uninstall", "recollectium"],
     }
     return commands.get(install_method)
+
+
+def _schedule_windows_package_removal(command: list[str]) -> dict[str, Any]:
+    powershell = _safe_which("pwsh") or _safe_which("powershell") or "powershell"
+    command_json = json.dumps(command).replace("'", "''")
+    script = (
+        "$ErrorActionPreference = 'SilentlyContinue'; "
+        f"$parentPid = {os.getpid()}; "
+        f"$cmd = '{command_json}' | ConvertFrom-Json; "
+        "if ($parentPid -gt 0) { Wait-Process -Id $parentPid -Timeout 30 }; "
+        "& $cmd[0] @($cmd[1..($cmd.Count - 1)]) *> $null"
+    )
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+        subprocess, "DETACHED_PROCESS", 0
+    )
+    helper = subprocess.Popen(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=creationflags,
+    )
+    return {
+        "status": "scheduled",
+        "command": " ".join(command),
+        "argv": command,
+        "helper_pid": helper.pid,
+        "hint": "Package removal was handed off and will finish after this process exits.",
+    }
 
 
 def _remove_installed_package(
@@ -1777,6 +1811,20 @@ def _remove_installed_package(
             "status": "unsupported",
             "hint": payload["recommended"],
         }
+        return payload
+
+    if sys.platform.startswith("win"):
+        try:
+            payload["uninstall"] = _schedule_windows_package_removal(command)
+        except FileNotFoundError as exc:
+            payload["uninstall"] = {
+                "status": "failed",
+                "command": payload["recommended"],
+                "argv": command,
+                "returncode": 127,
+                "stderr": str(exc),
+                "hint": "Install PowerShell or uninstall Recollectium with the matching package manager manually.",
+            }
         return payload
 
     try:
@@ -2085,7 +2133,7 @@ def _handle_uninstall_command(
     result = {
         "status": (
             "uninstalled"
-            if package_status == "removed"
+            if package_status in {"removed", "scheduled"}
             else "dry_run"
             if package_status == "dry_run"
             else "package_removal_unsupported"
