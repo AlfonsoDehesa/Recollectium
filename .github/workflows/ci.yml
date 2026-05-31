@@ -98,6 +98,83 @@ jobs:
               assert payload["install_method"] == "bootstrap", payload
           PY
 
+      - name: Verify service lifecycle on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          smoke_root="$(mktemp -d)"
+          trap 'recollectium --config "$smoke_root/config/config.json" service stop --json >/dev/null 2>&1 || true; rm -rf "$smoke_root"' EXIT
+          port="$(python - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(("127.0.0.1", 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          config="$smoke_root/config/config.json"
+          recollectium --config "$config" config set service.port "$port" --json >/dev/null
+          recollectium --config "$config" config set directories.data "$smoke_root/data" --json >/dev/null
+          recollectium --config "$config" config set directories.cache "$smoke_root/cache" --json >/dev/null
+          recollectium --config "$config" config set directories.logs "$smoke_root/logs" --json >/dev/null
+          recollectium --config "$config" config set directories.runtime "$smoke_root/run" --json >/dev/null
+          recollectium --config "$config" service start api --json > service-start.json
+          python - "$port" <<'PY'
+          import json
+          import sys
+          import time
+          import urllib.request
+
+          port = int(sys.argv[1])
+          url = f"http://127.0.0.1:{port}/v1/health"
+          deadline = time.monotonic() + 30
+          last_error = None
+          while time.monotonic() < deadline:
+              try:
+                  with urllib.request.urlopen(url, timeout=2) as response:
+                      payload = json.loads(response.read().decode("utf-8"))
+                  assert payload["data"]["status"] == "ok", payload
+                  break
+              except Exception as exc:  # smoke retry captures transient startup failures
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise AssertionError(f"health check did not become ok: {last_error!r}")
+          PY
+          recollectium --config "$config" service status --json > service-status.json
+          recollectium --config "$config" service discover --json > service-discover.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          start_payload = json.loads(Path("service-start.json").read_text(encoding="utf-8"))
+          assert start_payload["data"]["status"] == "started", start_payload
+          assert start_payload["data"]["type"] == "api", start_payload
+          assert start_payload["data"]["pid"] > 0, start_payload
+
+          status_payload = json.loads(Path("service-status.json").read_text(encoding="utf-8"))
+          assert status_payload["data"]["running"] is True, status_payload
+          assert status_payload["data"]["type"] == "api", status_payload
+          assert status_payload["data"]["pid"] > 0, status_payload
+
+          discover_payload = json.loads(Path("service-discover.json").read_text(encoding="utf-8"))
+          assert discover_payload["data"]["status"] == "running", discover_payload
+          assert discover_payload["data"]["service"]["type"] == "api", discover_payload
+          assert discover_payload["data"]["service"]["pid"] > 0, discover_payload
+          PY
+          recollectium --config "$config" service stop --json > service-stop.json
+          recollectium --config "$config" service status --json > service-stopped.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          stop_payload = json.loads(Path("service-stop.json").read_text(encoding="utf-8"))
+          assert stop_payload["data"]["status"] == "stopped", stop_payload
+          stopped_payload = json.loads(Path("service-stopped.json").read_text(encoding="utf-8"))
+          assert stopped_payload["data"]["running"] is False, stopped_payload
+          PY
+
       - name: Verify uninstall on Unix
         if: runner.os != 'Windows'
         shell: bash
@@ -205,6 +282,35 @@ jobs:
           recollectium upgrade --check --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" --json | Out-File -Encoding utf8 upgrade-check.json
           recollectium upgrade --dry-run --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" --json | Out-File -Encoding utf8 upgrade-dry-run.json
           python -c "import json, pathlib; payloads=[json.loads(pathlib.Path(p).read_text(encoding='utf-8-sig')) for p in ['upgrade-check.json','upgrade-dry-run.json']]; assert all(p['status'] in {'up_to_date', 'dry_run'} for p in payloads), payloads; assert all(p['install_method'] == 'bootstrap' for p in payloads), payloads"
+
+      - name: Verify service lifecycle on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("recollectium-smoke-" + [System.Guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+          $config = Join-Path $smokeRoot "config\config.json"
+          try {
+            $port = python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()"
+            recollectium --config $config config set service.port $port --json | Out-Null
+            recollectium --config $config config set directories.data (Join-Path $smokeRoot "data") --json | Out-Null
+            recollectium --config $config config set directories.cache (Join-Path $smokeRoot "cache") --json | Out-Null
+            recollectium --config $config config set directories.logs (Join-Path $smokeRoot "logs") --json | Out-Null
+            recollectium --config $config config set directories.runtime (Join-Path $smokeRoot "run") --json | Out-Null
+            recollectium --config $config service start api --json | Out-File -Encoding utf8 service-start.json
+            python -c "import json, sys, time, urllib.request`nport=int(sys.argv[1]); url=f'http://127.0.0.1:{port}/v1/health'; deadline=time.monotonic()+30; last=None`nwhile time.monotonic() < deadline:`n    try:`n        payload=json.loads(urllib.request.urlopen(url, timeout=2).read().decode('utf-8'))`n        assert payload['data']['status'] == 'ok', payload`n        break`n    except Exception as exc:`n        last=exc; time.sleep(1)`nelse:`n    raise AssertionError(f'health check did not become ok: {last!r}')" $port
+            recollectium --config $config service status --json | Out-File -Encoding utf8 service-status.json
+            recollectium --config $config service discover --json | Out-File -Encoding utf8 service-discover.json
+            python -c "import json, pathlib; start=json.loads(pathlib.Path('service-start.json').read_text(encoding='utf-8-sig')); assert start['data']['status'] == 'started', start; assert start['data']['type'] == 'api', start; assert start['data']['pid'] > 0, start; status=json.loads(pathlib.Path('service-status.json').read_text(encoding='utf-8-sig')); assert status['data']['running'] is True, status; assert status['data']['type'] == 'api', status; assert status['data']['pid'] > 0, status; discover=json.loads(pathlib.Path('service-discover.json').read_text(encoding='utf-8-sig')); assert discover['data']['status'] == 'running', discover; assert discover['data']['service']['type'] == 'api', discover; assert discover['data']['service']['pid'] > 0, discover"
+            recollectium --config $config service stop --json | Out-File -Encoding utf8 service-stop.json
+            recollectium --config $config service status --json | Out-File -Encoding utf8 service-stopped.json
+            python -c "import json, pathlib; stop=json.loads(pathlib.Path('service-stop.json').read_text(encoding='utf-8-sig')); assert stop['data']['status'] == 'stopped', stop; stopped=json.loads(pathlib.Path('service-stopped.json').read_text(encoding='utf-8-sig')); assert stopped['data']['running'] is False, stopped"
+          }
+          finally {
+            recollectium --config $config service stop --json *> $null
+            Remove-Item -Recurse -Force $smokeRoot -ErrorAction SilentlyContinue
+          }
 
       - name: Verify uninstall on Windows
         if: runner.os == 'Windows'

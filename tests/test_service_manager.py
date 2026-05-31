@@ -158,6 +158,20 @@ def test_read_corrupt_pid_file_invalid_process_start_time(tmp_path: Path) -> Non
         read_pid_file(path)
 
 
+def test_read_pid_file_allows_unknown_process_start_time(tmp_path: Path) -> None:
+    path = tmp_path / "unknown_start_time.pid"
+    path.write_text(
+        json.dumps({"pid": 12345, "type": "api", "process_start_time": None}),
+        encoding="utf-8",
+    )
+
+    assert read_pid_file(path) == {
+        "pid": 12345,
+        "type": "api",
+        "process_start_time": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # remove_pid_file
 # ---------------------------------------------------------------------------
@@ -313,7 +327,43 @@ def test_is_recollectium_service_process_true(monkeypatch: pytest.MonkeyPatch) -
     assert is_recollectium_service_process(123, "api", 5) is True
 
 
-def test_is_recollectium_service_process_missing_start_time() -> None:
+def test_is_recollectium_service_process_missing_start_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_cmdline",
+        lambda pid: [
+            f"{sys.executable} -m recollectium.service_manager _run_server api"
+        ],
+    )
+
+    assert is_recollectium_service_process(123, "api", None) is True
+
+
+def test_is_recollectium_service_process_no_proc_metadata_falls_back_to_alive_pid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr("recollectium.service_manager.get_process_cmdline", lambda pid: None)
+
+    assert is_recollectium_service_process(123, "api", None) is True
+
+
+def test_is_recollectium_service_process_checks_cmdline_when_start_time_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_cmdline", lambda pid: ["sleep 60"]
+    )
+
     assert is_recollectium_service_process(123, "api", None) is False
 
 
@@ -437,6 +487,30 @@ def test_check_running_service_alive(
 
     result = check_running_service(config)
     assert result == {"pid": 12345, "type": "api", "process_start_time": 5}
+
+
+def test_check_running_service_alive_without_process_start_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    pid_path = runtime / "service.pid"
+    write_pid_file(pid_path, pid=12345, service_type="api", process_start_time=None)
+
+    config = _make_mock_config(runtime)
+    monkeypatch.setattr("recollectium.service_manager.is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_cmdline",
+        lambda pid: [
+            f"{sys.executable} -m recollectium.service_manager _run_server api"
+        ],
+    )
+
+    result = check_running_service(config)
+    assert result == {"pid": 12345, "type": "api", "process_start_time": None}
 
 
 def test_discover_service_running_writes_discovery_file(
@@ -667,7 +741,7 @@ def test_start_service_child_dies_immediately(monkeypatch: pytest.MonkeyPatch) -
         start_service(config, "api")
 
 
-def test_start_service_process_ownership_unavailable(
+def test_start_service_allows_unknown_process_ownership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _make_mock_config(Path("/tmp/runtime"))
@@ -677,16 +751,21 @@ def test_start_service_process_ownership_unavailable(
 
     fake_process = MagicMock()
     fake_process.pid = 9999
+    fake_process.poll.return_value = None
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: fake_process)
     monkeypatch.setattr(
         "recollectium.service_manager.get_process_start_time", lambda pid: None
     )
+    write_pid_calls: list[tuple[Path, int, str, int | None]] = []
+    monkeypatch.setattr(
+        "recollectium.service_manager.write_pid_file",
+        lambda path, pid, st, pst: write_pid_calls.append((path, pid, st, pst)),
+    )
+    monkeypatch.setattr("recollectium.service_manager.is_pid_alive", lambda pid: True)
 
-    with pytest.raises(
-        ServiceError, match="could not verify service process ownership"
-    ):
-        start_service(config, "api")
-    fake_process.terminate.assert_called_once_with()
+    assert start_service(config, "api") == 9999
+    assert write_pid_calls == [(Path("/tmp/runtime/service.pid"), 9999, "api", None)]
+    fake_process.terminate.assert_not_called()
 
 
 def test_start_service_cleans_pid_file_when_discovery_write_fails(

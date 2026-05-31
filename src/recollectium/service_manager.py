@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,15 +64,19 @@ def read_pid_file(path: Path) -> dict[str, Any] | None:
         raise ServiceError("corrupted PID file: pid must be a positive integer")
     if "type" not in data or data["type"] not in {"api", "mcp"}:
         raise ServiceError("corrupted PID file: missing or invalid 'type' field")
-    if "process_start_time" in data and not isinstance(data["process_start_time"], int):
+    if (
+        "process_start_time" in data
+        and data["process_start_time"] is not None
+        and not isinstance(data["process_start_time"], int)
+    ):
         raise ServiceError(
             "corrupted PID file: missing or invalid 'process_start_time' field"
         )
     return data
 
 
-def get_process_start_time(pid: int) -> int | None:
-    """Return the Linux process start time ticks for *pid*, if available."""
+def _get_proc_process_start_time(pid: int) -> int | None:
+    """Return Linux ``/proc`` process start time ticks for *pid*, if available."""
     try:
         stat_text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
     except (FileNotFoundError, PermissionError, OSError):
@@ -84,13 +89,141 @@ def get_process_start_time(pid: int) -> int | None:
         return None
 
 
-def get_process_cmdline(pid: int) -> list[str] | None:
-    """Return the process command line for *pid*, if available."""
+def _get_ps_process_start_time(pid: int) -> int | None:
+    """Return POSIX ``ps`` start time seconds for *pid*, if available."""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "lstart="],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    raw = result.stdout.strip()
+    if not raw:
+        return None
+    try:
+        return int(datetime.strptime(raw, "%a %b %d %H:%M:%S %Y").timestamp())
+    except ValueError:
+        return None
+
+
+def _get_windows_process_start_time(pid: int) -> int | None:
+    """Return Windows process creation ticks for *pid*, if available."""
+    command = (
+        "$p = Get-CimInstance Win32_Process -Filter \"ProcessId = "
+        f"{pid}\"; if ($null -ne $p) "
+        "{ [Console]::Write([Management.ManagementDateTimeConverter]::"
+        "ToDateTime($p.CreationDate).ToUniversalTime().Ticks) }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", command],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def get_process_start_time(pid: int) -> int | None:
+    """Return process creation identity for *pid*, if available.
+
+    Linux keeps the existing ``/proc/<pid>/stat`` tick value. macOS and other
+    POSIX platforms fall back to ``ps``. Windows uses CIM through PowerShell.
+    ``None`` means the platform did not expose start time to this process; it
+    must not by itself make service lifecycle commands fail.
+    """
+    proc_start_time = _get_proc_process_start_time(pid)
+    if proc_start_time is not None or sys.platform.startswith("linux"):
+        return proc_start_time
+    if sys.platform == "win32":
+        return _get_windows_process_start_time(pid)
+    return _get_ps_process_start_time(pid)
+
+
+def _get_proc_process_cmdline(pid: int) -> list[str] | None:
+    """Return Linux ``/proc`` command line for *pid*, if available."""
     try:
         raw = Path(f"/proc/{pid}/cmdline").read_bytes()
     except (FileNotFoundError, PermissionError, OSError):
         return None
     return [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
+
+
+def _get_ps_process_cmdline(pid: int) -> list[str] | None:
+    """Return POSIX ``ps`` command line for *pid*, if available."""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    command = result.stdout.strip()
+    if not command:
+        return None
+    return [command]
+
+
+def _get_windows_process_cmdline(pid: int) -> list[str] | None:
+    """Return Windows process command line for *pid*, if available."""
+    command = (
+        "$p = Get-CimInstance Win32_Process -Filter \"ProcessId = "
+        f"{pid}\"; if ($null -ne $p -and $null -ne $p.CommandLine) "
+        "{ [Console]::Write($p.CommandLine) }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", command],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    command_line = result.stdout.strip()
+    if not command_line:
+        return None
+    return [command_line]
+
+
+def get_process_cmdline(pid: int) -> list[str] | None:
+    """Return the process command line for *pid*, if available."""
+    proc_cmdline = _get_proc_process_cmdline(pid)
+    if proc_cmdline is not None or sys.platform.startswith("linux"):
+        return proc_cmdline
+    if sys.platform == "win32":
+        return _get_windows_process_cmdline(pid)
+    return _get_ps_process_cmdline(pid)
+
+
+def _cmdline_contains(cmdline: list[str], expected: str) -> bool:
+    return any(expected in part for part in cmdline)
 
 
 def is_recollectium_service_process(
@@ -99,18 +232,21 @@ def is_recollectium_service_process(
     process_start_time: int | None,
 ) -> bool:
     """Return whether *pid* still looks like the daemon this PID file owns."""
-    if process_start_time is None:
-        return False
-    if get_process_start_time(pid) != process_start_time:
+    current_start_time = get_process_start_time(pid)
+    if (
+        process_start_time is not None
+        and current_start_time is not None
+        and current_start_time != process_start_time
+    ):
         return False
 
     cmdline = get_process_cmdline(pid)
     if cmdline is None:
-        return False
+        return process_start_time is None or current_start_time == process_start_time
     return (
-        "recollectium.service_manager" in cmdline
-        and "_run_server" in cmdline
-        and service_type in cmdline
+        _cmdline_contains(cmdline, "recollectium.service_manager")
+        and _cmdline_contains(cmdline, "_run_server")
+        and _cmdline_contains(cmdline, service_type)
     )
 
 
@@ -376,13 +512,6 @@ def start_service(
     pid = process.pid
     pid_path = get_pid_file_path(config)
     process_start_time = get_process_start_time(pid)
-    if process_start_time is None:
-        process.terminate()
-        _log.error(
-            f"could not verify service ownership for PID {pid}",
-            extra={"event": "service.startup_failed", "context": {"pid": pid}},
-        )
-        raise ServiceError(f"could not verify service process ownership for PID {pid}")
     write_pid_file(pid_path, pid, service_type, process_start_time)
     try:
         write_discovery_file(
