@@ -29,6 +29,9 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
         "add_workspace_alias",
         "list_workspace_aliases",
         "remove_workspace_alias",
+        "embedding_status",
+        "embedding_jobs",
+        "get_embedding_job",
     }
     assert set(tools.keys()) == expected
 

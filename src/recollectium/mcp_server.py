@@ -16,22 +16,40 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     mcp = FastMCP("Recollectium")
 
     @mcp.tool()
-    def search_user_memory(query: str, type: str | None = None, limit: int = 10) -> str:
+    def search_user_memory(
+        query: str,
+        type: str | None = None,
+        limit: int = 10,
+        include_archived: bool = False,
+    ) -> str:
         """Search user-space memories by semantic similarity to the query."""
         try:
-            results = core.search_user_memories(query=query, type=type, limit=limit)
+            results = core.search_user_memories(
+                query=query,
+                type=type,
+                limit=limit,
+                include_archived=include_archived,
+            )
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecollectiumError as e:
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
     def search_workspace_memory(
-        query: str, workspace_uid: str, type: str | None = None, limit: int = 10
+        query: str,
+        workspace_uid: str,
+        type: str | None = None,
+        limit: int = 10,
+        include_archived: bool = False,
     ) -> str:
         """Search workspace memories by semantic similarity to the query."""
         try:
             results = core.search_workspace_memories(
-                query=query, workspace_uid=workspace_uid, type=type, limit=limit
+                query=query,
+                workspace_uid=workspace_uid,
+                type=type,
+                limit=limit,
+                include_archived=include_archived,
             )
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecollectiumError as e:
@@ -43,14 +61,30 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         type: str,
         content: str,
         workspace_uid: str | None = None,
+        metadata: str | None = None,
+        source: str | None = None,
+        confidence: float | None = None,
+        sensitivity: str | None = None,
     ) -> str:
         """Add a new memory. Returns the created memory as JSON."""
         try:
+            parsed_metadata: dict[str, object] | None = None
+            if metadata is not None:
+                parsed_metadata = json.loads(metadata)
+                if not isinstance(parsed_metadata, dict):
+                    return json.dumps(
+                        {"error": "metadata must be a JSON object"}, sort_keys=True
+                    )
+
             memory = core.add_memory(
                 space=space,
                 type=type,
                 content=content,
                 workspace_uid=workspace_uid,
+                metadata=parsed_metadata,
+                source=source,
+                confidence=confidence,
+                sensitivity=sensitivity,
             )
             return json.dumps(memory.to_dict(), sort_keys=True)
         except RecollectiumError as e:
@@ -67,11 +101,33 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def update_memory(
-        id: str, type: str | None = None, content: str | None = None
+        id: str,
+        type: str | None = None,
+        content: str | None = None,
+        metadata: str | None = None,
+        source: str | None = None,
+        confidence: float | None = None,
+        sensitivity: str | None = None,
     ) -> str:
         """Update an existing memory. Returns the updated memory as JSON."""
         try:
-            memory = core.update_memory(id, type=type, content=content)
+            parsed_metadata: dict[str, object] | None = None
+            if metadata is not None:
+                parsed_metadata = json.loads(metadata)
+                if not isinstance(parsed_metadata, dict):
+                    return json.dumps(
+                        {"error": "metadata must be a JSON object"}, sort_keys=True
+                    )
+
+            memory = core.update_memory(
+                id,
+                type=type,
+                content=content,
+                metadata=parsed_metadata,
+                source=source,
+                confidence=confidence,
+                sensitivity=sensitivity,
+            )
             return json.dumps(memory.to_dict(), sort_keys=True)
         except RecollectiumError as e:
             return json.dumps({"error": str(e)}, sort_keys=True)
@@ -89,13 +145,20 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def list_memories(
         space: str | None = None,
         type: str | None = None,
+        status: str | None = None,
         workspace_uid: str | None = None,
+        include_archived: bool = False,
         limit: int | None = None,
     ) -> str:
-        """List memories, optionally filtered by space, type, and workspace UID."""
+        """List memories, optionally filtered by space, type, status, workspace UID, and limit."""
         try:
             results = core.list_memories(
-                space=space, type=type, workspace_uid=workspace_uid, limit=limit
+                space=space,
+                type=type,
+                status=status,
+                workspace_uid=workspace_uid,
+                include_archived=include_archived,
+                limit=limit,
             )
             return json.dumps([r.to_dict() for r in results], sort_keys=True)
         except RecollectiumError as e:
@@ -161,6 +224,36 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         try:
             result = core.rename_workspace(old_uid=old_uid, new_uid=new_uid)
             return json.dumps(result, sort_keys=True)
+        except RecollectiumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def embedding_status() -> str:
+        """Get active local FastEmbed profile and startup job status."""
+        try:
+            status = core.active_embedding_status()
+            return json.dumps(status, sort_keys=True)
+        except RecollectiumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def embedding_jobs(
+        state: str | None = None,
+        limit: int | None = None,
+    ) -> str:
+        """List embedding jobs, optionally filtered by state."""
+        try:
+            jobs = core.list_embedding_jobs(state=state, limit=limit)
+            return json.dumps(jobs, sort_keys=True)
+        except RecollectiumError as e:
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def get_embedding_job(job_id: str) -> str:
+        """Get a single embedding job by ID."""
+        try:
+            job = core.get_embedding_job(job_id)
+            return json.dumps(job, sort_keys=True)
         except RecollectiumError as e:
             return json.dumps({"error": str(e)}, sort_keys=True)
 
