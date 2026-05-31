@@ -3006,19 +3006,28 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
         "recollectium.cli.RecollectiumCore", lambda *args, **kwargs: None
     )
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    run_calls: list[list[str]] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        run_calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["status"] == "manual_uninstall_required"
+    assert payload["status"] == "uninstalled"
     assert payload["data"]["preserved"] is True
     assert payload["data"]["paths"]["database"] == str(db_path)
     assert payload["package"]["install_method"] == "bootstrap"
     assert payload["package"]["source_ref"] == "main"
     assert payload["package"]["recommended"] == "uv tool uninstall recollectium"
+    assert payload["package"]["uninstall"]["status"] == "removed"
     assert payload["package"]["managed_path_edits"] == ["profile path edit"]
+    assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
     assert config_path.exists()
     assert db_path.read_text(encoding="utf-8") == "preserved"
 
@@ -3039,6 +3048,10 @@ def test_cli_uninstall_uses_bootstrap_legacy_state_metadata_path(
         encoding="utf-8",
     )
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
@@ -3066,6 +3079,10 @@ def test_cli_uninstall_uses_windows_bootstrap_metadata_path(
         encoding="utf-8",
     )
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
@@ -3281,24 +3298,26 @@ def test_cli_uninstall_bootstrap_reports_package_removal_without_starting_handof
         json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
         encoding="utf-8",
     )
-    popen_calls: list[tuple[list[str], dict[str, Any]]] = []
+    run_calls: list[tuple[list[str], dict[str, Any]]] = []
 
-    class FakePopen:
-        def __init__(self, cmd: list[str], **kwargs: Any) -> None:
-            popen_calls.append((cmd, kwargs))
+    def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        run_calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("recollectium.cli.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["package"]["uninstall"]["status"] == "manual"
+    assert payload["status"] == "uninstalled"
+    assert payload["package"]["uninstall"]["status"] == "removed"
     assert (
         payload["package"]["uninstall"]["command"] == "uv tool uninstall recollectium"
     )
-    assert popen_calls == []
+    assert run_calls[0][0] == ["uv", "tool", "uninstall", "recollectium"]
+    assert run_calls[0][1]["check"] is False
 
 
 def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
@@ -3311,10 +3330,10 @@ def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
         json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
         encoding="utf-8",
     )
-    popen_calls: list[list[str]] = []
+    run_calls: list[list[str]] = []
     monkeypatch.setattr(
-        "recollectium.cli.subprocess.Popen",
-        lambda cmd, **kwargs: popen_calls.append(cmd),
+        "recollectium.cli.subprocess.run",
+        lambda cmd, **kwargs: run_calls.append(cmd),
     )
 
     exit_code, stdout, stderr = _run_cli(["uninstall", "--dry-run"], capsys)
@@ -3322,11 +3341,12 @@ def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["package"]["uninstall"]["status"] == "manual"
+    assert payload["status"] == "dry_run"
+    assert payload["package"]["uninstall"]["status"] == "dry_run"
     assert (
         payload["package"]["uninstall"]["command"] == "uv tool uninstall recollectium"
     )
-    assert popen_calls == []
+    assert run_calls == []
 
 
 @pytest.mark.parametrize(
@@ -3334,7 +3354,7 @@ def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
     [
         ("bootstrap", "uv tool uninstall recollectium"),
         ("uv_tool", "uv tool uninstall recollectium"),
-        ("pip", "python -m pip uninstall recollectium"),
+        ("pip", "python -m pip uninstall -y recollectium"),
         ("pipx", "pipx uninstall recollectium"),
         (
             "source",
@@ -3360,7 +3380,10 @@ def test_cli_uninstall_package_instructions_use_canonical_install_methods(
     expected_method = install_method if install_method != "dev_source" else "unknown"
     assert payload["install_method"] == expected_method
     assert payload["recommended"] == expected
-    assert payload["uninstall"] == {"status": "manual", "command": expected}
+    if expected_method in {"bootstrap", "uv_tool", "pip", "pipx"}:
+        assert payload["uninstall"] == {"status": "supported", "command": expected}
+    else:
+        assert payload["uninstall"] == {"status": "unsupported", "hint": expected}
     assert "source" in payload["commands"]
     assert "unknown" in payload["commands"]
     assert "dev_source" not in payload["commands"]
@@ -3538,7 +3561,8 @@ def test_cli_uninstall_ignores_unreadable_install_metadata(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["package"]["install_method"] == "unknown"
+    assert payload["package"]["install_method"] == "source"
+    assert payload["package"]["uninstall"]["status"] == "unsupported"
 
 
 def test_cli_uninstall_ignores_non_object_install_metadata(
@@ -3556,6 +3580,7 @@ def test_cli_uninstall_ignores_non_object_install_metadata(
     assert exit_code == 0
     assert stderr == ""
     assert payload["package"]["install_method"] == "unknown"
+    assert payload["package"]["uninstall"]["status"] == "unsupported"
 
 
 def test_cli_uninstall_purge_dry_run_lists_targets_without_deleting(
@@ -3816,7 +3841,7 @@ def test_cli_uninstall_dry_run_without_purge_prints_instructions(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["status"] == "manual_uninstall_required"
+    assert payload["status"] == "dry_run"
     assert payload["data"]["preserved"] is True
     assert payload["service"]["status"] == "dry_run"
 

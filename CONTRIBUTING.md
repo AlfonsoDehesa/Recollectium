@@ -485,7 +485,7 @@ Every item in this gate must be confirmed before the release-prep PR is merged.
 - [ ] `recollectium upgrade --check` reports whether a newer release is available without mutating the install.
 - [ ] `recollectium upgrade --dry-run` prints the planned upgrade command for each install method without applying changes.
 - [ ] `recollectium upgrade` applies package upgrades through bootstrap, pip, pipx, uv tool, and source checkout install methods while preserving running service state.
-- [ ] `recollectium uninstall` prints correct package-manager commands for each install method and preserves data by default.
+- [ ] `recollectium uninstall` stops managed services, removes managed completions, uninstalls the supported package/tool, and preserves data by default.
 - [ ] `recollectium uninstall --purge` works correctly and safely.
 - [ ] The service starts, responds to health checks, and stops cleanly on Linux, macOS, and Windows.
 

@@ -22,7 +22,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Added an OpenCode adapter readiness contract with discovery, health, capability, workspace, remote Core, and split-machine deployment guidance.
 - Added install-time initialization and model-readiness checks plus bootstrap installers for Linux, macOS, and Windows.
 - Added upgrade checks, dry-run upgrade planning, and package upgrade flows that preserved running service state.
-- Added safe uninstall commands that preserved user data by default and required an explicit purge for data removal.
+- Added one-command uninstall flows that stop managed services, clean managed completions, remove supported package installs, preserve user data by default, and require an explicit purge for data removal.
 - Added shell completion generation for bash, zsh, fish, and PowerShell, including completion support for configuration keys.
 - Added structured JSON logging with rotation plus lifecycle and failure events for install, service, CLI, API, MCP, embedding, and uninstall paths.
 - Added an optional seeded development memory database with config toggles and `recollectium dev reset` for repeatable local testing.
