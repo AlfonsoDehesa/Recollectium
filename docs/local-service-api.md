@@ -65,7 +65,7 @@ Running response shape:
   },
   "versions": {
     "service_api_version": "1",
-    "recollectium_version": "0.x.y"
+    "recollectium_version": "1.0.0"
   },
   "paths": {
     "config": "/home/user/.config/recollectium/config.json",
@@ -84,7 +84,7 @@ Not-running response shape:
   "service": null,
   "versions": {
     "service_api_version": "1",
-    "recollectium_version": "0.x.y"
+    "recollectium_version": "1.0.0"
   },
   "paths": {
     "config": "/home/user/.config/recollectium/config.json",
@@ -172,7 +172,7 @@ Response example:
 {
   "data": {
     "service_api_version": "1",
-    "recollectium_version": "0.x.y"
+    "recollectium_version": "1.0.0"
   }
 }
 ```
