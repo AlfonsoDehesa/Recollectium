@@ -1154,8 +1154,8 @@ def _handle_upgrade_command(
     service_config_path = _core_config_path(
         str(config_path) if args.config_path is not None else None
     )
-    should_check_services = not (
-        (args.check or args.dry_run)
+    should_check_services = not args.check and not (
+        args.dry_run
         and (service_config_path is None or not service_config_path.exists())
     )
     if should_check_services:
@@ -1379,7 +1379,7 @@ def _completion_source(shell: str) -> str:
 def _powershell_completion_profile_block() -> str:
     return r"""
 if (Get-Command recollectium -ErrorAction SilentlyContinue) {
-    Invoke-Expression (& recollectium completion --source powershell)
+    Invoke-Expression ((& recollectium completion --source powershell) -join [Environment]::NewLine)
 }
 """.strip()
 
@@ -1560,7 +1560,7 @@ def _handle_completion_command(args: argparse.Namespace, *, output_format: str) 
         instructions = [
             "Add this block to $PROFILE.CurrentUserCurrentHost for PowerShell tab completion:",
             "",
-            "  recollectium completion powershell --source | Invoke-Expression",
+            "  Invoke-Expression ((& recollectium completion --source powershell) -join [Environment]::NewLine)",
             "",
             "Or run this to install it automatically:",
             "",
@@ -1651,16 +1651,37 @@ def _load_install_metadata(path: Path) -> dict[str, Any] | None:
     return payload
 
 
+def _metadata_with_detected_install_method(
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if metadata is not None and isinstance(metadata.get("install_method"), str):
+        return metadata
+
+    try:
+        detected = detect_install_method(load_install_metadata())
+    except (AttributeError, OSError):
+        detected = "unknown"
+
+    if metadata is None:
+        return {"install_method": detected}
+
+    enriched = dict(metadata)
+    enriched["install_method"] = detected
+    return enriched
+
+
 def _uninstall_package_instructions(
     metadata: dict[str, Any] | None,
 ) -> dict[str, Any]:
     commands = {
         "bootstrap": "uv tool uninstall recollectium",
         "uv_tool": "uv tool uninstall recollectium",
-        "pip": "python -m pip uninstall recollectium",
+        "pip": f"{sys.executable} -m pip uninstall -y recollectium",
         "pipx": "pipx uninstall recollectium",
-        "dev_source": "deactivate this checkout or remove it from your shell path manually",
+        "source": "Remove the source checkout from your shell PATH or deactivate the editable install manually.",
+        "unknown": "Install method unknown; inspect how Recollectium was installed and use the matching package manager manually.",
     }
+    supported_commands = {"bootstrap", "uv_tool", "pip", "pipx"}
     install_method = None
     source_ref = None
     managed_path_edits: list[str] = []
@@ -1669,7 +1690,7 @@ def _uninstall_package_instructions(
         raw_ref = metadata.get("source_ref")
         raw_path_edits = metadata.get("managed_path_edits")
         if isinstance(raw_method, str):
-            install_method = raw_method
+            install_method = raw_method if raw_method in commands else "unknown"
         if isinstance(raw_ref, str):
             source_ref = raw_ref
         if isinstance(raw_path_edits, list):
@@ -1677,49 +1698,171 @@ def _uninstall_package_instructions(
                 item for item in raw_path_edits if isinstance(item, str)
             ]
 
-    recommended_key = install_method if install_method in commands else "uv_tool"
+    recommended_key = install_method if install_method in commands else "unknown"
+    recommended = commands[recommended_key]
+    uninstall_payload: dict[str, Any]
+    if recommended_key in supported_commands:
+        uninstall_payload = {"status": "supported", "command": recommended}
+    else:
+        uninstall_payload = {
+            "status": "unsupported",
+            "hint": recommended,
+        }
     return {
         "install_method": install_method or "unknown",
         "source_ref": source_ref,
-        "recommended": commands[recommended_key],
+        "recommended": recommended,
+        "uninstall": uninstall_payload,
         "commands": commands,
         "managed_path_edits": managed_path_edits,
     }
 
 
-def _bootstrap_package_uninstall_status(
+def _safe_which(name: str) -> str | None:
+    try:
+        return shutil.which(name)
+    except AttributeError:
+        return None
+
+
+def _resolve_executable(name: str) -> str:
+    if not sys.platform.startswith("win"):
+        return name
+
+    resolved = _safe_which(name)
+    if resolved is not None:
+        return resolved
+
+    suffix = ".exe" if not name.endswith(".exe") else ""
+    candidates = []
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / name / f"{name}{suffix}")
+    candidates.append(Path.home() / ".local" / "bin" / f"{name}{suffix}")
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return name
+
+
+def _package_uninstall_command(install_method: str) -> list[str] | None:
+    commands = {
+        "bootstrap": [_resolve_executable("uv"), "tool", "uninstall", "recollectium"],
+        "uv_tool": [_resolve_executable("uv"), "tool", "uninstall", "recollectium"],
+        "pip": [sys.executable, "-m", "pip", "uninstall", "-y", "recollectium"],
+        "pipx": [_resolve_executable("pipx"), "uninstall", "recollectium"],
+    }
+    return commands.get(install_method)
+
+
+def _schedule_windows_package_removal(command: list[str]) -> dict[str, Any]:
+    powershell = _safe_which("pwsh") or _safe_which("powershell") or "powershell"
+    command_json = json.dumps(command).replace("'", "''")
+    script = (
+        "$ErrorActionPreference = 'SilentlyContinue'; "
+        f"$parentPid = {os.getpid()}; "
+        f"$cmd = '{command_json}' | ConvertFrom-Json; "
+        "if ($parentPid -gt 0) { Wait-Process -Id $parentPid -Timeout 30 }; "
+        "& $cmd[0] @($cmd[1..($cmd.Count - 1)]) *> $null"
+    )
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+        subprocess, "DETACHED_PROCESS", 0
+    )
+    helper = subprocess.Popen(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=creationflags,
+    )
+    return {
+        "status": "scheduled",
+        "command": " ".join(command),
+        "argv": command,
+        "helper_pid": helper.pid,
+        "hint": "Package removal was handed off and will finish after this process exits.",
+    }
+
+
+def _remove_installed_package(
     metadata: dict[str, Any] | None,
     *,
     dry_run: bool,
 ) -> dict[str, Any]:
-    command = "uv tool uninstall recollectium"
-    if not metadata or metadata.get("install_method") != "bootstrap":
-        return {"status": "manual", "command": command}
+    metadata = _metadata_with_detected_install_method(metadata)
+    payload = _uninstall_package_instructions(metadata)
+    install_method = payload["install_method"]
+    command = _package_uninstall_command(install_method)
+
     if dry_run:
-        return {"status": "dry_run", "command": command}
+        dry_run_payload: dict[str, Any] = {"status": "dry_run"}
+        if command is None:
+            dry_run_payload["hint"] = payload["recommended"]
+        else:
+            dry_run_payload["command"] = payload["recommended"]
+            dry_run_payload["argv"] = command
+        payload["uninstall"] = dry_run_payload
+        return payload
+
+    if command is None:
+        payload["uninstall"] = {
+            "status": "unsupported",
+            "hint": payload["recommended"],
+        }
+        return payload
 
     if sys.platform.startswith("win"):
-        popen_cmd = [
-            "powershell",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            "Start-Sleep -Seconds 1; uv tool uninstall recollectium",
-        ]
-    else:
-        popen_cmd = ["sh", "-c", "sleep 1; uv tool uninstall recollectium"]
+        try:
+            payload["uninstall"] = _schedule_windows_package_removal(command)
+        except FileNotFoundError as exc:
+            payload["uninstall"] = {
+                "status": "failed",
+                "command": payload["recommended"],
+                "argv": command,
+                "returncode": 127,
+                "stderr": str(exc),
+                "hint": "Install PowerShell or uninstall Recollectium with the matching package manager manually.",
+            }
+        return payload
+
     try:
-        subprocess.Popen(  # noqa: S603 - command is fixed, no user input.
-            popen_cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=not sys.platform.startswith("win"),
+        completed = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
-    except OSError as exc:
-        return {"status": "failed", "command": command, "error": str(exc)}
-    return {"status": "started", "command": command}
+    except FileNotFoundError as exc:
+        payload["uninstall"] = {
+            "status": "failed",
+            "command": payload["recommended"],
+            "argv": command,
+            "returncode": 127,
+            "stderr": str(exc),
+            "hint": "Install the matching package manager or uninstall Recollectium with it manually.",
+        }
+        return payload
+
+    uninstall_payload: dict[str, Any] = {
+        "status": "removed" if completed.returncode == 0 else "failed",
+        "command": payload["recommended"],
+        "argv": command,
+        "returncode": completed.returncode,
+    }
+    if completed.stdout:
+        uninstall_payload["stdout"] = completed.stdout
+    if completed.stderr:
+        uninstall_payload["stderr"] = completed.stderr
+    if completed.returncode != 0:
+        uninstall_payload["hint"] = (
+            "Recollectium data and shell cleanup completed, but package removal failed. "
+            "Run the listed command manually after fixing the package manager error."
+        )
+    payload["uninstall"] = uninstall_payload
+    return payload
 
 
 def _completion_rc_paths(metadata: dict[str, Any] | None) -> list[Path]:
@@ -1834,10 +1977,21 @@ def _path_payload(
     return payload
 
 
-def _delete_purge_target(path: Path, *, dry_run: bool) -> dict[str, Any]:
+def _delete_purge_target(
+    path: Path,
+    *,
+    dry_run: bool,
+    owned_paths: set[Path] | None = None,
+) -> dict[str, Any]:
     if _is_suspicious_purge_path(path):
         return _path_payload(path, deleted=False, reason="suspicious_path")
-    if not _is_recollectium_owned_path(path):
+    resolved = path.expanduser().resolve(strict=False)
+    is_owned = (
+        resolved in owned_paths
+        if owned_paths is not None
+        else _is_recollectium_owned_path(path)
+    )
+    if not is_owned:
         return _path_payload(path, deleted=False, reason="not_recollectium_owned")
     if not path.exists():
         return _path_payload(path, deleted=False, reason="missing")
@@ -1851,6 +2005,19 @@ def _delete_purge_target(path: Path, *, dry_run: bool) -> dict[str, Any]:
 
 
 def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
+    directory_overrides = plan.config.effective_config.get("directories", {})
+    default_dirs = _resolve_xdg_dirs(DEFAULTS["directories"])
+    default_config_dir = default_dirs["config"].expanduser().resolve(strict=False)
+    owned_paths = {default_config_dir}
+    resolved_config_path = plan.config_path.expanduser().resolve(strict=False)
+    if resolved_config_path.parent == default_config_dir:
+        owned_paths.add(resolved_config_path)
+    for key in ("data", "cache", "logs", "runtime"):
+        if directory_overrides.get(key) is None:
+            owned_paths.add(default_dirs[key].expanduser().resolve(strict=False))
+    if plan.config.xdg_dirs["data"].expanduser().resolve(strict=False) in owned_paths:
+        owned_paths.add(plan.database_path.expanduser().resolve(strict=False))
+
     raw_targets = [
         plan.config_path,
         plan.config_path.parent,
@@ -1869,7 +2036,10 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
         seen.add(resolved)
         targets.append(target)
 
-    results = [_delete_purge_target(target, dry_run=dry_run) for target in targets]
+    results = [
+        _delete_purge_target(target, dry_run=dry_run, owned_paths=owned_paths)
+        for target in targets
+    ]
     return {
         "dry_run": dry_run,
         "targets": results,
@@ -1899,6 +2069,26 @@ def _handle_uninstall_command(
     plan = _load_uninstall_plan(config_path, explicit=explicit)
     metadata = _load_install_metadata(plan.install_metadata_path)
 
+    purge_preview: dict[str, Any] | None = None
+    if args.purge and not args.dry_run:
+        purge_preview = _purge_targets(plan, dry_run=True)
+        interactive = sys.stdin.isatty()
+        if not args.yes_delete_all_recollectium_data:
+            if interactive:
+                _write_tty(
+                    "Type 'delete all recollectium data' to permanently delete Recollectium data: "
+                )
+            response = sys.stdin.readline().rstrip("\n")
+            if response != _PURGE_CONFIRMATION:
+                return _emit_cli_failure(
+                    status="purge_cancelled",
+                    message="purge cancelled",
+                    hint="Type the exact confirmation phrase to permanently delete Recollectium data.",
+                    exit_code=1,
+                    command="uninstall --purge",
+                    event="uninstall.purge_cancelled",
+                )
+
     service_payload: dict[str, Any]
     if args.dry_run:
         service_payload = {"status": "dry_run", "note": "service would be stopped"}
@@ -1925,30 +2115,12 @@ def _handle_uninstall_command(
         if args.dry_run:
             data_payload["purge"] = _purge_targets(plan, dry_run=True)
         else:
-            preview = _purge_targets(plan, dry_run=True)
-            interactive = sys.stdin.isatty()
-
-            if not args.yes_delete_all_recollectium_data:
-                if interactive:
-                    _write_tty(
-                        "Type 'delete all recollectium data' to permanently delete Recollectium data: "
-                    )
-                response = sys.stdin.readline().rstrip("\n")
-                if response != _PURGE_CONFIRMATION:
-                    return _emit_cli_failure(
-                        status="purge_cancelled",
-                        message="purge cancelled",
-                        hint="Type the exact confirmation phrase to permanently delete Recollectium data.",
-                        exit_code=1,
-                        command="uninstall --purge",
-                        event="uninstall.purge_cancelled",
-                    )
-
             sys.stderr.write(
                 "The following Recollectium-owned paths will be permanently deleted:\n"
             )
-            for target in preview["targets"]:
-                if target.get("reason") == "missing":
+            assert purge_preview is not None
+            for target in purge_preview["targets"]:
+                if target.get("reason") != "dry_run":
                     continue
                 sys.stderr.write(f"  {target['path']}\n")
             sys.stderr.write("\n")
@@ -1956,12 +2128,18 @@ def _handle_uninstall_command(
             logging.shutdown()
             data_payload["purge"] = _purge_targets(plan, dry_run=False)
 
-    package_payload = _uninstall_package_instructions(metadata)
-    package_payload["uninstall"] = _bootstrap_package_uninstall_status(
-        metadata, dry_run=args.dry_run
-    )
+    package_payload = _remove_installed_package(metadata, dry_run=args.dry_run)
+    package_status = package_payload["uninstall"]["status"]
     result = {
-        "status": "manual_uninstall_required",
+        "status": (
+            "uninstalled"
+            if package_status in {"removed", "scheduled"}
+            else "dry_run"
+            if package_status == "dry_run"
+            else "package_removal_unsupported"
+            if package_status == "unsupported"
+            else "package_removal_failed"
+        ),
         "package": package_payload,
         "service": service_payload,
         "shell_completion": completion_payload,
@@ -1969,11 +2147,11 @@ def _handle_uninstall_command(
     }
     if not args.purge:
         _log.info(
-            "Uninstall instructions generated",
-            extra={"event": "uninstall.instructions"},
+            "Uninstall completed",
+            extra={"event": "uninstall.completed"},
         )
     _emit_success(result, output_format=output_format, command="uninstall")
-    return 0
+    return 1 if package_status == "failed" else 0
 
 
 def _handle_workspace_command(
@@ -2474,11 +2652,13 @@ def _build_parser() -> argparse.ArgumentParser:
     # -- uninstall ---------------------------------------------------------
     uninstall_parser = subparsers.add_parser(
         "uninstall",
-        help="print safe uninstall instructions or purge Recollectium data",
+        help="uninstall Recollectium while preserving data by default",
         description=(
-            "Print package manager uninstall instructions while preserving memories by "
-            "default. Use --purge to delete Recollectium-owned config, data, cache, logs, "
-            "and runtime paths after explicit confirmation."
+            "Stop managed services, remove managed shell completions, and uninstall the "
+            "installed Recollectium package while preserving memories by default. "
+            "Use --purge to also delete Recollectium-owned config, data, cache, logs, "
+            "and runtime paths after explicit confirmation. Source and unknown installs "
+            "report a manual package-removal hint because safe self-removal is not supported."
         ),
     )
     uninstall_parser.add_argument(
@@ -2500,8 +2680,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help=(
-            "Show planned actions without deleting files, stopping services, or "
-            "removing data. Use with --purge to preview full deletion paths."
+            "Show planned actions without deleting files, stopping services, removing "
+            "completion blocks, removing data, or uninstalling the package. Use with "
+            "--purge to preview full deletion paths."
         ),
     )
 
@@ -2562,7 +2743,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # service start
-    start_parser = service_sub.add_parser("start", help="start a Recollectium service")
+    start_parser = service_sub.add_parser(
+        "start",
+        help="start a Recollectium service",
+        description=(
+            "Start a managed Recollectium API or MCP HTTP service in the background. "
+            "The service writes owned PID and discovery state files, and API services "
+            "use the configured host and port unless overridden elsewhere."
+        ),
+    )
     start_parser.add_argument(
         "type",
         choices=["api", "mcp"],
@@ -2570,10 +2759,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # service stop
-    service_sub.add_parser("stop", help="stop the running Recollectium service")
+    service_sub.add_parser(
+        "stop",
+        help="stop the running Recollectium service",
+        description=(
+            "Stop the managed Recollectium service if it is running. The command "
+            "cleans up stale Recollectium-owned PID and discovery files when applicable."
+        ),
+    )
 
     # service status
-    service_sub.add_parser("status", help="show running service details")
+    service_sub.add_parser(
+        "status",
+        help="show running service details",
+        description=(
+            "Report managed service state as running, stale, or not running. Output "
+            "includes service details in JSON by default or human-readable text when requested."
+        ),
+    )
 
     # service discover
     service_sub.add_parser(
@@ -2588,7 +2791,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # service restart
     restart_parser = service_sub.add_parser(
-        "restart", help="restart the running service"
+        "restart",
+        help="restart the running service",
+        description=(
+            "Restart the existing managed Recollectium service, preserving its service type. "
+            "If no running service exists, --type selects the API or MCP service to start."
+        ),
     )
     restart_parser.add_argument(
         "--type",
@@ -2804,6 +3012,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "modifying any file."
         ),
     )
+    # Internal dynamic-completion protocol flags used by generated shell hooks;
+    # hidden from public help because users should invoke completion via shell setup.
     action_group.add_argument(
         "--complete-line",
         help=argparse.SUPPRESS,

@@ -98,6 +98,83 @@ jobs:
               assert payload["install_method"] == "bootstrap", payload
           PY
 
+      - name: Verify service lifecycle on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          smoke_root="$(mktemp -d)"
+          trap 'recollectium --config "$smoke_root/config/config.json" service stop --json >/dev/null 2>&1 || true; rm -rf "$smoke_root"' EXIT
+          port="$(python - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(("127.0.0.1", 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          config="$smoke_root/config/config.json"
+          recollectium --config "$config" config set service.port "$port" --json >/dev/null
+          recollectium --config "$config" config set directories.data "$smoke_root/data" --json >/dev/null
+          recollectium --config "$config" config set directories.cache "$smoke_root/cache" --json >/dev/null
+          recollectium --config "$config" config set directories.logs "$smoke_root/logs" --json >/dev/null
+          recollectium --config "$config" config set directories.runtime "$smoke_root/run" --json >/dev/null
+          recollectium --config "$config" service start api --json > service-start.json
+          python - "$port" <<'PY'
+          import json
+          import sys
+          import time
+          import urllib.request
+
+          port = int(sys.argv[1])
+          url = f"http://127.0.0.1:{port}/v1/health"
+          deadline = time.monotonic() + 30
+          last_error = None
+          while time.monotonic() < deadline:
+              try:
+                  with urllib.request.urlopen(url, timeout=2) as response:
+                      payload = json.loads(response.read().decode("utf-8"))
+                  assert payload["data"]["status"] == "ok", payload
+                  break
+              except Exception as exc:  # smoke retry captures transient startup failures
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise AssertionError(f"health check did not become ok: {last_error!r}")
+          PY
+          recollectium --config "$config" service status --json > service-status.json
+          recollectium --config "$config" service discover --json > service-discover.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          start_payload = json.loads(Path("service-start.json").read_text(encoding="utf-8"))
+          assert start_payload["status"] == "started", start_payload
+          assert start_payload["type"] == "api", start_payload
+          assert start_payload["pid"] > 0, start_payload
+
+          status_payload = json.loads(Path("service-status.json").read_text(encoding="utf-8"))
+          assert status_payload["running"] is True, status_payload
+          assert status_payload["type"] == "api", status_payload
+          assert status_payload["pid"] > 0, status_payload
+
+          discover_payload = json.loads(Path("service-discover.json").read_text(encoding="utf-8"))
+          assert discover_payload["status"] == "running", discover_payload
+          assert discover_payload["service"]["type"] == "api", discover_payload
+          assert discover_payload["service"]["pid"] > 0, discover_payload
+          PY
+          recollectium --config "$config" service stop --json > service-stop.json
+          recollectium --config "$config" service status --json > service-stopped.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          stop_payload = json.loads(Path("service-stop.json").read_text(encoding="utf-8"))
+          assert stop_payload["status"] == "stopped", stop_payload
+          stopped_payload = json.loads(Path("service-stopped.json").read_text(encoding="utf-8"))
+          assert stopped_payload["running"] is False, stopped_payload
+          PY
+
       - name: Verify uninstall on Unix
         if: runner.os != 'Windows'
         shell: bash
@@ -145,9 +222,10 @@ jobs:
 
           payload = json.loads(Path("uninstall-default.json").read_text(encoding="utf-8"))
           assert Path("uninstall-default.stderr").read_text(encoding="utf-8") == ""
-          assert payload["status"] == "manual_uninstall_required", payload
+          assert payload["status"] == "uninstalled", payload
           assert payload["package"]["install_method"] == "bootstrap", payload
           assert payload["package"]["recommended"] == "uv tool uninstall recollectium", payload
+          assert payload["package"]["uninstall"]["status"] == "removed", payload
           assert payload["data"]["preserved"] is True, payload
           paths = payload["data"]["paths"]
           assert Path(paths["config"]).exists(), paths
@@ -161,15 +239,16 @@ jobs:
           assert any(item.get("removed") is True and item.get("blocks", 0) >= 1 for item in removed), payload
           PY
 
-          # The default bootstrap uninstall now starts a package-removal handoff, so
-          # wait for that delayed handoff, clear any partially removed tool env,
-          # and reinstall the checked-out package before running the purge half of
-          # this smoke test.
-          sleep 2
-          uv tool uninstall recollectium || true
-          uv tool install --force .
-          recollectium --version
+          hash -r
+          if command -v recollectium >/dev/null 2>&1; then
+            echo "recollectium command still exists after default uninstall" >&2
+            command -v recollectium >&2 || true
+            exit 1
+          fi
 
+          RECOLLECTIUM_INSTALL_REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}" sh ./install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          hash -r
           recollectium init
           recollectium add --space user --type note --content "CI purge uninstall smoke sentinel" --json > add-purge.json
           recollectium uninstall --purge --yes-delete-all-recollectium-data --json > uninstall-purge.json 2> uninstall-purge.stderr
@@ -184,9 +263,10 @@ jobs:
           payload = json.loads(Path("uninstall-purge.json").read_text(encoding="utf-8"))
           purge_stderr = Path("uninstall-purge.stderr").read_text(encoding="utf-8")
           assert "The following Recollectium-owned paths will be permanently deleted:" in purge_stderr, purge_stderr
-          assert payload["status"] == "manual_uninstall_required", payload
+          assert payload["status"] == "uninstalled", payload
           assert payload["package"]["install_method"] == "bootstrap", payload
           assert payload["package"]["recommended"] == "uv tool uninstall recollectium", payload
+          assert payload["package"]["uninstall"]["status"] == "removed", payload
           assert payload["data"]["preserved"] is False, payload
           purge = payload["data"]["purge"]
           assert purge["dry_run"] is False, payload
@@ -196,10 +276,9 @@ jobs:
           assert not Path(paths["database"]).exists(), paths
           PY
 
-          uv tool uninstall recollectium
           hash -r
           if command -v recollectium >/dev/null 2>&1; then
-            echo "recollectium command still exists after uv tool uninstall" >&2
+            echo "recollectium command still exists after purge uninstall" >&2
             command -v recollectium >&2 || true
             exit 1
           fi
@@ -214,6 +293,35 @@ jobs:
           recollectium upgrade --check --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" --json | Out-File -Encoding utf8 upgrade-check.json
           recollectium upgrade --dry-run --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" --json | Out-File -Encoding utf8 upgrade-dry-run.json
           python -c "import json, pathlib; payloads=[json.loads(pathlib.Path(p).read_text(encoding='utf-8-sig')) for p in ['upgrade-check.json','upgrade-dry-run.json']]; assert all(p['status'] in {'up_to_date', 'dry_run'} for p in payloads), payloads; assert all(p['install_method'] == 'bootstrap' for p in payloads), payloads"
+
+      - name: Verify service lifecycle on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("recollectium-smoke-" + [System.Guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+          $config = Join-Path $smokeRoot "config\config.json"
+          try {
+            $port = python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()"
+            recollectium --config $config config set service.port $port --json | Out-Null
+            recollectium --config $config config set directories.data (Join-Path $smokeRoot "data") --json | Out-Null
+            recollectium --config $config config set directories.cache (Join-Path $smokeRoot "cache") --json | Out-Null
+            recollectium --config $config config set directories.logs (Join-Path $smokeRoot "logs") --json | Out-Null
+            recollectium --config $config config set directories.runtime (Join-Path $smokeRoot "run") --json | Out-Null
+            recollectium --config $config service start api --json | Out-File -Encoding utf8 service-start.json
+            python -c "import json, sys, time, urllib.request`nport=int(sys.argv[1]); url=f'http://127.0.0.1:{port}/v1/health'; deadline=time.monotonic()+30; last=None`nwhile time.monotonic() < deadline:`n    try:`n        payload=json.loads(urllib.request.urlopen(url, timeout=2).read().decode('utf-8'))`n        assert payload['data']['status'] == 'ok', payload`n        break`n    except Exception as exc:`n        last=exc; time.sleep(1)`nelse:`n    raise AssertionError(f'health check did not become ok: {last!r}')" $port
+            recollectium --config $config service status --json | Out-File -Encoding utf8 service-status.json
+            recollectium --config $config service discover --json | Out-File -Encoding utf8 service-discover.json
+            python -c "import json, pathlib; start=json.loads(pathlib.Path('service-start.json').read_text(encoding='utf-8-sig')); assert start['status'] == 'started', start; assert start['type'] == 'api', start; assert start['pid'] > 0, start; status=json.loads(pathlib.Path('service-status.json').read_text(encoding='utf-8-sig')); assert status['running'] is True, status; assert status['type'] == 'api', status; assert status['pid'] > 0, status; discover=json.loads(pathlib.Path('service-discover.json').read_text(encoding='utf-8-sig')); assert discover['status'] == 'running', discover; assert discover['service']['type'] == 'api', discover; assert discover['service']['pid'] > 0, discover"
+            recollectium --config $config service stop --json | Out-File -Encoding utf8 service-stop.json
+            recollectium --config $config service status --json | Out-File -Encoding utf8 service-stopped.json
+            python -c "import json, pathlib; stop=json.loads(pathlib.Path('service-stop.json').read_text(encoding='utf-8-sig')); assert stop['status'] == 'stopped', stop; stopped=json.loads(pathlib.Path('service-stopped.json').read_text(encoding='utf-8-sig')); assert stopped['running'] is False, stopped"
+          }
+          finally {
+            recollectium --config $config service stop --json *> $null
+            Remove-Item -Recurse -Force $smokeRoot -ErrorAction SilentlyContinue
+          }
 
       - name: Verify uninstall on Windows
         if: runner.os == 'Windows'
@@ -244,30 +352,19 @@ jobs:
           Invoke-RecollectiumSmokeCommand -Arguments @("add", "--space", "user", "--type", "note", "--content", "CI uninstall smoke sentinel", "--json") -StdoutPath add-default.json -StderrPath add-default.stderr
           Invoke-RecollectiumSmokeCommand -Arguments @("uninstall", "--json") -StdoutPath uninstall-default.json -StderrPath uninstall-default.stderr
 
-          Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-default.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; assert pathlib.Path('uninstall-default.stderr').read_text(encoding='utf-8-sig') == ''; payload=json.loads(pathlib.Path('uninstall-default.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'manual_uninstall_required', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; assert payload['data']['preserved'] is True, payload; paths=payload['data']['paths']; assert pathlib.Path(paths['config']).exists(), paths; assert pathlib.Path(paths['database']).exists(), paths"
+          Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-default.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; assert pathlib.Path('uninstall-default.stderr').read_text(encoding='utf-8-sig') == ''; payload=json.loads(pathlib.Path('uninstall-default.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'uninstalled', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; uninstall=payload['package']['uninstall']; assert uninstall['status'] in {'removed', 'scheduled'}, payload; assert payload['data']['preserved'] is True, payload; paths=payload['data']['paths']; assert pathlib.Path(paths['config']).exists(), paths; assert pathlib.Path(paths['database']).exists(), paths"
+          Start-Sleep -Seconds 5
 
           $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
           if (-not $uv) { $uv = Join-Path $env:LOCALAPPDATA "uv\uv.exe" }
 
-          # The default bootstrap uninstall now starts a package-removal handoff, so
-          # wait for that delayed handoff, clear any partially removed tool env,
-          # and reinstall the checked-out package before running the purge half of
-          # this smoke test.
-          Start-Sleep -Seconds 2
-          & $uv tool uninstall recollectium
-          & $uv tool install --force .
-          if ($LASTEXITCODE -ne 0) { throw "uv tool reinstall failed with exit code $LASTEXITCODE" }
-          recollectium --version
+          $env:RECOLLECTIUM_INSTALL_REF = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
+          .\install.ps1
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed with exit code $LASTEXITCODE" }
 
           Invoke-RecollectiumSmokeCommand -Arguments @("init") -StdoutPath init-purge.json -StderrPath init-purge.stderr
           Invoke-PythonSmokeCheck -Command "import pathlib; assert pathlib.Path('init-purge.stderr').read_text(encoding='utf-8-sig') == ''"
           Invoke-RecollectiumSmokeCommand -Arguments @("add", "--space", "user", "--type", "note", "--content", "CI purge uninstall smoke sentinel", "--json") -StdoutPath add-purge.json -StderrPath add-purge.stderr
           Invoke-RecollectiumSmokeCommand -Arguments @("uninstall", "--purge", "--yes-delete-all-recollectium-data", "--json") -StdoutPath uninstall-purge.json -StderrPath uninstall-purge.stderr
 
-          Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-purge.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; purge_stderr=pathlib.Path('uninstall-purge.stderr').read_text(encoding='utf-8-sig'); assert 'The following Recollectium-owned paths will be permanently deleted:' in purge_stderr, purge_stderr; payload=json.loads(pathlib.Path('uninstall-purge.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'manual_uninstall_required', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; assert payload['data']['preserved'] is False, payload; purge=payload['data']['purge']; assert purge['dry_run'] is False, payload; assert purge['deleted'], payload; paths=payload['data']['paths']; assert not pathlib.Path(paths['config']).exists(), paths; assert not pathlib.Path(paths['database']).exists(), paths"
-
-          & $uv tool uninstall recollectium
-          if ($LASTEXITCODE -ne 0) { throw "uv tool uninstall failed with exit code $LASTEXITCODE" }
-          if (Get-Command recollectium -ErrorAction SilentlyContinue) {
-            throw "recollectium command still exists after uv tool uninstall"
-          }
+          Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-purge.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; purge_stderr=pathlib.Path('uninstall-purge.stderr').read_text(encoding='utf-8-sig'); assert 'The following Recollectium-owned paths will be permanently deleted:' in purge_stderr, purge_stderr; payload=json.loads(pathlib.Path('uninstall-purge.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'uninstalled', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; uninstall=payload['package']['uninstall']; assert uninstall['status'] in {'removed', 'scheduled'}, payload; assert payload['data']['preserved'] is False, payload; purge=payload['data']['purge']; assert purge['dry_run'] is False, payload; assert purge['deleted'], payload; paths=payload['data']['paths']; assert not pathlib.Path(paths['config']).exists(), paths; assert not pathlib.Path(paths['database']).exists(), paths"

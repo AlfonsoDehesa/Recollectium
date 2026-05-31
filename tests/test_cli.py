@@ -10,6 +10,8 @@ from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 import runpy
 import shutil
+import subprocess
+import sys
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -3006,19 +3008,28 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
         "recollectium.cli.RecollectiumCore", lambda *args, **kwargs: None
     )
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    run_calls: list[list[str]] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        run_calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["status"] == "manual_uninstall_required"
+    assert payload["status"] == "uninstalled"
     assert payload["data"]["preserved"] is True
     assert payload["data"]["paths"]["database"] == str(db_path)
     assert payload["package"]["install_method"] == "bootstrap"
     assert payload["package"]["source_ref"] == "main"
     assert payload["package"]["recommended"] == "uv tool uninstall recollectium"
+    assert payload["package"]["uninstall"]["status"] == "removed"
     assert payload["package"]["managed_path_edits"] == ["profile path edit"]
+    assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
     assert config_path.exists()
     assert db_path.read_text(encoding="utf-8") == "preserved"
 
@@ -3039,6 +3050,10 @@ def test_cli_uninstall_uses_bootstrap_legacy_state_metadata_path(
         encoding="utf-8",
     )
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
@@ -3066,6 +3081,10 @@ def test_cli_uninstall_uses_windows_bootstrap_metadata_path(
         encoding="utf-8",
     )
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.Popen",
+        lambda *_args, **_kwargs: SimpleNamespace(pid=1234),
+    )
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
@@ -3074,6 +3093,7 @@ def test_cli_uninstall_uses_windows_bootstrap_metadata_path(
     assert stderr == ""
     assert payload["package"]["install_method"] == "bootstrap"
     assert payload["package"]["source_ref"] == "ci"
+    assert payload["package"]["uninstall"]["status"] == "scheduled"
 
 
 def test_cli_uninstall_purge_closes_log_handlers_before_deleting_logs(
@@ -3217,7 +3237,7 @@ def test_cli_uninstall_removes_powershell_completion_from_structured_metadata(
         "before\n"
         "# >>> recollectium completion >>>\n"
         "if (Get-Command recollectium -ErrorAction SilentlyContinue) {\n"
-        "    Invoke-Expression (& recollectium completion --source powershell)\n"
+        "    Invoke-Expression ((& recollectium completion --source powershell) -join [Environment]::NewLine)\n"
         "}\n"
         "# <<< recollectium completion <<<\n"
         "after\n",
@@ -3270,7 +3290,7 @@ def test_cli_uninstall_ignores_invalid_structured_completion_metadata(
     assert payload["shell_completion"]["removed"] == []
 
 
-def test_cli_uninstall_bootstrap_starts_package_removal_handoff(
+def test_cli_uninstall_bootstrap_reports_package_removal_without_starting_handoff(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
@@ -3281,25 +3301,26 @@ def test_cli_uninstall_bootstrap_starts_package_removal_handoff(
         json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
         encoding="utf-8",
     )
-    popen_calls: list[tuple[list[str], dict[str, Any]]] = []
+    run_calls: list[tuple[list[str], dict[str, Any]]] = []
 
-    class FakePopen:
-        def __init__(self, cmd: list[str], **kwargs: Any) -> None:
-            popen_calls.append((cmd, kwargs))
+    def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        run_calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("recollectium.cli.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["package"]["uninstall"]["status"] == "started"
+    assert payload["status"] == "uninstalled"
+    assert payload["package"]["uninstall"]["status"] == "removed"
     assert (
         payload["package"]["uninstall"]["command"] == "uv tool uninstall recollectium"
     )
-    assert popen_calls
-    assert "uv tool uninstall recollectium" in " ".join(popen_calls[0][0])
+    assert run_calls[0][0] == ["uv", "tool", "uninstall", "recollectium"]
+    assert run_calls[0][1]["check"] is False
 
 
 def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
@@ -3312,10 +3333,10 @@ def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
         json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
         encoding="utf-8",
     )
-    popen_calls: list[list[str]] = []
+    run_calls: list[list[str]] = []
     monkeypatch.setattr(
-        "recollectium.cli.subprocess.Popen",
-        lambda cmd, **kwargs: popen_calls.append(cmd),
+        "recollectium.cli.subprocess.run",
+        lambda cmd, **kwargs: run_calls.append(cmd),
     )
 
     exit_code, stdout, stderr = _run_cli(["uninstall", "--dry-run"], capsys)
@@ -3323,8 +3344,77 @@ def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
+    assert payload["status"] == "dry_run"
     assert payload["package"]["uninstall"]["status"] == "dry_run"
-    assert popen_calls == []
+    assert (
+        payload["package"]["uninstall"]["command"] == "uv tool uninstall recollectium"
+    )
+    assert run_calls == []
+
+
+@pytest.mark.parametrize(
+    ("install_method", "expected"),
+    [
+        ("bootstrap", "uv tool uninstall recollectium"),
+        ("uv_tool", "uv tool uninstall recollectium"),
+        ("pip", f"{sys.executable} -m pip uninstall -y recollectium"),
+        ("pipx", "pipx uninstall recollectium"),
+        (
+            "source",
+            "Remove the source checkout from your shell PATH or deactivate the editable install manually.",
+        ),
+        (
+            "unknown",
+            "Install method unknown; inspect how Recollectium was installed and use the matching package manager manually.",
+        ),
+        (
+            "dev_source",
+            "Install method unknown; inspect how Recollectium was installed and use the matching package manager manually.",
+        ),
+    ],
+)
+def test_cli_uninstall_package_instructions_use_canonical_install_methods(
+    install_method: str, expected: str
+) -> None:
+    from recollectium.cli import _uninstall_package_instructions
+
+    payload = _uninstall_package_instructions({"install_method": install_method})
+
+    expected_method = install_method if install_method != "dev_source" else "unknown"
+    assert payload["install_method"] == expected_method
+    assert payload["recommended"] == expected
+    if expected_method in {"bootstrap", "uv_tool", "pip", "pipx"}:
+        assert payload["uninstall"] == {"status": "supported", "command": expected}
+    else:
+        assert payload["uninstall"] == {"status": "unsupported", "hint": expected}
+    assert "source" in payload["commands"]
+    assert "unknown" in payload["commands"]
+    assert "dev_source" not in payload["commands"]
+
+
+def test_cli_uninstall_bootstrap_command_uses_windows_uv_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.cli import _package_uninstall_command
+
+    uv_path = tmp_path / "local-app-data" / "uv" / "uv.exe"
+    uv_path.parent.mkdir(parents=True)
+    uv_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local-app-data"))
+    monkeypatch.setattr("recollectium.cli.shutil.which", lambda _name: None)
+
+    command = _package_uninstall_command("bootstrap")
+
+    assert command == [str(uv_path), "tool", "uninstall", "recollectium"]
+
+
+def test_cli_uninstall_pip_command_uses_running_interpreter() -> None:
+    from recollectium.cli import _package_uninstall_command
+
+    command = _package_uninstall_command("pip")
+
+    assert command == [sys.executable, "-m", "pip", "uninstall", "-y", "recollectium"]
 
 
 def test_cli_uninstall_completion_cleanup_skips_duplicate_metadata_path(
@@ -3499,7 +3589,8 @@ def test_cli_uninstall_ignores_unreadable_install_metadata(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["package"]["install_method"] == "unknown"
+    assert payload["package"]["install_method"] == "source"
+    assert payload["package"]["uninstall"]["status"] == "unsupported"
 
 
 def test_cli_uninstall_ignores_non_object_install_metadata(
@@ -3517,6 +3608,7 @@ def test_cli_uninstall_ignores_non_object_install_metadata(
     assert exit_code == 0
     assert stderr == ""
     assert payload["package"]["install_method"] == "unknown"
+    assert payload["package"]["uninstall"]["status"] == "unsupported"
 
 
 def test_cli_uninstall_purge_dry_run_lists_targets_without_deleting(
@@ -3553,7 +3645,25 @@ def test_cli_uninstall_purge_cancelled_by_confirmation(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
-    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    stopped = False
+
+    def _stop_service(_config: Any) -> None:
+        nonlocal stopped
+        stopped = True
+
+    bashrc = tmp_path / ".bashrc"
+    bashrc.write_text(
+        "# >>> recollectium completion >>>\n"
+        'eval "$(recollectium completion --source bash)"\n'
+        "# <<< recollectium completion <<<\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", _stop_service)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: pytest.fail("package removal should not run"),
+    )
     monkeypatch.setattr("sys.stdin.readline", lambda: "no\n")
 
     exit_code, stdout, stderr = _run_cli(["uninstall", "--purge"], capsys)
@@ -3561,6 +3671,8 @@ def test_cli_uninstall_purge_cancelled_by_confirmation(
     assert exit_code == 1
     assert stdout == ""
     assert "purge cancelled" in stderr
+    assert not stopped
+    assert "recollectium completion --source bash" in bashrc.read_text(encoding="utf-8")
 
 
 def test_cli_uninstall_purge_accepts_interactive_confirmation(
@@ -3643,8 +3755,8 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
-    shared_cache = tmp_path / "shared-cache"
-    shared_cache.mkdir()
+    shared_cache = tmp_path / "recollectium" / "shared-cache"
+    shared_cache.mkdir(parents=True)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
     config_path.parent.mkdir(parents=True)
     config_data = deepcopy(DEFAULTS)
@@ -3660,6 +3772,7 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     skipped = payload["data"]["purge"]["skipped"]
     assert exit_code == 0
     assert "permanently deleted" in stderr
+    assert str(shared_cache) not in stderr
     assert shared_cache.exists()
     assert any(
         item["path"] == str(shared_cache) and item["reason"] == "not_recollectium_owned"
@@ -3688,6 +3801,7 @@ def test_cli_uninstall_purge_skips_explicit_config_outside_recollectium_dir(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert "permanently deleted" in stderr
+    assert str(config_path) not in stderr
     assert config_path.exists()
     assert any(
         item["path"] == str(config_path) and item["reason"] == "not_recollectium_owned"
@@ -3775,7 +3889,7 @@ def test_cli_uninstall_dry_run_without_purge_prints_instructions(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["status"] == "manual_uninstall_required"
+    assert payload["status"] == "dry_run"
     assert payload["data"]["preserved"] is True
     assert payload["service"]["status"] == "dry_run"
 
@@ -4048,7 +4162,10 @@ def test_cli_completion_powershell_prints_human_readable_instructions(
     assert exit_code == 0
     assert stderr == ""
     assert "$PROFILE.CurrentUserCurrentHost" in stdout
-    assert "recollectium completion powershell --source" in stdout
+    assert (
+        "Invoke-Expression ((& recollectium completion --source powershell) -join [Environment]::NewLine)"
+        in stdout
+    )
     assert "recollectium completion --install powershell" in stdout
     assert "$PROFILE.CurrentUserAllHosts" in stdout
 
@@ -4249,6 +4366,7 @@ def test_cli_completion_install_powershell_uses_current_user_current_host_profil
     content = profile.read_text(encoding="utf-8")
     assert "Get-Command recollectium" in content
     assert "recollectium completion --source powershell" in content
+    assert "-join [Environment]::NewLine" in content
     assert "Register-ArgumentCompleter" not in content
     assert "recollectium completion --complete-line" not in content
 
@@ -4288,7 +4406,7 @@ def test_cli_completion_install_powershell_reports_current_managed_block(
     profile.write_text(
         "# >>> recollectium completion >>>\n"
         "if (Get-Command recollectium -ErrorAction SilentlyContinue) {\n"
-        "    Invoke-Expression (& recollectium completion --source powershell)\n"
+        "    Invoke-Expression ((& recollectium completion --source powershell) -join [Environment]::NewLine)\n"
         "}\n"
         "# <<< recollectium completion <<<\n",
         encoding="utf-8",
@@ -4776,6 +4894,122 @@ def test_workspace_alias_cli_migrate_existing_conflict(tmp_path, capsys) -> None
     )
     assert exit_code == 0
     assert json.loads(stdout)["migrated_memories"] == 1
+
+
+def test_cli_uninstall_package_applies_success_and_failure_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from recollectium.cli import _remove_installed_package
+
+    completed = subprocess.CompletedProcess(
+        ["uv", "tool", "uninstall", "recollectium"],
+        3,
+        "removed stdout",
+        "removed stderr",
+    )
+    monkeypatch.setattr(cli_module.subprocess, "run", lambda *args, **kwargs: completed)
+
+    payload = _remove_installed_package({"install_method": "uv_tool"}, dry_run=False)
+
+    assert payload["uninstall"]["status"] == "failed"
+    assert payload["uninstall"]["stdout"] == "removed stdout"
+    assert payload["uninstall"]["stderr"] == "removed stderr"
+    assert "package removal failed" in payload["uninstall"]["hint"]
+
+
+def test_cli_uninstall_package_reports_missing_package_manager(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from recollectium.cli import _remove_installed_package
+
+    def raise_missing(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("missing uv")
+
+    monkeypatch.setattr(cli_module.subprocess, "run", raise_missing)
+
+    payload = _remove_installed_package({"install_method": "uv_tool"}, dry_run=False)
+
+    assert payload["uninstall"]["status"] == "failed"
+    assert payload["uninstall"]["returncode"] == 127
+    assert "missing uv" in payload["uninstall"]["stderr"]
+
+
+def test_cli_uninstall_package_reports_missing_windows_powershell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from recollectium.cli import _remove_installed_package
+
+    def raise_missing(command: list[str]) -> dict[str, object]:
+        raise FileNotFoundError("missing powershell")
+
+    monkeypatch.setattr(cli_module.sys, "platform", "win32")
+    monkeypatch.setattr(cli_module, "_schedule_windows_package_removal", raise_missing)
+
+    payload = _remove_installed_package({"install_method": "uv_tool"}, dry_run=False)
+
+    assert payload["uninstall"]["status"] == "failed"
+    assert payload["uninstall"]["returncode"] == 127
+    assert "missing powershell" in payload["uninstall"]["stderr"]
+
+
+def test_cli_resolve_executable_uses_windows_path_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from recollectium.cli import _resolve_executable
+
+    monkeypatch.setattr(cli_module.sys, "platform", "win32")
+    monkeypatch.setattr(cli_module, "_safe_which", lambda name: f"C:/Tools/{name}.exe")
+
+    assert _resolve_executable("uv") == "C:/Tools/uv.exe"
+
+
+def test_cli_recollectium_owned_path_detection(tmp_path: Path) -> None:
+    from recollectium.cli import _is_recollectium_owned_path
+
+    assert _is_recollectium_owned_path(tmp_path / "recollectium" / "data") is True
+    assert (
+        _is_recollectium_owned_path(tmp_path / "Recollectium" / "config.json") is True
+    )
+    assert _is_recollectium_owned_path(tmp_path / "other" / "config.json") is False
+    assert _is_recollectium_owned_path(tmp_path / "other" / "notes.txt") is False
+
+
+def test_cli_upgrade_ignores_config_errors_during_apply(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+
+    def raise_config(*args: object, **kwargs: object) -> object:
+        raise ValidationError("bad config")
+
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", raise_config)
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "ok", "")
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "updated"
+    assert payload["services_to_restart"] == []
 
 
 def test_cli_update_without_memory_id_points_to_upgrade(capsys) -> None:
@@ -5347,6 +5581,68 @@ def test_cli_upgrade_check_existing_config_error_stays_non_mutating(
     payload = json.loads(stdout)
     assert payload["status"] == "dry_run"
     assert payload["services_to_restart"] == []
+
+
+def test_cli_upgrade_check_explicit_config_creates_no_xdg_directories(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    xdg_root = tmp_path / "xdg"
+    xdg_env = {
+        "XDG_CACHE_HOME": xdg_root / "cache",
+        "XDG_CONFIG_HOME": xdg_root / "config",
+        "XDG_DATA_HOME": xdg_root / "data",
+        "XDG_RUNTIME_DIR": xdg_root / "runtime",
+        "XDG_STATE_HOME": xdg_root / "state",
+    }
+    for name, path in xdg_env.items():
+        monkeypatch.setenv(name, str(path))
+
+    config_path = tmp_path / "explicit-config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("bootstrap", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "bootstrap")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+
+    def _unexpected_config(*args, **kwargs):
+        raise AssertionError(
+            "upgrade --check must not load config or discover services"
+        )
+
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", _unexpected_config)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "upgrade",
+            "--check",
+            "--install-method",
+            "bootstrap",
+            "--repo",
+            "owner/repo",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "dry_run"
+    assert payload["services_to_restart"] == []
+    assert not any((path / "recollectium").exists() for path in xdg_env.values())
+    assert not (xdg_env["XDG_STATE_HOME"] / "recollectium" / "logs").exists()
 
 
 def test_write_tty_writes_to_controlling_terminal(

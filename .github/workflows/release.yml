@@ -19,13 +19,43 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION_NO_PREFIX="${VERSION#v}"
+          export VERSION VERSION_NO_PREFIX
 
           if [ ! -f CHANGELOG.md ]; then
             echo "CHANGELOG.md is required for releases" >&2
             exit 1
           fi
 
-          sed -n "/^## v\{0,1\}${VERSION_NO_PREFIX}/,/^## /p" CHANGELOG.md | sed '$d' > body.md
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          version_no_prefix = os.environ["VERSION_NO_PREFIX"]
+          valid_headings = {f"## {version}", f"## {version_no_prefix}"}
+
+          lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+          body: list[str] = []
+          in_section = False
+
+          for line in lines:
+              if line.startswith("## "):
+                  if in_section:
+                      break
+                  if line in valid_headings:
+                      in_section = True
+                      body.append(line)
+                  continue
+              if in_section:
+                  body.append(line)
+
+          if not in_section:
+              print(f"CHANGELOG.md has no section for {version}", file=sys.stderr)
+              sys.exit(1)
+
+          Path("body.md").write_text("\n".join(body).strip() + "\n", encoding="utf-8")
+          PY
 
           if [ ! -s body.md ]; then
             echo "CHANGELOG.md has no section for ${VERSION}" >&2

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 from recollectium.core import RecollectiumCore
+from recollectium.errors import RecollectiumError
 from recollectium.mcp_server import create_mcp_server
 
 
@@ -29,6 +31,9 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
         "add_workspace_alias",
         "list_workspace_aliases",
         "remove_workspace_alias",
+        "embedding_status",
+        "embedding_jobs",
+        "get_embedding_job",
     }
     assert set(tools.keys()) == expected
 
@@ -341,3 +346,164 @@ def test_mcp_workspace_alias_error_paths(tmp_path: Path) -> None:
 
     remove_alias_fn = mcp._tool_manager._tools["remove_workspace_alias"].fn
     assert "error" in json.loads(remove_alias_fn(alias_uid="missing"))
+
+
+def test_mcp_embedding_status_returns_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    fn = mcp._tool_manager._tools["embedding_status"].fn
+    result = json.loads(fn())
+    assert "provider_status" in result
+
+
+def test_mcp_embedding_jobs_returns_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    fn = mcp._tool_manager._tools["embedding_jobs"].fn
+    result = json.loads(fn())
+    assert isinstance(result, list)
+
+
+def test_mcp_get_embedding_job_returns_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    job_id = "job-1"
+    core.store.create_embedding_job(
+        job_id=job_id,
+        state="queued",
+        total_count=2,
+        processed_count=0,
+        succeeded_count=0,
+        failed_count=0,
+        provider="fake",
+        model="fake-model",
+        embedding_profile={"provider": "fake", "profile": "fake-v1"},
+    )
+    mcp = create_mcp_server(core)
+
+    fn = mcp._tool_manager._tools["get_embedding_job"].fn
+    result = json.loads(fn(job_id=job_id))
+    assert result["id"] == job_id
+    assert result["state"] == "queued"
+
+
+def test_mcp_get_embedding_job_missing_returns_error(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    fn = mcp._tool_manager._tools["get_embedding_job"].fn
+    result = json.loads(fn(job_id="nonexistent"))
+    assert "error" in result
+
+
+class _EmbeddingErrorCore:
+    def active_embedding_status(self) -> dict[str, object]:
+        raise RecollectiumError("status failed")
+
+    def list_embedding_jobs(
+        self, state: str | None = None, limit: int | None = None
+    ) -> list[dict[str, object]]:
+        raise RecollectiumError("jobs failed")
+
+
+def test_mcp_embedding_status_error_returns_json() -> None:
+    mcp = create_mcp_server(cast(RecollectiumCore, _EmbeddingErrorCore()))
+
+    fn = mcp._tool_manager._tools["embedding_status"].fn
+    result = json.loads(fn())
+    assert result == {"error": "status failed"}
+
+
+def test_mcp_embedding_jobs_error_returns_json() -> None:
+    mcp = create_mcp_server(cast(RecollectiumCore, _EmbeddingErrorCore()))
+
+    fn = mcp._tool_manager._tools["embedding_jobs"].fn
+    result = json.loads(fn(state="queued", limit=5))
+    assert result == {"error": "jobs failed"}
+
+
+def test_mcp_add_memory_rejects_invalid_metadata_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    add_fn = mcp._tool_manager._tools["add_memory"].fn
+    result = json.loads(
+        add_fn(space="user", type="fact", content="test", metadata="{invalid")
+    )
+    assert "error" in result
+    assert "valid JSON" in result["error"]
+
+
+def test_mcp_add_memory_rejects_non_object_metadata(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    add_fn = mcp._tool_manager._tools["add_memory"].fn
+    result = json.loads(
+        add_fn(space="user", type="fact", content="test", metadata="[]")
+    )
+    assert "error" in result
+    assert "JSON object" in result["error"]
+
+
+def test_mcp_update_memory_rejects_invalid_metadata_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    add_fn = mcp._tool_manager._tools["add_memory"].fn
+    mem = json.loads(add_fn(space="user", type="fact", content="test"))
+
+    update_fn = mcp._tool_manager._tools["update_memory"].fn
+    result = json.loads(update_fn(id=mem["id"], metadata="{bad"))
+    assert "error" in result
+    assert "valid JSON" in result["error"]
+
+
+def test_mcp_update_memory_rejects_non_object_metadata(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    add_fn = mcp._tool_manager._tools["add_memory"].fn
+    mem = json.loads(add_fn(space="user", type="fact", content="test"))
+
+    update_fn = mcp._tool_manager._tools["update_memory"].fn
+    result = json.loads(update_fn(id=mem["id"], metadata='"string"'))
+    assert "error" in result
+    assert "JSON object" in result["error"]
+
+
+def test_mcp_add_memory_with_metadata_source_confidence_sensitivity(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    add_fn = mcp._tool_manager._tools["add_memory"].fn
+    result = json.loads(
+        add_fn(
+            space="user",
+            type="preference",
+            content="dark mode",
+            metadata='{"key": "val"}',
+            source="test-harness",
+            confidence=0.9,
+            sensitivity="internal",
+        )
+    )
+    assert result["space"] == "user"
+    assert result["type"] == "preference"
+    assert result["content"] == "dark mode"
+    assert result["metadata"] == {"key": "val"}
+    assert result["source"] == "test-harness"
+    assert result["confidence"] == 0.9
+    assert result["sensitivity"] == "internal"

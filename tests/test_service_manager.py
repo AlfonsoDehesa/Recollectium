@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,6 +19,11 @@ from pytest import CaptureFixture, LogCaptureFixture
 
 from recollectium.errors import ServiceConflictError, ServiceError
 from recollectium.service_manager import (
+    _get_ps_process_cmdline,
+    _get_ps_process_start_time,
+    _get_windows_process_cmdline,
+    _get_windows_process_start_time,
+    _is_windows_pid_alive,
     _run_server,
     check_running_service,
     discover_service,
@@ -158,6 +164,20 @@ def test_read_corrupt_pid_file_invalid_process_start_time(tmp_path: Path) -> Non
         read_pid_file(path)
 
 
+def test_read_pid_file_allows_unknown_process_start_time(tmp_path: Path) -> None:
+    path = tmp_path / "unknown_start_time.pid"
+    path.write_text(
+        json.dumps({"pid": 12345, "type": "api", "process_start_time": None}),
+        encoding="utf-8",
+    )
+
+    assert read_pid_file(path) == {
+        "pid": 12345,
+        "type": "api",
+        "process_start_time": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # remove_pid_file
 # ---------------------------------------------------------------------------
@@ -273,6 +293,108 @@ def test_is_pid_alive_permission_error_returns_true(
     assert is_pid_alive(1) is True
 
 
+def test_is_pid_alive_uses_windows_non_signalling_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+
+    def fail_if_called(pid: int, sig: int) -> None:
+        raise AssertionError("Windows liveness checks must not call os.kill")
+
+    def fake_windows_probe(pid: int) -> bool:
+        calls.append(pid)
+        return True
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(os, "kill", fail_if_called)
+    monkeypatch.setattr(
+        "recollectium.service_manager._is_windows_pid_alive", fake_windows_probe
+    )
+
+    assert is_pid_alive(1234) is True
+    assert calls == [1234]
+
+
+def test_is_windows_pid_alive_returns_false_when_ctypes_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(
+        name: str,
+        globals: Any = None,
+        locals: Any = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:
+        if name == "ctypes":
+            raise ImportError("ctypes missing")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    assert _is_windows_pid_alive(1234) is False
+
+
+def test_is_windows_pid_alive_returns_false_without_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ctypes
+
+    class Kernel32:
+        @staticmethod
+        def OpenProcess(access: int, inherit: bool, pid: int) -> int:
+            return 0
+
+    class Windll:
+        kernel32 = Kernel32()
+
+    monkeypatch.setattr(ctypes, "windll", Windll(), raising=False)
+
+    assert _is_windows_pid_alive(1234) is False
+
+
+@pytest.mark.parametrize(
+    ("get_exit_result", "exit_code", "expected"),
+    [(0, 259, False), (1, 1, False), (1, 259, True)],
+)
+def test_is_windows_pid_alive_checks_exit_code_and_closes_handle(
+    monkeypatch: pytest.MonkeyPatch,
+    get_exit_result: int,
+    exit_code: int,
+    expected: bool,
+) -> None:
+    import ctypes
+
+    calls: list[str] = []
+
+    class Kernel32:
+        @staticmethod
+        def OpenProcess(access: int, inherit: bool, pid: int) -> int:
+            calls.append("open")
+            return 99
+
+        @staticmethod
+        def GetExitCodeProcess(handle: int, code_ref: Any) -> int:
+            calls.append("get")
+            code_ref._obj.value = exit_code
+            return get_exit_result
+
+        @staticmethod
+        def CloseHandle(handle: int) -> None:
+            calls.append("close")
+
+    class Windll:
+        kernel32 = Kernel32()
+
+    monkeypatch.setattr(ctypes, "windll", Windll(), raising=False)
+
+    assert _is_windows_pid_alive(1234) is expected
+    assert calls == ["open", "get", "close"]
+
+
 def test_get_process_start_time_current_process() -> None:
     assert get_process_start_time(os.getpid()) is not None
 
@@ -286,6 +408,97 @@ def test_get_process_start_time_malformed_stat(monkeypatch: pytest.MonkeyPatch) 
     assert get_process_start_time(123) is None
 
 
+def test_get_ps_process_start_time_handles_run_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_missing(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(subprocess, "run", raise_missing)
+
+    assert _get_ps_process_start_time(123) is None
+
+
+@pytest.mark.parametrize(
+    ("completed", "expected"),
+    [
+        (subprocess.CompletedProcess(["ps"], 1, "", ""), None),
+        (subprocess.CompletedProcess(["ps"], 0, "", ""), None),
+        (subprocess.CompletedProcess(["ps"], 0, "not a date\n", ""), None),
+        (
+            subprocess.CompletedProcess(["ps"], 0, "Mon Jan 01 00:00:00 2024\n", ""),
+            int(
+                time.mktime(
+                    time.strptime("Mon Jan 01 00:00:00 2024", "%a %b %d %H:%M:%S %Y")
+                )
+            ),
+        ),
+    ],
+)
+def test_get_ps_process_start_time_parses_result(
+    monkeypatch: pytest.MonkeyPatch,
+    completed: subprocess.CompletedProcess[str],
+    expected: int | None,
+) -> None:
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+
+    assert _get_ps_process_start_time(123) == expected
+
+
+def test_get_windows_process_start_time_handles_run_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_missing(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("powershell")
+
+    monkeypatch.setattr(subprocess, "run", raise_missing)
+
+    assert _get_windows_process_start_time(123) is None
+
+
+@pytest.mark.parametrize(
+    ("completed", "expected"),
+    [
+        (subprocess.CompletedProcess(["powershell"], 1, "", ""), None),
+        (subprocess.CompletedProcess(["powershell"], 0, "", ""), None),
+        (subprocess.CompletedProcess(["powershell"], 0, "bad", ""), None),
+        (subprocess.CompletedProcess(["powershell"], 0, "12345", ""), 12345),
+    ],
+)
+def test_get_windows_process_start_time_parses_result(
+    monkeypatch: pytest.MonkeyPatch,
+    completed: subprocess.CompletedProcess[str],
+    expected: int | None,
+) -> None:
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+
+    assert _get_windows_process_start_time(123) == expected
+
+
+def test_get_process_start_time_uses_windows_and_ps_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recollectium.service_manager._get_proc_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager._get_windows_process_start_time", lambda pid: 11
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager._get_ps_process_start_time", lambda pid: 22
+    )
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert get_process_start_time(123) == 11
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert get_process_start_time(123) == 22
+
+
 def test_get_process_cmdline_current_process() -> None:
     cmdline = get_process_cmdline(os.getpid())
     assert cmdline is not None
@@ -294,6 +507,96 @@ def test_get_process_cmdline_current_process() -> None:
 
 def test_get_process_cmdline_missing_process() -> None:
     assert get_process_cmdline(999999) is None
+
+
+def test_get_ps_process_cmdline_handles_run_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_missing(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(subprocess, "run", raise_missing)
+
+    assert _get_ps_process_cmdline(123) is None
+
+
+@pytest.mark.parametrize(
+    ("completed", "expected"),
+    [
+        (subprocess.CompletedProcess(["ps"], 1, "", ""), None),
+        (subprocess.CompletedProcess(["ps"], 0, "", ""), None),
+        (
+            subprocess.CompletedProcess(["ps"], 0, "python -m recollectium\n", ""),
+            ["python -m recollectium"],
+        ),
+    ],
+)
+def test_get_ps_process_cmdline_parses_result(
+    monkeypatch: pytest.MonkeyPatch,
+    completed: subprocess.CompletedProcess[str],
+    expected: list[str] | None,
+) -> None:
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+
+    assert _get_ps_process_cmdline(123) == expected
+
+
+def test_get_windows_process_cmdline_handles_run_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_missing(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("powershell")
+
+    monkeypatch.setattr(subprocess, "run", raise_missing)
+
+    assert _get_windows_process_cmdline(123) is None
+
+
+@pytest.mark.parametrize(
+    ("completed", "expected"),
+    [
+        (subprocess.CompletedProcess(["powershell"], 1, "", ""), None),
+        (subprocess.CompletedProcess(["powershell"], 0, "", ""), None),
+        (
+            subprocess.CompletedProcess(
+                ["powershell"], 0, "python -m recollectium", ""
+            ),
+            ["python -m recollectium"],
+        ),
+    ],
+)
+def test_get_windows_process_cmdline_parses_result(
+    monkeypatch: pytest.MonkeyPatch,
+    completed: subprocess.CompletedProcess[str],
+    expected: list[str] | None,
+) -> None:
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+
+    assert _get_windows_process_cmdline(123) == expected
+
+
+def test_get_process_cmdline_uses_windows_and_ps_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recollectium.service_manager._get_proc_process_cmdline", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager._get_windows_process_cmdline", lambda pid: ["win"]
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager._get_ps_process_cmdline", lambda pid: ["ps"]
+    )
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert get_process_cmdline(123) == ["win"]
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert get_process_cmdline(123) == ["ps"]
 
 
 def test_is_recollectium_service_process_true(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,7 +616,45 @@ def test_is_recollectium_service_process_true(monkeypatch: pytest.MonkeyPatch) -
     assert is_recollectium_service_process(123, "api", 5) is True
 
 
-def test_is_recollectium_service_process_missing_start_time() -> None:
+def test_is_recollectium_service_process_missing_start_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_cmdline",
+        lambda pid: [
+            f"{sys.executable} -m recollectium.service_manager _run_server api"
+        ],
+    )
+
+    assert is_recollectium_service_process(123, "api", None) is True
+
+
+def test_is_recollectium_service_process_no_proc_metadata_falls_back_to_alive_pid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_cmdline", lambda pid: None
+    )
+
+    assert is_recollectium_service_process(123, "api", None) is True
+
+
+def test_is_recollectium_service_process_checks_cmdline_when_start_time_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_cmdline", lambda pid: ["sleep 60"]
+    )
+
     assert is_recollectium_service_process(123, "api", None) is False
 
 
@@ -437,6 +778,30 @@ def test_check_running_service_alive(
 
     result = check_running_service(config)
     assert result == {"pid": 12345, "type": "api", "process_start_time": 5}
+
+
+def test_check_running_service_alive_without_process_start_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    pid_path = runtime / "service.pid"
+    write_pid_file(pid_path, pid=12345, service_type="api", process_start_time=None)
+
+    config = _make_mock_config(runtime)
+    monkeypatch.setattr("recollectium.service_manager.is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_start_time", lambda pid: None
+    )
+    monkeypatch.setattr(
+        "recollectium.service_manager.get_process_cmdline",
+        lambda pid: [
+            f"{sys.executable} -m recollectium.service_manager _run_server api"
+        ],
+    )
+
+    result = check_running_service(config)
+    assert result == {"pid": 12345, "type": "api", "process_start_time": None}
 
 
 def test_discover_service_running_writes_discovery_file(
@@ -667,7 +1032,7 @@ def test_start_service_child_dies_immediately(monkeypatch: pytest.MonkeyPatch) -
         start_service(config, "api")
 
 
-def test_start_service_process_ownership_unavailable(
+def test_start_service_allows_unknown_process_ownership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _make_mock_config(Path("/tmp/runtime"))
@@ -677,16 +1042,21 @@ def test_start_service_process_ownership_unavailable(
 
     fake_process = MagicMock()
     fake_process.pid = 9999
+    fake_process.poll.return_value = None
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: fake_process)
     monkeypatch.setattr(
         "recollectium.service_manager.get_process_start_time", lambda pid: None
     )
+    write_pid_calls: list[tuple[Path, int, str, int | None]] = []
+    monkeypatch.setattr(
+        "recollectium.service_manager.write_pid_file",
+        lambda path, pid, st, pst: write_pid_calls.append((path, pid, st, pst)),
+    )
+    monkeypatch.setattr("recollectium.service_manager.is_pid_alive", lambda pid: True)
 
-    with pytest.raises(
-        ServiceError, match="could not verify service process ownership"
-    ):
-        start_service(config, "api")
-    fake_process.terminate.assert_called_once_with()
+    assert start_service(config, "api") == 9999
+    assert write_pid_calls == [(Path("/tmp/runtime/service.pid"), 9999, "api", None)]
+    fake_process.terminate.assert_not_called()
 
 
 def test_start_service_cleans_pid_file_when_discovery_write_fails(
