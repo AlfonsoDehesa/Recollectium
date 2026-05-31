@@ -8,6 +8,14 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### ✨ Features
 
+### 🐛 Fixes
+
+### 🧹 Chores
+
+## v1.0.0
+
+### ✨ Features
+
 - Added the local-first Recollectium Core memory engine with SQLite-backed storage for private, durable memory on a user's own machine.
 - Added user and workspace memory scopes with canonical memory buckets, type filters, metadata, and archive-aware retrieval.
 - Added memory add, search, list, get, update, and archive operations across the CLI, Python API, local HTTP API, and MCP surfaces.
