@@ -41,19 +41,19 @@ Windows PowerShell:
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.ps1 | iex"
 ```
 
-For the full setup flow, including first memory, service startup, MCP, API, logs, and troubleshooting, see the [Quick Start](docs/wiki/Quick-Start.md) in the wiki source pages. These pages are ready to publish to the GitHub Wiki once GitHub initializes the wiki git remote.
+For the full setup flow, including first memory, service startup, MCP, API, logs, and troubleshooting, see the [Quick Start](https://github.com/AlfonsoDehesa/Recollectium/wiki/Quick-Start) in the GitHub Wiki.
 
 Common next steps:
 
-- Install details: [Installation](docs/wiki/Installation.md)
-- Learn the model: [Concepts](docs/wiki/Concepts.md)
-- Configure Recollectium: [Configuration](docs/wiki/Configuration.md)
-- Use a seeded development database: [Seeded development database](docs/wiki/Configuration.md#seeded-development-database)
-- Use the CLI: [CLI Reference](docs/wiki/CLI-Reference.md)
-- Start services: [Service Management](docs/wiki/Service-Management.md)
-- Read logs: [Logs](docs/wiki/Logs.md)
-- Connect through MCP: [MCP Server](docs/wiki/MCP-Server.md)
-- Call the local API: [API Reference](docs/wiki/API-Reference.md)
+- Install details: [Installation](https://github.com/AlfonsoDehesa/Recollectium/wiki/Installation)
+- Learn the model: [Concepts](https://github.com/AlfonsoDehesa/Recollectium/wiki/Concepts)
+- Configure Recollectium: [Configuration](https://github.com/AlfonsoDehesa/Recollectium/wiki/Configuration)
+- Use a seeded development database: [Seeded development database](https://github.com/AlfonsoDehesa/Recollectium/wiki/Configuration#seeded-development-database)
+- Use the CLI: [CLI Reference](https://github.com/AlfonsoDehesa/Recollectium/wiki/CLI-Reference)
+- Start services: [Service Management](https://github.com/AlfonsoDehesa/Recollectium/wiki/Service-Management)
+- Read logs: [Logs](https://github.com/AlfonsoDehesa/Recollectium/wiki/Logs)
+- Connect through MCP: [MCP Server](https://github.com/AlfonsoDehesa/Recollectium/wiki/MCP-Server)
+- Call the local API: [API Reference](https://github.com/AlfonsoDehesa/Recollectium/wiki/API-Reference)
 
 ## What Recollectium gives you
 
@@ -72,23 +72,23 @@ Common next steps:
 
 ## Documentation
 
-Start with the wiki source pages:
+Start with the GitHub Wiki:
 
-- [Wiki Home](docs/wiki/Home.md)
-- [Quick Start](docs/wiki/Quick-Start.md)
-- [Installation](docs/wiki/Installation.md)
-- [Concepts](docs/wiki/Concepts.md)
-- [Configuration](docs/wiki/Configuration.md)
-- [Features and Commands](docs/wiki/Features-and-Commands.md)
-- [CLI Reference](docs/wiki/CLI-Reference.md)
-- [Service Management](docs/wiki/Service-Management.md)
-- [Logs](docs/wiki/Logs.md)
-- [MCP Server](docs/wiki/MCP-Server.md)
-- [API Reference](docs/wiki/API-Reference.md)
-- [Adapter and Plugin Integration](docs/wiki/Adapter-and-Plugin-Integration.md)
-- [Verified Supported Plugins](docs/wiki/Verified-Supported-Plugins.md)
-- [Troubleshooting](docs/wiki/Troubleshooting.md)
-- [FAQ](docs/wiki/FAQ.md)
+- [Wiki Home](https://github.com/AlfonsoDehesa/Recollectium/wiki)
+- [Quick Start](https://github.com/AlfonsoDehesa/Recollectium/wiki/Quick-Start)
+- [Installation](https://github.com/AlfonsoDehesa/Recollectium/wiki/Installation)
+- [Concepts](https://github.com/AlfonsoDehesa/Recollectium/wiki/Concepts)
+- [Configuration](https://github.com/AlfonsoDehesa/Recollectium/wiki/Configuration)
+- [Features and Commands](https://github.com/AlfonsoDehesa/Recollectium/wiki/Features-and-Commands)
+- [CLI Reference](https://github.com/AlfonsoDehesa/Recollectium/wiki/CLI-Reference)
+- [Service Management](https://github.com/AlfonsoDehesa/Recollectium/wiki/Service-Management)
+- [Logs](https://github.com/AlfonsoDehesa/Recollectium/wiki/Logs)
+- [MCP Server](https://github.com/AlfonsoDehesa/Recollectium/wiki/MCP-Server)
+- [API Reference](https://github.com/AlfonsoDehesa/Recollectium/wiki/API-Reference)
+- [Adapter and Plugin Integration](https://github.com/AlfonsoDehesa/Recollectium/wiki/Adapter-and-Plugin-Integration)
+- [Verified Supported Plugins](https://github.com/AlfonsoDehesa/Recollectium/wiki/Verified-Supported-Plugins)
+- [Troubleshooting](https://github.com/AlfonsoDehesa/Recollectium/wiki/Troubleshooting)
+- [FAQ](https://github.com/AlfonsoDehesa/Recollectium/wiki/FAQ)
 
 Repo docs that act as canonical contracts:
 
