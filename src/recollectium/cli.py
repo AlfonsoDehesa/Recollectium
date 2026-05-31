@@ -1379,7 +1379,7 @@ def _completion_source(shell: str) -> str:
 def _powershell_completion_profile_block() -> str:
     return r"""
 if (Get-Command recollectium -ErrorAction SilentlyContinue) {
-    Invoke-Expression (& recollectium completion --source powershell)
+    Invoke-Expression ((& recollectium completion --source powershell) -join [Environment]::NewLine)
 }
 """.strip()
 
@@ -1560,7 +1560,7 @@ def _handle_completion_command(args: argparse.Namespace, *, output_format: str) 
         instructions = [
             "Add this block to $PROFILE.CurrentUserCurrentHost for PowerShell tab completion:",
             "",
-            "  recollectium completion powershell --source | Invoke-Expression",
+            "  Invoke-Expression ((& recollectium completion --source powershell) -join [Environment]::NewLine)",
             "",
             "Or run this to install it automatically:",
             "",
