@@ -290,6 +290,13 @@ def build_update_plan(
     )
     metadata_path = str(metadata.metadata_path) if metadata.metadata_path else None
     if install_method == "unknown":
+        _log.info(
+            "Update blocked — unknown install method",
+            extra={
+                "event": "update.unknown_install_method",
+                "context": {"current_version": current_version},
+            },
+        )
         return UpdatePlan(
             "unsupported_install_method",
             current_version,
@@ -302,6 +309,10 @@ def build_update_plan(
         )
 
     if not is_safe_github_repo(repo):
+        _log.info(
+            "Update blocked — invalid repo",
+            extra={"event": "update.invalid_repo", "context": {"repo": repo}},
+        )
         return UpdatePlan(
             "unsupported_install_method",
             current_version,
@@ -360,6 +371,16 @@ def build_update_plan(
     if latest_version is not None and not force:
         try:
             if Version(latest_version) <= Version(_public_version(current_version)):
+                _log.info(
+                    "Update not needed — already up to date",
+                    extra={
+                        "event": "update.up_to_date",
+                        "context": {
+                            "current_version": current_version,
+                            "latest_version": latest_version,
+                        },
+                    },
+                )
                 return UpdatePlan(
                     "up_to_date",
                     current_version,
@@ -389,8 +410,21 @@ def build_update_plan(
         platform_name=platform_name,
         source_root=source_root,
     )
+    plan_status = "dry_run" if dry_run else "update_available"
+    _log.info(
+        "Update plan complete",
+        extra={
+            "event": "update.plan_ready",
+            "context": {
+                "status": plan_status,
+                "current_version": current_version,
+                "latest_version": latest_version,
+                "install_method": install_method,
+            },
+        },
+    )
     return UpdatePlan(
-        "dry_run" if dry_run else "update_available",
+        plan_status,
         current_version,
         latest_version,
         latest_tag,
