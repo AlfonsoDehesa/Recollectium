@@ -484,6 +484,7 @@ Every item in this gate must be confirmed before the release-prep PR is merged.
 - [ ] `uv tool install recollectium` works from the release candidate artifact.
 - [ ] `recollectium upgrade --check` reports whether a newer release is available without mutating the install.
 - [ ] `recollectium upgrade --dry-run` prints the planned upgrade command for each install method without applying changes.
+- [ ] `recollectium upgrade --version latest`, `--version <release>`, and `--main` select the intended tracking target, update install metadata only after a successful mutating upgrade, and remain mutually exclusive.
 - [ ] `recollectium upgrade` applies package upgrades through bootstrap, pip, pipx, uv tool, and source checkout install methods while preserving running service state.
 - [ ] `recollectium uninstall` stops managed services, removes managed completions, uninstalls the supported package/tool, and preserves data by default.
 - [ ] `recollectium uninstall --purge` works correctly and safely.

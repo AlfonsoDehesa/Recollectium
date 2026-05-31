@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 import json
 import os
 import platform
@@ -11,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Literal, Protocol, TypeGuard
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -23,6 +25,8 @@ import logging
 _log = logging.getLogger(__name__)
 
 InstallMethod = Literal["bootstrap", "pip", "pipx", "uv_tool", "source", "unknown"]
+TargetKind = Literal["latest_release", "release", "main", "custom_ref", "unknown"]
+TargetSource = Literal["cli", "metadata", "default"]
 CommandSpec = list[str] | list[list[str]]
 UpdateStatus = Literal[
     "up_to_date",
@@ -35,6 +39,8 @@ UpdateStatus = Literal[
 ]
 
 _INSTALL_METHODS = {"bootstrap", "pip", "pipx", "uv_tool", "source"}
+_TARGET_KINDS = {"latest_release", "release", "main", "custom_ref"}
+_DEFAULT_REPO = "AlfonsoDehesa/recollectium"
 _GITHUB_REPO_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SAFE_REF_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
@@ -51,12 +57,29 @@ class ReleaseLookupError(UpdateError):
         self.reason = reason
 
 
+class TargetSelectorError(UpdateError):
+    """Raised when an upgrade selector is invalid."""
+
+
+@dataclass(frozen=True)
+class TrackingTarget:
+    kind: TargetKind
+    selector: str | None
+    repo: str = _DEFAULT_REPO
+    version: str | None = None
+    ref: str | None = None
+
+
 @dataclass(frozen=True)
 class InstallMetadata:
     install_method: InstallMethod
     source_ref: str | None
     installed_at: str | None
     metadata_path: Path | None
+    metadata_version: int = 1
+    source_ref_kind: str | None = None
+    source_repo: str | None = None
+    tracking_target: TrackingTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +100,13 @@ class UpdatePlan:
     reason: str | None
     metadata_path: str | None
     cwd: str | None = None
+    target_kind: TargetKind = "latest_release"
+    target_selector: str | None = "latest"
+    target_ref: str | None = None
+    target_version: str | None = None
+    target_source: TargetSource = "default"
+    will_update_metadata: bool = False
+    metadata_update: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -112,7 +142,7 @@ class GitHubReleaseClient:
             headers=headers,
         )
         try:
-            with urlopen(request, timeout=15) as response:  # noqa: S310 - fixed GitHub API URL
+            with urlopen(request, timeout=15) as response:  # noqa: S310
                 payload = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             if exc.code == 404:
@@ -194,16 +224,27 @@ def load_install_metadata(
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return InstallMetadata("unknown", None, None, metadata_path)
+    if not isinstance(payload, dict):
+        return InstallMetadata("unknown", None, None, metadata_path)
     method = payload.get("install_method")
     if method not in _INSTALL_METHODS:
         method = "unknown"
     source_ref = payload.get("source_ref")
     installed_at = payload.get("installed_at")
+    metadata_version = payload.get("metadata_version")
+    source_ref_kind = payload.get("source_ref_kind")
+    source_repo = payload.get("source_repo")
     return InstallMetadata(
         install_method=method,  # type: ignore[arg-type]
         source_ref=source_ref if isinstance(source_ref, str) else None,
         installed_at=installed_at if isinstance(installed_at, str) else None,
         metadata_path=metadata_path,
+        metadata_version=metadata_version if isinstance(metadata_version, int) else 1,
+        source_ref_kind=source_ref_kind if isinstance(source_ref_kind, str) else None,
+        source_repo=source_repo if isinstance(source_repo, str) else None,
+        tracking_target=_parse_tracking_target(
+            payload.get("tracking_target"), source_repo
+        ),
     )
 
 
@@ -245,7 +286,7 @@ def detect_install_method(
 
 
 def fetch_latest_release(
-    client: ReleaseClient, *, repo: str = "AlfonsoDehesa/recollectium"
+    client: ReleaseClient, *, repo: str = _DEFAULT_REPO
 ) -> ReleaseInfo:
     """Return the latest GitHub release as normalized version/tag data."""
     if not is_safe_github_repo(repo):
@@ -263,6 +304,74 @@ def fetch_latest_release(
     return release
 
 
+def normalize_version_selector(selector: str) -> TrackingTarget:
+    """Normalize an upgrade --version selector."""
+    raw = selector.strip()
+    if not raw:
+        raise TargetSelectorError("--version cannot be empty")
+    if raw.lower() == "latest":
+        return TrackingTarget(kind="latest_release", selector="latest")
+    if raw.lower() == "main":
+        raise TargetSelectorError(
+            "use --main to track the main branch; --version main is not supported"
+        )
+    normalized = raw[1:] if raw.startswith("v") else raw
+    if any(token in raw for token in ("/", "\\", "://", "..", "@{")):
+        raise TargetSelectorError("release version must be a version or v-prefixed tag")
+    try:
+        version = str(Version(normalized).public)
+    except InvalidVersion as exc:
+        raise TargetSelectorError(f"invalid release version: {selector}") from exc
+    ref = f"v{version}"
+    return TrackingTarget(kind="release", selector=ref, version=version, ref=ref)
+
+
+def select_tracking_target(
+    metadata: InstallMetadata,
+    *,
+    version_selector: str | None = None,
+    main: bool = False,
+    repo: str = _DEFAULT_REPO,
+) -> tuple[TrackingTarget, TargetSource]:
+    """Return the selected target and whether it came from CLI, metadata, or default."""
+    if main and version_selector is not None:
+        raise TargetSelectorError("--version and --main are mutually exclusive")
+    if main:
+        return TrackingTarget(
+            kind="main", selector="main", repo=repo, ref="main"
+        ), "cli"
+    if version_selector is not None:
+        target = normalize_version_selector(version_selector)
+        return _target_with_repo(target, repo), "cli"
+    if metadata.tracking_target is not None:
+        target = metadata.tracking_target
+        if not is_safe_github_repo(target.repo):
+            target = TrackingTarget(
+                kind=target.kind,
+                selector=target.selector,
+                repo=repo,
+                version=target.version,
+                ref=target.ref,
+            )
+        return target, "metadata"
+    return TrackingTarget(
+        kind="latest_release", selector="latest", repo=repo
+    ), "default"
+
+
+def resolve_latest_for_target(
+    target: TrackingTarget,
+    *,
+    client: ReleaseClient,
+    repo_override: str | None = None,
+) -> ReleaseInfo | None:
+    """Fetch latest release only when the target requires it."""
+    repo = repo_override or target.repo or _DEFAULT_REPO
+    if target.kind == "latest_release":
+        return fetch_latest_release(client, repo=repo)
+    return None
+
+
 def build_update_plan(
     *,
     current_version: str,
@@ -272,136 +381,181 @@ def build_update_plan(
     force: bool = False,
     dry_run: bool = False,
     allow_main: bool = False,
-    repo: str = "AlfonsoDehesa/recollectium",
+    repo: str = _DEFAULT_REPO,
     platform_name: str | None = None,
     source_root: Path | None = None,
+    target: TrackingTarget | None = None,
+    target_source: TargetSource = "default",
 ) -> UpdatePlan:
     """Compare versions and return the exact update command or no-op state."""
+    metadata_path = str(metadata.metadata_path) if metadata.metadata_path else None
+    if target is None:
+        target, target_source = select_tracking_target(metadata, repo=repo)
+    selected_target = target
+
+    repo = selected_target.repo or repo
+    common = {
+        "current_version": current_version,
+        "install_method": install_method,
+        "metadata_path": metadata_path,
+        "target_kind": selected_target.kind,
+        "target_selector": selected_target.selector,
+        "target_source": target_source,
+    }
     _log.info(
         "Building update plan",
         extra={
             "event": "update.plan_building",
-            "context": {
-                "current_version": current_version,
-                "install_method": install_method,
-                "dry_run": dry_run,
-            },
+            "context": common | {"dry_run": dry_run},
         },
     )
-    metadata_path = str(metadata.metadata_path) if metadata.metadata_path else None
-    if install_method == "unknown":
-        _log.info(
-            "Update blocked — unknown install method",
-            extra={
-                "event": "update.unknown_install_method",
-                "context": {"current_version": current_version},
-            },
-        )
-        return UpdatePlan(
-            "unsupported_install_method",
-            current_version,
-            None,
-            None,
-            install_method,
-            None,
-            "unknown_install_method",
-            metadata_path,
-        )
 
-    if not is_safe_github_repo(repo):
-        _log.info(
-            "Update blocked — invalid repo",
-            extra={"event": "update.invalid_repo", "context": {"repo": repo}},
-        )
-        return UpdatePlan(
-            "unsupported_install_method",
-            current_version,
-            None,
-            None,
-            install_method,
-            None,
-            "invalid_repo",
-            metadata_path,
-        )
-
-    latest_tag = latest_release.tag if latest_release else None
-    latest_version = latest_release.version if latest_release else None
-    if latest_tag is None:
-        if allow_main and install_method in {"bootstrap", "source"}:
-            latest_tag = "main"
-            latest_version = None
-        else:
-            return UpdatePlan(
-                "network_error",
-                current_version,
-                None,
-                None,
-                install_method,
-                None,
-                "no_latest_release",
-                metadata_path,
+    def make_plan(
+        status: UpdateStatus,
+        *,
+        latest_version: str | None = None,
+        latest_tag: str | None = None,
+        command: CommandSpec | None = None,
+        reason: str | None = None,
+        cwd: str | None = None,
+        target_ref: str | None = None,
+        target_version: str | None = None,
+        will_update_metadata: bool = False,
+    ) -> UpdatePlan:
+        metadata_update = None
+        if will_update_metadata:
+            metadata_update = metadata_update_payload(
+                metadata=metadata,
+                target=selected_target,
+                resolved_ref=target_ref or latest_tag,
+                resolved_version=target_version or latest_version,
+                release_url=latest_release.url if latest_release else None,
+                repo=repo,
             )
-
-    if not is_safe_ref(latest_tag):
         return UpdatePlan(
-            "unsupported_install_method",
+            status,
             current_version,
             latest_version,
             latest_tag,
             install_method,
-            None,
-            "invalid_release_ref",
+            command,
+            reason,
             metadata_path,
+            cwd=cwd,
+            target_kind=selected_target.kind,
+            target_selector=selected_target.selector,
+            target_ref=target_ref or latest_tag,
+            target_version=target_version or latest_version,
+            target_source=target_source,
+            will_update_metadata=will_update_metadata,
+            metadata_update=metadata_update,
+        )
+
+    if install_method == "unknown":
+        return make_plan("unsupported_install_method", reason="unknown_install_method")
+    if not is_safe_github_repo(repo):
+        return make_plan("unsupported_install_method", reason="invalid_repo")
+
+    latest_tag: str | None
+    latest_version: str | None
+    if selected_target.kind == "latest_release":
+        latest_tag = latest_release.tag if latest_release else None
+        latest_version = latest_release.version if latest_release else None
+        if latest_tag is None:
+            if allow_main and install_method in {"bootstrap", "source"}:
+                selected_target = TrackingTarget(
+                    kind="main", selector="main", repo=repo, ref="main"
+                )
+                latest_tag = "main"
+                latest_version = None
+            else:
+                return make_plan("network_error", reason="no_latest_release")
+    elif selected_target.kind in {"release", "main", "custom_ref"}:
+        latest_tag = selected_target.ref
+        latest_version = selected_target.version
+    else:
+        return make_plan("unsupported_install_method", reason="invalid_tracking_target")
+
+    if latest_tag is None or not is_safe_ref(latest_tag):
+        return make_plan(
+            "unsupported_install_method",
+            latest_version=latest_version,
+            latest_tag=latest_tag,
+            reason="invalid_release_ref",
         )
 
     if install_method == "source" and source_root is None:
         source_root = find_source_checkout_root(Path(__file__).resolve())
         if source_root is None:
-            return UpdatePlan(
+            return make_plan(
                 "update_failed",
-                current_version,
-                latest_version,
-                latest_tag,
-                install_method,
-                None,
-                "source_checkout_not_found",
-                metadata_path,
+                latest_version=latest_version,
+                latest_tag=latest_tag,
+                reason="source_checkout_not_found",
+                target_ref=latest_tag,
+                target_version=latest_version,
             )
 
-    if latest_version is not None and not force:
+    if selected_target.kind == "release" and not force:
+        installed_on_pin = metadata.source_ref == latest_tag and _versions_equal(
+            current_version, latest_version
+        )
+        if installed_on_pin:
+            return make_plan(
+                "up_to_date",
+                latest_version=latest_version,
+                latest_tag=latest_tag,
+                reason="pinned_release_current",
+                target_ref=latest_tag,
+                target_version=latest_version,
+            )
+        if (
+            target_source == "metadata"
+            and latest_version
+            and _current_newer_than(current_version, latest_version)
+        ):
+            return make_plan(
+                "up_to_date",
+                latest_version=latest_version,
+                latest_tag=latest_tag,
+                reason="target_drift_requires_force",
+                target_ref=latest_tag,
+                target_version=latest_version,
+            )
+    elif (
+        selected_target.kind == "latest_release"
+        and latest_version is not None
+        and not force
+    ):
         try:
             if Version(latest_version) <= Version(_public_version(current_version)):
-                _log.info(
-                    "Update not needed — already up to date",
-                    extra={
-                        "event": "update.up_to_date",
-                        "context": {
-                            "current_version": current_version,
-                            "latest_version": latest_version,
-                        },
-                    },
-                )
-                return UpdatePlan(
+                return make_plan(
                     "up_to_date",
-                    current_version,
-                    latest_version,
-                    latest_tag,
-                    install_method,
-                    None,
-                    None,
-                    metadata_path,
+                    latest_version=latest_version,
+                    latest_tag=latest_tag,
+                    target_ref=latest_tag,
+                    target_version=latest_version,
                 )
         except InvalidVersion:
-            return UpdatePlan(
+            return make_plan(
                 "unsupported_install_method",
-                current_version,
-                latest_version,
-                latest_tag,
-                install_method,
-                None,
-                "could_not_parse_current_version",
-                metadata_path,
+                latest_version=latest_version,
+                latest_tag=latest_tag,
+                reason="could_not_parse_current_version",
             )
+    elif (
+        selected_target.kind == "custom_ref"
+        and metadata.source_ref == latest_tag
+        and not force
+    ):
+        return make_plan(
+            "up_to_date",
+            latest_version=latest_version,
+            latest_tag=latest_tag,
+            reason="custom_ref_current",
+            target_ref=latest_tag,
+            target_version=latest_version,
+        )
 
     command, cwd = _command_for_method(
         install_method,
@@ -409,30 +563,30 @@ def build_update_plan(
         repo=repo,
         platform_name=platform_name,
         source_root=source_root,
+        target=target,
     )
+    if command is None:
+        return make_plan(
+            "unsupported_install_method",
+            latest_version=latest_version,
+            latest_tag=latest_tag,
+            reason="unsupported_target_for_install_method",
+            target_ref=latest_tag,
+            target_version=latest_version,
+        )
     plan_status = "dry_run" if dry_run else "update_available"
-    _log.info(
-        "Update plan complete",
-        extra={
-            "event": "update.plan_ready",
-            "context": {
-                "status": plan_status,
-                "current_version": current_version,
-                "latest_version": latest_version,
-                "install_method": install_method,
-            },
-        },
-    )
-    return UpdatePlan(
+    return make_plan(
         plan_status,
-        current_version,
-        latest_version,
-        latest_tag,
-        install_method,
-        command,
-        "main_fallback_allowed" if latest_tag == "main" else "update_available",
-        metadata_path,
+        latest_version=latest_version,
+        latest_tag=latest_tag,
+        command=command,
+        reason="main_fallback_allowed"
+        if latest_tag == "main" and allow_main
+        else "update_available",
         cwd=str(cwd) if cwd else None,
+        target_ref=latest_tag,
+        target_version=latest_version,
+        will_update_metadata=not dry_run,
     )
 
 
@@ -446,16 +600,6 @@ def apply_update(
             extra={"event": "update.apply_skipped", "context": {"status": plan.status}},
         )
         return CommandResult(0, "", "")
-    _log.info(
-        "Applying update",
-        extra={
-            "event": "update.applying",
-            "context": {
-                "install_method": plan.install_method,
-                "latest_version": plan.latest_version,
-            },
-        },
-    )
     if plan.install_method == "source":
         if plan.cwd is None:
             return CommandResult(1, "", "source checkout not found")
@@ -467,10 +611,6 @@ def apply_update(
         if dirty.returncode != 0:
             return dirty
         if dirty.stdout.strip():
-            _log.error(
-                "Update blocked — source checkout dirty",
-                extra={"event": "update.source_dirty", "context": {}},
-            )
             return CommandResult(
                 1,
                 "",
@@ -487,16 +627,6 @@ def apply_update(
             stdout_parts.append(result.stdout)
             stderr_parts.append(result.stderr)
             if result.returncode != 0:
-                _log.error(
-                    "Update command failed",
-                    extra={
-                        "event": "update.command_failed",
-                        "context": {
-                            "returncode": result.returncode,
-                            "command": command,
-                        },
-                    },
-                )
                 return CommandResult(
                     result.returncode, "".join(stdout_parts), "".join(stderr_parts)
                 )
@@ -505,38 +635,72 @@ def apply_update(
     command = plan.command if _is_single_command(plan.command) else []
     executable = command[0]
     if shutil.which(executable) is None:
-        _log.error(
-            "Update blocked — executable not found",
-            extra={
-                "event": "update.executable_missing",
-                "context": {"executable": executable},
-            },
-        )
         return CommandResult(1, "", f"{executable} is not available on PATH")
     result = runner.run(command, timeout_seconds=timeout_seconds, cwd=plan.cwd)
-    if result.returncode == 0:
-        _log.info(
-            "Update applied successfully",
-            extra={
-                "event": "update.apply_succeeded",
-                "context": {
-                    "install_method": plan.install_method,
-                    "latest_version": plan.latest_version,
-                },
-            },
-        )
-    else:
-        _log.error(
-            "Update failed",
-            extra={
-                "event": "update.apply_failed",
-                "context": {
-                    "returncode": result.returncode,
-                    "stderr": result.stderr[:200],
-                },
-            },
-        )
     return result
+
+
+def write_install_metadata_update(
+    plan: UpdatePlan, *, platform_name: str | None = None
+) -> Path | None:
+    """Persist target tracking metadata after a successful mutating upgrade."""
+    if not plan.will_update_metadata:
+        return None
+    payload = plan.metadata_update
+    if payload is None:
+        return None
+    path = (
+        Path(plan.metadata_path)
+        if plan.metadata_path
+        else _default_metadata_path(platform_name)
+    )
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    existing: dict[str, object]
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        existing = loaded if isinstance(loaded, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        existing = {}
+    merged = {**existing, **payload}
+    if "installed_at" not in merged:
+        merged["installed_at"] = _utc_now()
+    _atomic_write_json(path, merged)
+    return path
+
+
+def metadata_update_payload(
+    *,
+    metadata: InstallMetadata,
+    target: TrackingTarget,
+    resolved_ref: str | None,
+    resolved_version: str | None,
+    release_url: str | None,
+    repo: str,
+) -> dict[str, object]:
+    now = _utc_now()
+    payload: dict[str, object] = {
+        "metadata_version": 2,
+        "install_method": metadata.install_method,
+        "updated_at": now,
+        "source_ref": resolved_ref,
+        "source_ref_kind": "release"
+        if target.kind == "latest_release"
+        else target.kind,
+        "source_repo": repo,
+        "tracking_target": _tracking_target_dict(_target_with_repo(target, repo)),
+        "last_resolved": {
+            "ref": resolved_ref,
+            "version": resolved_version,
+            "resolved_at": now,
+        },
+    }
+    if release_url is not None:
+        last_resolved = payload["last_resolved"]
+        if isinstance(last_resolved, dict):
+            last_resolved["release_url"] = release_url
+    if metadata.installed_at is not None:
+        payload["installed_at"] = metadata.installed_at
+    return payload
 
 
 def plan_to_dict(plan: UpdatePlan) -> dict[str, object]:
@@ -551,6 +715,13 @@ def plan_to_dict(plan: UpdatePlan) -> dict[str, object]:
         "reason": plan.reason,
         "metadata_path": plan.metadata_path,
         "cwd": plan.cwd,
+        "target_kind": plan.target_kind,
+        "target_selector": plan.target_selector,
+        "target_ref": plan.target_ref,
+        "target_version": plan.target_version,
+        "target_source": plan.target_source,
+        "will_update_metadata": plan.will_update_metadata,
+        "metadata_update": plan.metadata_update,
     }
 
 
@@ -567,6 +738,70 @@ def find_source_checkout_root(start: Path) -> Path | None:
     return None
 
 
+def _parse_tracking_target(
+    raw: object, fallback_repo: object = None
+) -> TrackingTarget | None:
+    if not isinstance(raw, dict):
+        return None
+    kind = raw.get("kind")
+    if kind not in _TARGET_KINDS:
+        return None
+    selector = raw.get("selector")
+    repo = raw.get("repo") if isinstance(raw.get("repo"), str) else fallback_repo
+    repo = (
+        repo if isinstance(repo, str) and is_safe_github_repo(repo) else _DEFAULT_REPO
+    )
+    version = raw.get("version")
+    ref = raw.get("ref")
+    target = TrackingTarget(
+        kind=kind,  # type: ignore[arg-type]
+        selector=selector if isinstance(selector, str) else None,
+        repo=repo,
+        version=version if isinstance(version, str) else None,
+        ref=ref if isinstance(ref, str) else None,
+    )
+    if target.kind == "latest_release":
+        return target
+    if target.kind == "main":
+        return TrackingTarget(kind="main", selector="main", repo=repo, ref="main")
+    if target.kind == "release":
+        if target.ref and is_safe_ref(target.ref) and target.version:
+            return target
+        if target.selector:
+            try:
+                return _target_with_repo(
+                    normalize_version_selector(target.selector), repo
+                )
+            except TargetSelectorError:
+                return None
+    if target.kind == "custom_ref" and target.ref and is_safe_ref(target.ref):
+        return target
+    return None
+
+
+def _tracking_target_dict(target: TrackingTarget) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "kind": target.kind,
+        "selector": target.selector,
+        "repo": target.repo,
+    }
+    if target.version is not None:
+        payload["version"] = target.version
+    if target.ref is not None:
+        payload["ref"] = target.ref
+    return payload
+
+
+def _target_with_repo(target: TrackingTarget, repo: str) -> TrackingTarget:
+    return TrackingTarget(
+        kind=target.kind,
+        selector=target.selector,
+        repo=repo,
+        version=target.version,
+        ref=target.ref,
+    )
+
+
 def _version_from_tag(tag: str) -> str | None:
     normalized = tag[1:] if tag.startswith("v") else tag
     try:
@@ -579,6 +814,22 @@ def _public_version(version: str) -> str:
     return str(Version(version).public)
 
 
+def _versions_equal(current: str, expected: str | None) -> bool:
+    if expected is None:
+        return False
+    try:
+        return Version(_public_version(current)) == Version(expected)
+    except InvalidVersion:
+        return False
+
+
+def _current_newer_than(current: str, expected: str) -> bool:
+    try:
+        return Version(_public_version(current)) > Version(expected)
+    except InvalidVersion:
+        return False
+
+
 def _command_for_method(
     install_method: InstallMethod,
     *,
@@ -586,38 +837,96 @@ def _command_for_method(
     repo: str,
     platform_name: str | None,
     source_root: Path | None,
-) -> tuple[CommandSpec, Path | None]:
+    target: TrackingTarget | None = None,
+) -> tuple[CommandSpec | None, Path | None]:
+    target_kind = target.kind if target else "latest_release"
+    target_version = target.version if target else _version_from_tag(latest_tag)
     if install_method == "pip":
-        return [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--upgrade",
-            "recollectium",
-        ], None
+        if target_kind == "main":
+            return [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                f"git+https://github.com/{repo}.git@main",
+            ], None
+        package = "recollectium"
+        if target_kind == "release" and target_version is not None:
+            package = f"recollectium=={target_version}"
+        return [sys.executable, "-m", "pip", "install", "--upgrade", package], None
     if install_method == "pipx":
-        return ["pipx", "upgrade", "recollectium"], None
+        if target_kind == "latest_release":
+            return ["pipx", "upgrade", "recollectium"], None
+        package = _package_spec_for_target(
+            target_kind, target_version, latest_tag, repo
+        )
+        return ["pipx", "install", "--force", package], None
     if install_method == "uv_tool":
-        return ["uv", "tool", "upgrade", "recollectium"], None
+        if target_kind == "latest_release":
+            return ["uv", "tool", "upgrade", "recollectium"], None
+        package = _package_spec_for_target(
+            target_kind, target_version, latest_tag, repo
+        )
+        return ["uv", "tool", "install", "--force", package], None
     if install_method == "source":
         root = source_root or find_source_checkout_root(Path(__file__).resolve())
-        return [["git", "pull", "--ff-only"], ["uv", "sync", "--group", "dev"]], root
+        if target_kind == "main":
+            return [
+                ["git", "pull", "--ff-only"],
+                ["uv", "sync", "--group", "dev"],
+            ], root
+        return [
+            ["git", "fetch", "--tags", "origin"],
+            ["git", "checkout", latest_tag],
+            ["uv", "sync", "--group", "dev"],
+        ], root
     if install_method == "bootstrap":
+        target_env = _bootstrap_target_env(
+            target or TrackingTarget("latest_release", "latest"), latest_tag
+        )
         if (platform_name or platform.system()).lower().startswith("win"):
             script = (
                 f"https://raw.githubusercontent.com/{repo}/{latest_tag}/install.ps1"
             )
+            assignment = "; ".join(f"$env:{k}='{v}'" for k, v in target_env.items())
             return [
                 "powershell",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-c",
-                f"irm {script} | iex",
+                f"{assignment}; irm {script} | iex",
             ], None
         script = f"https://raw.githubusercontent.com/{repo}/{latest_tag}/install.sh"
-        return ["sh", "-c", f"curl -LsSf {script} | sh"], None
+        assignment = " ".join(f"{k}={_shell_quote(v)}" for k, v in target_env.items())
+        return ["sh", "-c", f"curl -LsSf {script} | {assignment} sh"], None
     return [], None
+
+
+def _package_spec_for_target(
+    target_kind: str, target_version: str | None, latest_tag: str, repo: str
+) -> str:
+    if target_kind == "release" and target_version is not None:
+        return f"recollectium=={target_version}"
+    return f"git+https://github.com/{repo}.git@{latest_tag}"
+
+
+def _bootstrap_target_env(target: TrackingTarget, resolved_ref: str) -> dict[str, str]:
+    if target.kind == "latest_release":
+        return {
+            "RECOLLECTIUM_INSTALL_VERSION": target.selector or "latest",
+            "RECOLLECTIUM_INSTALL_RESOLVED_REF": resolved_ref,
+            "RECOLLECTIUM_INSTALL_TRACKING": "latest_release",
+        }
+    if target.kind == "release":
+        return {"RECOLLECTIUM_INSTALL_VERSION": target.selector or resolved_ref}
+    if target.kind == "main":
+        return {"RECOLLECTIUM_INSTALL_MAIN": "1"}
+    return {"RECOLLECTIUM_INSTALL_REF": resolved_ref}
+
+
+def _shell_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
 
 
 def is_safe_github_repo(repo: str) -> bool:
@@ -631,8 +940,38 @@ def is_safe_ref(ref: str) -> bool:
         bool(_SAFE_REF_PATTERN.fullmatch(ref))
         and ".." not in ref
         and "@{" not in ref
+        and "://" not in ref
         and not ref.endswith((".", "/"))
     )
+
+
+def _default_metadata_path(platform_name: str | None = None) -> Path:
+    if (platform_name or platform.system()).lower().startswith("win"):
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "recollectium" / "install.json"
+    return Path(user_state_dir("recollectium")) / "install.json"
+
+
+def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _is_single_command(command: CommandSpec) -> TypeGuard[list[str]]:

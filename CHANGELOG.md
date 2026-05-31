@@ -8,6 +8,8 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### ✨ Features
 
+- Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
+
 ### 🐛 Fixes
 
 ### 🧹 Chores
