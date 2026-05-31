@@ -429,7 +429,11 @@ def test_get_ps_process_start_time_handles_run_errors(
         (subprocess.CompletedProcess(["ps"], 0, "not a date\n", ""), None),
         (
             subprocess.CompletedProcess(["ps"], 0, "Mon Jan 01 00:00:00 2024\n", ""),
-            1704085200,
+            int(
+                time.mktime(
+                    time.strptime("Mon Jan 01 00:00:00 2024", "%a %b %d %H:%M:%S %Y")
+                )
+            ),
         ),
     ],
 )
