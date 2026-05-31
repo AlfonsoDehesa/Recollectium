@@ -10,6 +10,7 @@ from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 import runpy
 import shutil
+import subprocess
 import sys
 from types import SimpleNamespace
 from typing import Any
@@ -4893,6 +4894,122 @@ def test_workspace_alias_cli_migrate_existing_conflict(tmp_path, capsys) -> None
     )
     assert exit_code == 0
     assert json.loads(stdout)["migrated_memories"] == 1
+
+
+def test_cli_uninstall_package_applies_success_and_failure_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from recollectium.cli import _remove_installed_package
+
+    completed = subprocess.CompletedProcess(
+        ["uv", "tool", "uninstall", "recollectium"],
+        3,
+        "removed stdout",
+        "removed stderr",
+    )
+    monkeypatch.setattr(cli_module.subprocess, "run", lambda *args, **kwargs: completed)
+
+    payload = _remove_installed_package({"install_method": "uv_tool"}, dry_run=False)
+
+    assert payload["uninstall"]["status"] == "failed"
+    assert payload["uninstall"]["stdout"] == "removed stdout"
+    assert payload["uninstall"]["stderr"] == "removed stderr"
+    assert "package removal failed" in payload["uninstall"]["hint"]
+
+
+def test_cli_uninstall_package_reports_missing_package_manager(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from recollectium.cli import _remove_installed_package
+
+    def raise_missing(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("missing uv")
+
+    monkeypatch.setattr(cli_module.subprocess, "run", raise_missing)
+
+    payload = _remove_installed_package({"install_method": "uv_tool"}, dry_run=False)
+
+    assert payload["uninstall"]["status"] == "failed"
+    assert payload["uninstall"]["returncode"] == 127
+    assert "missing uv" in payload["uninstall"]["stderr"]
+
+
+def test_cli_uninstall_package_reports_missing_windows_powershell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from recollectium.cli import _remove_installed_package
+
+    def raise_missing(command: list[str]) -> dict[str, object]:
+        raise FileNotFoundError("missing powershell")
+
+    monkeypatch.setattr(cli_module.sys, "platform", "win32")
+    monkeypatch.setattr(cli_module, "_schedule_windows_package_removal", raise_missing)
+
+    payload = _remove_installed_package({"install_method": "uv_tool"}, dry_run=False)
+
+    assert payload["uninstall"]["status"] == "failed"
+    assert payload["uninstall"]["returncode"] == 127
+    assert "missing powershell" in payload["uninstall"]["stderr"]
+
+
+def test_cli_resolve_executable_uses_windows_path_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from recollectium.cli import _resolve_executable
+
+    monkeypatch.setattr(cli_module.sys, "platform", "win32")
+    monkeypatch.setattr(cli_module, "_safe_which", lambda name: f"C:/Tools/{name}.exe")
+
+    assert _resolve_executable("uv") == "C:/Tools/uv.exe"
+
+
+def test_cli_recollectium_owned_path_detection(tmp_path: Path) -> None:
+    from recollectium.cli import _is_recollectium_owned_path
+
+    assert _is_recollectium_owned_path(tmp_path / "recollectium" / "data") is True
+    assert (
+        _is_recollectium_owned_path(tmp_path / "Recollectium" / "config.json") is True
+    )
+    assert _is_recollectium_owned_path(tmp_path / "other" / "config.json") is False
+    assert _is_recollectium_owned_path(tmp_path / "other" / "notes.txt") is False
+
+
+def test_cli_upgrade_ignores_config_errors_during_apply(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+
+    def raise_config(*args: object, **kwargs: object) -> object:
+        raise ValidationError("bad config")
+
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", raise_config)
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "ok", "")
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "updated"
+    assert payload["services_to_restart"] == []
 
 
 def test_cli_update_without_memory_id_points_to_upgrade(capsys) -> None:

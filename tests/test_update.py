@@ -172,6 +172,21 @@ def test_apply_update_returns_runner_output() -> None:
     assert runner.calls == [(["uv", "tool", "upgrade", "recollectium"], None)]
 
 
+def test_apply_update_logs_runner_failure() -> None:
+    plan = build_update_plan(
+        current_version="0.9.0",
+        latest_release=ReleaseInfo(version="1.0.0", tag="v1.0.0", url=None),
+        install_method="uv_tool",
+        metadata=_metadata(),
+    )
+    runner = FakeRunner([CommandResult(9, "", "upgrade failed")])
+
+    result = apply_update(plan, runner=runner)
+
+    assert result == CommandResult(9, "", "upgrade failed")
+    assert runner.calls == [(["uv", "tool", "upgrade", "recollectium"], None)]
+
+
 def test_load_install_metadata_reads_state_file(tmp_path: Path) -> None:
     state = tmp_path / "state"
     state.mkdir()

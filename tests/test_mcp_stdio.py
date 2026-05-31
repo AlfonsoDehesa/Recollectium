@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 from recollectium.core import RecollectiumCore
+from recollectium.errors import RecollectiumError
 from recollectium.mcp_server import create_mcp_server
 
 
@@ -366,6 +368,29 @@ def test_mcp_embedding_jobs_returns_json(tmp_path: Path) -> None:
     assert isinstance(result, list)
 
 
+def test_mcp_get_embedding_job_returns_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    job_id = "job-1"
+    core.store.create_embedding_job(
+        job_id=job_id,
+        state="queued",
+        total_count=2,
+        processed_count=0,
+        succeeded_count=0,
+        failed_count=0,
+        provider="fake",
+        model="fake-model",
+        embedding_profile={"provider": "fake", "profile": "fake-v1"},
+    )
+    mcp = create_mcp_server(core)
+
+    fn = mcp._tool_manager._tools["get_embedding_job"].fn
+    result = json.loads(fn(job_id=job_id))
+    assert result["id"] == job_id
+    assert result["state"] == "queued"
+
+
 def test_mcp_get_embedding_job_missing_returns_error(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)
@@ -374,6 +399,32 @@ def test_mcp_get_embedding_job_missing_returns_error(tmp_path: Path) -> None:
     fn = mcp._tool_manager._tools["get_embedding_job"].fn
     result = json.loads(fn(job_id="nonexistent"))
     assert "error" in result
+
+
+class _EmbeddingErrorCore:
+    def active_embedding_status(self) -> dict[str, object]:
+        raise RecollectiumError("status failed")
+
+    def list_embedding_jobs(
+        self, state: str | None = None, limit: int | None = None
+    ) -> list[dict[str, object]]:
+        raise RecollectiumError("jobs failed")
+
+
+def test_mcp_embedding_status_error_returns_json() -> None:
+    mcp = create_mcp_server(cast(RecollectiumCore, _EmbeddingErrorCore()))
+
+    fn = mcp._tool_manager._tools["embedding_status"].fn
+    result = json.loads(fn())
+    assert result == {"error": "status failed"}
+
+
+def test_mcp_embedding_jobs_error_returns_json() -> None:
+    mcp = create_mcp_server(cast(RecollectiumCore, _EmbeddingErrorCore()))
+
+    fn = mcp._tool_manager._tools["embedding_jobs"].fn
+    result = json.loads(fn(state="queued", limit=5))
+    assert result == {"error": "jobs failed"}
 
 
 def test_mcp_add_memory_rejects_invalid_metadata_json(tmp_path: Path) -> None:
