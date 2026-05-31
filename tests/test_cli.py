@@ -10,6 +10,7 @@ from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 import runpy
 import shutil
+import sys
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -3354,7 +3355,7 @@ def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
     [
         ("bootstrap", "uv tool uninstall recollectium"),
         ("uv_tool", "uv tool uninstall recollectium"),
-        ("pip", "python -m pip uninstall -y recollectium"),
+        ("pip", f"{sys.executable} -m pip uninstall -y recollectium"),
         ("pipx", "pipx uninstall recollectium"),
         (
             "source",
@@ -3387,6 +3388,31 @@ def test_cli_uninstall_package_instructions_use_canonical_install_methods(
     assert "source" in payload["commands"]
     assert "unknown" in payload["commands"]
     assert "dev_source" not in payload["commands"]
+
+
+def test_cli_uninstall_bootstrap_command_uses_windows_uv_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.cli import _package_uninstall_command
+
+    uv_path = tmp_path / "local-app-data" / "uv" / "uv.exe"
+    uv_path.parent.mkdir(parents=True)
+    uv_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local-app-data"))
+    monkeypatch.setattr("recollectium.cli.shutil.which", lambda _name: None)
+
+    command = _package_uninstall_command("bootstrap")
+
+    assert command == [str(uv_path), "tool", "uninstall", "recollectium"]
+
+
+def test_cli_uninstall_pip_command_uses_running_interpreter() -> None:
+    from recollectium.cli import _package_uninstall_command
+
+    command = _package_uninstall_command("pip")
+
+    assert command == [sys.executable, "-m", "pip", "uninstall", "-y", "recollectium"]
 
 
 def test_cli_uninstall_completion_cleanup_skips_duplicate_metadata_path(
@@ -3617,7 +3643,25 @@ def test_cli_uninstall_purge_cancelled_by_confirmation(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
-    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    stopped = False
+
+    def _stop_service(_config: Any) -> None:
+        nonlocal stopped
+        stopped = True
+
+    bashrc = tmp_path / ".bashrc"
+    bashrc.write_text(
+        "# >>> recollectium completion >>>\n"
+        'eval "$(recollectium completion --source bash)"\n'
+        "# <<< recollectium completion <<<\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", _stop_service)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: pytest.fail("package removal should not run"),
+    )
     monkeypatch.setattr("sys.stdin.readline", lambda: "no\n")
 
     exit_code, stdout, stderr = _run_cli(["uninstall", "--purge"], capsys)
@@ -3625,6 +3669,8 @@ def test_cli_uninstall_purge_cancelled_by_confirmation(
     assert exit_code == 1
     assert stdout == ""
     assert "purge cancelled" in stderr
+    assert not stopped
+    assert "recollectium completion --source bash" in bashrc.read_text(encoding="utf-8")
 
 
 def test_cli_uninstall_purge_accepts_interactive_confirmation(
@@ -3707,8 +3753,8 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
-    shared_cache = tmp_path / "shared-cache"
-    shared_cache.mkdir()
+    shared_cache = tmp_path / "recollectium" / "shared-cache"
+    shared_cache.mkdir(parents=True)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
     config_path.parent.mkdir(parents=True)
     config_data = deepcopy(DEFAULTS)

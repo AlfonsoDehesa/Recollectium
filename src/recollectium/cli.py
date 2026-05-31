@@ -1676,7 +1676,7 @@ def _uninstall_package_instructions(
     commands = {
         "bootstrap": "uv tool uninstall recollectium",
         "uv_tool": "uv tool uninstall recollectium",
-        "pip": "python -m pip uninstall -y recollectium",
+        "pip": f"{sys.executable} -m pip uninstall -y recollectium",
         "pipx": "pipx uninstall recollectium",
         "source": "Remove the source checkout from your shell PATH or deactivate the editable install manually.",
         "unknown": "Install method unknown; inspect how Recollectium was installed and use the matching package manager manually.",
@@ -1718,12 +1718,36 @@ def _uninstall_package_instructions(
     }
 
 
+def _resolve_executable(name: str) -> str:
+    if not sys.platform.startswith("win"):
+        return name
+
+    try:
+        resolved = shutil.which(name)
+    except AttributeError:
+        resolved = None
+    if resolved is not None:
+        return resolved
+
+    suffix = ".exe" if not name.endswith(".exe") else ""
+    candidates = []
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / name / f"{name}{suffix}")
+    candidates.append(Path.home() / ".local" / "bin" / f"{name}{suffix}")
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return name
+
+
 def _package_uninstall_command(install_method: str) -> list[str] | None:
     commands = {
-        "bootstrap": ["uv", "tool", "uninstall", "recollectium"],
-        "uv_tool": ["uv", "tool", "uninstall", "recollectium"],
-        "pip": ["python", "-m", "pip", "uninstall", "-y", "recollectium"],
-        "pipx": ["pipx", "uninstall", "recollectium"],
+        "bootstrap": [_resolve_executable("uv"), "tool", "uninstall", "recollectium"],
+        "uv_tool": [_resolve_executable("uv"), "tool", "uninstall", "recollectium"],
+        "pip": [sys.executable, "-m", "pip", "uninstall", "-y", "recollectium"],
+        "pipx": [_resolve_executable("pipx"), "uninstall", "recollectium"],
     }
     return commands.get(install_method)
 
@@ -1905,10 +1929,21 @@ def _path_payload(
     return payload
 
 
-def _delete_purge_target(path: Path, *, dry_run: bool) -> dict[str, Any]:
+def _delete_purge_target(
+    path: Path,
+    *,
+    dry_run: bool,
+    owned_paths: set[Path] | None = None,
+) -> dict[str, Any]:
     if _is_suspicious_purge_path(path):
         return _path_payload(path, deleted=False, reason="suspicious_path")
-    if not _is_recollectium_owned_path(path):
+    resolved = path.expanduser().resolve(strict=False)
+    is_owned = (
+        resolved in owned_paths
+        if owned_paths is not None
+        else _is_recollectium_owned_path(path)
+    )
+    if not is_owned:
         return _path_payload(path, deleted=False, reason="not_recollectium_owned")
     if not path.exists():
         return _path_payload(path, deleted=False, reason="missing")
@@ -1922,6 +1957,19 @@ def _delete_purge_target(path: Path, *, dry_run: bool) -> dict[str, Any]:
 
 
 def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
+    directory_overrides = plan.config.effective_config.get("directories", {})
+    default_dirs = _resolve_xdg_dirs(DEFAULTS["directories"])
+    default_config_dir = default_dirs["config"].expanduser().resolve(strict=False)
+    owned_paths = {default_config_dir}
+    resolved_config_path = plan.config_path.expanduser().resolve(strict=False)
+    if resolved_config_path.parent == default_config_dir:
+        owned_paths.add(resolved_config_path)
+    for key in ("data", "cache", "logs", "runtime"):
+        if directory_overrides.get(key) is None:
+            owned_paths.add(default_dirs[key].expanduser().resolve(strict=False))
+    if plan.config.xdg_dirs["data"].expanduser().resolve(strict=False) in owned_paths:
+        owned_paths.add(plan.database_path.expanduser().resolve(strict=False))
+
     raw_targets = [
         plan.config_path,
         plan.config_path.parent,
@@ -1940,7 +1988,10 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
         seen.add(resolved)
         targets.append(target)
 
-    results = [_delete_purge_target(target, dry_run=dry_run) for target in targets]
+    results = [
+        _delete_purge_target(target, dry_run=dry_run, owned_paths=owned_paths)
+        for target in targets
+    ]
     return {
         "dry_run": dry_run,
         "targets": results,
@@ -1970,6 +2021,26 @@ def _handle_uninstall_command(
     plan = _load_uninstall_plan(config_path, explicit=explicit)
     metadata = _load_install_metadata(plan.install_metadata_path)
 
+    purge_preview: dict[str, Any] | None = None
+    if args.purge and not args.dry_run:
+        purge_preview = _purge_targets(plan, dry_run=True)
+        interactive = sys.stdin.isatty()
+        if not args.yes_delete_all_recollectium_data:
+            if interactive:
+                _write_tty(
+                    "Type 'delete all recollectium data' to permanently delete Recollectium data: "
+                )
+            response = sys.stdin.readline().rstrip("\n")
+            if response != _PURGE_CONFIRMATION:
+                return _emit_cli_failure(
+                    status="purge_cancelled",
+                    message="purge cancelled",
+                    hint="Type the exact confirmation phrase to permanently delete Recollectium data.",
+                    exit_code=1,
+                    command="uninstall --purge",
+                    event="uninstall.purge_cancelled",
+                )
+
     service_payload: dict[str, Any]
     if args.dry_run:
         service_payload = {"status": "dry_run", "note": "service would be stopped"}
@@ -1996,29 +2067,11 @@ def _handle_uninstall_command(
         if args.dry_run:
             data_payload["purge"] = _purge_targets(plan, dry_run=True)
         else:
-            preview = _purge_targets(plan, dry_run=True)
-            interactive = sys.stdin.isatty()
-
-            if not args.yes_delete_all_recollectium_data:
-                if interactive:
-                    _write_tty(
-                        "Type 'delete all recollectium data' to permanently delete Recollectium data: "
-                    )
-                response = sys.stdin.readline().rstrip("\n")
-                if response != _PURGE_CONFIRMATION:
-                    return _emit_cli_failure(
-                        status="purge_cancelled",
-                        message="purge cancelled",
-                        hint="Type the exact confirmation phrase to permanently delete Recollectium data.",
-                        exit_code=1,
-                        command="uninstall --purge",
-                        event="uninstall.purge_cancelled",
-                    )
-
             sys.stderr.write(
                 "The following Recollectium-owned paths will be permanently deleted:\n"
             )
-            for target in preview["targets"]:
+            assert purge_preview is not None
+            for target in purge_preview["targets"]:
                 if target.get("reason") != "dry_run":
                     continue
                 sys.stderr.write(f"  {target['path']}\n")
