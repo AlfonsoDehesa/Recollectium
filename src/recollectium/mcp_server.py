@@ -70,7 +70,12 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         try:
             parsed_metadata: dict[str, object] | None = None
             if metadata is not None:
-                parsed_metadata = json.loads(metadata)
+                try:
+                    parsed_metadata = json.loads(metadata)
+                except json.JSONDecodeError:
+                    return json.dumps(
+                        {"error": "metadata must be valid JSON"}, sort_keys=True
+                    )
                 if not isinstance(parsed_metadata, dict):
                     return json.dumps(
                         {"error": "metadata must be a JSON object"}, sort_keys=True
@@ -113,7 +118,12 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         try:
             parsed_metadata: dict[str, object] | None = None
             if metadata is not None:
-                parsed_metadata = json.loads(metadata)
+                try:
+                    parsed_metadata = json.loads(metadata)
+                except json.JSONDecodeError:
+                    return json.dumps(
+                        {"error": "metadata must be valid JSON"}, sort_keys=True
+                    )
                 if not isinstance(parsed_metadata, dict):
                     return json.dumps(
                         {"error": "metadata must be a JSON object"}, sort_keys=True
