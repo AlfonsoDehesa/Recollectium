@@ -5353,6 +5353,66 @@ def test_cli_upgrade_check_existing_config_error_stays_non_mutating(
     assert payload["services_to_restart"] == []
 
 
+def test_cli_upgrade_check_explicit_config_creates_no_xdg_directories(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    xdg_root = tmp_path / "xdg"
+    xdg_env = {
+        "XDG_CACHE_HOME": xdg_root / "cache",
+        "XDG_CONFIG_HOME": xdg_root / "config",
+        "XDG_DATA_HOME": xdg_root / "data",
+        "XDG_RUNTIME_DIR": xdg_root / "runtime",
+        "XDG_STATE_HOME": xdg_root / "state",
+    }
+    for name, path in xdg_env.items():
+        monkeypatch.setenv(name, str(path))
+
+    config_path = tmp_path / "explicit-config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("bootstrap", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "bootstrap")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+
+    def _unexpected_config(*args, **kwargs):
+        raise AssertionError("upgrade --check must not load config or discover services")
+
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", _unexpected_config)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "upgrade",
+            "--check",
+            "--install-method",
+            "bootstrap",
+            "--repo",
+            "owner/repo",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "dry_run"
+    assert payload["services_to_restart"] == []
+    assert not any((path / "recollectium").exists() for path in xdg_env.values())
+    assert not (xdg_env["XDG_STATE_HOME"] / "recollectium" / "logs").exists()
+
+
 def test_write_tty_writes_to_controlling_terminal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

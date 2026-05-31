@@ -1154,9 +1154,8 @@ def _handle_upgrade_command(
     service_config_path = _core_config_path(
         str(config_path) if args.config_path is not None else None
     )
-    should_check_services = not (
-        (args.check or args.dry_run)
-        and (service_config_path is None or not service_config_path.exists())
+    should_check_services = not args.check and not (
+        args.dry_run and (service_config_path is None or not service_config_path.exists())
     )
     if should_check_services:
         try:
