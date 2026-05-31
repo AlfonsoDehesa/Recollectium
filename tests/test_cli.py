@@ -3270,7 +3270,7 @@ def test_cli_uninstall_ignores_invalid_structured_completion_metadata(
     assert payload["shell_completion"]["removed"] == []
 
 
-def test_cli_uninstall_bootstrap_starts_package_removal_handoff(
+def test_cli_uninstall_bootstrap_reports_package_removal_without_starting_handoff(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
@@ -3294,12 +3294,11 @@ def test_cli_uninstall_bootstrap_starts_package_removal_handoff(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["package"]["uninstall"]["status"] == "started"
+    assert payload["package"]["uninstall"]["status"] == "manual"
     assert (
         payload["package"]["uninstall"]["command"] == "uv tool uninstall recollectium"
     )
-    assert popen_calls
-    assert "uv tool uninstall recollectium" in " ".join(popen_calls[0][0])
+    assert popen_calls == []
 
 
 def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
@@ -3323,8 +3322,48 @@ def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["package"]["uninstall"]["status"] == "dry_run"
+    assert payload["package"]["uninstall"]["status"] == "manual"
+    assert (
+        payload["package"]["uninstall"]["command"] == "uv tool uninstall recollectium"
+    )
     assert popen_calls == []
+
+
+@pytest.mark.parametrize(
+    ("install_method", "expected"),
+    [
+        ("bootstrap", "uv tool uninstall recollectium"),
+        ("uv_tool", "uv tool uninstall recollectium"),
+        ("pip", "python -m pip uninstall recollectium"),
+        ("pipx", "pipx uninstall recollectium"),
+        (
+            "source",
+            "Remove the source checkout from your shell PATH or deactivate the editable install manually.",
+        ),
+        (
+            "unknown",
+            "Install method unknown; inspect how Recollectium was installed and use the matching package manager manually.",
+        ),
+        (
+            "dev_source",
+            "Install method unknown; inspect how Recollectium was installed and use the matching package manager manually.",
+        ),
+    ],
+)
+def test_cli_uninstall_package_instructions_use_canonical_install_methods(
+    install_method: str, expected: str
+) -> None:
+    from recollectium.cli import _uninstall_package_instructions
+
+    payload = _uninstall_package_instructions({"install_method": install_method})
+
+    expected_method = install_method if install_method != "dev_source" else "unknown"
+    assert payload["install_method"] == expected_method
+    assert payload["recommended"] == expected
+    assert payload["uninstall"] == {"status": "manual", "command": expected}
+    assert "source" in payload["commands"]
+    assert "unknown" in payload["commands"]
+    assert "dev_source" not in payload["commands"]
 
 
 def test_cli_uninstall_completion_cleanup_skips_duplicate_metadata_path(

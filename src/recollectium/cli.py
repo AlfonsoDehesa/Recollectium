@@ -1658,7 +1658,8 @@ def _uninstall_package_instructions(
         "uv_tool": "uv tool uninstall recollectium",
         "pip": "python -m pip uninstall recollectium",
         "pipx": "pipx uninstall recollectium",
-        "dev_source": "deactivate this checkout or remove it from your shell path manually",
+        "source": "Remove the source checkout from your shell PATH or deactivate the editable install manually.",
+        "unknown": "Install method unknown; inspect how Recollectium was installed and use the matching package manager manually.",
     }
     install_method = None
     source_ref = None
@@ -1668,7 +1669,7 @@ def _uninstall_package_instructions(
         raw_ref = metadata.get("source_ref")
         raw_path_edits = metadata.get("managed_path_edits")
         if isinstance(raw_method, str):
-            install_method = raw_method
+            install_method = raw_method if raw_method in commands else "unknown"
         if isinstance(raw_ref, str):
             source_ref = raw_ref
         if isinstance(raw_path_edits, list):
@@ -1676,49 +1677,16 @@ def _uninstall_package_instructions(
                 item for item in raw_path_edits if isinstance(item, str)
             ]
 
-    recommended_key = install_method if install_method in commands else "uv_tool"
+    recommended_key = install_method if install_method in commands else "unknown"
+    recommended = commands[recommended_key]
     return {
         "install_method": install_method or "unknown",
         "source_ref": source_ref,
-        "recommended": commands[recommended_key],
+        "recommended": recommended,
+        "uninstall": {"status": "manual", "command": recommended},
         "commands": commands,
         "managed_path_edits": managed_path_edits,
     }
-
-
-def _bootstrap_package_uninstall_status(
-    metadata: dict[str, Any] | None,
-    *,
-    dry_run: bool,
-) -> dict[str, Any]:
-    command = "uv tool uninstall recollectium"
-    if not metadata or metadata.get("install_method") != "bootstrap":
-        return {"status": "manual", "command": command}
-    if dry_run:
-        return {"status": "dry_run", "command": command}
-
-    if sys.platform.startswith("win"):
-        popen_cmd = [
-            "powershell",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            "Start-Sleep -Seconds 1; uv tool uninstall recollectium",
-        ]
-    else:
-        popen_cmd = ["sh", "-c", "sleep 1; uv tool uninstall recollectium"]
-    try:
-        subprocess.Popen(  # noqa: S603 - command is fixed, no user input.
-            popen_cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=not sys.platform.startswith("win"),
-        )
-    except OSError as exc:
-        return {"status": "failed", "command": command, "error": str(exc)}
-    return {"status": "started", "command": command}
 
 
 def _completion_rc_paths(metadata: dict[str, Any] | None) -> list[Path]:
@@ -1956,9 +1924,6 @@ def _handle_uninstall_command(
             data_payload["purge"] = _purge_targets(plan, dry_run=False)
 
     package_payload = _uninstall_package_instructions(metadata)
-    package_payload["uninstall"] = _bootstrap_package_uninstall_status(
-        metadata, dry_run=args.dry_run
-    )
     result = {
         "status": "manual_uninstall_required",
         "package": package_payload,
