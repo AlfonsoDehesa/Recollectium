@@ -49,6 +49,7 @@ Completed:
 - [x] A2.4 OpenAPI JSON confirmed against the served FastAPI contract.
 - [x] A2.5 OpenCode adapter contract updated for discovery JSON payload wording, compatibility, remote Core, and workspace UID behavior.
 - [x] A2.6 Security documentation updated for supported versions, local access assumptions, vulnerability reporting, and security posture.
+- [x] A2.7 ROADMAP status updated so current progress and remaining release blockers are visible.
 
 Remaining release blockers:
 
