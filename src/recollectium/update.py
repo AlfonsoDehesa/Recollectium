@@ -345,7 +345,7 @@ def select_tracking_target(
         return _target_with_repo(target, repo), "cli"
     if metadata.tracking_target is not None:
         target = metadata.tracking_target
-        if not is_safe_github_repo(target.repo):
+        if repo != _DEFAULT_REPO or not is_safe_github_repo(target.repo):
             target = TrackingTarget(
                 kind=target.kind,
                 selector=target.selector,
@@ -426,6 +426,7 @@ def build_update_plan(
         if will_update_metadata:
             metadata_update = metadata_update_payload(
                 metadata=metadata,
+                install_method=install_method,
                 target=selected_target,
                 resolved_ref=target_ref or latest_tag,
                 resolved_version=target_version or latest_version,
@@ -563,7 +564,7 @@ def build_update_plan(
         repo=repo,
         platform_name=platform_name,
         source_root=source_root,
-        target=target,
+        target=selected_target,
     )
     if command is None:
         return make_plan(
@@ -671,6 +672,7 @@ def write_install_metadata_update(
 def metadata_update_payload(
     *,
     metadata: InstallMetadata,
+    install_method: InstallMethod,
     target: TrackingTarget,
     resolved_ref: str | None,
     resolved_version: str | None,
@@ -680,7 +682,7 @@ def metadata_update_payload(
     now = _utc_now()
     payload: dict[str, object] = {
         "metadata_version": 2,
-        "install_method": metadata.install_method,
+        "install_method": install_method,
         "updated_at": now,
         "source_ref": resolved_ref,
         "source_ref_kind": "release"
@@ -842,14 +844,14 @@ def _command_for_method(
     target_kind = target.kind if target else "latest_release"
     target_version = target.version if target else _version_from_tag(latest_tag)
     if install_method == "pip":
-        if target_kind == "main":
+        if target_kind in {"main", "custom_ref"}:
             return [
                 sys.executable,
                 "-m",
                 "pip",
                 "install",
                 "--upgrade",
-                f"git+https://github.com/{repo}.git@main",
+                _package_spec_for_target(target_kind, target_version, latest_tag, repo),
             ], None
         package = "recollectium"
         if target_kind == "release" and target_version is not None:
@@ -873,7 +875,9 @@ def _command_for_method(
         root = source_root or find_source_checkout_root(Path(__file__).resolve())
         if target_kind == "main":
             return [
-                ["git", "pull", "--ff-only"],
+                ["git", "fetch", "origin", "main"],
+                ["git", "checkout", "main"],
+                ["git", "pull", "--ff-only", "origin", "main"],
                 ["uv", "sync", "--group", "dev"],
             ], root
         return [

@@ -135,6 +135,8 @@ def test_main_fallback_requires_allow_main() -> None:
     assert allowed.reason == "main_fallback_allowed"
     assert allowed.command is not None
     assert "main/install.sh" in allowed.command[-1]
+    assert "RECOLLECTIUM_INSTALL_MAIN" in allowed.command[-1]
+    assert "RECOLLECTIUM_INSTALL_VERSION" not in allowed.command[-1]
 
 
 def test_source_checkout_builds_safe_command_sequence(tmp_path: Path) -> None:
@@ -775,9 +777,29 @@ def test_select_tracking_target_cli_and_metadata() -> None:
             None,
             None,
             tracking_target=TrackingTarget(
-                "release", "v1.2.0", version="1.2.0", ref="v1.2.0"
+                "release",
+                "v1.2.0",
+                repo="Metadata/Repo",
+                version="1.2.0",
+                ref="v1.2.0",
             ),
         )
+    )
+    overridden_metadata_target, overridden_metadata_source = select_tracking_target(
+        InstallMetadata(
+            "bootstrap",
+            "v1.2.0",
+            None,
+            None,
+            tracking_target=TrackingTarget(
+                "release",
+                "v1.2.0",
+                repo="Metadata/Repo",
+                version="1.2.0",
+                ref="v1.2.0",
+            ),
+        ),
+        repo="Override/Repo",
     )
 
     assert (latest.kind, latest.selector, latest_source) == (
@@ -799,9 +821,26 @@ def test_select_tracking_target_cli_and_metadata() -> None:
         "cli",
     )
     assert (main.kind, main.ref, main_source) == ("main", "main", "cli")
-    assert (metadata_target.kind, metadata_target.ref, metadata_source) == (
+    assert (
+        metadata_target.kind,
+        metadata_target.ref,
+        metadata_target.repo,
+        metadata_source,
+    ) == (
         "release",
         "v1.2.0",
+        "Metadata/Repo",
+        "metadata",
+    )
+    assert (
+        overridden_metadata_target.kind,
+        overridden_metadata_target.ref,
+        overridden_metadata_target.repo,
+        overridden_metadata_source,
+    ) == (
+        "release",
+        "v1.2.0",
+        "Override/Repo",
         "metadata",
     )
 
@@ -1276,7 +1315,15 @@ def test_command_generation_for_target_modes(tmp_path: Path) -> None:
         platform_name=None,
         source_root=tmp_path,
         target=main_target,
-    ) == ([["git", "pull", "--ff-only"], ["uv", "sync", "--group", "dev"]], tmp_path)
+    ) == (
+        [
+            ["git", "fetch", "origin", "main"],
+            ["git", "checkout", "main"],
+            ["git", "pull", "--ff-only", "origin", "main"],
+            ["uv", "sync", "--group", "dev"],
+        ],
+        tmp_path,
+    )
     windows_command = _command_for_method(
         "bootstrap",
         latest_tag="v1.2.3",
@@ -1398,12 +1445,13 @@ def test_custom_ref_current_and_metadata_write_edge_cases(tmp_path: Path) -> Non
         current_version="1.0.0",
         latest_release=ReleaseInfo("2.0.0", "v2.0.0", "https://example.test/release"),
         install_method="uv_tool",
-        metadata=InstallMetadata("uv_tool", None, "old-date", metadata_path),
+        metadata=InstallMetadata("unknown", None, "old-date", metadata_path),
         force=True,
     )
     written = write_install_metadata_update(payload_plan)
     assert written == metadata_path
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert payload["install_method"] == "uv_tool"
     assert payload["installed_at"] == "old-date"
     assert payload["last_resolved"]["release_url"] == "https://example.test/release"
 
@@ -1421,6 +1469,21 @@ def test_custom_ref_current_and_metadata_write_edge_cases(tmp_path: Path) -> Non
 
 
 def test_command_generation_fallbacks_and_windows_metadata_path(monkeypatch) -> None:
+    assert _command_for_method(
+        "pip",
+        latest_tag="feature-x",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=None,
+        target=TrackingTarget(kind="custom_ref", selector="feature-x", ref="feature-x"),
+    )[0] == [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "git+https://github.com/Owner/Repo.git@feature-x",
+    ]
     assert _command_for_method(
         "pipx",
         latest_tag="main",

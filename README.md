@@ -46,8 +46,8 @@ that upgrade target in install metadata. To pin a release or install from `main`
 set an explicit selector before running the installer:
 
 ```bash
-RECOLLECTIUM_INSTALL_VERSION=1.0.2 curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.sh | sh
-RECOLLECTIUM_INSTALL_MAIN=1 curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.sh | RECOLLECTIUM_INSTALL_VERSION=1.0.2 sh
+curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.sh | RECOLLECTIUM_INSTALL_MAIN=1 sh
 ```
 
 ```powershell
