@@ -34,6 +34,11 @@ DEV_SEED_PROJECTS: tuple[dict[str, str], ...] = (
     {"uid": "proj-fic-northstar-forms-01", "name": "Northstar Forms"},
     {"uid": "proj-fic-harborpilot-01", "name": "HarborPilot"},
 )
+DEV_SEED_PROJECT_THEMES_BY_UID: dict[str, tuple[str, ...]] = {
+    "proj-fic-cedarledger-01": ("permissions", "exports", "reconciliation"),
+    "proj-fic-northstar-forms-01": ("form-builder", "offline-sync", "review"),
+    "proj-fic-harborpilot-01": ("scheduling", "equipment", "handoff"),
+}
 USER_MEMORY_TYPES: tuple[str, ...] = (
     "fact",
     "preference",
@@ -177,100 +182,100 @@ USER_FACTS_BY_TOPIC: tuple[tuple[str, ...], ...] = (
 
 PROJECT_MEMORIES_BY_UID: dict[str, tuple[str, ...]] = {
     "proj-fic-cedarledger-01": (
-        "CedarLedger is a bookkeeping app for independent workshops that need simple job, invoice, and expense tracking.",
-        "The project keeps business examples generic, with no bank details, tax IDs, or customer contact records.",
-        "The dashboard groups open invoices, recent expenses, and unpaid workshop jobs into separate summary cards.",
-        "The sample expense categories are materials, tools, utilities, rent, insurance, and training.",
-        "A design note prefers clear tables with compact filters over decorative financial charts.",
-        "The app should warn when an expense is missing a category before it appears in a monthly report.",
-        "The export feature writes local JSON and CSV files with generated placeholder records only.",
-        "The project glossary defines a job as a billable workshop activity tied to one or more invoice lines.",
-        "Invoice status filters include draft, sent, overdue, paid, and archived.",
-        "A release checklist item verifies that bookkeeping examples contain no sensitive business details.",
-        "A decision note says currency values should use small round numbers. This keeps screenshots and test assertions easy to read.",
-        "The workspace has three workshop profiles named North Bench, Pine Room, and Sawdust Studio. These names are stable for repeatable search and list tests.",
-        "A known issue says the unpaid badge can overlap long workshop names on narrow screens. The fix should reserve space before the status chip renders.",
-        "Recurring expenses are grouped by vendor nickname and category. The app does not need full vendor profiles for the first version.",
-        "The monthly report should separate paid invoices from outstanding invoices. Workshop owners need both cash received and work still awaiting payment.",
-        "Job estimates can be converted into invoices after the workshop marks the work complete. The converted invoice should keep the original job notes.",
-        "The app stores attachment placeholders for receipts and invoice PDFs. Real file upload behavior is outside the seeded workspace scope.",
-        "The settings page lets a workshop choose a default tax label. The label is text-only so regional examples do not imply legal advice.",
-        "Search should find expenses by category, job name, and short note. It should not require users to remember exact invoice numbers.",
-        "A task remains to add keyboard navigation to the invoice table. Row actions should be reachable without opening the detail page.",
-        "CedarLedger treats a workshop as the top-level account boundary. Jobs, invoices, expenses, and reports all belong to one workshop profile. Cross-workshop reporting is intentionally left for later.",
-        "The overview screen uses three calm states for money owed, money received, and expenses logged. Each card links to a filtered table. The goal is quick orientation, not full accounting analysis.",
-        "The seeded workspace includes cabinet repair, frame assembly, and tool maintenance jobs. Each job uses neutral descriptions and rounded amounts. None of the records refer to real people or addresses.",
-        "Validation should catch invoices without line items before they can be marked sent. The error belongs near the line item table. A summary message should also appear at the top of the form.",
-        "The report exporter includes a generated timestamp and selected month. It should not include machine paths or local usernames. This keeps exported examples safe for screenshots and test logs.",
-        "A bug note says the expense filter resets after deleting a draft invoice. The corrected behavior should keep the current report filters active. Regression coverage belongs with the table state tests.",
-        "The onboarding checklist asks users to create a workshop profile, add one job, record one expense, and preview an invoice. The steps should work with placeholder values. The final step links to the monthly report.",
-        "CedarLedger avoids terms that imply certified accounting guidance. The copy should say reports and records instead of tax preparation. Users can export data for a professional review if needed.",
-        "The local backup command writes one archive with jobs, invoices, expenses, and settings. It should fail clearly if the destination folder is not writable. Partial archives should be removed after a failed backup.",
-        "The reconciliation screen compares invoices paid this month with expenses logged this month. Differences are shown as plain totals, not as financial advice. The screen should stay useful for small workshops with only a few records.",
+        "CedarLedger uses role-based access so shop owners can approve account connections, managers can review reports, and clerks can enter receipts without changing settings.",
+        "A decision keeps payroll notes and owner draws visible only to users with the finance admin role, even when a workspace member can view ordinary expense categories.",
+        "When inviting a new bookkeeper, CedarLedger should default to the least-privileged reviewer role until the workshop owner explicitly grants edit access.",
+        "Access control checks must happen on the server for every invoice, receipt, and reconciliation endpoint, not only through hidden menu items in the interface.",
+        "The session timeout should be shorter for users with permission to export ledgers. Exports can include sensitive supplier payment history and should not stay open on shared computers.",
+        "A bug was found where switching between two workshop workspaces kept the previous workspace's permissions cached until refresh. Disabled buttons could briefly appear active for the wrong account.",
+        "The owner role can transfer ownership only after re-authentication. The audit log should record the previous owner, new owner role, and timestamp without exposing secret values.",
+        "A support user may view diagnostic metadata for a CedarLedger workspace but must not open transaction descriptions, attachment previews, or connected account balances. This keeps troubleshooting separate from financial content. The support view should explain which fields are intentionally hidden.",
+        "The permissions matrix needs a specific rule for archived workshops. Members may read historical ledger summaries, but only an owner can reactivate or modify records. The archived state should also hide invite actions.",
+        "Password changes should invalidate other active sessions while preserving the current re-authenticated session. CedarLedger needs regression coverage for open report tabs after that change. Export buttons should require a fresh permission check before downloading files.",
+        "CedarLedger exports include both CSV and JSON formats so workshop owners can review monthly income, expenses, and category totals in whichever tool they prefer.",
+        "The monthly report export uses a generated timestamp in the filename to make repeated downloads easy to distinguish.",
+        "Safe placeholder accounting records for exports use generic vendors with rounded amounts and non-sensitive invoice references.",
+        "CSV exports should preserve stable column order for date, entry ID, account, category, description, debit, credit, currency, and export batch. Tests should fail if a column moves without an intentional migration note.",
+        "A task remains to add a JSON backup export that includes accounts, categories, ledger entries, reconciliation notes, and report metadata. The backup must not include credentials or local file paths.",
+        "A bug was found where monthly CSV reports sorted entries alphabetically by description instead of transaction date. April workshop expenses appeared out of sequence in the exported file.",
+        "The export settings panel should default to UTC timestamps for generated files. Report contents can still show the workspace display timezone selected in CedarLedger.",
+        "CedarLedger backup files should use safe placeholder ledger data during development setup. Example rows can include tool purchases, workshop rental income, and materials refunds. The records must stay generic enough for screenshots.",
+        "JSON exports are better for restoring CedarLedger state, while CSV exports are better for reviewers who only need monthly totals and transaction rows. The export screen should explain that difference in one short helper note. Both formats should share the same selected date range.",
+        "The monthly exports workflow should include a checksum note in the export manifest. Users can verify that backup files were generated completely before archiving them. Failed exports should remove partial files before showing the error.",
+        "CedarLedger calculates paid and outstanding invoice totals separately during reconciliation. Workshop owners can see cash collected versus work billed but not yet settled. The two totals should never be collapsed into one summary number.",
+        "The monthly reconciliation review compares expense receipts against imported records and flags any vendor charge that lacks a matching receipt entry.",
+        "An invoice marked paid must include a payment date, payment method, and matched ledger transaction before it appears in closed monthly totals.",
+        "Record matching works best when CedarLedger compares amount, date window, vendor or client name, and reference notes rather than relying on exact memo text alone.",
+        "During report review, February showed expenses matched correctly but two outstanding invoices were still included in the paid total. The revenue summary looked higher than the settled cash amount.",
+        "The reconciliation screen should show a short explanation when totals differ. The message should say whether the gap comes from unmatched expenses, unpaid invoices, duplicate imports, or pending records.",
+        "A task remains to add a filter for unmatched workshop supply expenses. Users need to review materials purchases before finalizing the monthly report.",
+        "Partial invoice payments remain open records until the remaining balance reaches zero. The paid portion still contributes to collected revenue. The outstanding amount should stay visible beside the invoice status.",
+        "A bug was found where deleting a matched expense receipt did not reopen the related transaction for reconciliation. The monthly validation state stayed incorrectly marked complete. Regression coverage belongs with receipt deletion tests.",
+        "For monthly report approval, CedarLedger should require all imported records to be matched, excluded with a reason, or carried forward as pending review. The approval button should stay disabled until that checklist is complete. Reviewers need a summary of any carried-forward records.",
     ),
     "proj-fic-northstar-forms-01": (
-        "Northstar Forms keeps every draft form usable without a network connection.",
-        "Field note templates start with location, observer role, weather, and follow-up fields.",
-        "A compact review screen helps crews check required answers before exporting notes.",
-        "The design favors plain language labels over survey jargon for field crews.",
-        "The default theme uses high-contrast ink, muted blue accents, and large tap targets.",
-        "Schema versioning is intentionally visible in the form settings panel.",
-        "The sample checklist includes trail condition, equipment status, and photo reference prompts.",
-        "A task remains to add keyboard shortcuts for moving between repeated observation blocks.",
-        "The export panel offers CSV and JSON because partner tools vary by crew.",
-        "Import tests use small JSON bundles with neutral station names.",
-        "The team decided that required questions should be marked in both the label and helper text. This keeps printed copies understandable when color is unavailable.",
-        "Offline mode queues submissions in timestamp order. A small status badge shows whether each note is saved locally or ready to sync.",
-        "A bug note says conditional sections reopened after a draft was duplicated. The fix should preserve the collapsed state from the source draft.",
-        "The form builder supports text, number, date, select, checkbox, and repeatable group fields. Signature and payment fields are out of scope.",
-        "Decision notes say each template should preview well on a tablet held in portrait orientation. Desktop polish is secondary to reliable field entry.",
-        "Validation messages should explain what to fix, not just name the failing rule. The copy guide prefers plain phrases such as choose one condition.",
-        "The local database keeps separate tables for templates, drafts, attachments, and sync receipts. Attachments use generated placeholders in examples.",
-        "A known issue says long repeat-group labels wrap awkwardly in the sidebar. The proposed fix is to reserve two lines before truncating.",
-        "The project glossary defines a field note as a structured observation captured during site work. Notes can include repeatable observations, checklist answers, and short comments.",
-        "Configuration defaults keep sync disabled until a workspace chooses an endpoint. The local-only path remains the primary example experience.",
-        "Northstar Forms treats a template as locked once a crew begins collecting notes from it. Editors can clone the template, revise the copy, and publish a new version. This avoids changing the meaning of earlier field observations.",
-        "The onboarding flow starts with a sample wetland survey because it shows conditional fields clearly. Users can remove the sample after creating their first real workspace. The example data stays generic and location-neutral.",
-        "A sync receipt records the local draft ID, export batch ID, and template version. It does not store operator names, device identifiers, or precise site locations. This keeps troubleshooting useful without collecting private details.",
-        "The accessibility review asks for every field type to work with screen readers and hardware keyboards. Error summaries should link directly to the problem field. Required markers must have text equivalents.",
-        "A release checklist item verifies that the app can create, edit, save, close, and reopen a draft while offline. The test also exports the draft after reconnecting to the local service. No network-only dependency should be required for the core flow.",
-        "The builder sidebar groups fields into basics, choices, structure, and review helpers. Reordering uses move buttons first, with drag-and-drop treated as optional enhancement. This keeps the editor usable on rugged tablets.",
-        "The workspace includes templates for site walk, equipment check, and incident follow-up. Each template uses generic site codes and crew roles. None of the examples contain real addresses, personal names, or phone numbers.",
-        "A bug was found where a hidden required field still blocked draft completion. The rule should only evaluate required fields when their parent condition is active. Regression coverage belongs beside the conditional-logic tests.",
-        "The attachment placeholder flow stores file name, media type, and local draft reference. It does not need binary upload support for this project slice. Preview cards should still show whether a photo is expected.",
-        "Template search should rank title matches first, then field labels, then helper text. Crews often remember the section name rather than the exact form title. The search screen should show why each result matched.",
+        "Northstar Forms lets template editors add short text, long text, number, date, photo, signature, location, and single-choice fields from the builder palette.",
+        "The form schema uses stable field IDs so saved offline submissions can still sync correctly after a template label is renamed, while the builder shows labels as editable text and keeps IDs hidden from normal editors.",
+        "Conditional logic rules stay visible beside each field instead of hiding in a separate settings page.",
+        "Template editing supports duplicating an existing field with its help text, validation rules, and conditional visibility settings intact.",
+        "Repeatable groups are used for equipment inspections where a crew may record multiple assets under one site visit. Each repeated item should preserve its own validation state.",
+        "The builder UI needs a clear warning when a required field is placed inside a conditional section that may never become visible. The warning belongs in the field settings panel.",
+        "A bug was found where deleting the controlling question for a conditional field left an orphaned rule in the schema. The preview panel then rendered a blank card.",
+        "Northstar Forms stores builder drafts locally first, so template edits made in low-connectivity areas remain available before workspace sync completes. The editor should show a local saved state after each change. Publishing can wait until the connection returns.",
+        "The schema preview should show repeatable group boundaries, nested field order, and conditional branches. Developers can compare the builder output with the runtime form renderer. This helps catch mismatched field order before a template ships.",
+        "Number fields need minimum, maximum, unit label, and decimal precision options. Photo fields need maximum image count and required caption settings. The builder should keep these controls near the field type selector.",
+        "Northstar Forms keeps offline drafts on the device until the crew lead explicitly submits or deletes them.",
+        "Queued submissions preserve their original completion timestamp and add a separate synced-at value once the server accepts them after reconnect. Receipt sorting should use completion time, not upload time.",
+        "A sync receipt includes the form name, local draft ID, submission ID, and the time the server acknowledged the upload.",
+        "When connectivity returns, the app processes queued submissions oldest first and continues syncing the remaining queue even if one entry fails validation.",
+        "Field crews need an export option for unsynced drafts and queued submissions. This lets a crew hand off work from a damaged tablet before the next shift starts.",
+        "A bug was found where editing an offline draft after it entered the submission queue could overwrite the queued payload. The receipt then described a different version than the one sent.",
+        "Northstar Forms should show a clear local saved indicator after every offline autosave. This matters most on long forms where crews may lose signal between sections.",
+        "The reconnect banner should distinguish between no drafts to sync, syncing queued submissions, sync completed with receipts, and sync blocked by conflicts. Each state needs different action text. Crews should never have to guess whether work is still local only.",
+        "Configuration notes say offline draft retention is set per workspace, while sync receipt retention follows the audit log policy for submitted forms. The settings screen should show both values together. Retention changes should not delete existing drafts without confirmation.",
+        "The next sync test should cover airplane mode form creation, local save recovery after app restart, queued submission after reconnect, receipt display, and CSV export of any item that still cannot upload. The test should also verify that failed uploads remain in the queue. Receipts should appear only for accepted submissions.",
+        "Northstar Forms blocks final submission when a required answer is missing. Drafts may stay incomplete if the missing fields are clearly marked before approval. The review banner should explain that saving and submitting are separate actions.",
+        "The review screen needs an error summary that groups required-answer failures separately from format validation issues.",
+        "Approval checks expect every required answer to have either a valid response or an approved waiver note before a supervisor can mark the form complete.",
+        "Validation messages should use plain language such as answer required before approval instead of generic system text.",
+        "A bug was found where required radio questions appeared answered after reopening an offline draft. The stored value was blank, and the review step did not catch it.",
+        "Accessibility review notes say the error summary must receive keyboard focus after a failed completion attempt. Each message should link back to the exact unanswered question.",
+        "The draft completion indicator should show separate counts for unanswered required questions, failed validation rules, and pending approval checks. A single incomplete badge hides too much information.",
+        "Conditional required questions should appear in the required-answer review list only when their parent condition is active in the current draft. Hidden questions should not block approval. The review screen should mention why a conditional question is skipped.",
+        "Screen reader testing found that inline validation messages were announced twice on the review page. The team planned to keep the summary announcement and make repeated inline text less noisy. Keyboard focus should still move to the first problem field on request.",
+        "Northstar Forms needs a final approval guard that re-runs required-answer checks after offline sync. Validation rules can change while a crew is collecting responses in the field. If a rule changed, the approval screen should explain what needs another review.",
     ),
     "proj-fic-harborpilot-01": (
-        "HarborPilot keeps the shared lift schedule visible beside the repair crew task board so blocked jobs are easy to spot.",
-        "The crew board groups work into intake, waiting on equipment, in progress, inspection, and ready for pickup lanes.",
-        "Shared compressors, diagnostic tablets, and bay lifts are modeled as assignable resources rather than owned team assets.",
-        "The dispatch view highlights repair jobs that can start immediately when a reserved equipment slot opens.",
-        "HarborPilot uses calm blue and safety orange accents to separate schedule warnings from routine task updates.",
-        "The prototype search query lift should rank equipment bookings before general maintenance notes.",
-        "Job cards show the needed tools, target bay, and crew size before anyone drags the task into active work.",
-        "A known issue says the calendar chip can overlap long equipment names on narrow boards.",
-        "The weekly schedule starts with a planning lane for jobs awaiting equipment confirmation.",
-        "The board empty state suggests adding a repair job, reserving shared equipment, or reviewing the handoff queue.",
-        "HarborPilot treats equipment conflicts as scheduling blockers, not as assignment failures. The board should explain which job currently holds the shared resource.",
-        "Each repair task can reserve one primary asset and several optional support tools. Optional tools should never prevent a job from moving forward unless the crew marks them required.",
-        "The lane summary counts crews separately from equipment reservations. This helps reviewers see whether a delay comes from staffing or from a shared asset bottleneck.",
-        "Configuration examples disable live notifications and keep all scheduling changes local to the sample workspace. The activity feed still shows generated booking edits for realistic review.",
-        "A task remains to add a split view for upcoming lift reservations and active repairs. The goal is to reduce double-booking during shift handoff.",
-        "The mock importer accepts repair rows with columns for job code, equipment need, bay, estimate, and notes. It rejects rows that include phone numbers or customer contact fields.",
-        "The accessibility note requires warning icons to include text because color alone cannot explain equipment conflicts. The same rule applies to overdue inspection badges.",
-        "A bug note says completed jobs briefly remained attached to a compressor reservation after the board filter was cleared. The fix should release the resource as soon as the job enters inspection.",
-        "The handoff checklist asks crews to confirm bay cleanup, tool return, and next job readiness. A job cannot be marked ready for pickup until required equipment reservations are closed.",
-        "Release notes call out that all schedules, crews, repair tasks, and equipment names use generated content. Reviewers should still check new memories for accidental personal details before merging.",
-        "The team decided that urgent work uses priority bands named harbor red, pier amber, and dock green. These labels keep the sample operational without resembling a real emergency code. The colors should be paired with text labels everywhere.",
-        "The planning lane keeps uncertain tasks visible without blocking a bay. Estimates remain visible, but start times stay hidden until a resource is selected. This helps coordinators avoid false commitments.",
-        "HarborPilot sample crews use neutral names like Crew A, Crew B, and Night Crew. These labels are stable for snapshot tests and avoid implying any real staff roster. Crew capacity is expressed as available slots rather than individual identities.",
-        "The equipment registry includes two lifts, one alignment rack, a compressor, a diagnostic tablet, and a parts cart. Each resource has a maintenance window that can be reserved like any job. The task board should show these windows as unavailable blocks.",
-        "Scenario tests include a dock gate repair that needs the alignment rack after the morning lift slot. The expected schedule keeps the job waiting until both the rack and a two-person crew are free. This verifies that resource and staffing constraints combine correctly.",
-        "HarborPilot stores generated job IDs with the prefix HP-JOB for deterministic examples. Equipment IDs use HP-EQ so the records are easy to scan. No identifier should resemble a license plate, serial number, or private asset tag.",
-        "A design note prefers timeline cards over dense tables for the first scheduling screen. Cards make equipment conflicts easier to read during a quick crew standup. The table view remains useful for bulk editing later.",
-        "The prototype should warn when two active jobs request the same lift within the same time block. The warning links to the equipment calendar and offers to move the lower-priority job. If both jobs have the same priority, HarborPilot suggests the one with the shorter estimated duration.",
-        "The shift handoff view lists blocked jobs before routine updates. Coordinators can see equipment conflicts, missing parts, and inspection holds in one pass. Completed jobs collapse into a short summary at the bottom.",
-        "Schedule exports include job code, lane, required equipment, crew label, and planned start window. They do not include customer names, addresses, or phone numbers. The export should remain useful for local testing and screenshots.",
+        "HarborPilot shows repair job schedules as grouped time blocks so dispatchers can spot overlapping crane, welding, and inspection work on the same pier.",
+        "The crew coordination view shows planned start windows as ranges instead of exact timestamps.",
+        "Lane ordering in the dispatch board prioritizes urgent hull patch jobs first, then scheduled maintenance, then low-priority dock hardware repairs.",
+        "The planned start window filter supports jobs beginning within the next two hours, tomorrow morning, or the current shift block.",
+        "Night shift crews need a separate lane so supervisors can distinguish carryover work from newly assigned morning jobs. That lane should stay visible during morning handoff.",
+        "A bug was found where dragging a repair card between dispatch lanes preserved the crew assignment but reset the planned start window. The card jumped back to the beginning of the day.",
+        "HarborPilot configuration allows each harbor zone to define its own standard shift blocks. The dry dock team and pier repair team do not follow the same daily schedule.",
+        "The schedule timeline should highlight idle gaps between repair jobs. Dispatchers can insert quick inspections or small parts replacement tasks without disrupting larger work orders. The gap indicator should show the available duration.",
+        "The shift planning screen warns when a crew is assigned to back-to-back repair jobs in different harbor zones. It should account for travel and setup time between blocks. The warning belongs near the second job assignment.",
+        "Schedule exports include job code, lane, required equipment, crew label, and planned start window. They should not include customer names, addresses, or phone numbers. The export remains useful for local testing and screenshots.",
+        "HarborPilot reserves the west yard shared lift as a single-capacity resource because two pier repair crews tried to book it for overlapping morning haul-outs.",
+        "The compressor trailer is unavailable every Friday afternoon for filter checks, so scheduling suggestions need to avoid assigning pneumatic tool work during that window.",
+        "Diagnostic tablets often stay checked out after vessel-side inspections, creating stale availability data for the next repair shift. HarborPilot should prompt for tablet return before marking related inspection notes complete.",
+        "HarborPilot shows equipment conflicts before crew conflicts when a job requires a shared lift, compressor, or diagnostic tablet. The board should explain that the job cannot start until the resource is reserved.",
+        "The north basin lift reservation includes a setup and teardown buffer. Back-to-back assignments should not assume instant movement between repair bays.",
+        "A bug was found where the equipment calendar allowed a compressor reservation to be shortened by one crew while another crew still depended on the original time range.",
+        "An equipment-unavailable reason field should support maintenance, relocation, safety hold, and battery charging. Dispatchers need to understand why a tool cannot be assigned.",
+        "HarborPilot needs a reminder when diagnostic tablets have not synced inspection notes before being returned to the shared equipment pool. The reminder should appear before the tablet is marked available. Supervisors can dismiss it only after confirming sync status.",
+        "Portable compressors should be grouped by pressure rating, not only by name. Some hull repair tasks can use any unit above the required output. The resource picker should surface compatible alternatives.",
+        "Resource reservations should flag travel time when a shared lift must move from the dry dock apron to the inner harbor service lane. The move should reserve the lift during transit. Dispatchers need to see that blocked interval on the equipment calendar.",
+        "The evening dispatcher marked Pier 4 fender repair as blocked. The inspection hold is still active. Next shift should verify the hold release before assigning a dive crew.",
+        "HarborPilot handoff notes show whether each job is ready, blocked, or waiting on inspection so incoming coordinators avoid calling crews for work that cannot start.",
+        "The north basin bollard replacement checklist requires crane availability, tide window confirmation, and safety barrier placement before the job can move to ready status.",
+        "Blocked jobs remain visible at the top of the handoff board until the blocker type and responsible role are recorded.",
+        "During shift change, the outgoing lead summarized three pending repairs. One was cleared for crew dispatch, one was waiting on materials, and one was paused until inspection signoff.",
+        "A bug was found where completed crew checklist items did not always appear in the next-shift summary. The incoming coordinator repeated readiness checks unnecessarily.",
+        "The night crew left a note that the fuel dock ladder repair is safe to stage but not safe to begin. The final inspection hold has not been removed.",
+        "Next-shift summaries include the last crew contact time and any unresolved access issues. Coordinators can quickly decide whether to roll a repair team. The summary should hide completed routine updates by default.",
+        "The handoff workflow treats missing permits, incomplete checklists, and inspection holds as separate blockers instead of combining them into a generic not-ready status. Each blocker needs an owner and next action. This makes morning triage less ambiguous.",
+        "A coordinator noticed that jobs marked ready before shift end sometimes lost their assigned crew in the morning view. The assignment should persist across handoff. Dispatchers should check this before relying on HarborPilot for planning.",
     ),
 }
 
@@ -331,6 +336,8 @@ def _workspace_seed_memory(workspace_index: int, memory_index: int) -> Memory:
     workspace_uid = project["uid"]
     project_name = project["name"]
     ordinal = memory_index + 1
+    theme_index = memory_index // 10
+    theme = DEV_SEED_PROJECT_THEMES_BY_UID[workspace_uid][theme_index]
     content = PROJECT_MEMORIES_BY_UID[workspace_uid][memory_index]
     return Memory(
         id=f"dev-workspace-{workspace_index + 1:02d}-{ordinal:03d}",
@@ -344,6 +351,8 @@ def _workspace_seed_memory(workspace_index: int, memory_index: int) -> Memory:
             "dev_project": project_name,
             "dev_project_name": project_name,
             "dev_project_uid": workspace_uid,
+            "dev_theme": theme,
+            "dev_theme_index": theme_index,
             "dev_workspace_index": workspace_index,
             "dev_ordinal": ordinal,
         },
@@ -430,6 +439,18 @@ def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
     expected_project_names = {
         project["uid"]: project["name"] for project in DEV_SEED_PROJECTS
     }
+    expected_workspace_theme_counts = {
+        uid: Counter({theme: 10 for theme in themes})
+        for uid, themes in DEV_SEED_PROJECT_THEMES_BY_UID.items()
+    }
+    actual_workspace_theme_counts = {
+        project["uid"]: Counter(
+            memory.metadata.get("dev_theme")
+            for memory in workspace_memories
+            if memory.workspace_uid == project["uid"]
+        )
+        for project in DEV_SEED_PROJECTS
+    }
 
     return (
         len(user_memories) == DEV_SEED_USER_MEMORY_COUNT
@@ -454,11 +475,14 @@ def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
         and len(set(all_contents))
         == DEV_SEED_USER_MEMORY_COUNT + DEV_SEED_TOTAL_WORKSPACE_MEMORIES
         and all(_has_acceptable_visible_content(content) for content in all_contents)
+        and actual_workspace_theme_counts == expected_workspace_theme_counts
         and all(
             memory.workspace_uid is not None
             and memory.metadata.get("dev_project_name")
             == expected_project_names[memory.workspace_uid]
             and memory.metadata.get("dev_project_uid") == memory.workspace_uid
+            and memory.metadata.get("dev_theme")
+            in DEV_SEED_PROJECT_THEMES_BY_UID[memory.workspace_uid]
             for memory in workspace_memories
         )
     )

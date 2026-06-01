@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from recollectium.dev_seed import (
+    DEV_SEED_PROJECT_THEMES_BY_UID,
     DEV_SEED_PROJECTS,
     DEV_SEED_USER_TOPICS,
     ensure_seeded_dev_database,
@@ -116,6 +117,11 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
             "name": "HarborPilot",
         },
     )
+    assert DEV_SEED_PROJECT_THEMES_BY_UID == {
+        "proj-fic-cedarledger-01": ("permissions", "exports", "reconciliation"),
+        "proj-fic-northstar-forms-01": ("form-builder", "offline-sync", "review"),
+        "proj-fic-harborpilot-01": ("scheduling", "equipment", "handoff"),
+    }
     assert {memory.metadata["dev_topic"] for memory in user_memories} == set(
         DEV_SEED_USER_TOPICS
     )
@@ -187,6 +193,33 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
         for project in DEV_SEED_PROJECTS
     } == {
         project["uid"]: Counter({1: 10, 2: 10, 3: 10}) for project in DEV_SEED_PROJECTS
+    }
+    assert {
+        project["uid"]: Counter(
+            memory.metadata["dev_theme"]
+            for memory in workspace_memories
+            if memory.workspace_uid == project["uid"]
+        )
+        for project in DEV_SEED_PROJECTS
+    } == {
+        uid: Counter({theme: 10 for theme in themes})
+        for uid, themes in DEV_SEED_PROJECT_THEMES_BY_UID.items()
+    }
+    assert all(
+        memory.workspace_uid is not None
+        and memory.metadata["dev_theme"]
+        in DEV_SEED_PROJECT_THEMES_BY_UID[memory.workspace_uid]
+        for memory in workspace_memories
+    )
+    assert {
+        project["uid"]: Counter(
+            memory.metadata["dev_theme_index"]
+            for memory in workspace_memories
+            if memory.workspace_uid == project["uid"]
+        )
+        for project in DEV_SEED_PROJECTS
+    } == {
+        project["uid"]: Counter({0: 10, 1: 10, 2: 10}) for project in DEV_SEED_PROJECTS
     }
     expected_project_names = {
         project["uid"]: project["name"] for project in DEV_SEED_PROJECTS
