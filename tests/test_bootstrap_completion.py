@@ -157,6 +157,8 @@ def test_unix_bootstrap_records_selector_tracking_targets(tmp_path: Path) -> Non
             "latest_release",
             "latest",
         ),
+        ({"RECOLLECTIUM_INSTALL_REF": "v1.2.3"}, "release", "v1.2.3"),
+        ({"RECOLLECTIUM_INSTALL_REF": "1.2.3"}, "release", "1.2.3"),
         ({"RECOLLECTIUM_INSTALL_REF": "feature/test"}, "custom_ref", "feature/test"),
     ]
 

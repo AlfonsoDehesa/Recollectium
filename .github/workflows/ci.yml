@@ -92,13 +92,20 @@ jobs:
           zsh -lc 'command -v recollectium && recollectium --version'
           python - <<'PY'
           import json
+          import re
           from pathlib import Path
 
           metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           tracking_target = metadata.get("tracking_target", {})
           assert tracking_target.get("selector"), metadata
-          expected_kind = "main" if tracking_target.get("selector") == "main" else "custom_ref"
+          selector = tracking_target.get("selector")
+          if selector == "main":
+              expected_kind = "main"
+          elif isinstance(selector, str) and re.fullmatch(r"v?[0-9]+([.][0-9A-Za-z.+!-]+)*", selector):
+              expected_kind = "release"
+          else:
+              expected_kind = "custom_ref"
           assert tracking_target.get("kind") == expected_kind, metadata
           expected = {
               str(Path.home() / ".zprofile"),
@@ -130,6 +137,7 @@ jobs:
           recollectium upgrade --dry-run --install-method bootstrap --repo "$GITHUB_REPOSITORY" --json > upgrade-dry-run.json
           python - <<'PY'
           import json
+          import re
           from pathlib import Path
           for path in ["upgrade-check.json", "upgrade-dry-run.json"]:
               payload = json.loads(Path(path).read_text())
@@ -139,7 +147,13 @@ jobs:
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           tracking_target = metadata.get("tracking_target", {})
           assert tracking_target.get("selector"), metadata
-          expected_kind = "main" if tracking_target.get("selector") == "main" else "custom_ref"
+          selector = tracking_target.get("selector")
+          if selector == "main":
+              expected_kind = "main"
+          elif isinstance(selector, str) and re.fullmatch(r"v?[0-9]+([.][0-9A-Za-z.+!-]+)*", selector):
+              expected_kind = "release"
+          else:
+              expected_kind = "custom_ref"
           assert tracking_target.get("kind") == expected_kind, metadata
           PY
 
