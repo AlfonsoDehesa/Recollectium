@@ -68,7 +68,18 @@ jobs:
       - name: Install Recollectium on Unix
         if: runner.os != 'Windows'
         shell: bash
-        run: sh ./install.sh
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            export PATH="$(python3 - <<'PY'
+          import os
+
+          tool_bin = os.path.join(os.environ["HOME"], ".local", "bin")
+          print(":".join(part for part in os.environ["PATH"].split(":") if part != tool_bin))
+          PY
+          )"
+          fi
+          sh ./install.sh
         env:
           RECOLLECTIUM_INSTALL_REF: ${{ github.head_ref || github.ref_name }}
           SHELL: ${{ runner.os == 'macOS' && '/bin/zsh' || '' }}

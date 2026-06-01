@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 
@@ -55,6 +56,24 @@ def test_unix_bootstrap_resolves_tracking_metadata_in_current_shell() -> None:
     assert 'resolve_ref\nref="$RESOLVED_REF"' in script
     assert 'RESOLVED_REF="main"' in script
     assert 'RESOLVED_REF="$ref"' in script
+
+
+def test_unix_bootstrap_json_escape_does_not_corrupt_plain_f() -> None:
+    script = (ROOT / "install.sh").read_text(encoding="utf-8")
+    bootstrap_helpers = script.split("\ndetect_uv_archive() {", maxsplit=1)[0]
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{bootstrap_helpers}\njson_escape "fix/feature\\\"slash\\\\path"',
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout == 'fix/feature\\"slash\\\\path'
 
 
 def test_windows_bootstrap_installs_powershell_current_user_current_host_completion() -> (
