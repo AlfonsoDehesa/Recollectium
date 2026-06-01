@@ -41,24 +41,7 @@ Windows PowerShell:
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.ps1 | iex"
 ```
 
-The bootstrap installers default to the latest published GitHub release and record
-that upgrade target in install metadata. To pin a release or install from `main`,
-set an explicit selector before running the installer:
-
-```bash
-curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.sh | RECOLLECTIUM_INSTALL_VERSION=1.0.2 sh
-curl -LsSf https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.sh | RECOLLECTIUM_INSTALL_MAIN=1 sh
-```
-
-```powershell
-$env:RECOLLECTIUM_INSTALL_VERSION='1.0.2'; powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.ps1 | iex"
-$env:RECOLLECTIUM_INSTALL_MAIN='1'; powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.ps1 | iex"
-```
-
-`recollectium upgrade` follows the recorded target by default. Use
-`recollectium upgrade --version latest`, `--version 1.0.2`, or `--main` to change
-the tracked target during an explicit upgrade. `--check` and `--dry-run` only
-report the plan and do not mutate the install or metadata.
+The bootstrap installer tracks the latest release by default. See [Installation](https://github.com/AlfonsoDehesa/Recollectium/wiki/Installation) for pinned versions, `main`, and upgrade targets.
 
 For the full setup flow, including first memory, service startup, MCP, API, logs, and troubleshooting, see the [Quick Start](https://github.com/AlfonsoDehesa/Recollectium/wiki/Quick-Start) in the GitHub Wiki.
 
