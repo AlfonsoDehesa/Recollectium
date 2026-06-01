@@ -191,9 +191,6 @@ ensure_path_hint() {
     ensure_path_file "$profile"
     info "Added ${TOOL_BIN_DIR} to ${profile} for future shells."
   fi
-  info "To use recollectium in this shell now, run:"
-  info "  export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
-  info "Then verify with: recollectium --version"
 }
 
 resolve_tool_bin_dir() {
@@ -211,11 +208,16 @@ verify_installed_tool() {
 }
 
 print_final_guidance() {
+  guidance_shell="${COMPLETION_SHELL:-${SHELL##*/}}"
   info "Recollectium installed."
   info "Restart your terminal session before using recollectium, or run these commands for the current terminal:"
-  info "  export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
+  if [ "$guidance_shell" = "fish" ]; then
+    info "  set -gx PATH \"${TOOL_BIN_DIR}\" \$PATH"
+  else
+    info "  export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
+  fi
   if [ -n "$COMPLETION_RC" ]; then
-    info "  source ${COMPLETION_RC}"
+    info "  source \"${COMPLETION_RC}\""
   fi
   info "Then verify with: recollectium --version"
 }

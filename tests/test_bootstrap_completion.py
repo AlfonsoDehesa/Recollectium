@@ -83,7 +83,7 @@ def test_unix_bootstrap_json_escape_does_not_corrupt_plain_f() -> None:
     assert result.stdout == 'fix/feature\\"slash\\\\path'
 
 
-def test_unix_bootstrap_prints_current_shell_path_command_when_path_was_missing(
+def test_unix_bootstrap_prints_only_durable_path_message_when_path_was_missing(
     tmp_path: Path,
 ) -> None:
     helpers = _unix_bootstrap_helpers()
@@ -110,10 +110,10 @@ def test_unix_bootstrap_prints_current_shell_path_command_when_path_was_missing(
         },
     )
 
-    assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
     assert f"Added {tool_bin} to {home / '.profile'}" in result.stdout
-    assert "To use recollectium in this shell now, run:" in result.stdout
-    assert "Then verify with: recollectium --version" in result.stdout
+    assert "Restart your terminal session" not in result.stdout
+    assert "To use recollectium in this shell now, run:" not in result.stdout
+    assert "Then verify with: recollectium --version" not in result.stdout
 
 
 def test_unix_bootstrap_uses_original_path_for_durable_path_hint(
@@ -144,7 +144,7 @@ def test_unix_bootstrap_uses_original_path_for_durable_path_hint(
     )
 
     assert f"Added {tool_bin} to {home / '.profile'}" in result.stdout
-    assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
+    assert f'export PATH="{tool_bin}:$PATH"' not in result.stdout
 
 
 def test_unix_bootstrap_prints_final_restart_or_current_terminal_guidance() -> None:
@@ -153,7 +153,71 @@ def test_unix_bootstrap_prints_final_restart_or_current_terminal_guidance() -> N
     assert "print_final_guidance()" in script
     assert "Restart your terminal session" in script
     assert r"export PATH=\"${TOOL_BIN_DIR}:\$PATH\"" in script
-    assert "source ${COMPLETION_RC}" in script
+    assert r"source \"${COMPLETION_RC}\"" in script
+    assert "source ${COMPLETION_RC}" not in script
+
+
+def test_unix_bootstrap_prints_quoted_final_source_guidance(tmp_path: Path) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv tools"
+    completion_rc = tmp_path / "home dir" / ".bashrc"
+    tool_bin.mkdir()
+    completion_rc.parent.mkdir()
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nCOMPLETION_RC="$2"\nCOMPLETION_SHELL="bash"\nprint_final_guidance',
+            "sh",
+            str(tool_bin),
+            str(completion_rc),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/bin/bash",
+        },
+    )
+
+    assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
+    assert f'source "{completion_rc}"' in result.stdout
+    assert f"source {completion_rc}" not in result.stdout
+
+
+def test_unix_bootstrap_prints_fish_current_terminal_path_command(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv tools"
+    completion_rc = tmp_path / "config.fish"
+    tool_bin.mkdir()
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nCOMPLETION_RC="$2"\nCOMPLETION_SHELL="fish"\nprint_final_guidance',
+            "sh",
+            str(tool_bin),
+            str(completion_rc),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/usr/bin/fish",
+        },
+    )
+
+    assert f'set -gx PATH "{tool_bin}" $PATH' in result.stdout
+    assert f'export PATH="{tool_bin}:$PATH"' not in result.stdout
+    assert f'source "{completion_rc}"' in result.stdout
 
 
 def test_unix_bootstrap_resolves_uv_tool_bin_before_tool_install() -> None:
