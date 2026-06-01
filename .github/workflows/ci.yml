@@ -92,10 +92,14 @@ jobs:
           zsh -lc 'command -v recollectium && recollectium --version'
           python - <<'PY'
           import json
+          import os
           import re
           from pathlib import Path
 
-          metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
+          if os.environ.get("RUNNER_OS") == "macOS":
+              metadata_path = Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
+          else:
+              metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           tracking_target = metadata.get("tracking_target", {})
           assert tracking_target.get("selector"), metadata
@@ -137,13 +141,17 @@ jobs:
           recollectium upgrade --dry-run --install-method bootstrap --repo "$GITHUB_REPOSITORY" --json > upgrade-dry-run.json
           python - <<'PY'
           import json
+          import os
           import re
           from pathlib import Path
           for path in ["upgrade-check.json", "upgrade-dry-run.json"]:
               payload = json.loads(Path(path).read_text())
               assert payload["status"] in {"up_to_date", "dry_run"}, payload
               assert payload["install_method"] == "bootstrap", payload
-          metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
+          if os.environ.get("RUNNER_OS") == "macOS":
+              metadata_path = Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
+          else:
+              metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           tracking_target = metadata.get("tracking_target", {})
           assert tracking_target.get("selector"), metadata
@@ -243,9 +251,13 @@ jobs:
 
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
+          if os.environ.get("RUNNER_OS") == "macOS":
+              metadata_path = Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
+          else:
+              metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           completion_targets = []
           for item in metadata.get("managed_completion_edits", []):
