@@ -337,7 +337,9 @@ def resolve_main_ref(
 ) -> MainRefInfo:
     """Resolve remote main to a commit SHA, with local HEAD for source installs."""
     if not is_safe_github_repo(repo):
-        raise ReleaseLookupError("Invalid GitHub repository path.", reason="invalid_repo")
+        raise ReleaseLookupError(
+            "Invalid GitHub repository path.", reason="invalid_repo"
+        )
     if install_method == "source" and source_root is not None:
         fetch = runner.run(
             ["git", "fetch", "origin", "main"],
@@ -345,7 +347,9 @@ def resolve_main_ref(
             cwd=str(source_root),
         )
         if fetch.returncode != 0:
-            raise ReleaseLookupError(fetch.stderr or fetch.stdout, reason="main_lookup_failed")
+            raise ReleaseLookupError(
+                fetch.stderr or fetch.stdout, reason="main_lookup_failed"
+            )
         remote = runner.run(
             ["git", "rev-parse", "FETCH_HEAD"],
             timeout_seconds=timeout_seconds,
@@ -357,9 +361,13 @@ def resolve_main_ref(
             cwd=str(source_root),
         )
         remote_commit = _parse_commit_sha(remote.stdout)
-        current_commit = _parse_commit_sha(current.stdout) if current.returncode == 0 else None
+        current_commit = (
+            _parse_commit_sha(current.stdout) if current.returncode == 0 else None
+        )
         if remote.returncode != 0 or remote_commit is None:
-            raise ReleaseLookupError(remote.stderr or remote.stdout, reason="main_lookup_failed")
+            raise ReleaseLookupError(
+                remote.stderr or remote.stdout, reason="main_lookup_failed"
+            )
         return MainRefInfo(remote_commit=remote_commit, current_commit=current_commit)
 
     result = runner.run(
@@ -372,10 +380,14 @@ def resolve_main_ref(
         timeout_seconds=timeout_seconds,
     )
     if result.returncode != 0:
-        raise ReleaseLookupError(result.stderr or result.stdout, reason="main_lookup_failed")
+        raise ReleaseLookupError(
+            result.stderr or result.stdout, reason="main_lookup_failed"
+        )
     commit = _parse_commit_sha(result.stdout)
     if commit is None:
-        raise ReleaseLookupError("Could not resolve remote main.", reason="main_lookup_failed")
+        raise ReleaseLookupError(
+            "Could not resolve remote main.", reason="main_lookup_failed"
+        )
     return MainRefInfo(remote_commit=commit)
 
 
@@ -581,7 +593,9 @@ def build_update_plan(
     if selected_target.kind == "main":
         remote_commit = main_ref.remote_commit if main_ref else None
         current_commit = (
-            main_ref.current_commit if main_ref and main_ref.current_commit else _installed_main_commit(metadata)
+            main_ref.current_commit
+            if main_ref and main_ref.current_commit
+            else _installed_main_commit(metadata)
         )
         if remote_commit is not None and not is_commit_sha(remote_commit):
             return make_plan(
@@ -680,11 +694,15 @@ def build_update_plan(
             target_version=latest_version,
         )
     plan_status = "dry_run" if dry_run else "update_available"
-    target_commit = main_ref.remote_commit if selected_target.kind == "main" and main_ref else None
+    target_commit = (
+        main_ref.remote_commit if selected_target.kind == "main" and main_ref else None
+    )
     current_commit = (
         main_ref.current_commit
         if selected_target.kind == "main" and main_ref and main_ref.current_commit
-        else (_installed_main_commit(metadata) if selected_target.kind == "main" else None)
+        else (
+            _installed_main_commit(metadata) if selected_target.kind == "main" else None
+        )
     )
     return make_plan(
         plan_status,
@@ -797,7 +815,9 @@ def metadata_update_payload(
         "metadata_version": 2,
         "install_method": install_method,
         "updated_at": now,
-        "source_ref": resolved_commit if target.kind == "main" and resolved_commit else resolved_ref,
+        "source_ref": resolved_commit
+        if target.kind == "main" and resolved_commit
+        else resolved_ref,
         "source_ref_kind": "release"
         if target.kind == "latest_release"
         else target.kind,
@@ -1088,7 +1108,6 @@ def _installed_main_commit(metadata: InstallMetadata) -> str | None:
         if value is not None and is_commit_sha(value):
             return value.lower()
     return None
-
 
 
 def _default_metadata_path(platform_name: str | None = None) -> Path:

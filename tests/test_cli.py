@@ -5047,6 +5047,57 @@ def test_cli_upgrade_version_selector_targets_release(capsys, monkeypatch) -> No
     ]
 
 
+def test_cli_upgrade_main_check_resolves_remote_ref(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, MainRefInfo
+
+    calls: list[tuple[str, str, int]] = []
+    commit = "a" * 40
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("--main must not fetch releases")
+        ),
+    )
+
+    def _resolve_main_ref(
+        *, repo, install_method, runner, source_root, timeout_seconds
+    ):
+        calls.append((repo, install_method, timeout_seconds))
+        return MainRefInfo(remote_commit=commit)
+
+    monkeypatch.setattr(cli_mod, "resolve_main_ref", _resolve_main_ref)
+    monkeypatch.setattr(
+        cli_mod,
+        "write_install_metadata_update",
+        lambda plan: (_ for _ in ()).throw(
+            AssertionError("check must not write metadata")
+        ),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["upgrade", "--check", "--main", "--repo", "owner/repo", "--timeout", "7"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert calls == [("owner/repo", "uv_tool", 7)]
+    payload = json.loads(stdout)
+    assert payload["status"] == "dry_run"
+    assert payload["target_kind"] == "main"
+    assert payload["target_commit"] == commit
+    assert payload["will_update_metadata"] is False
+
+
 def test_cli_upgrade_version_latest_check_is_non_mutating(capsys, monkeypatch) -> None:
     import recollectium.cli as cli_mod
     from recollectium.update import InstallMetadata, ReleaseInfo

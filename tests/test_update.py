@@ -10,6 +10,7 @@ from recollectium.update import (
     CommandResult,
     InstallMetadata,
     MainRefInfo,
+    ReleaseLookupError,
     ReleaseInfo,
     TargetSelectorError,
     TrackingTarget,
@@ -1115,7 +1116,15 @@ def test_resolve_main_ref_uses_ls_remote_for_non_source() -> None:
 
     assert main_ref == MainRefInfo(remote_commit=commit)
     assert runner.calls == [
-        (["git", "ls-remote", "https://github.com/owner/repo.git", "refs/heads/main"], None)
+        (
+            [
+                "git",
+                "ls-remote",
+                "https://github.com/owner/repo.git",
+                "refs/heads/main",
+            ],
+            None,
+        )
     ]
 
 
@@ -1145,6 +1154,110 @@ def test_resolve_main_ref_fetches_source_without_checkout(tmp_path: Path) -> Non
         (["git", "rev-parse", "FETCH_HEAD"], str(tmp_path)),
         (["git", "rev-parse", "HEAD"], str(tmp_path)),
     ]
+
+
+def test_resolve_main_ref_rejects_invalid_repo() -> None:
+    runner = FakeRunner()
+
+    try:
+        resolve_main_ref(repo="owner/../repo", install_method="uv_tool", runner=runner)
+    except ReleaseLookupError as exc:
+        assert exc.reason == "invalid_repo"
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("invalid repo should fail")
+
+    assert runner.calls == []
+
+
+def test_resolve_main_ref_reports_source_fetch_failure(tmp_path: Path) -> None:
+    runner = FakeRunner([CommandResult(128, "", "fetch failed")])
+
+    try:
+        resolve_main_ref(
+            repo="owner/repo",
+            install_method="source",
+            runner=runner,
+            source_root=tmp_path,
+        )
+    except ReleaseLookupError as exc:
+        assert exc.reason == "main_lookup_failed"
+        assert str(exc) == "fetch failed"
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("fetch failure should fail")
+
+    assert runner.calls == [(["git", "fetch", "origin", "main"], str(tmp_path))]
+
+
+def test_resolve_main_ref_reports_source_remote_lookup_failure(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner(
+        [
+            CommandResult(0, "", ""),
+            CommandResult(0, "not-a-commit\n", ""),
+            CommandResult(1, "", "head unavailable"),
+        ]
+    )
+
+    try:
+        resolve_main_ref(
+            repo="owner/repo",
+            install_method="source",
+            runner=runner,
+            source_root=tmp_path,
+        )
+    except ReleaseLookupError as exc:
+        assert exc.reason == "main_lookup_failed"
+        assert str(exc) == "not-a-commit\n"
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("malformed remote commit should fail")
+
+    assert runner.calls == [
+        (["git", "fetch", "origin", "main"], str(tmp_path)),
+        (["git", "rev-parse", "FETCH_HEAD"], str(tmp_path)),
+        (["git", "rev-parse", "HEAD"], str(tmp_path)),
+    ]
+
+
+def test_resolve_main_ref_reports_ls_remote_failures() -> None:
+    failed_runner = FakeRunner([CommandResult(2, "", "offline")])
+
+    try:
+        resolve_main_ref(
+            repo="owner/repo", install_method="bootstrap", runner=failed_runner
+        )
+    except ReleaseLookupError as exc:
+        assert exc.reason == "main_lookup_failed"
+        assert str(exc) == "offline"
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("ls-remote failure should fail")
+
+    malformed_runner = FakeRunner([CommandResult(0, "not-a-commit\n", "")])
+    try:
+        resolve_main_ref(
+            repo="owner/repo", install_method="bootstrap", runner=malformed_runner
+        )
+    except ReleaseLookupError as exc:
+        assert exc.reason == "main_lookup_failed"
+        assert str(exc) == "Could not resolve remote main."
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("malformed ls-remote output should fail")
+
+
+def test_main_target_rejects_malformed_remote_commit() -> None:
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="uv_tool",
+        metadata=_metadata(),
+        target=TrackingTarget("main", "main", ref="main"),
+        target_source="cli",
+        main_ref=MainRefInfo(remote_commit="not-a-commit"),
+    )
+
+    assert plan.status == "network_error"
+    assert plan.reason == "main_lookup_failed"
+    assert plan.target_ref == "main"
 
 
 def test_source_checkout_apply_runs_command_sequence(
