@@ -160,6 +160,8 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--check" in upgrade_help
     assert "--dry-run" in upgrade_help
     assert "--install-method" in upgrade_help
+    assert "--version" in upgrade_help
+    assert "--main" in upgrade_help
     assert "--allow-main" in upgrade_help
 
     archive_help = _run_help(["archive", "--help"], capsys)
@@ -5012,6 +5014,94 @@ def test_cli_upgrade_ignores_config_errors_during_apply(
     assert payload["services_to_restart"] == []
 
 
+def test_cli_upgrade_version_selector_targets_release(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+    monkeypatch.setattr(cli_mod, "write_install_metadata_update", lambda plan: None)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--version", "1.2.3"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "updated"
+    assert payload["target_kind"] == "release"
+    assert payload["target_ref"] == "v1.2.3"
+    assert payload["command"] == [
+        "uv",
+        "tool",
+        "install",
+        "--force",
+        "recollectium==1.2.3",
+    ]
+
+
+def test_cli_upgrade_version_latest_check_is_non_mutating(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "write_install_metadata_update",
+        lambda plan: (_ for _ in ()).throw(
+            AssertionError("check must not write metadata")
+        ),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["upgrade", "--check", "--version", "latest"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "dry_run"
+    assert payload["target_kind"] == "latest_release"
+    assert payload["will_update_metadata"] is False
+
+
+def test_cli_upgrade_rejects_version_main(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--version", "main"], capsys)
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert "--main" in payload["detail"]
+
+
+def test_cli_upgrade_rejects_mutually_exclusive_targets(capsys) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        _run_cli(["upgrade", "--version", "latest", "--main"], capsys)
+
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert "not allowed with argument" in captured.err
+
+
 def test_cli_update_without_memory_id_points_to_upgrade(capsys) -> None:
     exit_code, stdout, stderr = _run_cli(["update"], capsys)
 
@@ -5878,3 +5968,100 @@ def test_cli_serve_recollectium_error_returns_structured_json(
     payload = json.loads(stderr)
     assert payload["status"] == "operation_failed"
     assert payload["detail"] == "RecollectiumError: serve domain boom"
+
+
+def test_cli_install_metadata_detection_error_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    metadata_path = tmp_path / "install.json"
+    metadata_path.write_text("{", encoding="utf-8")
+
+    def raise_attribute_error() -> object:
+        raise AttributeError("broken metadata")
+
+    monkeypatch.setattr(cli_mod, "load_install_metadata", raise_attribute_error)
+    payload = cli_mod._load_install_metadata(metadata_path)
+    assert payload == {"install_method": "unknown"}
+
+    monkeypatch.setattr(cli_mod, "load_install_metadata", raise_attribute_error)
+    enriched = cli_mod._metadata_with_detected_install_method({"source_ref": "v1.0.0"})
+    assert enriched == {"source_ref": "v1.0.0", "install_method": "unknown"}
+
+
+def test_cli_upgrade_metadata_write_warning(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "ok", "")
+    )
+
+    def fail_metadata_write(plan: object) -> None:
+        raise OSError("metadata unwritable")
+
+    monkeypatch.setattr(cli_mod, "write_install_metadata_update", fail_metadata_write)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--force"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["metadata_updated"] is False
+    assert payload["metadata_warning"] == "metadata unwritable"
+
+
+def test_cli_rewrites_upgrade_version_equals_selector() -> None:
+    import recollectium.cli as cli_mod
+
+    assert cli_mod._rewrite_upgrade_version_selector(
+        ["upgrade", "--version=1.2.3"]
+    ) == ["upgrade", "--target-version=1.2.3"]
+
+
+def test_cli_upgrade_latest_uses_metadata_target_repo(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo, TrackingTarget
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata(
+            "uv_tool",
+            None,
+            None,
+            None,
+            tracking_target=TrackingTarget(
+                "latest_release", "latest", repo="Metadata/Repo"
+            ),
+        ),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+
+    def fake_fetch(client: object, *, repo: str) -> ReleaseInfo:
+        assert repo == "Metadata/Repo"
+        return ReleaseInfo("9.9.9", "v9.9.9", None)
+
+    monkeypatch.setattr(cli_mod, "fetch_latest_release", fake_fetch)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--check"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["target_kind"] == "latest_release"
+    assert payload["target_source"] == "metadata"

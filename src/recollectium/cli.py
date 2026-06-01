@@ -83,6 +83,7 @@ from recollectium.update import (
     ReleaseInfo,
     ReleaseLookupError,
     SubprocessCommandRunner,
+    TargetSelectorError,
     apply_update,
     build_update_plan,
     detect_install_method,
@@ -90,6 +91,8 @@ from recollectium.update import (
     find_source_checkout_root,
     load_install_metadata,
     plan_to_dict,
+    select_tracking_target,
+    write_install_metadata_update,
 )
 
 _log = logging.getLogger(__name__)
@@ -1115,11 +1118,31 @@ def _handle_upgrade_command(
         else args.install_method
     )
     repo = args.repo or "AlfonsoDehesa/recollectium"
+    try:
+        target, target_source = select_tracking_target(
+            metadata,
+            version_selector=args.version,
+            main=args.main,
+            repo=repo,
+        )
+    except TargetSelectorError as exc:
+        return _emit_cli_failure(
+            status="validation_error",
+            message="Upgrade target is invalid.",
+            detail=str(exc),
+            exit_code=2,
+            command="upgrade",
+            event="upgrade.invalid_target",
+        )
     allow_main = args.allow_main or args.repo is not None
 
     latest_release: ReleaseInfo | None
     try:
-        latest_release = fetch_latest_release(GitHubReleaseClient(), repo=repo)
+        latest_release = (
+            fetch_latest_release(GitHubReleaseClient(), repo=target.repo)
+            if target.kind == "latest_release"
+            else None
+        )
     except ReleaseLookupError as exc:
         if exc.reason == "no_latest_release" and allow_main:
             latest_release = None
@@ -1146,6 +1169,8 @@ def _handle_upgrade_command(
         allow_main=allow_main,
         repo=repo,
         source_root=source_root,
+        target=target,
+        target_source=target_source,
     )
     payload = plan_to_dict(plan)
 
@@ -1270,6 +1295,18 @@ def _handle_upgrade_command(
             command="upgrade",
             event="upgrade.update_failed",
         )
+
+    metadata_warning: str | None = None
+    try:
+        metadata_path = write_install_metadata_update(plan)
+        if metadata_path is not None:
+            payload["metadata_path"] = str(metadata_path)
+            payload["will_update_metadata"] = False
+            payload["metadata_updated"] = True
+    except OSError as exc:
+        metadata_warning = str(exc)
+        payload["metadata_updated"] = False
+        payload["metadata_warning"] = metadata_warning
 
     payload["status"] = "updated"
     if cfg is not None:
@@ -1645,9 +1682,13 @@ def _load_install_metadata(path: Path) -> dict[str, Any] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
+        try:
+            detected = detect_install_method(load_install_metadata())
+        except (AttributeError, OSError):
+            detected = "unknown"
+        return {"install_method": detected}
     if not isinstance(payload, dict):
-        return None
+        return {"install_method": "unknown"}
     return payload
 
 
@@ -1657,13 +1698,13 @@ def _metadata_with_detected_install_method(
     if metadata is not None and isinstance(metadata.get("install_method"), str):
         return metadata
 
+    if metadata is None:
+        return {"install_method": "unknown"}
+
     try:
         detected = detect_install_method(load_install_metadata())
     except (AttributeError, OSError):
         detected = "unknown"
-
-    if metadata is None:
-        return {"install_method": detected}
 
     enriched = dict(metadata)
     enriched["install_method"] = detected
@@ -1846,8 +1887,17 @@ def _remove_installed_package(
         }
         return payload
 
+    already_absent = (
+        completed.returncode != 0
+        and completed.stderr
+        and "is not installed" in completed.stderr
+    )
     uninstall_payload: dict[str, Any] = {
-        "status": "removed" if completed.returncode == 0 else "failed",
+        "status": "removed"
+        if completed.returncode == 0
+        else "not_installed"
+        if already_absent
+        else "failed",
         "command": payload["recommended"],
         "argv": command,
         "returncode": completed.returncode,
@@ -2048,6 +2098,16 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
     }
 
 
+def _clear_managed_logging_handlers() -> None:
+    """Remove Recollectium-managed log handlers before purging log files."""
+    for logger_name in ("recollectium", "uvicorn", "sqlite3", "httpx"):
+        logger = logging.getLogger(logger_name)
+        for handler in list(logger.handlers):
+            if getattr(handler, "_recollectium_managed", False):
+                logger.removeHandler(handler)
+                handler.close()
+
+
 def _handle_uninstall_command(
     args: argparse.Namespace,
     config_path: Path,
@@ -2126,6 +2186,7 @@ def _handle_uninstall_command(
             sys.stderr.write("\n")
 
             logging.shutdown()
+            _clear_managed_logging_handlers()
             data_payload["purge"] = _purge_targets(plan, dry_run=False)
 
     package_payload = _remove_installed_package(metadata, dry_run=args.dry_run)
@@ -2133,7 +2194,7 @@ def _handle_uninstall_command(
     result = {
         "status": (
             "uninstalled"
-            if package_status in {"removed", "scheduled"}
+            if package_status in {"removed", "scheduled", "not_installed"}
             else "dry_run"
             if package_status == "dry_run"
             else "package_removal_unsupported"
@@ -2604,9 +2665,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "upgrade",
         help="upgrade the installed Recollectium package",
         description=(
-            "Check the installed Recollectium version against the latest release and "
-            "upgrade through the detected install method. Use --check or --dry-run for "
-            "non-mutating modes."
+            "Upgrade the Recollectium package. Without --version or --main, follows "
+            "the install metadata tracking target; if none is recorded, tracks the "
+            "latest release. Only this explicit command mutates the installed package."
         ),
     )
     upgrade_parser.add_argument(
@@ -2624,6 +2685,26 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Build and apply an upgrade plan even when versions appear current.",
     )
+    target_group = upgrade_parser.add_mutually_exclusive_group()
+    target_group.add_argument(
+        "--version",
+        metavar="VERSION",
+        help=(
+            "Target a release. Use 'latest' to track the latest GitHub release, "
+            "or a release version/tag such as '1.0.2' or 'v1.0.2'."
+        ),
+    )
+    target_group.add_argument(
+        "--target-version",
+        dest="version",
+        metavar="VERSION",
+        help=argparse.SUPPRESS,
+    )
+    target_group.add_argument(
+        "--main",
+        action="store_true",
+        help="Track/install from the main branch. Mutually exclusive with --version.",
+    )
     upgrade_parser.add_argument(
         "--install-method",
         choices=["auto", "bootstrap", "pip", "pipx", "uv_tool", "source"],
@@ -2633,8 +2714,8 @@ def _build_parser() -> argparse.ArgumentParser:
     upgrade_parser.add_argument(
         "--repo",
         help=(
-            "GitHub OWNER/REPO to check for releases. Passing this also permits "
-            "main fallback when no release exists."
+            "Development/test override for GitHub OWNER/REPO release lookup and "
+            "bootstrap URLs. Normal users should not need this."
         ),
     )
     upgrade_parser.add_argument(
@@ -3037,6 +3118,24 @@ def _build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 
+def _rewrite_upgrade_version_selector(argv: list[str]) -> list[str]:
+    """Let `recollectium upgrade --version` coexist with global `--version`."""
+    try:
+        upgrade_index = argv.index("upgrade")
+    except ValueError:
+        return argv
+    rewritten = list(argv)
+    for index in range(upgrade_index + 1, len(rewritten)):
+        token = rewritten[index]
+        if token == "--version":
+            rewritten[index] = "--target-version"
+            break
+        if token.startswith("--version="):
+            rewritten[index] = "--target-version=" + token.split("=", 1)[1]
+            break
+    return rewritten
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the Recollectium CLI."""
     _set_cli_output_format(CLI_OUTPUT_JSON)
@@ -3047,6 +3146,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not effective_argv:
         parser.print_help()
         return 0
+    effective_argv = _rewrite_upgrade_version_selector(effective_argv)
     if output_conflict:
         _set_cli_output_format(output_override or CLI_OUTPUT_JSON)
         return _emit_cli_failure(
@@ -3055,9 +3155,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code=2,
             command="output",
         )
-    args = parser.parse_args(argv)
+    args = parser.parse_args(effective_argv)
 
-    if getattr(args, "version", False):
+    if getattr(args, "command", None) is None and getattr(args, "version", False):
         try:
             installed_version = package_version("recollectium")
         except PackageNotFoundError:

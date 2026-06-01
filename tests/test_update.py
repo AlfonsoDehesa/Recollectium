@@ -3,16 +3,29 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from recollectium.update import (
     CommandResult,
     InstallMetadata,
     ReleaseInfo,
+    TargetSelectorError,
+    TrackingTarget,
+    UpdatePlan,
+    _bootstrap_target_env,
+    _command_for_method,
+    _current_newer_than,
+    _parse_tracking_target,
+    _versions_equal,
     apply_update,
     build_update_plan,
     detect_install_method,
     load_install_metadata,
+    normalize_version_selector,
+    resolve_latest_for_target,
+    select_tracking_target,
+    write_install_metadata_update,
 )
 
 
@@ -122,6 +135,8 @@ def test_main_fallback_requires_allow_main() -> None:
     assert allowed.reason == "main_fallback_allowed"
     assert allowed.command is not None
     assert "main/install.sh" in allowed.command[-1]
+    assert "RECOLLECTIUM_INSTALL_MAIN" in allowed.command[-1]
+    assert "RECOLLECTIUM_INSTALL_VERSION" not in allowed.command[-1]
 
 
 def test_source_checkout_builds_safe_command_sequence(tmp_path: Path) -> None:
@@ -134,7 +149,8 @@ def test_source_checkout_builds_safe_command_sequence(tmp_path: Path) -> None:
     )
 
     assert plan.command == [
-        ["git", "pull", "--ff-only"],
+        ["git", "fetch", "--tags", "origin"],
+        ["git", "checkout", "v1.0.0"],
         ["uv", "sync", "--group", "dev"],
     ]
     assert plan.cwd == str(tmp_path)
@@ -744,6 +760,258 @@ def test_apply_source_plan_without_cwd_fails_safely() -> None:
     assert result == CommandResult(1, "", "source checkout not found")
 
 
+def test_select_tracking_target_cli_and_metadata() -> None:
+    from recollectium.update import TrackingTarget, select_tracking_target
+
+    latest, latest_source = select_tracking_target(
+        _metadata(), version_selector="latest"
+    )
+    pinned, pinned_source = select_tracking_target(
+        _metadata(), version_selector="1.2.3"
+    )
+    main, main_source = select_tracking_target(_metadata(), main=True)
+    metadata_target, metadata_source = select_tracking_target(
+        InstallMetadata(
+            "bootstrap",
+            "v1.2.0",
+            None,
+            None,
+            tracking_target=TrackingTarget(
+                "release",
+                "v1.2.0",
+                repo="Metadata/Repo",
+                version="1.2.0",
+                ref="v1.2.0",
+            ),
+        )
+    )
+    overridden_metadata_target, overridden_metadata_source = select_tracking_target(
+        InstallMetadata(
+            "bootstrap",
+            "v1.2.0",
+            None,
+            None,
+            tracking_target=TrackingTarget(
+                "release",
+                "v1.2.0",
+                repo="Metadata/Repo",
+                version="1.2.0",
+                ref="v1.2.0",
+            ),
+        ),
+        repo="Override/Repo",
+    )
+
+    assert (latest.kind, latest.selector, latest_source) == (
+        "latest_release",
+        "latest",
+        "cli",
+    )
+    assert (
+        pinned.kind,
+        pinned.selector,
+        pinned.version,
+        pinned.ref,
+        pinned_source,
+    ) == (
+        "release",
+        "v1.2.3",
+        "1.2.3",
+        "v1.2.3",
+        "cli",
+    )
+    assert (main.kind, main.ref, main_source) == ("main", "main", "cli")
+    assert (
+        metadata_target.kind,
+        metadata_target.ref,
+        metadata_target.repo,
+        metadata_source,
+    ) == (
+        "release",
+        "v1.2.0",
+        "Metadata/Repo",
+        "metadata",
+    )
+    assert (
+        overridden_metadata_target.kind,
+        overridden_metadata_target.ref,
+        overridden_metadata_target.repo,
+        overridden_metadata_source,
+    ) == (
+        "release",
+        "v1.2.0",
+        "Override/Repo",
+        "metadata",
+    )
+
+
+def test_load_install_metadata_reads_tracking_target(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "install.json").write_text(
+        json.dumps(
+            {
+                "metadata_version": 2,
+                "install_method": "bootstrap",
+                "source_ref": "v1.2.3",
+                "source_ref_kind": "release",
+                "source_repo": "owner/repo",
+                "tracking_target": {
+                    "kind": "release",
+                    "selector": "v1.2.3",
+                    "version": "1.2.3",
+                    "ref": "v1.2.3",
+                    "repo": "owner/repo",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    metadata = load_install_metadata(state_dir=state)
+
+    assert metadata.metadata_version == 2
+    assert metadata.source_ref_kind == "release"
+    assert metadata.source_repo == "owner/repo"
+    assert metadata.tracking_target is not None
+    assert metadata.tracking_target.kind == "release"
+    assert metadata.tracking_target.version == "1.2.3"
+
+
+def test_pinned_metadata_plain_upgrade_noops_without_force_or_selector() -> None:
+    from recollectium.update import TrackingTarget
+
+    metadata = InstallMetadata(
+        "uv_tool",
+        "v1.2.3",
+        None,
+        None,
+        tracking_target=TrackingTarget(
+            "release", "v1.2.3", version="1.2.3", ref="v1.2.3"
+        ),
+    )
+
+    plain = build_update_plan(
+        current_version="1.2.3",
+        latest_release=None,
+        install_method="uv_tool",
+        metadata=metadata,
+    )
+    forced = build_update_plan(
+        current_version="1.2.3",
+        latest_release=None,
+        install_method="uv_tool",
+        metadata=metadata,
+        force=True,
+    )
+
+    assert plain.status == "up_to_date"
+    assert plain.reason == "pinned_release_current"
+    assert forced.status == "update_available"
+    assert forced.command == ["uv", "tool", "install", "--force", "recollectium==1.2.3"]
+
+
+def test_cli_selector_release_builds_pinned_command_and_metadata_update() -> None:
+    import sys
+    from recollectium.update import normalize_version_selector
+
+    metadata_path = Path("/tmp/recollectium-install.json")
+    plan = build_update_plan(
+        current_version="2.0.0",
+        latest_release=None,
+        install_method="pip",
+        metadata=_metadata("pip", metadata_path),
+        target=normalize_version_selector("1.2.3"),
+        target_source="cli",
+    )
+
+    assert plan.status == "update_available"
+    assert plan.command == [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "recollectium==1.2.3",
+    ]
+    assert plan.will_update_metadata is True
+    assert plan.metadata_update is not None
+    assert plan.metadata_update["source_ref"] == "v1.2.3"
+    assert plan.metadata_update["source_ref_kind"] == "release"
+    assert plan.metadata_update["tracking_target"] == {
+        "kind": "release",
+        "selector": "v1.2.3",
+        "repo": "AlfonsoDehesa/recollectium",
+        "version": "1.2.3",
+        "ref": "v1.2.3",
+    }
+
+
+def test_dry_run_and_check_plans_do_not_write_metadata() -> None:
+    plan = build_update_plan(
+        current_version="0.9.0",
+        latest_release=ReleaseInfo(version="1.0.0", tag="v1.0.0", url=None),
+        install_method="uv_tool",
+        metadata=_metadata(),
+        dry_run=True,
+    )
+
+    assert plan.status == "dry_run"
+    assert plan.will_update_metadata is False
+    assert plan.metadata_update is None
+
+
+def test_write_install_metadata_update_preserves_existing_fields(
+    tmp_path: Path,
+) -> None:
+    from recollectium.update import write_install_metadata_update
+
+    metadata_path = tmp_path / "install.json"
+    metadata_path.write_text(
+        json.dumps(
+            {"install_method": "uv_tool", "installed_at": "then", "custom": "keep"}
+        ),
+        encoding="utf-8",
+    )
+    plan = build_update_plan(
+        current_version="0.9.0",
+        latest_release=ReleaseInfo("1.0.0", "v1.0.0", "https://example.test/v1.0.0"),
+        install_method="uv_tool",
+        metadata=_metadata("uv_tool", metadata_path),
+    )
+
+    written = write_install_metadata_update(plan)
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    assert written == metadata_path
+    assert payload["custom"] == "keep"
+    assert payload["metadata_version"] == 2
+    assert payload["installed_at"] == "then"
+    assert payload["source_ref"] == "v1.0.0"
+    assert payload["source_ref_kind"] == "release"
+    assert payload["tracking_target"]["kind"] == "latest_release"
+
+
+def test_main_target_uses_main_without_release_lookup() -> None:
+    from recollectium.update import TrackingTarget
+
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="bootstrap",
+        metadata=_metadata("bootstrap"),
+        platform_name="Linux",
+        target=TrackingTarget("main", "main", ref="main"),
+        target_source="cli",
+    )
+
+    assert plan.status == "update_available"
+    assert plan.latest_tag == "main"
+    assert plan.command is not None
+    assert "main/install.sh" in plan.command[-1]
+    assert "RECOLLECTIUM_INSTALL_MAIN='1'" in plan.command[-1]
+
+
 def test_source_checkout_apply_runs_command_sequence(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -760,17 +1028,19 @@ def test_source_checkout_apply_runs_command_sequence(
     runner = FakeRunner(
         [
             CommandResult(0, "", ""),
-            CommandResult(0, "pulled\n", ""),
+            CommandResult(0, "fetched\n", ""),
+            CommandResult(0, "checked out\n", ""),
             CommandResult(0, "synced\n", ""),
         ]
     )
 
     result = apply_update(plan, runner=runner)
 
-    assert result == CommandResult(0, "pulled\nsynced\n", "")
+    assert result == CommandResult(0, "fetched\nchecked out\nsynced\n", "")
     assert runner.calls == [
         (["git", "status", "--porcelain"], str(tmp_path)),
-        (["git", "pull", "--ff-only"], str(tmp_path)),
+        (["git", "fetch", "--tags", "origin"], str(tmp_path)),
+        (["git", "checkout", "v1.0.0"], str(tmp_path)),
         (["uv", "sync", "--group", "dev"], str(tmp_path)),
     ]
 
@@ -800,7 +1070,7 @@ def test_source_checkout_apply_returns_first_command_failure(
     assert result == CommandResult(42, "partial", "failed")
     assert runner.calls == [
         (["git", "status", "--porcelain"], str(tmp_path)),
-        (["git", "pull", "--ff-only"], str(tmp_path)),
+        (["git", "fetch", "--tags", "origin"], str(tmp_path)),
     ]
 
 
@@ -821,3 +1091,436 @@ def test_source_checkout_apply_reports_missing_executable(
 
     assert result == CommandResult(1, "", "git is not available on PATH")
     assert runner.calls == [(["git", "status", "--porcelain"], str(tmp_path))]
+
+
+class FakeReleaseClient:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def latest_release(self, repo: str) -> ReleaseInfo:
+        self.calls.append(repo)
+        return ReleaseInfo("2.0.0", "v2.0.0", "https://example.test/release")
+
+
+def test_normalize_version_selector_rejects_invalid_values() -> None:
+    try:
+        normalize_version_selector("")
+    except TargetSelectorError as exc:
+        assert "cannot be empty" in str(exc)
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("empty selector should fail")
+
+    try:
+        normalize_version_selector("main")
+    except TargetSelectorError as exc:
+        assert "--main" in str(exc)
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("main selector should fail")
+
+    try:
+        normalize_version_selector("feature/branch")
+    except TargetSelectorError as exc:
+        assert "release version" in str(exc)
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("unsafe selector should fail")
+
+    try:
+        normalize_version_selector("not-a-version")
+    except TargetSelectorError as exc:
+        assert "invalid release version" in str(exc)
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("invalid version should fail")
+
+
+def test_select_tracking_target_cli_metadata_and_default_paths() -> None:
+    metadata = InstallMetadata(
+        install_method="uv_tool",
+        source_ref=None,
+        installed_at=None,
+        metadata_path=None,
+        tracking_target=TrackingTarget(
+            kind="release",
+            selector="v1.2.3",
+            repo="bad repo",
+            version="1.2.3",
+            ref="v1.2.3",
+        ),
+    )
+
+    target, source = select_tracking_target(metadata, repo="Owner/Repo")
+    assert source == "metadata"
+    assert target.repo == "Owner/Repo"
+
+    target, source = select_tracking_target(metadata, main=True, repo="Owner/Repo")
+    assert (target.kind, source, target.ref) == ("main", "cli", "main")
+
+    try:
+        select_tracking_target(metadata, version_selector="latest", main=True)
+    except TargetSelectorError as exc:
+        assert "mutually exclusive" in str(exc)
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("conflicting selectors should fail")
+
+    target, source = select_tracking_target(_metadata(), repo="Owner/Repo")
+    assert (target.kind, source, target.repo) == (
+        "latest_release",
+        "default",
+        "Owner/Repo",
+    )
+
+
+def test_resolve_latest_only_fetches_for_latest_release() -> None:
+    client = FakeReleaseClient()
+    latest = resolve_latest_for_target(
+        TrackingTarget(kind="latest_release", selector="latest", repo="Owner/Repo"),
+        client=client,
+    )
+    assert latest == ReleaseInfo("2.0.0", "v2.0.0", "https://example.test/release")
+    assert client.calls == ["Owner/Repo"]
+
+    client.calls.clear()
+    assert (
+        resolve_latest_for_target(
+            TrackingTarget(kind="main", selector="main", repo="Owner/Repo", ref="main"),
+            client=client,
+        )
+        is None
+    )
+    assert client.calls == []
+
+
+def test_build_update_plan_covers_defensive_target_branches(monkeypatch) -> None:
+    invalid = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="uv_tool",
+        metadata=_metadata(),
+        target=TrackingTarget(kind="custom_ref", selector="bad", ref="bad..ref"),
+    )
+    assert invalid.status == "unsupported_install_method"
+    assert invalid.reason == "invalid_release_ref"
+
+    import recollectium.update as update_mod
+
+    monkeypatch.setattr(update_mod, "find_source_checkout_root", lambda _path: None)
+    missing_source = build_update_plan(
+        current_version="1.0.0",
+        latest_release=ReleaseInfo("2.0.0", "v2.0.0", None),
+        install_method="source",
+        metadata=_metadata("source"),
+    )
+    assert missing_source.status == "update_failed"
+    assert missing_source.reason == "source_checkout_not_found"
+
+    current_newer = build_update_plan(
+        current_version="2.0.0",
+        latest_release=None,
+        install_method="uv_tool",
+        metadata=InstallMetadata(
+            "uv_tool",
+            "v1.0.0",
+            None,
+            None,
+            tracking_target=TrackingTarget(
+                "release", "v1.0.0", version="1.0.0", ref="v1.0.0"
+            ),
+        ),
+    )
+    assert current_newer.status == "up_to_date"
+    assert current_newer.reason == "target_drift_requires_force"
+
+    unparsable_current = build_update_plan(
+        current_version="not-version",
+        latest_release=ReleaseInfo("2.0.0", "v2.0.0", None),
+        install_method="uv_tool",
+        metadata=_metadata(),
+    )
+    assert unparsable_current.status == "unsupported_install_method"
+    assert unparsable_current.reason == "could_not_parse_current_version"
+
+
+def test_parse_tracking_target_edge_cases() -> None:
+    assert _parse_tracking_target(None) is None
+    assert _parse_tracking_target({"kind": "bogus"}) is None
+    latest_target = _parse_tracking_target(
+        {"kind": "latest_release", "selector": "latest"}
+    )
+    assert latest_target is not None
+    assert latest_target.kind == "latest_release"
+    main_target = _parse_tracking_target({"kind": "main", "repo": "Owner/Repo"})
+    assert main_target is not None
+    assert main_target.ref == "main"
+    release_target = _parse_tracking_target(
+        {"kind": "release", "selector": "1.2.3", "repo": "Owner/Repo"}
+    )
+    assert release_target is not None
+    assert release_target.ref == "v1.2.3"
+    assert _parse_tracking_target({"kind": "release", "selector": "bad"}) is None
+    custom_target = _parse_tracking_target({"kind": "custom_ref", "ref": "feature-x"})
+    assert custom_target is not None
+    assert custom_target.ref == "feature-x"
+    assert _parse_tracking_target({"kind": "custom_ref", "ref": "bad..ref"}) is None
+
+
+def test_command_generation_for_target_modes(tmp_path: Path) -> None:
+    main_target = TrackingTarget(
+        kind="main", selector="main", repo="Owner/Repo", ref="main"
+    )
+    release_target = TrackingTarget(
+        kind="release",
+        selector="v1.2.3",
+        repo="Owner/Repo",
+        version="1.2.3",
+        ref="v1.2.3",
+    )
+    latest_target = TrackingTarget(
+        kind="latest_release", selector="latest", repo="Owner/Repo"
+    )
+
+    assert _command_for_method(
+        "pip",
+        latest_tag="main",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=None,
+        target=main_target,
+    )[0] == [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "git+https://github.com/Owner/Repo.git@main",
+    ]
+    assert _command_for_method(
+        "pipx",
+        latest_tag="v1.2.3",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=None,
+        target=release_target,
+    )[0] == ["pipx", "install", "--force", "recollectium==1.2.3"]
+    assert _command_for_method(
+        "uv_tool",
+        latest_tag="v9.9.9",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=None,
+        target=latest_target,
+    )[0] == ["uv", "tool", "upgrade", "recollectium"]
+    assert _command_for_method(
+        "source",
+        latest_tag="main",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=tmp_path,
+        target=main_target,
+    ) == (
+        [
+            ["git", "fetch", "origin", "main"],
+            ["git", "checkout", "main"],
+            ["git", "pull", "--ff-only", "origin", "main"],
+            ["uv", "sync", "--group", "dev"],
+        ],
+        tmp_path,
+    )
+    windows_command = _command_for_method(
+        "bootstrap",
+        latest_tag="v1.2.3",
+        repo="Owner/Repo",
+        platform_name="Windows",
+        source_root=None,
+        target=release_target,
+    )[0]
+    assert windows_command is not None
+    assert "install.ps1" in windows_command[-1]
+    assert "RECOLLECTIUM_INSTALL_VERSION" in windows_command[-1]
+    assert _command_for_method(
+        "unknown",
+        latest_tag="v1.2.3",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=None,
+        target=release_target,
+    ) == ([], None)
+
+
+def test_bootstrap_env_and_version_helpers() -> None:
+    assert _bootstrap_target_env(
+        TrackingTarget("latest_release", "latest"), "v1.2.3"
+    ) == {
+        "RECOLLECTIUM_INSTALL_VERSION": "latest",
+        "RECOLLECTIUM_INSTALL_RESOLVED_REF": "v1.2.3",
+        "RECOLLECTIUM_INSTALL_TRACKING": "latest_release",
+    }
+    assert _bootstrap_target_env(TrackingTarget("release", "v1.2.3"), "v1.2.3") == {
+        "RECOLLECTIUM_INSTALL_VERSION": "v1.2.3"
+    }
+    assert _bootstrap_target_env(TrackingTarget("main", "main"), "main") == {
+        "RECOLLECTIUM_INSTALL_MAIN": "1"
+    }
+    assert _bootstrap_target_env(
+        TrackingTarget("custom_ref", "feature", ref="feature"), "feature"
+    ) == {"RECOLLECTIUM_INSTALL_REF": "feature"}
+    assert _versions_equal("1.0.0", None) is False
+    assert _versions_equal("not-version", "1.0.0") is False
+    assert _current_newer_than("not-version", "1.0.0") is False
+
+
+def test_load_install_metadata_handles_non_object_payload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state = tmp_path / "state"
+    install_dir = state / "recollectium"
+    install_dir.mkdir(parents=True)
+    (install_dir / "install.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setenv("XDG_STATE_HOME", str(state))
+
+    metadata = load_install_metadata(platform_name="linux")
+
+    assert metadata.install_method == "unknown"
+    assert metadata.metadata_path == install_dir / "install.json"
+
+
+def test_build_update_plan_defensive_invalid_kind_and_command_none(monkeypatch) -> None:
+    invalid_kind = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="uv_tool",
+        metadata=_metadata(),
+        target=TrackingTarget(kind="bogus", selector="bogus", ref="v1.0.0"),  # type: ignore[arg-type]
+    )
+    assert invalid_kind.status == "unsupported_install_method"
+    assert invalid_kind.reason == "invalid_tracking_target"
+
+    import recollectium.update as update_mod
+
+    monkeypatch.setattr(
+        update_mod, "_command_for_method", lambda *a, **kw: (None, None)
+    )
+    no_command = build_update_plan(
+        current_version="1.0.0",
+        latest_release=ReleaseInfo("2.0.0", "v2.0.0", None),
+        install_method="uv_tool",
+        metadata=_metadata(),
+    )
+    assert no_command.status == "unsupported_install_method"
+    assert no_command.reason == "unsupported_target_for_install_method"
+
+
+def test_custom_ref_current_and_metadata_write_edge_cases(tmp_path: Path) -> None:
+    custom_current = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="bootstrap",
+        metadata=InstallMetadata("bootstrap", "feature-x", None, None),
+        target=TrackingTarget(kind="custom_ref", selector="feature-x", ref="feature-x"),
+    )
+    assert custom_current.status == "up_to_date"
+    assert custom_current.reason == "custom_ref_current"
+
+    assert write_install_metadata_update(custom_current) is None
+    assert (
+        write_install_metadata_update(
+            UpdatePlan(
+                "update_available",
+                "1.0.0",
+                "2.0.0",
+                "v2.0.0",
+                "uv_tool",
+                ["uv", "tool", "upgrade", "recollectium"],
+                None,
+                None,
+                will_update_metadata=True,
+                metadata_update=None,
+            ),
+            platform_name="linux",
+        )
+        is None
+    )
+
+    metadata_path = tmp_path / "install.json"
+    metadata_path.write_text("not-json", encoding="utf-8")
+    payload_plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=ReleaseInfo("2.0.0", "v2.0.0", "https://example.test/release"),
+        install_method="uv_tool",
+        metadata=InstallMetadata("unknown", None, "old-date", metadata_path),
+        force=True,
+    )
+    written = write_install_metadata_update(payload_plan)
+    assert written == metadata_path
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert payload["install_method"] == "uv_tool"
+    assert payload["installed_at"] == "old-date"
+    assert payload["last_resolved"]["release_url"] == "https://example.test/release"
+
+    new_metadata_path = tmp_path / "fresh-install.json"
+    fresh_plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=ReleaseInfo("2.0.0", "v2.0.0", None),
+        install_method="uv_tool",
+        metadata=InstallMetadata("uv_tool", None, None, new_metadata_path),
+        force=True,
+    )
+    write_install_metadata_update(fresh_plan)
+    fresh_payload = json.loads(new_metadata_path.read_text(encoding="utf-8"))
+    assert "installed_at" in fresh_payload
+
+
+def test_command_generation_fallbacks_and_windows_metadata_path(monkeypatch) -> None:
+    assert _command_for_method(
+        "pip",
+        latest_tag="feature-x",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=None,
+        target=TrackingTarget(kind="custom_ref", selector="feature-x", ref="feature-x"),
+    )[0] == [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "git+https://github.com/Owner/Repo.git@feature-x",
+    ]
+    assert _command_for_method(
+        "pipx",
+        latest_tag="main",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=None,
+        target=TrackingTarget(kind="main", selector="main", ref="main"),
+    )[0] == ["pipx", "install", "--force", "git+https://github.com/Owner/Repo.git@main"]
+    assert _command_for_method(
+        "uv_tool",
+        latest_tag="v1.2.3",
+        repo="Owner/Repo",
+        platform_name=None,
+        source_root=None,
+        target=TrackingTarget(kind="release", selector="latest", ref="v1.2.3"),
+    )[0] == [
+        "uv",
+        "tool",
+        "install",
+        "--force",
+        "git+https://github.com/Owner/Repo.git@v1.2.3",
+    ]
+    assert (
+        _command_for_method(
+            "source",
+            latest_tag="v1.2.3",
+            repo="Owner/Repo",
+            platform_name=None,
+            source_root=None,
+            target=TrackingTarget(kind="release", selector="v1.2.3", ref="v1.2.3"),
+        )[1]
+        is not None
+    )
+
+    monkeypatch.setenv("LOCALAPPDATA", "C:/Users/A/AppData/Local")
+    import recollectium.update as update_mod
+
+    assert str(update_mod._default_metadata_path("Windows")).endswith(
+        "recollectium/install.json"
+    )

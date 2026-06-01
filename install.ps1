@@ -41,19 +41,68 @@ function Install-Uv {
     return $UvBin
 }
 
+function Normalize-VersionRef {
+    param([string]$Value)
+    $raw = $Value.Trim()
+    if ($raw.StartsWith("v")) { $raw = $raw.Substring(1) }
+    if ($raw -notmatch '^[0-9][0-9A-Za-z.+!-]*([.][0-9A-Za-z.+!-]+)*$') { throw "invalid install version: $Value" }
+    return "v$raw"
+}
+
+function Get-RefKind {
+    param([string]$Value)
+    if ($Value -eq "main") { return "main" }
+    if ($Value -match '^v?[0-9]+([.][0-9A-Za-z.+!-]+)*$') { return "release" }
+    return "custom_ref"
+}
+
+function Get-LatestReleaseTag {
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
+    if ($release.tag_name) { return $release.tag_name }
+    throw "latest GitHub release did not include tag_name"
+}
+
+$script:TrackingKind = "latest_release"
+$script:TrackingSelector = "latest"
+$script:TrackingVersion = $null
+
 function Get-RecollectiumInstallRef {
-    if ($env:RECOLLECTIUM_INSTALL_REF) {
+    $selectors = @($env:RECOLLECTIUM_INSTALL_VERSION, $env:RECOLLECTIUM_INSTALL_MAIN, $env:RECOLLECTIUM_INSTALL_REF) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    if ($selectors.Count -gt 1) { throw "set only one of RECOLLECTIUM_INSTALL_VERSION, RECOLLECTIUM_INSTALL_MAIN, or RECOLLECTIUM_INSTALL_REF" }
+
+    if ($env:RECOLLECTIUM_INSTALL_MAIN -match '^(1|true|yes)$') {
+        $script:TrackingKind = "main"
+        $script:TrackingSelector = "main"
+        return "main"
+    }
+    if ($env:RECOLLECTIUM_INSTALL_VERSION) {
+        if ($env:RECOLLECTIUM_INSTALL_VERSION.ToLowerInvariant() -eq "latest") {
+            $script:TrackingKind = "latest_release"
+            $script:TrackingSelector = "latest"
+            if ($env:RECOLLECTIUM_INSTALL_RESOLVED_REF) { return $env:RECOLLECTIUM_INSTALL_RESOLVED_REF }
+        }
+        else {
+            $ref = Normalize-VersionRef $env:RECOLLECTIUM_INSTALL_VERSION
+            $script:TrackingKind = "release"
+            $script:TrackingSelector = $ref
+            $script:TrackingVersion = $ref.Substring(1)
+            return $ref
+        }
+    }
+    elseif ($env:RECOLLECTIUM_INSTALL_REF) {
+        $kind = Get-RefKind $env:RECOLLECTIUM_INSTALL_REF
+        $script:TrackingKind = $kind
+        $script:TrackingSelector = $env:RECOLLECTIUM_INSTALL_REF
+        if ($kind -eq "release") { $script:TrackingVersion = $env:RECOLLECTIUM_INSTALL_REF.TrimStart("v") }
         return $env:RECOLLECTIUM_INSTALL_REF
     }
 
     try {
-        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
-        if ($release.tag_name) { return $release.tag_name }
+        return Get-LatestReleaseTag
     }
     catch {
-        Write-Host "No GitHub release found; installing from main."
+        throw "failed to resolve latest GitHub release; set RECOLLECTIUM_INSTALL_MAIN=1 to install main"
     }
-    return "main"
 }
 
 $uv = Install-Uv
@@ -90,10 +139,35 @@ finally {
 $stateDir = Join-Path $env:LOCALAPPDATA "recollectium"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 $metadataPath = Join-Path $stateDir "install.json"
+$resolvedRefKind = if ($script:TrackingKind -eq "latest_release") { "release" } else { $script:TrackingKind }
+$trackingTarget = [ordered]@{
+    kind = $script:TrackingKind
+    selector = $script:TrackingSelector
+    repo = $Repo
+}
+if ($script:TrackingVersion) {
+    $trackingTarget.version = $script:TrackingVersion
+    $trackingTarget.ref = $ref
+}
+elseif ($script:TrackingKind -ne "latest_release") {
+    $trackingTarget.ref = $ref
+}
+$resolved = [ordered]@{
+    ref = $ref
+    resolved_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+}
+if ($script:TrackingVersion) { $resolved.version = $script:TrackingVersion }
+$now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $metadata = [ordered]@{
+    metadata_version = 2
     install_method = "bootstrap"
     source_ref = $ref
-    installed_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    source_ref_kind = $resolvedRefKind
+    source_repo = $Repo
+    installed_at = $now
+    updated_at = $now
+    tracking_target = $trackingTarget
+    last_resolved = $resolved
     managed_path_edits = $ManagedPathEdits
     managed_completion_edits = $ManagedCompletionEdits
 }

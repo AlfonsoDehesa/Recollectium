@@ -62,20 +62,81 @@ install_uv() {
   info "Installed uv: ${UV_BIN}"
 }
 
+normalize_version_ref() {
+  value="$1"
+  value=${value#v}
+  case "$value" in
+    *[!0-9A-Za-z.+!-]*|"") fail "invalid install version: $1" ;;
+  esac
+  printf 'v%s' "$value"
+}
+
+classify_ref_kind() {
+  value="$1"
+  if [ "$value" = "main" ]; then
+    printf 'main'
+  elif printf '%s' "$value" | grep -Eq '^v?[0-9]+([.][0-9A-Za-z.+!-]+)*$'; then
+    printf 'release'
+  else
+    printf 'custom_ref'
+  fi
+}
+
+resolve_latest_release_tag() {
+  curl -LsSf "https://api.github.com/repos/${REPO}/releases/latest" \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | head -n 1 || true
+}
+
 resolve_ref() {
-  if [ -n "${RECOLLECTIUM_INSTALL_REF:-}" ]; then
+  selector_count=0
+  [ -n "${RECOLLECTIUM_INSTALL_VERSION:-}" ] && selector_count=$((selector_count + 1))
+  [ -n "${RECOLLECTIUM_INSTALL_MAIN:-}" ] && selector_count=$((selector_count + 1))
+  [ -n "${RECOLLECTIUM_INSTALL_REF:-}" ] && selector_count=$((selector_count + 1))
+  [ "$selector_count" -le 1 ] || fail "set only one of RECOLLECTIUM_INSTALL_VERSION, RECOLLECTIUM_INSTALL_MAIN, or RECOLLECTIUM_INSTALL_REF"
+
+  TRACKING_KIND="latest_release"
+  TRACKING_SELECTOR="latest"
+  TRACKING_VERSION=""
+  RESOLVED_RELEASE_URL=""
+
+  if [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "1" ] || [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "true" ] || [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "yes" ]; then
+    TRACKING_KIND="main"
+    TRACKING_SELECTOR="main"
+    printf 'main'
+    return
+  fi
+
+  if [ -n "${RECOLLECTIUM_INSTALL_VERSION:-}" ]; then
+    if [ "$(printf '%s' "$RECOLLECTIUM_INSTALL_VERSION" | tr '[:upper:]' '[:lower:]')" = "latest" ]; then
+      TRACKING_KIND="latest_release"
+      TRACKING_SELECTOR="latest"
+      if [ -n "${RECOLLECTIUM_INSTALL_RESOLVED_REF:-}" ]; then
+        printf '%s' "$RECOLLECTIUM_INSTALL_RESOLVED_REF"
+        return
+      fi
+    else
+      ref=$(normalize_version_ref "$RECOLLECTIUM_INSTALL_VERSION")
+      TRACKING_KIND="release"
+      TRACKING_SELECTOR="$ref"
+      TRACKING_VERSION="${ref#v}"
+      printf '%s' "$ref"
+      return
+    fi
+  elif [ -n "${RECOLLECTIUM_INSTALL_REF:-}" ]; then
+    kind=$(classify_ref_kind "$RECOLLECTIUM_INSTALL_REF")
+    TRACKING_KIND="$kind"
+    TRACKING_SELECTOR="$RECOLLECTIUM_INSTALL_REF"
+    [ "$kind" = "release" ] && TRACKING_VERSION="${RECOLLECTIUM_INSTALL_REF#v}"
     printf '%s' "$RECOLLECTIUM_INSTALL_REF"
     return
   fi
 
-  tag=$(curl -LsSf "https://api.github.com/repos/${REPO}/releases/latest" \
-    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    | head -n 1 || true)
+  tag=$(resolve_latest_release_tag)
   if [ -n "$tag" ]; then
     printf '%s' "$tag"
   else
-    info "No GitHub release found; installing from main."
-    printf 'main'
+    fail "failed to resolve latest GitHub release; set RECOLLECTIUM_INSTALL_MAIN=1 to install main"
   fi
 }
 
@@ -110,6 +171,14 @@ record_install_metadata() {
   installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   mkdir -p "$state_dir"
   escaped_ref=$(json_escape "$ref")
+  escaped_kind=$(json_escape "$TRACKING_KIND")
+  escaped_selector=$(json_escape "$TRACKING_SELECTOR")
+  escaped_repo=$(json_escape "$REPO")
+  ref_kind="$TRACKING_KIND"
+  if [ "$TRACKING_KIND" = "latest_release" ]; then
+    ref_kind="release"
+  fi
+  escaped_ref_kind=$(json_escape "$ref_kind")
 
   path_edits="["
   if [ -n "$MANAGED_PATH_EDIT" ]; then
@@ -126,7 +195,22 @@ record_install_metadata() {
   fi
   completion_edits="${completion_edits}]"
 
-  printf '{\n  "install_method": "bootstrap",\n  "source_ref": "%s",\n  "installed_at": "%s",\n  "managed_path_edits": %s,\n  "managed_completion_edits": %s\n}\n' "$escaped_ref" "$installed_at" "$path_edits" "$completion_edits" > "$metadata_path"
+  tracking_target="{\"kind\": \"${escaped_kind}\", \"selector\": \"${escaped_selector}\", \"repo\": \"${escaped_repo}\""
+  if [ -n "$TRACKING_VERSION" ]; then
+    escaped_version=$(json_escape "$TRACKING_VERSION")
+    tracking_target="${tracking_target}, \"version\": \"${escaped_version}\", \"ref\": \"${escaped_ref}\""
+  elif [ "$TRACKING_KIND" != "latest_release" ]; then
+    tracking_target="${tracking_target}, \"ref\": \"${escaped_ref}\""
+  fi
+  tracking_target="${tracking_target}}"
+
+  last_resolved="{\"ref\": \"${escaped_ref}\", \"resolved_at\": \"${installed_at}\""
+  if [ -n "$TRACKING_VERSION" ]; then
+    last_resolved="${last_resolved}, \"version\": \"$(json_escape "$TRACKING_VERSION")\""
+  fi
+  last_resolved="${last_resolved}}"
+
+  printf '{\n  "metadata_version": 2,\n  "install_method": "bootstrap",\n  "source_ref": "%s",\n  "source_ref_kind": "%s",\n  "source_repo": "%s",\n  "installed_at": "%s",\n  "updated_at": "%s",\n  "tracking_target": %s,\n  "last_resolved": %s,\n  "managed_path_edits": %s,\n  "managed_completion_edits": %s\n}\n' "$escaped_ref" "$escaped_ref_kind" "$escaped_repo" "$installed_at" "$installed_at" "$tracking_target" "$last_resolved" "$path_edits" "$completion_edits" > "$metadata_path"
 }
 
 configure_shell_completion() {
