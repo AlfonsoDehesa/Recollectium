@@ -6,6 +6,9 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+from platformdirs.macos import MacOS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -365,6 +368,75 @@ def test_unix_bootstrap_keeps_concise_path_success_when_path_already_present(
     )
 
     assert result.stdout == "done"
+
+
+def test_unix_bootstrap_records_metadata_in_macos_platformdirs_state_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    expected_state_dir = Path(MacOS("recollectium").user_state_dir)
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            "uname() { printf 'Darwin\\n'; }\n"
+            f'{helpers}\nref="main"\nTRACKING_KIND="main"\n'
+            'TRACKING_SELECTOR="main"\nTRACKING_VERSION=""\n'
+            'record_install_metadata\nprintf "%s" "$metadata_path"',
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(home),
+            "PATH": "/usr/bin:/bin",
+        },
+    )
+
+    assert Path(result.stdout) == expected_state_dir / "install.json"
+    assert (
+        json.loads(Path(result.stdout).read_text(encoding="utf-8"))["install_method"]
+        == "bootstrap"
+    )
+
+
+def test_unix_bootstrap_records_metadata_in_macos_xdg_state_home(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    home = tmp_path / "home"
+    state = tmp_path / "state"
+    home.mkdir()
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            "uname() { printf 'Darwin\\n'; }\n"
+            f'{helpers}\nref="main"\nTRACKING_KIND="main"\n'
+            'TRACKING_SELECTOR="main"\nTRACKING_VERSION=""\n'
+            'record_install_metadata\nprintf "%s" "$metadata_path"',
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(home),
+            "PATH": "/usr/bin:/bin",
+            "XDG_STATE_HOME": str(state),
+        },
+    )
+
+    assert Path(result.stdout) == state / "recollectium" / "install.json"
+    assert (
+        json.loads(Path(result.stdout).read_text(encoding="utf-8"))["install_method"]
+        == "bootstrap"
+    )
 
 
 def test_unix_bootstrap_records_selector_tracking_targets(tmp_path: Path) -> None:

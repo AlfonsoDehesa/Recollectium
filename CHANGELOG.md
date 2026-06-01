@@ -12,6 +12,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### 🐛 Fixes
 
+- Fixed bootstrap install metadata on macOS so `recollectium upgrade` reads installs from the same state directory the installer writes.
 - Fixed bootstrap installs for macOS zsh users so the Recollectium CLI path is added to zsh startup files.
 - Fixed bootstrap PATH repair so malformed or empty managed path blocks are rewritten with the current uv tool bin export.
 - Suppressed uv bootstrap PATH warnings while keeping durable shell PATH edits based on the user's original terminal environment.
