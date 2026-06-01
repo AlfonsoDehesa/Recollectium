@@ -5,6 +5,7 @@ REPO="AlfonsoDehesa/recollectium"
 INSTALL_DIR="${HOME}/.local/bin"
 UV_BIN="${INSTALL_DIR}/uv"
 TOOL_BIN_DIR=""
+ORIGINAL_PATH="${PATH:-}"
 MANAGED_PATH_EDITS=""
 COMPLETION_RC=""
 COMPLETION_SHELL=""
@@ -175,7 +176,7 @@ ensure_path_file() {
 
 ensure_path_hint() {
   [ -n "$TOOL_BIN_DIR" ] || fail "uv tool bin directory was not resolved"
-  case ":${PATH}:" in
+  case ":${ORIGINAL_PATH}:" in
     *":${TOOL_BIN_DIR}:"*) return ;;
   esac
 
@@ -190,19 +191,35 @@ ensure_path_hint() {
     ensure_path_file "$profile"
     info "Added ${TOOL_BIN_DIR} to ${profile} for future shells."
   fi
-  info "To use recollectium in this shell now, run:"
-  info "  export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
-  info "Then verify with: recollectium --version"
 }
 
 resolve_tool_bin_dir() {
   TOOL_BIN_DIR=$("$UV_BIN" tool dir --bin 2>/dev/null || true)
   [ -n "$TOOL_BIN_DIR" ] || fail "failed to resolve uv tool bin directory"
   [ -d "$TOOL_BIN_DIR" ] || mkdir -p "$TOOL_BIN_DIR"
+}
+
+verify_installed_tool() {
+  [ -n "$TOOL_BIN_DIR" ] || fail "uv tool bin directory was not resolved"
   command_path="${TOOL_BIN_DIR}/recollectium"
   if [ ! -x "$command_path" ]; then
     fail "recollectium executable was not installed in uv tool bin directory: ${TOOL_BIN_DIR}"
   fi
+}
+
+print_final_guidance() {
+  guidance_shell="${COMPLETION_SHELL:-${SHELL##*/}}"
+  info "Recollectium installed."
+  info "Restart your terminal session before using recollectium, or run these commands for the current terminal:"
+  if [ "$guidance_shell" = "fish" ]; then
+    info "  set -gx PATH \"${TOOL_BIN_DIR}\" \$PATH"
+  else
+    info "  export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
+  fi
+  if [ -n "$COMPLETION_RC" ]; then
+    info "  source \"${COMPLETION_RC}\""
+  fi
+  info "Then verify with: recollectium --version"
 }
 
 record_install_metadata() {
@@ -284,12 +301,15 @@ install_uv
 resolve_ref
 ref="$RESOLVED_REF"
 package="git+https://github.com/${REPO}.git@${ref}"
+resolve_tool_bin_dir
+PATH="${TOOL_BIN_DIR}:${ORIGINAL_PATH}"
+export PATH
 info "Installing Recollectium from ${ref}..."
 "$UV_BIN" tool install --python 3.12 --force "$package"
-resolve_tool_bin_dir
+verify_installed_tool
 info "Initializing Recollectium (config, database, model)..."
 "$UV_BIN" tool run --from "$package" recollectium init || true
 ensure_path_hint
 configure_shell_completion
 record_install_metadata
-info "Recollectium installed. Try: recollectium --version"
+print_final_guidance
