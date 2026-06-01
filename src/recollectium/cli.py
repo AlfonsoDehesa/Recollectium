@@ -91,6 +91,7 @@ from recollectium.update import (
     find_source_checkout_root,
     load_install_metadata,
     plan_to_dict,
+    resolve_main_ref,
     select_tracking_target,
     write_install_metadata_update,
 )
@@ -1136,6 +1137,8 @@ def _handle_upgrade_command(
         )
     allow_main = args.allow_main or args.repo is not None
 
+    source_root = find_source_checkout_root(Path(__file__).resolve())
+    main_ref = None
     latest_release: ReleaseInfo | None
     try:
         latest_release = (
@@ -1143,6 +1146,14 @@ def _handle_upgrade_command(
             if target.kind == "latest_release"
             else None
         )
+        if target.kind == "main":
+            main_ref = resolve_main_ref(
+                repo=target.repo,
+                install_method=install_method,
+                runner=SubprocessCommandRunner(),
+                source_root=source_root,
+                timeout_seconds=args.timeout,
+            )
     except ReleaseLookupError as exc:
         if exc.reason == "no_latest_release" and allow_main:
             latest_release = None
@@ -1158,7 +1169,6 @@ def _handle_upgrade_command(
                 event="upgrade.release_lookup_failed",
             )
 
-    source_root = find_source_checkout_root(Path(__file__).resolve())
     plan = build_update_plan(
         current_version=__version__,
         latest_release=latest_release,
@@ -1171,6 +1181,7 @@ def _handle_upgrade_command(
         source_root=source_root,
         target=target,
         target_source=target_source,
+        main_ref=main_ref,
     )
     payload = plan_to_dict(plan)
 

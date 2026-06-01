@@ -43,6 +43,7 @@ _TARGET_KINDS = {"latest_release", "release", "main", "custom_ref"}
 _DEFAULT_REPO = "AlfonsoDehesa/recollectium"
 _GITHUB_REPO_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SAFE_REF_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 class UpdateError(Exception):
@@ -80,6 +81,8 @@ class InstallMetadata:
     source_ref_kind: str | None = None
     source_repo: str | None = None
     tracking_target: TrackingTarget | None = None
+    last_resolved_ref: str | None = None
+    last_resolved_commit: str | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +110,16 @@ class UpdatePlan:
     target_source: TargetSource = "default"
     will_update_metadata: bool = False
     metadata_update: dict[str, object] | None = None
+    current_commit: str | None = None
+    target_commit: str | None = None
+
+
+@dataclass(frozen=True)
+class MainRefInfo:
+    """Resolved main branch state used for commit-aware update checks."""
+
+    remote_commit: str
+    current_commit: str | None = None
 
 
 @dataclass(frozen=True)
@@ -234,6 +247,14 @@ def load_install_metadata(
     metadata_version = payload.get("metadata_version")
     source_ref_kind = payload.get("source_ref_kind")
     source_repo = payload.get("source_repo")
+    last_resolved = payload.get("last_resolved")
+    last_resolved_ref = None
+    last_resolved_commit = None
+    if isinstance(last_resolved, dict):
+        raw_ref = last_resolved.get("ref")
+        raw_commit = last_resolved.get("commit")
+        last_resolved_ref = raw_ref if isinstance(raw_ref, str) else None
+        last_resolved_commit = raw_commit if isinstance(raw_commit, str) else None
     return InstallMetadata(
         install_method=method,  # type: ignore[arg-type]
         source_ref=source_ref if isinstance(source_ref, str) else None,
@@ -245,6 +266,8 @@ def load_install_metadata(
         tracking_target=_parse_tracking_target(
             payload.get("tracking_target"), source_repo
         ),
+        last_resolved_ref=last_resolved_ref,
+        last_resolved_commit=last_resolved_commit,
     )
 
 
@@ -302,6 +325,58 @@ def fetch_latest_release(
         },
     )
     return release
+
+
+def resolve_main_ref(
+    *,
+    repo: str = _DEFAULT_REPO,
+    install_method: InstallMethod,
+    runner: CommandRunner,
+    source_root: Path | None = None,
+    timeout_seconds: int = 60,
+) -> MainRefInfo:
+    """Resolve remote main to a commit SHA, with local HEAD for source installs."""
+    if not is_safe_github_repo(repo):
+        raise ReleaseLookupError("Invalid GitHub repository path.", reason="invalid_repo")
+    if install_method == "source" and source_root is not None:
+        fetch = runner.run(
+            ["git", "fetch", "origin", "main"],
+            timeout_seconds=timeout_seconds,
+            cwd=str(source_root),
+        )
+        if fetch.returncode != 0:
+            raise ReleaseLookupError(fetch.stderr or fetch.stdout, reason="main_lookup_failed")
+        remote = runner.run(
+            ["git", "rev-parse", "FETCH_HEAD"],
+            timeout_seconds=timeout_seconds,
+            cwd=str(source_root),
+        )
+        current = runner.run(
+            ["git", "rev-parse", "HEAD"],
+            timeout_seconds=timeout_seconds,
+            cwd=str(source_root),
+        )
+        remote_commit = _parse_commit_sha(remote.stdout)
+        current_commit = _parse_commit_sha(current.stdout) if current.returncode == 0 else None
+        if remote.returncode != 0 or remote_commit is None:
+            raise ReleaseLookupError(remote.stderr or remote.stdout, reason="main_lookup_failed")
+        return MainRefInfo(remote_commit=remote_commit, current_commit=current_commit)
+
+    result = runner.run(
+        [
+            "git",
+            "ls-remote",
+            f"https://github.com/{repo}.git",
+            "refs/heads/main",
+        ],
+        timeout_seconds=timeout_seconds,
+    )
+    if result.returncode != 0:
+        raise ReleaseLookupError(result.stderr or result.stdout, reason="main_lookup_failed")
+    commit = _parse_commit_sha(result.stdout)
+    if commit is None:
+        raise ReleaseLookupError("Could not resolve remote main.", reason="main_lookup_failed")
+    return MainRefInfo(remote_commit=commit)
 
 
 def normalize_version_selector(selector: str) -> TrackingTarget:
@@ -386,6 +461,7 @@ def build_update_plan(
     source_root: Path | None = None,
     target: TrackingTarget | None = None,
     target_source: TargetSource = "default",
+    main_ref: MainRefInfo | None = None,
 ) -> UpdatePlan:
     """Compare versions and return the exact update command or no-op state."""
     metadata_path = str(metadata.metadata_path) if metadata.metadata_path else None
@@ -421,6 +497,8 @@ def build_update_plan(
         target_ref: str | None = None,
         target_version: str | None = None,
         will_update_metadata: bool = False,
+        current_commit: str | None = None,
+        target_commit: str | None = None,
     ) -> UpdatePlan:
         metadata_update = None
         if will_update_metadata:
@@ -432,6 +510,7 @@ def build_update_plan(
                 resolved_version=target_version or latest_version,
                 release_url=latest_release.url if latest_release else None,
                 repo=repo,
+                resolved_commit=target_commit,
             )
         return UpdatePlan(
             status,
@@ -450,6 +529,8 @@ def build_update_plan(
             target_source=target_source,
             will_update_metadata=will_update_metadata,
             metadata_update=metadata_update,
+            current_commit=current_commit,
+            target_commit=target_commit,
         )
 
     if install_method == "unknown":
@@ -497,6 +578,29 @@ def build_update_plan(
                 target_version=latest_version,
             )
 
+    if selected_target.kind == "main":
+        remote_commit = main_ref.remote_commit if main_ref else None
+        current_commit = (
+            main_ref.current_commit if main_ref and main_ref.current_commit else _installed_main_commit(metadata)
+        )
+        if remote_commit is not None and not is_commit_sha(remote_commit):
+            return make_plan(
+                "network_error",
+                latest_version=latest_version,
+                latest_tag=latest_tag,
+                reason="main_lookup_failed",
+                target_ref=latest_tag,
+            )
+        if remote_commit is not None and current_commit == remote_commit and not force:
+            return make_plan(
+                "up_to_date",
+                latest_version=latest_version,
+                latest_tag=latest_tag,
+                reason="main_commit_current",
+                target_ref=latest_tag,
+                current_commit=current_commit,
+                target_commit=remote_commit,
+            )
     if selected_target.kind == "release" and not force:
         installed_on_pin = metadata.source_ref == latest_tag and _versions_equal(
             current_version, latest_version
@@ -576,6 +680,12 @@ def build_update_plan(
             target_version=latest_version,
         )
     plan_status = "dry_run" if dry_run else "update_available"
+    target_commit = main_ref.remote_commit if selected_target.kind == "main" and main_ref else None
+    current_commit = (
+        main_ref.current_commit
+        if selected_target.kind == "main" and main_ref and main_ref.current_commit
+        else (_installed_main_commit(metadata) if selected_target.kind == "main" else None)
+    )
     return make_plan(
         plan_status,
         latest_version=latest_version,
@@ -588,6 +698,8 @@ def build_update_plan(
         target_ref=latest_tag,
         target_version=latest_version,
         will_update_metadata=not dry_run,
+        current_commit=current_commit,
+        target_commit=target_commit,
     )
 
 
@@ -678,13 +790,14 @@ def metadata_update_payload(
     resolved_version: str | None,
     release_url: str | None,
     repo: str,
+    resolved_commit: str | None = None,
 ) -> dict[str, object]:
     now = _utc_now()
     payload: dict[str, object] = {
         "metadata_version": 2,
         "install_method": install_method,
         "updated_at": now,
-        "source_ref": resolved_ref,
+        "source_ref": resolved_commit if target.kind == "main" and resolved_commit else resolved_ref,
         "source_ref_kind": "release"
         if target.kind == "latest_release"
         else target.kind,
@@ -696,6 +809,10 @@ def metadata_update_payload(
             "resolved_at": now,
         },
     }
+    if resolved_commit is not None:
+        last_resolved = payload["last_resolved"]
+        if isinstance(last_resolved, dict):
+            last_resolved["commit"] = resolved_commit
     if release_url is not None:
         last_resolved = payload["last_resolved"]
         if isinstance(last_resolved, dict):
@@ -724,6 +841,8 @@ def plan_to_dict(plan: UpdatePlan) -> dict[str, object]:
         "target_source": plan.target_source,
         "will_update_metadata": plan.will_update_metadata,
         "metadata_update": plan.metadata_update,
+        "current_commit": plan.current_commit,
+        "target_commit": plan.target_commit,
     }
 
 
@@ -945,8 +1064,31 @@ def is_safe_ref(ref: str) -> bool:
         and ".." not in ref
         and "@{" not in ref
         and "://" not in ref
+        and not ref.startswith("/")
         and not ref.endswith((".", "/"))
     )
+
+
+def is_commit_sha(value: str) -> bool:
+    """Return True when value is a full Git commit SHA."""
+    return bool(_COMMIT_SHA_PATTERN.fullmatch(value))
+
+
+def _parse_commit_sha(output: str) -> str | None:
+    first = output.strip().split()[0] if output.strip() else ""
+    return first.lower() if is_commit_sha(first) else None
+
+
+def _installed_main_commit(metadata: InstallMetadata) -> str | None:
+    for value in (
+        metadata.last_resolved_commit,
+        metadata.source_ref,
+        metadata.last_resolved_ref,
+    ):
+        if value is not None and is_commit_sha(value):
+            return value.lower()
+    return None
+
 
 
 def _default_metadata_path(platform_name: str | None = None) -> Path:
