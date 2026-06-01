@@ -73,6 +73,7 @@ function Get-RecollectiumInstallRef {
     if ($env:RECOLLECTIUM_INSTALL_MAIN -match '^(1|true|yes)$') {
         $script:TrackingKind = "main"
         $script:TrackingSelector = "main"
+        if ($env:RECOLLECTIUM_INSTALL_RESOLVED_REF) { return $env:RECOLLECTIUM_INSTALL_RESOLVED_REF }
         return "main"
     }
     if ($env:RECOLLECTIUM_INSTALL_VERSION) {
@@ -148,6 +149,9 @@ $trackingTarget = [ordered]@{
 if ($script:TrackingVersion) {
     $trackingTarget.version = $script:TrackingVersion
     $trackingTarget.ref = $ref
+}
+elseif ($script:TrackingKind -eq "main") {
+    $trackingTarget.ref = $script:TrackingSelector
 }
 elseif ($script:TrackingKind -ne "latest_release") {
     $trackingTarget.ref = $ref

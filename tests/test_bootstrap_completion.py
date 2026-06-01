@@ -173,6 +173,48 @@ def test_unix_bootstrap_resolves_tracking_metadata_in_current_shell() -> None:
     assert 'RESOLVED_REF="$ref"' in script
 
 
+def test_unix_bootstrap_resolved_main_ref_installs_commit_but_tracks_main(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    home = tmp_path / "home"
+    state = tmp_path / "state"
+    home.mkdir()
+    state.mkdir()
+    commit = "0123456789abcdef0123456789abcdef01234567"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_STATE_HOME", str(state))
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nresolve_ref\nref="$RESOLVED_REF"\nrecord_install_metadata\nprintf \'%s\' "$metadata_path"',
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(home),
+            "XDG_STATE_HOME": str(state),
+            "PATH": "/usr/bin:/bin",
+            "RECOLLECTIUM_INSTALL_MAIN": "1",
+            "RECOLLECTIUM_INSTALL_RESOLVED_REF": commit,
+        },
+    )
+
+    metadata = json.loads(Path(result.stdout).read_text(encoding="utf-8"))
+    assert metadata["source_ref"] == commit
+    assert metadata["source_ref_kind"] == "main"
+    assert metadata["tracking_target"] == {
+        "kind": "main",
+        "selector": "main",
+        "repo": "AlfonsoDehesa/recollectium",
+        "ref": "main",
+    }
+    assert metadata["last_resolved"]["ref"] == commit
+
+
 def test_unix_bootstrap_json_escape_does_not_corrupt_plain_f() -> None:
     bootstrap_helpers = _unix_bootstrap_helpers().split(
         "\ndetect_uv_archive() {", maxsplit=1
@@ -481,6 +523,17 @@ def test_unix_bootstrap_records_selector_tracking_targets(tmp_path: Path) -> Non
 
         assert metadata["tracking_target"]["kind"] == expected_kind
         assert metadata["tracking_target"]["selector"] == expected_selector
+
+
+def test_windows_bootstrap_resolved_main_ref_installs_commit_but_tracks_main() -> None:
+    script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert (
+        "if ($env:RECOLLECTIUM_INSTALL_RESOLVED_REF) { return "
+        "$env:RECOLLECTIUM_INSTALL_RESOLVED_REF }"
+    ) in script
+    assert 'elseif ($script:TrackingKind -eq "main") {' in script
+    assert "$trackingTarget.ref = $script:TrackingSelector" in script
 
 
 def test_windows_bootstrap_installs_powershell_current_user_current_host_completion() -> (
