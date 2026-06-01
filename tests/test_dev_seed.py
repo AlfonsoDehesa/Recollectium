@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from recollectium.dev_seed import (
@@ -143,6 +144,47 @@ def test_seeded_dev_database_ensure_skips_complete_seed_state(tmp_path: Path) ->
     result = ensure_seeded_dev_database(db_path, provider)
 
     assert result is None
+
+
+def test_seeded_dev_database_rejects_wrong_workspace_uids(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "dev.db"
+    provider = FakeEmbeddingProvider()
+    reset_seeded_dev_database(db_path, provider)
+
+    with sqlite3.connect(db_path) as connection:
+        for project, wrong_uid in zip(
+            DEV_SEED_PROJECTS,
+            ("wrong-a", "wrong-b", "wrong-c"),
+            strict=True,
+        ):
+            connection.execute(
+                """
+                UPDATE memories
+                SET workspace_uid = ?
+                WHERE space = 'workspace' AND workspace_uid = ?
+                """,
+                (wrong_uid, project["uid"]),
+            )
+
+    assert not seeded_dev_database_is_initialized(db_path)
+
+    result = ensure_seeded_dev_database(db_path, provider)
+
+    store = SQLiteMemoryStore(db_path)
+    workspace_memories = store.list_memories(space="workspace", include_archived=True)
+    assert result is not None
+    assert result["status"] == "reset"
+    assert {memory.workspace_uid for memory in workspace_memories} == {
+        project["uid"] for project in DEV_SEED_PROJECTS
+    }
+    assert {
+        project["uid"]: sum(
+            1 for memory in workspace_memories if memory.workspace_uid == project["uid"]
+        )
+        for project in DEV_SEED_PROJECTS
+    } == {project["uid"]: 30 for project in DEV_SEED_PROJECTS}
 
 
 def test_core_uses_seeded_dev_database_when_configured(tmp_path: Path) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 from recollectium.embeddings import EmbeddingProvider, chunk_text_for_profile
@@ -366,14 +367,21 @@ def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
         for memory in user_memories
         if memory.metadata.get("dev_seed") is True
     }
-    workspace_uids = store.list_workspace_uids(include_archived=True)
+    expected_workspace_uids = {project["uid"] for project in DEV_SEED_PROJECTS}
+    workspace_uids = set(store.list_workspace_uids(include_archived=True))
+    workspace_counts = Counter(memory.workspace_uid for memory in workspace_memories)
+    expected_workspace_counts = {
+        project["uid"]: DEV_SEED_WORKSPACE_MEMORY_COUNT
+        for project in DEV_SEED_PROJECTS
+    }
     user_contents = [memory.content for memory in user_memories]
     workspace_contents = [memory.content for memory in workspace_memories]
     all_contents = user_contents + workspace_contents
     return (
         len(user_memories) == DEV_SEED_USER_MEMORY_COUNT
         and len(workspace_memories) == DEV_SEED_TOTAL_WORKSPACE_MEMORIES
-        and len(workspace_uids) == DEV_SEED_WORKSPACE_COUNT
+        and workspace_uids == expected_workspace_uids
+        and workspace_counts == expected_workspace_counts
         and len(topics) == DEV_SEED_TOPIC_COUNT
         and len(set(user_contents)) == DEV_SEED_USER_MEMORY_COUNT
         and len(set(workspace_contents)) == DEV_SEED_TOTAL_WORKSPACE_MEMORIES
