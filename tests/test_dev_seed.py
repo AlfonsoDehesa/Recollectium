@@ -146,6 +146,33 @@ def test_seeded_dev_database_ensure_skips_complete_seed_state(tmp_path: Path) ->
     assert result is None
 
 
+def test_ensure_seeded_dev_database_creates_nested_parent_path(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "missing" / "nested" / "parent" / "dev.db"
+    provider = FakeEmbeddingProvider()
+
+    result = ensure_seeded_dev_database(db_path, provider)
+
+    store = SQLiteMemoryStore(db_path)
+    user_memories = store.list_memories(space="user", include_archived=True)
+    workspace_memories = store.list_memories(space="workspace", include_archived=True)
+    assert result == {
+        "status": "reset",
+        "database": str(db_path),
+        "user_memories": 100,
+        "workspace_memories": 90,
+        "workspaces": 3,
+        "topics": 10,
+    }
+    assert db_path.parent.is_dir()
+    assert db_path.exists()
+    assert len(user_memories) == 100
+    assert len(workspace_memories) == 90
+    assert len(store.list_workspace_uids(include_archived=True)) == 3
+    assert seeded_dev_database_is_initialized(db_path)
+
+
 def test_seeded_dev_database_rejects_wrong_workspace_uids(
     tmp_path: Path,
 ) -> None:
