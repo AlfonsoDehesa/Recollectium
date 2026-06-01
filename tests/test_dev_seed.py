@@ -84,6 +84,32 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
     assert len(set(user_contents)) == 100
     assert len(set(workspace_contents)) == 90
     assert len(set(all_contents)) == 190
+    assert DEV_SEED_USER_TOPICS == (
+        "travel",
+        "transportation",
+        "videogames",
+        "books",
+        "cooking",
+        "fitness",
+        "music",
+        "pets",
+        "learning",
+        "home style",
+    )
+    assert DEV_SEED_PROJECTS == (
+        {
+            "uid": "proj_fic_cedarledger_01",
+            "name": "CedarLedger",
+        },
+        {
+            "uid": "proj_fic_northstar_forms_01",
+            "name": "Northstar Forms",
+        },
+        {
+            "uid": "proj_fic_harborpilot_01",
+            "name": "HarborPilot",
+        },
+    )
     assert {memory.metadata["dev_topic"] for memory in user_memories} == set(
         DEV_SEED_USER_TOPICS
     )
@@ -111,6 +137,24 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
     assert all(
         "fictional project memory" not in content for content in workspace_contents
     )
+    visible_label_terms = (
+        "Fictional dev user",
+        "fact 1:",
+        "project memory",
+        "pretend",
+        "imaginary",
+        "make-believe",
+        "fantasy",
+        "storybook",
+        "whimsical",
+        "moonbeam",
+    )
+    assert not any(
+        label.lower() in content.lower()
+        for label in visible_label_terms
+        for content in all_contents
+    )
+    assert all(1 <= len(content.split(". ")) <= 3 for content in all_contents)
     expected_project_names = {
         project["uid"]: project["name"] for project in DEV_SEED_PROJECTS
     }
