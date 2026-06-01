@@ -334,13 +334,14 @@ def resolve_main_ref(
     runner: CommandRunner,
     source_root: Path | None = None,
     timeout_seconds: int = 60,
+    non_mutating: bool = False,
 ) -> MainRefInfo:
     """Resolve remote main to a commit SHA, with local HEAD for source installs."""
     if not is_safe_github_repo(repo):
         raise ReleaseLookupError(
             "Invalid GitHub repository path.", reason="invalid_repo"
         )
-    if install_method == "source" and source_root is not None:
+    if install_method == "source" and source_root is not None and not non_mutating:
         fetch = runner.run(
             ["git", "fetch", "origin", "main"],
             timeout_seconds=timeout_seconds,
@@ -388,6 +389,16 @@ def resolve_main_ref(
         raise ReleaseLookupError(
             "Could not resolve remote main.", reason="main_lookup_failed"
         )
+    if install_method == "source" and source_root is not None:
+        current = runner.run(
+            ["git", "rev-parse", "HEAD"],
+            timeout_seconds=timeout_seconds,
+            cwd=str(source_root),
+        )
+        current_commit = (
+            _parse_commit_sha(current.stdout) if current.returncode == 0 else None
+        )
+        return MainRefInfo(remote_commit=commit, current_commit=current_commit)
     return MainRefInfo(remote_commit=commit)
 
 
@@ -552,6 +563,7 @@ def build_update_plan(
 
     latest_tag: str | None
     latest_version: str | None
+    used_main_fallback = False
     if selected_target.kind == "latest_release":
         latest_tag = latest_release.tag if latest_release else None
         latest_version = latest_release.version if latest_release else None
@@ -562,6 +574,7 @@ def build_update_plan(
                 )
                 latest_tag = "main"
                 latest_version = None
+                used_main_fallback = True
             else:
                 return make_plan("network_error", reason="no_latest_release")
     elif selected_target.kind in {"release", "main", "custom_ref"}:
@@ -676,9 +689,14 @@ def build_update_plan(
             target_version=latest_version,
         )
 
+    install_ref = (
+        main_ref.remote_commit
+        if selected_target.kind == "main" and main_ref is not None
+        else latest_tag
+    )
     command, cwd = _command_for_method(
         install_method,
-        latest_tag=latest_tag,
+        latest_tag=install_ref,
         repo=repo,
         platform_name=platform_name,
         source_root=source_root,
@@ -710,8 +728,12 @@ def build_update_plan(
         latest_tag=latest_tag,
         command=command,
         reason="main_fallback_allowed"
-        if latest_tag == "main" and allow_main
-        else "update_available",
+        if used_main_fallback
+        else (
+            "main_commit_behind"
+            if selected_target.kind == "main" and target_commit != current_commit
+            else "update_available"
+        ),
         cwd=str(cwd) if cwd else None,
         target_ref=latest_tag,
         target_version=latest_version,
@@ -1015,8 +1037,7 @@ def _command_for_method(
         if target_kind == "main":
             return [
                 ["git", "fetch", "origin", "main"],
-                ["git", "checkout", "main"],
-                ["git", "pull", "--ff-only", "origin", "main"],
+                ["git", "checkout", latest_tag],
                 ["uv", "sync", "--group", "dev"],
             ], root
         return [
@@ -1064,7 +1085,10 @@ def _bootstrap_target_env(target: TrackingTarget, resolved_ref: str) -> dict[str
     if target.kind == "release":
         return {"RECOLLECTIUM_INSTALL_VERSION": target.selector or resolved_ref}
     if target.kind == "main":
-        return {"RECOLLECTIUM_INSTALL_MAIN": "1"}
+        return {
+            "RECOLLECTIUM_INSTALL_MAIN": "1",
+            "RECOLLECTIUM_INSTALL_RESOLVED_REF": resolved_ref,
+        }
     return {"RECOLLECTIUM_INSTALL_REF": resolved_ref}
 
 

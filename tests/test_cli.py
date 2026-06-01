@@ -5051,7 +5051,7 @@ def test_cli_upgrade_main_check_resolves_remote_ref(capsys, monkeypatch) -> None
     import recollectium.cli as cli_mod
     from recollectium.update import InstallMetadata, MainRefInfo
 
-    calls: list[tuple[str, str, int]] = []
+    calls: list[tuple[str, str, int, bool]] = []
     commit = "a" * 40
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
     monkeypatch.setattr(
@@ -5069,9 +5069,9 @@ def test_cli_upgrade_main_check_resolves_remote_ref(capsys, monkeypatch) -> None
     )
 
     def _resolve_main_ref(
-        *, repo, install_method, runner, source_root, timeout_seconds
+        *, repo, install_method, runner, source_root, timeout_seconds, non_mutating
     ):
-        calls.append((repo, install_method, timeout_seconds))
+        calls.append((repo, install_method, timeout_seconds, non_mutating))
         return MainRefInfo(remote_commit=commit)
 
     monkeypatch.setattr(cli_mod, "resolve_main_ref", _resolve_main_ref)
@@ -5090,12 +5090,39 @@ def test_cli_upgrade_main_check_resolves_remote_ref(capsys, monkeypatch) -> None
 
     assert exit_code == 0
     assert stderr == ""
-    assert calls == [("owner/repo", "uv_tool", 7)]
+    assert calls == [("owner/repo", "uv_tool", 7, True)]
     payload = json.loads(stdout)
     assert payload["status"] == "dry_run"
     assert payload["target_kind"] == "main"
     assert payload["target_commit"] == commit
     assert payload["will_update_metadata"] is False
+
+
+def test_cli_upgrade_main_lookup_error_uses_main_message(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseLookupError
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+
+    def _resolve_main_ref(*args, **kwargs):
+        raise ReleaseLookupError("offline", reason="main_lookup_failed")
+
+    monkeypatch.setattr(cli_mod, "resolve_main_ref", _resolve_main_ref)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--check", "--main"], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "network_error"
+    assert payload["message"] == "Could not resolve Recollectium main from GitHub."
+    assert payload["reason"] == "main_lookup_failed"
 
 
 def test_cli_upgrade_version_latest_check_is_non_mutating(capsys, monkeypatch) -> None:
@@ -5248,7 +5275,7 @@ def test_cli_upgrade_release_lookup_error_with_repo_uses_main_fallback(
     capsys, monkeypatch
 ) -> None:
     import recollectium.cli as cli_mod
-    from recollectium.update import InstallMetadata, ReleaseLookupError
+    from recollectium.update import InstallMetadata, MainRefInfo, ReleaseLookupError
 
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
     monkeypatch.setattr(
@@ -5262,6 +5289,15 @@ def test_cli_upgrade_release_lookup_error_with_repo_uses_main_fallback(
         raise ReleaseLookupError("missing", reason="no_latest_release")
 
     monkeypatch.setattr(cli_mod, "fetch_latest_release", _raise)
+    fallback_commit = "b" * 40
+
+    def _resolve_main_ref(
+        *, repo, install_method, runner, source_root, timeout_seconds, non_mutating
+    ):
+        assert (repo, install_method, non_mutating) == ("owner/repo", "bootstrap", True)
+        return MainRefInfo(remote_commit=fallback_commit)
+
+    monkeypatch.setattr(cli_mod, "resolve_main_ref", _resolve_main_ref)
 
     exit_code, stdout, stderr = _run_cli(
         ["upgrade", "--check", "--repo", "owner/repo"], capsys
@@ -5272,6 +5308,9 @@ def test_cli_upgrade_release_lookup_error_with_repo_uses_main_fallback(
     payload = json.loads(stdout)
     assert payload["status"] == "dry_run"
     assert payload["latest_tag"] == "main"
+    assert payload["target_commit"] == fallback_commit
+    assert "owner/repo/" + fallback_commit + "/install.sh" in payload["command"][-1]
+    assert payload["reason"] == "main_fallback_allowed"
 
 
 def test_cli_upgrade_release_lookup_error_returns_json_stderr(

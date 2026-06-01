@@ -1153,14 +1153,37 @@ def _handle_upgrade_command(
                 runner=SubprocessCommandRunner(),
                 source_root=source_root,
                 timeout_seconds=args.timeout,
+                non_mutating=args.check or args.dry_run,
             )
     except ReleaseLookupError as exc:
         if exc.reason == "no_latest_release" and allow_main:
             latest_release = None
+            try:
+                main_ref = resolve_main_ref(
+                    repo=target.repo,
+                    install_method=install_method,
+                    runner=SubprocessCommandRunner(),
+                    source_root=source_root,
+                    timeout_seconds=args.timeout,
+                    non_mutating=args.check or args.dry_run,
+                )
+            except ReleaseLookupError as main_exc:
+                return _emit_cli_failure(
+                    status="network_error",
+                    message="Could not resolve Recollectium main from GitHub.",
+                    detail=str(main_exc),
+                    reason=main_exc.reason,
+                    hint="Check your network connection or retry later.",
+                    exit_code=1,
+                    command="upgrade",
+                    event="upgrade.release_lookup_failed",
+                )
         else:
             return _emit_cli_failure(
                 status="network_error",
-                message="Could not fetch latest Recollectium release from GitHub.",
+                message="Could not resolve Recollectium main from GitHub."
+                if target.kind == "main" or exc.reason == "main_lookup_failed"
+                else "Could not fetch latest Recollectium release from GitHub.",
                 detail=str(exc),
                 reason=exc.reason,
                 hint="Check your network connection or retry later.",
@@ -1226,7 +1249,9 @@ def _handle_upgrade_command(
     if plan.status == "network_error":
         return _emit_cli_failure(
             status=plan.status,
-            message="Could not fetch latest Recollectium release from GitHub.",
+            message="Could not resolve Recollectium main from GitHub."
+            if plan.reason == "main_lookup_failed" or plan.target_kind == "main"
+            else "Could not fetch latest Recollectium release from GitHub.",
             detail=plan.reason,
             hint="Check your network connection or retry later.",
             exit_code=1,

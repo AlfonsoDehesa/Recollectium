@@ -1075,8 +1075,9 @@ def test_main_target_plans_update_when_metadata_commit_is_behind() -> None:
         "tool",
         "install",
         "--force",
-        "git+https://github.com/AlfonsoDehesa/recollectium.git@main",
+        f"git+https://github.com/AlfonsoDehesa/recollectium.git@{new_commit}",
     ]
+    assert plan.reason == "main_commit_behind"
     assert plan.current_commit == old_commit
     assert plan.target_commit == new_commit
     assert plan.metadata_update is not None
@@ -1085,6 +1086,57 @@ def test_main_target_plans_update_when_metadata_commit_is_behind() -> None:
     assert isinstance(last_resolved, dict)
     assert last_resolved["ref"] == "main"
     assert last_resolved["commit"] == new_commit
+
+
+def test_bootstrap_main_target_installs_resolved_commit_keeps_main_tracking() -> None:
+    commit = "c" * 40
+
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="bootstrap",
+        metadata=_metadata("bootstrap"),
+        platform_name="Linux",
+        target=TrackingTarget("main", "main", ref="main"),
+        target_source="cli",
+        main_ref=MainRefInfo(remote_commit=commit),
+    )
+
+    assert plan.command is not None
+    assert f"/{commit}/install.sh" in plan.command[-1]
+    assert "RECOLLECTIUM_INSTALL_MAIN='1'" in plan.command[-1]
+    assert f"RECOLLECTIUM_INSTALL_RESOLVED_REF='{commit}'" in plan.command[-1]
+    assert plan.target_ref == "main"
+    assert plan.target_commit == commit
+    assert plan.metadata_update is not None
+    assert plan.metadata_update["source_ref"] == commit
+    tracking_target = plan.metadata_update["tracking_target"]
+    assert isinstance(tracking_target, dict)
+    assert tracking_target["kind"] == "main"
+    assert tracking_target["ref"] == "main"
+
+
+def test_source_main_target_checkout_pins_resolved_commit(tmp_path: Path) -> None:
+    commit = "d" * 40
+
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="source",
+        metadata=_metadata("source"),
+        source_root=tmp_path,
+        target=TrackingTarget("main", "main", ref="main"),
+        target_source="cli",
+        main_ref=MainRefInfo(remote_commit=commit),
+    )
+
+    assert plan.command == [
+        ["git", "fetch", "origin", "main"],
+        ["git", "checkout", commit],
+        ["uv", "sync", "--group", "dev"],
+    ]
+    assert plan.target_ref == "main"
+    assert plan.target_commit == commit
 
 
 def test_source_main_target_compares_local_head_to_remote() -> None:
@@ -1153,6 +1205,76 @@ def test_resolve_main_ref_fetches_source_without_checkout(tmp_path: Path) -> Non
         (["git", "fetch", "origin", "main"], str(tmp_path)),
         (["git", "rev-parse", "FETCH_HEAD"], str(tmp_path)),
         (["git", "rev-parse", "HEAD"], str(tmp_path)),
+    ]
+
+
+def test_resolve_main_ref_uses_ls_remote_for_source_non_mutating(
+    tmp_path: Path,
+) -> None:
+    remote_commit = "1" * 40
+    current_commit = "2" * 40
+    runner = FakeRunner(
+        [
+            CommandResult(0, f"{remote_commit}\trefs/heads/main\n", ""),
+            CommandResult(0, f"{current_commit}\n", ""),
+        ]
+    )
+
+    main_ref = resolve_main_ref(
+        repo="owner/repo",
+        install_method="source",
+        runner=runner,
+        source_root=tmp_path,
+        non_mutating=True,
+    )
+
+    assert main_ref == MainRefInfo(
+        remote_commit=remote_commit, current_commit=current_commit
+    )
+    assert runner.calls == [
+        (
+            [
+                "git",
+                "ls-remote",
+                "https://github.com/owner/repo.git",
+                "refs/heads/main",
+            ],
+            None,
+        ),
+        (["git", "rev-parse", "HEAD"], str(tmp_path)),
+    ]
+    assert all("fetch" not in command for command, _cwd in runner.calls)
+
+
+def test_resolve_main_ref_reports_source_non_mutating_ls_remote_failure(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner([CommandResult(2, "", "offline")])
+
+    try:
+        resolve_main_ref(
+            repo="owner/repo",
+            install_method="source",
+            runner=runner,
+            source_root=tmp_path,
+            non_mutating=True,
+        )
+    except ReleaseLookupError as exc:
+        assert exc.reason == "main_lookup_failed"
+        assert str(exc) == "offline"
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("non-mutating source lookup failure should fail")
+
+    assert runner.calls == [
+        (
+            [
+                "git",
+                "ls-remote",
+                "https://github.com/owner/repo.git",
+                "refs/heads/main",
+            ],
+            None,
+        )
     ]
 
 
@@ -1605,7 +1727,8 @@ def test_bootstrap_env_and_version_helpers() -> None:
         "RECOLLECTIUM_INSTALL_VERSION": "v1.2.3"
     }
     assert _bootstrap_target_env(TrackingTarget("main", "main"), "main") == {
-        "RECOLLECTIUM_INSTALL_MAIN": "1"
+        "RECOLLECTIUM_INSTALL_MAIN": "1",
+        "RECOLLECTIUM_INSTALL_RESOLVED_REF": "main",
     }
     assert _bootstrap_target_env(
         TrackingTarget("custom_ref", "feature", ref="feature"), "feature"
