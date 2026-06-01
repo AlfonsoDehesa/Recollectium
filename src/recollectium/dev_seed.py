@@ -371,8 +371,7 @@ def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
     workspace_uids = set(store.list_workspace_uids(include_archived=True))
     workspace_counts = Counter(memory.workspace_uid for memory in workspace_memories)
     expected_workspace_counts = {
-        project["uid"]: DEV_SEED_WORKSPACE_MEMORY_COUNT
-        for project in DEV_SEED_PROJECTS
+        project["uid"]: DEV_SEED_WORKSPACE_MEMORY_COUNT for project in DEV_SEED_PROJECTS
     }
     user_contents = [memory.content for memory in user_memories]
     workspace_contents = [memory.content for memory in workspace_memories]
