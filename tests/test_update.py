@@ -1689,7 +1689,6 @@ def test_command_generation_for_target_modes(tmp_path: Path) -> None:
         [
             ["git", "fetch", "origin", "main"],
             ["git", "checkout", "main"],
-            ["git", "pull", "--ff-only", "origin", "main"],
             ["uv", "sync", "--group", "dev"],
         ],
         tmp_path,
