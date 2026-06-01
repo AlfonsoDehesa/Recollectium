@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from recollectium.dev_seed import (
+    DEV_SEED_PROJECTS,
+    DEV_SEED_USER_TOPICS,
     ensure_seeded_dev_database,
     reset_seeded_dev_database,
     seeded_dev_database_is_initialized,
@@ -59,6 +61,62 @@ def test_reset_seeded_dev_database_recreates_seed_state(tmp_path: Path) -> None:
     assert len(workspaces) == 3
     assert len(topics) == 10
     assert seeded_dev_database_is_initialized(db_path)
+
+
+def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "dev.db"
+    provider = FakeEmbeddingProvider()
+
+    reset_seeded_dev_database(db_path, provider)
+
+    store = SQLiteMemoryStore(db_path)
+    user_memories = store.list_memories(space="user", include_archived=True)
+    workspace_memories = store.list_memories(space="workspace", include_archived=True)
+    user_contents = [memory.content for memory in user_memories]
+    workspace_contents = [memory.content for memory in workspace_memories]
+    all_contents = user_contents + workspace_contents
+
+    assert len(user_contents) == 100
+    assert len(workspace_contents) == 90
+    assert len(set(user_contents)) == 100
+    assert len(set(workspace_contents)) == 90
+    assert len(set(all_contents)) == 190
+    assert {memory.metadata["dev_topic"] for memory in user_memories} == set(
+        DEV_SEED_USER_TOPICS
+    )
+    assert {
+        topic: sum(
+            1 for memory in user_memories if memory.metadata["dev_topic"] == topic
+        )
+        for topic in DEV_SEED_USER_TOPICS
+    } == {topic: 10 for topic in DEV_SEED_USER_TOPICS}
+    assert {memory.workspace_uid for memory in workspace_memories} == {
+        project["uid"] for project in DEV_SEED_PROJECTS
+    }
+    assert {
+        project["uid"]: sum(
+            1 for memory in workspace_memories if memory.workspace_uid == project["uid"]
+        )
+        for project in DEV_SEED_PROJECTS
+    } == {project["uid"]: 30 for project in DEV_SEED_PROJECTS}
+    assert all(memory.metadata["fictional"] is True for memory in user_memories)
+    assert all(memory.metadata["fictional"] is True for memory in workspace_memories)
+
+    banned_public_seed_terms = (
+        "Alfonso",
+        "Kaylee",
+        "NAS",
+        "Recollectium",
+        "OpenCode",
+        "Hermes",
+    )
+    assert not any(
+        banned_term.lower() in content.lower()
+        for banned_term in banned_public_seed_terms
+        for content in all_contents
+    )
 
 
 def test_seeded_dev_database_is_reinitialized_after_mutation(tmp_path: Path) -> None:

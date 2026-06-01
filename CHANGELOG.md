@@ -21,6 +21,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 ### 🧹 Chores
 
 - Added installer selector metadata test coverage and CI install-smoke metadata assertions.
+- Updated seeded development memory fixtures with unique fictional user and project memories safe for public repositories.
 
 ## v1.0.0
 
