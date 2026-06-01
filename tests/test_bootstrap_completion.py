@@ -66,7 +66,7 @@ def test_unix_bootstrap_json_escape_does_not_corrupt_plain_f() -> None:
         [
             "sh",
             "-c",
-            f'{bootstrap_helpers}\njson_escape "fix/feature\\\"slash\\\\path"',
+            f'{bootstrap_helpers}\njson_escape "fix/feature\\"slash\\\\path"',
         ],
         check=True,
         capture_output=True,
