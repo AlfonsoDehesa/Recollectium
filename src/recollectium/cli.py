@@ -1139,7 +1139,7 @@ def _handle_upgrade_command(
     latest_release: ReleaseInfo | None
     try:
         latest_release = (
-            fetch_latest_release(GitHubReleaseClient(), repo=repo)
+            fetch_latest_release(GitHubReleaseClient(), repo=target.repo)
             if target.kind == "latest_release"
             else None
         )

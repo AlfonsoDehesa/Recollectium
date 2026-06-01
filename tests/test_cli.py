@@ -6030,3 +6030,38 @@ def test_cli_rewrites_upgrade_version_equals_selector() -> None:
     assert cli_mod._rewrite_upgrade_version_selector(
         ["upgrade", "--version=1.2.3"]
     ) == ["upgrade", "--target-version=1.2.3"]
+
+
+def test_cli_upgrade_latest_uses_metadata_target_repo(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo, TrackingTarget
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata(
+            "uv_tool",
+            None,
+            None,
+            None,
+            tracking_target=TrackingTarget(
+                "latest_release", "latest", repo="Metadata/Repo"
+            ),
+        ),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+
+    def fake_fetch(client: object, *, repo: str) -> ReleaseInfo:
+        assert repo == "Metadata/Repo"
+        return ReleaseInfo("9.9.9", "v9.9.9", None)
+
+    monkeypatch.setattr(cli_mod, "fetch_latest_release", fake_fetch)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--check"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["target_kind"] == "latest_release"
+    assert payload["target_source"] == "metadata"
