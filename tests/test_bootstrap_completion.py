@@ -17,6 +17,15 @@ def test_unix_bootstrap_unknown_shell_falls_back_to_bash_completion() -> None:
     assert "managed_completion_edits" in script
 
 
+def test_unix_bootstrap_resolves_tracking_metadata_in_current_shell() -> None:
+    script = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+    assert "ref=$(resolve_ref)" not in script
+    assert 'resolve_ref\nref="$RESOLVED_REF"' in script
+    assert 'RESOLVED_REF="main"' in script
+    assert 'RESOLVED_REF="$ref"' in script
+
+
 def test_windows_bootstrap_installs_powershell_current_user_current_host_completion() -> (
     None
 ):

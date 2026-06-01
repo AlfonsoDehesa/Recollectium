@@ -103,7 +103,7 @@ resolve_ref() {
   if [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "1" ] || [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "true" ] || [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "yes" ]; then
     TRACKING_KIND="main"
     TRACKING_SELECTOR="main"
-    printf 'main'
+    RESOLVED_REF="main"
     return
   fi
 
@@ -112,7 +112,7 @@ resolve_ref() {
       TRACKING_KIND="latest_release"
       TRACKING_SELECTOR="latest"
       if [ -n "${RECOLLECTIUM_INSTALL_RESOLVED_REF:-}" ]; then
-        printf '%s' "$RECOLLECTIUM_INSTALL_RESOLVED_REF"
+        RESOLVED_REF="$RECOLLECTIUM_INSTALL_RESOLVED_REF"
         return
       fi
     else
@@ -120,7 +120,7 @@ resolve_ref() {
       TRACKING_KIND="release"
       TRACKING_SELECTOR="$ref"
       TRACKING_VERSION="${ref#v}"
-      printf '%s' "$ref"
+      RESOLVED_REF="$ref"
       return
     fi
   elif [ -n "${RECOLLECTIUM_INSTALL_REF:-}" ]; then
@@ -128,13 +128,13 @@ resolve_ref() {
     TRACKING_KIND="$kind"
     TRACKING_SELECTOR="$RECOLLECTIUM_INSTALL_REF"
     [ "$kind" = "release" ] && TRACKING_VERSION="${RECOLLECTIUM_INSTALL_REF#v}"
-    printf '%s' "$RECOLLECTIUM_INSTALL_REF"
+    RESOLVED_REF="$RECOLLECTIUM_INSTALL_REF"
     return
   fi
 
   tag=$(resolve_latest_release_tag)
   if [ -n "$tag" ]; then
-    printf '%s' "$tag"
+    RESOLVED_REF="$tag"
   else
     fail "failed to resolve latest GitHub release; set RECOLLECTIUM_INSTALL_MAIN=1 to install main"
   fi
@@ -230,7 +230,8 @@ configure_shell_completion() {
 }
 
 install_uv
-ref=$(resolve_ref)
+resolve_ref
+ref="$RESOLVED_REF"
 package="git+https://github.com/${REPO}.git@${ref}"
 info "Installing Recollectium from ${ref}..."
 "$UV_BIN" tool install --python 3.12 --force "$package"
