@@ -311,7 +311,7 @@ def _user_seed_memory(index: int) -> Memory:
         id=f"dev-user-{ordinal:03d}",
         space=SPACE_USER,
         type=USER_MEMORY_TYPES[index % len(USER_MEMORY_TYPES)],
-        content=f"Fictional dev user {topic} fact {fact_index + 1}: The user {fact}.",
+        content=f"The user {fact}.",
         metadata={
             "dev_seed": True,
             "fictional": True,
@@ -337,11 +337,13 @@ def _workspace_seed_memory(workspace_index: int, memory_index: int) -> Memory:
         space=SPACE_WORKSPACE,
         workspace_uid=workspace_uid,
         type=WORKSPACE_MEMORY_TYPES[memory_index % len(WORKSPACE_MEMORY_TYPES)],
-        content=f"{project_name} fictional project memory {ordinal:02d}: {content}",
+        content=content,
         metadata={
             "dev_seed": True,
             "fictional": True,
             "dev_project": project_name,
+            "dev_project_name": project_name,
+            "dev_project_uid": workspace_uid,
             "dev_workspace_index": workspace_index,
             "dev_ordinal": ordinal,
         },
@@ -386,6 +388,13 @@ def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
         and len(set(workspace_contents)) == DEV_SEED_TOTAL_WORKSPACE_MEMORIES
         and len(set(all_contents))
         == DEV_SEED_USER_MEMORY_COUNT + DEV_SEED_TOTAL_WORKSPACE_MEMORIES
+        and all(
+            not content.startswith("Fictional dev user") for content in user_contents
+        )
+        and all(" fact 1:" not in content for content in user_contents)
+        and all(
+            "fictional project memory" not in content for content in workspace_contents
+        )
         and all(memory.metadata.get("dev_seed") is True for memory in user_memories)
         and all(memory.metadata.get("fictional") is True for memory in user_memories)
         and all(
@@ -393,6 +402,11 @@ def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
         )
         and all(
             memory.metadata.get("fictional") is True for memory in workspace_memories
+        )
+        and all(
+            memory.metadata.get("dev_project_name")
+            and memory.metadata.get("dev_project_uid") == memory.workspace_uid
+            for memory in workspace_memories
         )
     )
 

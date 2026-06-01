@@ -104,6 +104,26 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
     } == {project["uid"]: 30 for project in DEV_SEED_PROJECTS}
     assert all(memory.metadata["fictional"] is True for memory in user_memories)
     assert all(memory.metadata["fictional"] is True for memory in workspace_memories)
+    assert all(
+        not content.startswith("Fictional dev user") for content in user_contents
+    )
+    assert all(" fact 1:" not in content for content in user_contents)
+    assert all(
+        "fictional project memory" not in content for content in workspace_contents
+    )
+    expected_project_names = {
+        project["uid"]: project["name"] for project in DEV_SEED_PROJECTS
+    }
+    assert all(
+        memory.workspace_uid is not None
+        and memory.metadata["dev_project_name"]
+        == expected_project_names[memory.workspace_uid]
+        for memory in workspace_memories
+    )
+    assert all(
+        memory.metadata["dev_project_uid"] == memory.workspace_uid
+        for memory in workspace_memories
+    )
 
     banned_public_seed_terms = (
         "Alfonso",
