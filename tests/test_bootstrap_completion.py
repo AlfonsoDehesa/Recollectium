@@ -27,7 +27,7 @@ def test_unix_bootstrap_unknown_shell_falls_back_to_bash_completion() -> None:
 def test_unix_bootstrap_adds_path_to_zsh_startup_files() -> None:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
 
-    assert 'case ":${PATH}:"' in script
+    assert 'case ":${ORIGINAL_PATH}:"' in script
     assert '*":${TOOL_BIN_DIR}:"*) return ;;' in script
     assert 'detected_shell="${SHELL##*/}"' in script
     assert 'if [ "$detected_shell" = "zsh" ]; then' in script
@@ -114,6 +114,59 @@ def test_unix_bootstrap_prints_current_shell_path_command_when_path_was_missing(
     assert f"Added {tool_bin} to {home / '.profile'}" in result.stdout
     assert "To use recollectium in this shell now, run:" in result.stdout
     assert "Then verify with: recollectium --version" in result.stdout
+
+
+def test_unix_bootstrap_uses_original_path_for_durable_path_hint(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    home = tmp_path / "home"
+    tool_bin = tmp_path / "uv-tools"
+    home.mkdir()
+    tool_bin.mkdir()
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nORIGINAL_PATH="/usr/bin:/bin"\nPATH="$1:$ORIGINAL_PATH"\nensure_path_hint',
+            "sh",
+            str(tool_bin),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(home),
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/bin/bash",
+        },
+    )
+
+    assert f"Added {tool_bin} to {home / '.profile'}" in result.stdout
+    assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
+
+
+def test_unix_bootstrap_prints_final_restart_or_current_terminal_guidance() -> None:
+    script = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+    assert "print_final_guidance()" in script
+    assert "Restart your terminal session" in script
+    assert r"export PATH=\"${TOOL_BIN_DIR}:\$PATH\"" in script
+    assert "source ${COMPLETION_RC}" in script
+
+
+def test_unix_bootstrap_resolves_uv_tool_bin_before_tool_install() -> None:
+    script = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+    main_block = script.split(
+        'package="git+https://github.com/${REPO}.git@${ref}"', maxsplit=1
+    )[1]
+    install_index = main_block.index('"$UV_BIN" tool install')
+    resolve_index = main_block.index("resolve_tool_bin_dir")
+    assert resolve_index < install_index
+    assert 'PATH="${TOOL_BIN_DIR}:${ORIGINAL_PATH}"' in main_block
+    assert "verify_installed_tool" in main_block
 
 
 def test_unix_bootstrap_keeps_concise_path_success_when_path_already_present(
