@@ -5,7 +5,7 @@ REPO="AlfonsoDehesa/recollectium"
 INSTALL_DIR="${HOME}/.local/bin"
 UV_BIN="${INSTALL_DIR}/uv"
 TOOL_BIN_DIR=""
-MANAGED_PATH_EDIT=""
+MANAGED_PATH_EDITS=""
 COMPLETION_RC=""
 COMPLETION_SHELL=""
 
@@ -23,7 +23,7 @@ command_exists() {
 }
 
 json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\x08/\\b/g; s/\f/\\f/g; s/\n/\\n/g; s/\r/\\r/g; s/\t/\\t/g'
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
 detect_uv_archive() {
@@ -140,19 +140,56 @@ resolve_ref() {
   fi
 }
 
+append_managed_path_edit() {
+  path="$1"
+  case "
+${MANAGED_PATH_EDITS}
+" in
+    *"
+${path}
+"*) return ;;
+  esac
+  MANAGED_PATH_EDITS="${MANAGED_PATH_EDITS}${path}
+"
+}
+
+ensure_path_file() {
+  profile="$1"
+  line="export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
+  start_marker="# >>> recollectium path >>>"
+  end_marker="# <<< recollectium path <<<"
+
+  if [ -f "$profile" ]; then
+    if grep -F "$start_marker" "$profile" >/dev/null 2>&1 || grep -F "$line" "$profile" >/dev/null 2>&1; then
+      append_managed_path_edit "$profile"
+      return
+    fi
+  else
+    parent=$(dirname "$profile")
+    mkdir -p "$parent"
+  fi
+
+  printf '\n%s\n%s\n%s\n' "$start_marker" "$line" "$end_marker" >> "$profile"
+  append_managed_path_edit "$profile"
+}
+
 ensure_path_hint() {
   [ -n "$TOOL_BIN_DIR" ] || fail "uv tool bin directory was not resolved"
   case ":${PATH}:" in
     *":${TOOL_BIN_DIR}:"*) return ;;
   esac
 
-  profile="${HOME}/.profile"
-  line="export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
-  if [ ! -f "$profile" ] || ! grep -F "$line" "$profile" >/dev/null 2>&1; then
-    printf '\n# Recollectium CLI\n%s\n' "$line" >> "$profile"
-    MANAGED_PATH_EDIT="${profile}: ${line}"
+  detected_shell="${SHELL##*/}"
+  if [ "$detected_shell" = "zsh" ]; then
+    zdotdir="${ZDOTDIR:-$HOME}"
+    ensure_path_file "${zdotdir}/.zprofile"
+    ensure_path_file "${zdotdir}/.zshrc"
+    info "Added ${TOOL_BIN_DIR} to ${zdotdir}/.zprofile and ${zdotdir}/.zshrc. Restart your shell if recollectium is not found."
+  else
+    profile="${HOME}/.profile"
+    ensure_path_file "$profile"
+    info "Added ${TOOL_BIN_DIR} to ${profile}. Restart your shell if recollectium is not found."
   fi
-  info "Added ${TOOL_BIN_DIR} to ${profile}. Restart your shell if recollectium is not found."
 }
 
 resolve_tool_bin_dir() {
@@ -181,9 +218,20 @@ record_install_metadata() {
   escaped_ref_kind=$(json_escape "$ref_kind")
 
   path_edits="["
-  if [ -n "$MANAGED_PATH_EDIT" ]; then
-    escaped_path_edit=$(json_escape "$MANAGED_PATH_EDIT")
-    path_edits="${path_edits}\"${escaped_path_edit}\""
+  first_path_edit=1
+  if [ -n "$MANAGED_PATH_EDITS" ]; then
+    while IFS= read -r path_edit; do
+      [ -n "$path_edit" ] || continue
+      escaped_path_edit=$(json_escape "$path_edit")
+      if [ "$first_path_edit" -eq 1 ]; then
+        first_path_edit=0
+      else
+        path_edits="${path_edits}, "
+      fi
+      path_edits="${path_edits}\"${escaped_path_edit}\""
+    done <<EOF
+$MANAGED_PATH_EDITS
+EOF
   fi
   path_edits="${path_edits}]"
 

@@ -12,6 +12,8 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### 🐛 Fixes
 
+- Fixed bootstrap installs for macOS zsh users so the Recollectium CLI path is added to zsh startup files.
+
 ### 🧹 Chores
 
 ## v1.0.0

@@ -68,9 +68,44 @@ jobs:
       - name: Install Recollectium on Unix
         if: runner.os != 'Windows'
         shell: bash
-        run: sh ./install.sh
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            export PATH="$(python3 - <<'PY'
+          import os
+
+          tool_bin = os.path.join(os.environ["HOME"], ".local", "bin")
+          print(":".join(part for part in os.environ["PATH"].split(":") if part != tool_bin))
+          PY
+          )"
+          fi
+          sh ./install.sh
         env:
           RECOLLECTIUM_INSTALL_REF: ${{ github.head_ref || github.ref_name }}
+          SHELL: ${{ runner.os == 'macOS' && '/bin/zsh' || '' }}
+
+      - name: Verify macOS zsh PATH bootstrap
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          zsh -lc 'command -v recollectium && recollectium --version'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
+          metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+          expected = {
+              str(Path.home() / ".zprofile"),
+              str(Path.home() / ".zshrc"),
+          }
+          assert expected.issubset(set(metadata.get("managed_path_edits", []))), metadata
+          for path_text in expected:
+              content = Path(path_text).read_text(encoding="utf-8")
+              assert "# >>> recollectium path >>>" in content, content
+              assert "# <<< recollectium path <<<" in content, content
+          PY
 
       - name: Install Recollectium on Windows
         if: runner.os == 'Windows'
