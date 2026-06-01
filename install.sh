@@ -161,7 +161,45 @@ ensure_path_file() {
   end_marker="# <<< recollectium path <<<"
 
   if [ -f "$profile" ]; then
-    if grep -F "$start_marker" "$profile" >/dev/null 2>&1 || grep -F "$line" "$profile" >/dev/null 2>&1; then
+    if grep -F "$start_marker" "$profile" >/dev/null 2>&1; then
+      tmp=$(mktemp "${profile}.recollectium.XXXXXX") || fail "failed to create temporary path profile"
+      has_end=0
+      grep -F "$end_marker" "$profile" >/dev/null 2>&1 && has_end=1
+      awk -v start="$start_marker" -v end="$end_marker" -v path_line="$line" -v has_end="$has_end" '
+        function print_path_block() {
+          if (!printed_path_block) {
+            print start
+            print path_line
+            print end
+            printed_path_block = 1
+          }
+        }
+        in_path_block {
+          if ($0 == end) {
+            in_path_block = 0
+          }
+          next
+        }
+        $0 == start {
+          print_path_block()
+          if (has_end == "1") {
+            in_path_block = 1
+          }
+          next
+        }
+        $0 == path_line {
+          next
+        }
+        { print }
+      ' "$profile" > "$tmp" || {
+        rm -f "$tmp"
+        fail "failed to repair Recollectium PATH block in ${profile}"
+      }
+      mv "$tmp" "$profile" || fail "failed to update Recollectium PATH block in ${profile}"
+      append_managed_path_edit "$profile"
+      return
+    fi
+    if grep -F "$line" "$profile" >/dev/null 2>&1; then
       append_managed_path_edit "$profile"
       return
     fi

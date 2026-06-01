@@ -55,6 +55,112 @@ def test_unix_bootstrap_uses_guarded_idempotent_path_block() -> None:
     assert "printf '\\n%s\\n%s\\n%s\\n'" in script
 
 
+def test_unix_bootstrap_repairs_empty_managed_path_block(tmp_path: Path) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    profile = tmp_path / ".zprofile"
+    tool_bin.mkdir()
+    profile.write_text(
+        "before\n# >>> recollectium path >>>\n# <<< recollectium path <<<\nafter\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nensure_path_file "$2"\nensure_path_file "$2"',
+            "sh",
+            str(tool_bin),
+            str(profile),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    expected_line = f'export PATH="{tool_bin}:$PATH"'
+    content = profile.read_text(encoding="utf-8")
+    assert content == (
+        "before\n"
+        "# >>> recollectium path >>>\n"
+        f"{expected_line}\n"
+        "# <<< recollectium path <<<\n"
+        "after\n"
+    )
+    assert content.count(expected_line) == 1
+    assert content.count("# >>> recollectium path >>>") == 1
+
+
+def test_unix_bootstrap_does_not_duplicate_legacy_path_line(tmp_path: Path) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    profile = tmp_path / ".profile"
+    tool_bin.mkdir()
+    expected_line = f'export PATH="{tool_bin}:$PATH"'
+    profile.write_text(f"before\n{expected_line}\nafter\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nensure_path_file "$2"',
+            "sh",
+            str(tool_bin),
+            str(profile),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    content = profile.read_text(encoding="utf-8")
+    assert content == f"before\n{expected_line}\nafter\n"
+    assert content.count(expected_line) == 1
+    assert "# >>> recollectium path >>>" not in content
+
+
+def test_unix_bootstrap_removes_legacy_path_line_when_repairing_block(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    profile = tmp_path / ".zshrc"
+    tool_bin.mkdir()
+    expected_line = f'export PATH="{tool_bin}:$PATH"'
+    profile.write_text(
+        f"before\n{expected_line}\n"
+        "# >>> recollectium path >>>\n"
+        "# <<< recollectium path <<<\n"
+        "after\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nensure_path_file "$2"',
+            "sh",
+            str(tool_bin),
+            str(profile),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    content = profile.read_text(encoding="utf-8")
+    assert content == (
+        "before\n"
+        "# >>> recollectium path >>>\n"
+        f"{expected_line}\n"
+        "# <<< recollectium path <<<\n"
+        "after\n"
+    )
+    assert content.count(expected_line) == 1
+
+
 def test_unix_bootstrap_resolves_tracking_metadata_in_current_shell() -> None:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
 
