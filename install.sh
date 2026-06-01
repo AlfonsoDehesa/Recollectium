@@ -184,12 +184,15 @@ ensure_path_hint() {
     zdotdir="${ZDOTDIR:-$HOME}"
     ensure_path_file "${zdotdir}/.zprofile"
     ensure_path_file "${zdotdir}/.zshrc"
-    info "Added ${TOOL_BIN_DIR} to ${zdotdir}/.zprofile and ${zdotdir}/.zshrc. Restart your shell if recollectium is not found."
+    info "Added ${TOOL_BIN_DIR} to ${zdotdir}/.zprofile and ${zdotdir}/.zshrc for future shells."
   else
     profile="${HOME}/.profile"
     ensure_path_file "$profile"
-    info "Added ${TOOL_BIN_DIR} to ${profile}. Restart your shell if recollectium is not found."
+    info "Added ${TOOL_BIN_DIR} to ${profile} for future shells."
   fi
+  info "To use recollectium in this shell now, run:"
+  info "  export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
+  info "Then verify with: recollectium --version"
 }
 
 resolve_tool_bin_dir() {
