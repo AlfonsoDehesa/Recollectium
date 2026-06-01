@@ -104,7 +104,11 @@ resolve_ref() {
   if [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "1" ] || [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "true" ] || [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "yes" ]; then
     TRACKING_KIND="main"
     TRACKING_SELECTOR="main"
-    RESOLVED_REF="main"
+    if [ -n "${RECOLLECTIUM_INSTALL_RESOLVED_REF:-}" ]; then
+      RESOLVED_REF="$RECOLLECTIUM_INSTALL_RESOLVED_REF"
+    else
+      RESOLVED_REF="main"
+    fi
     return
   fi
 
@@ -320,6 +324,9 @@ EOF
   if [ -n "$TRACKING_VERSION" ]; then
     escaped_version=$(json_escape "$TRACKING_VERSION")
     tracking_target="${tracking_target}, \"version\": \"${escaped_version}\", \"ref\": \"${escaped_ref}\""
+  elif [ "$TRACKING_KIND" = "main" ]; then
+    escaped_tracking_ref=$(json_escape "$TRACKING_SELECTOR")
+    tracking_target="${tracking_target}, \"ref\": \"${escaped_tracking_ref}\""
   elif [ "$TRACKING_KIND" != "latest_release" ]; then
     tracking_target="${tracking_target}, \"ref\": \"${escaped_ref}\""
   fi
