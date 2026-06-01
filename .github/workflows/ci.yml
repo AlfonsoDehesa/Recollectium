@@ -352,7 +352,7 @@ jobs:
           recollectium upgrade --check --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" --json | Out-File -Encoding utf8 upgrade-check.json
           recollectium upgrade --dry-run --install-method bootstrap --repo "$env:GITHUB_REPOSITORY" --json | Out-File -Encoding utf8 upgrade-dry-run.json
           python -c "import json, pathlib; payloads=[json.loads(pathlib.Path(p).read_text(encoding='utf-8-sig')) for p in ['upgrade-check.json','upgrade-dry-run.json']]; assert all(p['status'] in {'up_to_date', 'dry_run'} for p in payloads), payloads; assert all(p['install_method'] == 'bootstrap' for p in payloads), payloads"
-          python -c "import json, os, pathlib; metadata_path=pathlib.Path(os.environ['LOCALAPPDATA']) / 'recollectium' / 'install.json'; metadata=json.loads(metadata_path.read_text(encoding='utf-8-sig')); target=metadata.get('tracking_target', {}); selector=target.get('selector'); assert selector, metadata; expected='main' if selector == 'main' else 'custom_ref'; assert target.get('kind') == expected, metadata"
+          python -c "import json, os, pathlib, re; metadata_path=pathlib.Path(os.environ['LOCALAPPDATA']) / 'recollectium' / 'install.json'; metadata=json.loads(metadata_path.read_text(encoding='utf-8-sig')); target=metadata.get('tracking_target', {}); selector=target.get('selector'); assert selector, metadata; expected='main' if selector == 'main' else 'release' if isinstance(selector, str) and re.fullmatch(r'v?[0-9]+([.][0-9A-Za-z.+!-]+)*', selector) else 'custom_ref'; assert target.get('kind') == expected, metadata"
 
       - name: Verify service lifecycle on Windows
         if: runner.os == 'Windows'
