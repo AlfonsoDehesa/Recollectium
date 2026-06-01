@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 import sqlite3
+from collections import Counter
 from pathlib import Path
 
 from recollectium.dev_seed import (
@@ -12,6 +14,10 @@ from recollectium.dev_seed import (
 )
 from recollectium.core import RecollectiumCore
 from recollectium.storage import SQLiteMemoryStore
+
+
+def _sentence_count(content: str) -> int:
+    return len(re.findall(r"[.!?](?:\s|$)", content.strip()))
 
 
 class FakeEmbeddingProvider:
@@ -163,7 +169,25 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
         for label in visible_label_terms
         for content in all_contents
     )
-    assert all(1 <= len(content.split(". ")) <= 3 for content in all_contents)
+    assert all(1 <= _sentence_count(content) <= 3 for content in all_contents)
+    assert {
+        topic: Counter(
+            _sentence_count(memory.content)
+            for memory in user_memories
+            if memory.metadata["dev_topic"] == topic
+        )
+        for topic in DEV_SEED_USER_TOPICS
+    } == {topic: Counter({1: 4, 2: 3, 3: 3}) for topic in DEV_SEED_USER_TOPICS}
+    assert {
+        project["uid"]: Counter(
+            _sentence_count(memory.content)
+            for memory in workspace_memories
+            if memory.workspace_uid == project["uid"]
+        )
+        for project in DEV_SEED_PROJECTS
+    } == {
+        project["uid"]: Counter({1: 10, 2: 10, 3: 10}) for project in DEV_SEED_PROJECTS
+    }
     expected_project_names = {
         project["uid"]: project["name"] for project in DEV_SEED_PROJECTS
     }
@@ -283,7 +307,7 @@ def test_seeded_dev_database_rejects_mutated_same_count_content(
     assert result is not None
     assert result["status"] == "reset"
     assert store.get_memory("dev-user-001").content.startswith(
-        "The user prefers planning trips"
+        "The user prefers trips that leave room"
     )
 
 
