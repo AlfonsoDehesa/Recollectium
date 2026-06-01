@@ -30,9 +30,9 @@ DEV_SEED_USER_TOPICS: tuple[str, ...] = (
     "home style",
 )
 DEV_SEED_PROJECTS: tuple[dict[str, str], ...] = (
-    {"uid": "proj_fic_cedarledger_01", "name": "CedarLedger"},
-    {"uid": "proj_fic_northstar_forms_01", "name": "Northstar Forms"},
-    {"uid": "proj_fic_harborpilot_01", "name": "HarborPilot"},
+    {"uid": "proj-fic-cedarledger-01", "name": "CedarLedger"},
+    {"uid": "proj-fic-northstar-forms-01", "name": "Northstar Forms"},
+    {"uid": "proj-fic-harborpilot-01", "name": "HarborPilot"},
 )
 USER_MEMORY_TYPES: tuple[str, ...] = (
     "fact",
@@ -176,20 +176,20 @@ USER_FACTS_BY_TOPIC: tuple[tuple[str, ...], ...] = (
 )
 
 PROJECT_MEMORIES_BY_UID: dict[str, tuple[str, ...]] = {
-    "proj_fic_cedarledger_01": (
+    "proj-fic-cedarledger-01": (
         "CedarLedger is a bookkeeping app for independent workshops that need simple job, invoice, and expense tracking.",
         "The project keeps sample businesses generic, with no real company names, bank details, tax IDs, or customer contact records.",
         "The dashboard groups open invoices, recent expenses, and unpaid workshop jobs into separate summary cards.",
         "A decision note says sample currency values are small round numbers so screenshots are easy to read.",
-        "The transaction importer only reads local CSV fixtures and does not connect to external financial services.",
+        "The transaction importer only reads local CSV files and does not connect to external financial services.",
         "A bug note says invoice totals were recalculated twice after editing a line item quantity.",
-        "The settings fixture stores a demo tax label, default invoice terms, and a preferred date format.",
+        "The settings screen stores a tax label, default invoice terms, and a preferred date format.",
         "The project uses deterministic invoice IDs so snapshot tests remain stable across runs.",
         "A task remains to add a keyboard shortcut for marking a draft invoice ready to send.",
         "The sample expense categories are materials, tools, utilities, rent, insurance, and training.",
         "A design note prefers clear tables with compact filters over decorative financial charts.",
         "The app should warn when an expense is missing a category before it appears in a monthly report.",
-        "The demo workspace has three workshop profiles named North Bench, Pine Room, and Sawdust Studio.",
+        "The workspace has three workshop profiles named North Bench, Pine Room, and Sawdust Studio.",
         "A known issue says the unpaid badge can overlap long workshop names on narrow screens.",
         "The export feature writes local JSON and CSV files with generated placeholder records only.",
         "The project glossary defines a job as a billable workshop activity tied to one or more invoice lines.",
@@ -197,25 +197,25 @@ PROJECT_MEMORIES_BY_UID: dict[str, tuple[str, ...]] = {
         "The monthly report should separate reimbursable materials from normal operating expenses.",
         "The mock activity log stores action types and timestamps but no IP addresses or device identifiers.",
         "A task asks for an empty state that explains how to add the first invoice in plain language.",
-        "The fixture includes overdue, paid, draft, and partially paid invoice examples for UI coverage.",
-        "The project decided to avoid payroll, lending, or tax filing features in the seeded demo.",
+        "The invoice list includes overdue, paid, draft, and partially paid examples for UI coverage.",
+        "The project decided to avoid payroll, lending, or tax filing features.",
         "The search query clamp should return the sample tools expense before unrelated invoice notes.",
         "The local preferences file tracks the selected report period and sidebar collapse state.",
         "The accessibility note requires status badges to include text, not color alone.",
         "A bug note says deleting a job left its invoice count cached until the list was refreshed.",
         "The sample onboarding checklist has steps for adding a job, recording an expense, and drafting an invoice.",
-        "The report builder starts with a simple profit and loss view for the current demo month.",
+        "The report builder starts with a simple profit and loss view for the current month.",
         "The app should show a confirmation before archiving a workshop profile with open invoices.",
-        "A release checklist item verifies that seeded bookkeeping records are fictional and public-safe.",
+        "A release checklist item verifies that bookkeeping examples contain no sensitive business details.",
     ),
-    "proj_fic_northstar_forms_01": (
+    "proj-fic-northstar-forms-01": (
         "Northstar Forms is an offline-friendly form builder for teams that collect structured field notes.",
         "The project stores all sample forms locally and avoids real survey responses, names, addresses, or contact details.",
         "The builder supports short text, long text, number, checkbox, select, date, and photo-placeholder fields.",
         "A decision note says drafts must autosave locally before any sync status appears in the interface.",
-        "The demo includes three form templates for equipment checks, site observations, and intake notes.",
+        "The project includes three form templates for equipment checks, site observations, and intake notes.",
         "A bug note says duplicated sections kept the original section title in the navigation sidebar.",
-        "The fixture uses generated response IDs and fixed timestamps for deterministic tests.",
+        "The local response set uses generated response IDs and fixed timestamps for deterministic tests.",
         "The sync simulator can be toggled between offline, pending, and complete without calling a network service.",
         "A task remains to add drag handles for reordering fields inside a section.",
         "The preview screen should show validation errors without leaving the form builder.",
@@ -225,7 +225,7 @@ PROJECT_MEMORIES_BY_UID: dict[str, tuple[str, ...]] = {
         "The app should reject duplicate field keys within the same form schema.",
         "The sample response set includes complete, incomplete, and review-needed states.",
         "A design note keeps the left sidebar stable so users do not lose their place during edits.",
-        "The settings fixture stores the default language, autosave interval, and local retention period.",
+        "The settings screen stores the default language, autosave interval, and local retention period.",
         "A scenario test covers filling a form while offline and reviewing it after reconnect simulation.",
         "The form renderer should preserve field order exactly as defined by the schema.",
         "The project decided that photo fields use placeholder filenames instead of real image files.",
@@ -235,25 +235,25 @@ PROJECT_MEMORIES_BY_UID: dict[str, tuple[str, ...]] = {
         "The mock activity log records schema edits and review state changes without user emails.",
         "A bug note says removing a select option did not update existing validation warnings until reload.",
         "The accessibility note requires clear labels for all inputs and keyboard support for field reordering.",
-        "The local backup routine keeps the most recent demo archive and removes older generated archives.",
+        "The local backup routine keeps the most recent archive and removes older generated archives.",
         "The app should display a clear warning before deleting a form template with saved responses.",
-        "The fixture includes one intentionally incomplete response to exercise validation messaging.",
-        "A release checklist item verifies that seeded form data contains no private field reports.",
+        "The response set includes one intentionally incomplete response to exercise validation messaging.",
+        "A release checklist item verifies that form examples contain no private field reports.",
     ),
-    "proj_fic_harborpilot_01": (
+    "proj-fic-harborpilot-01": (
         "HarborPilot is a scheduling and task board for repair crews coordinating jobs across shared equipment.",
-        "The project uses fabricated crews, jobs, and assets with no real addresses, phone numbers, customers, or facility names.",
+        "The project uses generated crews, jobs, and assets with no real addresses, phone numbers, customers, or facility names.",
         "The board groups work into requested, scheduled, in progress, blocked, and completed columns.",
         "A decision note says crews should see the next two days by default instead of a full month calendar.",
-        "The demo includes job types for inspection, repair, cleanup, parts pickup, and follow-up review.",
+        "The project includes job types for inspection, repair, cleanup, parts pickup, and follow-up review.",
         "A bug note says dragging a blocked task briefly cleared its blocker reason before the save completed.",
-        "The fixture uses generated crew initials and stable job numbers for repeatable tests.",
+        "The local schedule uses generated crew initials and stable job numbers for repeatable tests.",
         "The scheduler warns when the same crew is assigned to overlapping jobs.",
         "A task remains to add a compact print view for the daily crew plan.",
         "The sample equipment list includes generic lifts, carts, tool kits, and diagnostic tablets.",
         "A design note prefers clear priority labels over dense color coding on the task cards.",
         "The app should keep unscheduled tasks visible until a coordinator assigns a date and crew.",
-        "The demo workspace has three crews named Dockside, Ridgeline, and Maple Shift.",
+        "The workspace has three crews named Dockside, Ridgeline, and Maple Shift.",
         "A known issue says the completion filter resets when switching from board view to calendar view.",
         "The export feature writes local schedule snapshots with placeholder job and crew data only.",
         "The project glossary defines a hold as a task paused until parts, access, or review is available.",
@@ -261,8 +261,8 @@ PROJECT_MEMORIES_BY_UID: dict[str, tuple[str, ...]] = {
         "The daily summary should list high priority tasks before routine follow-up work.",
         "The mock activity log records card moves and status changes without location traces or staff contacts.",
         "A task asks for an empty state that helps coordinators create the first repair job.",
-        "The fixture includes urgent, normal, waiting, and completed examples for each board column.",
-        "The project decided not to model payroll, live vehicle tracking, or customer billing in the seed data.",
+        "The board includes urgent, normal, waiting, and completed examples for each column.",
+        "The project decided not to model payroll, live vehicle tracking, or customer billing.",
         "The search query lift should return the equipment availability note before unrelated task comments.",
         "The local preferences file tracks the selected board view and whether completed tasks are hidden.",
         "The accessibility note requires priority, status, and blocked labels to be readable without color.",
@@ -270,7 +270,7 @@ PROJECT_MEMORIES_BY_UID: dict[str, tuple[str, ...]] = {
         "The onboarding checklist has steps for adding a task, assigning a crew, and resolving a blocker.",
         "The schedule conflict panel starts with a simple list of overlapping crew assignments.",
         "The app should show a confirmation before deleting a task with activity history.",
-        "A release checklist item verifies that seeded scheduling data is fictional and safe for public screenshots.",
+        "A release checklist item verifies that scheduling examples contain no private customer or facility details.",
     ),
 }
 
@@ -354,6 +354,45 @@ def _workspace_seed_memory(workspace_index: int, memory_index: int) -> Memory:
     )
 
 
+def _memory_matches_expected(actual: Memory, expected: Memory) -> bool:
+    return (
+        actual.id == expected.id
+        and actual.space == expected.space
+        and actual.type == expected.type
+        and actual.content == expected.content
+        and actual.status == expected.status
+        and actual.workspace_uid == expected.workspace_uid
+        and actual.metadata == expected.metadata
+        and actual.source == expected.source
+        and actual.confidence == expected.confidence
+        and actual.sensitivity == expected.sensitivity
+        and actual.created_at == expected.created_at
+        and actual.updated_at == expected.updated_at
+        and actual.last_accessed_at == expected.last_accessed_at
+    )
+
+
+def _has_acceptable_visible_content(content: str) -> bool:
+    banned_labels = (
+        "Fictional dev user",
+        "fact 1:",
+        "project memory",
+        "seed data",
+        "seeded demo",
+        "seeded bookkeeping",
+        "seeded scheduling",
+        "public-safe",
+        "safe for public screenshots",
+        "fixture",
+        "demo",
+        "fabricated",
+    )
+    sentence_count = len([part for part in content.split(". ") if part])
+    return 1 <= sentence_count <= 3 and not any(
+        label.casefold() in content.casefold() for label in banned_labels
+    )
+
+
 def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
     """Return True when *db_path* already has the complete seeded dev fixture."""
     db_path = Path(db_path)
@@ -364,47 +403,61 @@ def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
     workspace_memories = store.list_memories(
         space=SPACE_WORKSPACE, include_archived=True
     )
-    topics = {
-        memory.metadata.get("dev_topic")
-        for memory in user_memories
-        if memory.metadata.get("dev_seed") is True
+    expected_user_memories = {
+        _user_seed_memory(index).id: _user_seed_memory(index)
+        for index in range(DEV_SEED_USER_MEMORY_COUNT)
     }
-    expected_workspace_uids = {project["uid"] for project in DEV_SEED_PROJECTS}
-    workspace_uids = set(store.list_workspace_uids(include_archived=True))
-    workspace_counts = Counter(memory.workspace_uid for memory in workspace_memories)
-    expected_workspace_counts = {
-        project["uid"]: DEV_SEED_WORKSPACE_MEMORY_COUNT for project in DEV_SEED_PROJECTS
+    expected_workspace_memories = {
+        _workspace_seed_memory(
+            workspace_index, memory_index
+        ).id: _workspace_seed_memory(workspace_index, memory_index)
+        for workspace_index in range(DEV_SEED_WORKSPACE_COUNT)
+        for memory_index in range(DEV_SEED_WORKSPACE_MEMORY_COUNT)
     }
+    actual_user_memories = {memory.id: memory for memory in user_memories}
+    actual_workspace_memories = {memory.id: memory for memory in workspace_memories}
     user_contents = [memory.content for memory in user_memories]
     workspace_contents = [memory.content for memory in workspace_memories]
     all_contents = user_contents + workspace_contents
+    expected_workspace_uids = {project["uid"] for project in DEV_SEED_PROJECTS}
+    expected_workspace_counts = {
+        project["uid"]: DEV_SEED_WORKSPACE_MEMORY_COUNT for project in DEV_SEED_PROJECTS
+    }
+    expected_topic_counts = {topic: 10 for topic in DEV_SEED_USER_TOPICS}
+    actual_topic_counts = Counter(
+        memory.metadata.get("dev_topic") for memory in user_memories
+    )
+    expected_project_names = {
+        project["uid"]: project["name"] for project in DEV_SEED_PROJECTS
+    }
+
     return (
         len(user_memories) == DEV_SEED_USER_MEMORY_COUNT
         and len(workspace_memories) == DEV_SEED_TOTAL_WORKSPACE_MEMORIES
-        and workspace_uids == expected_workspace_uids
-        and workspace_counts == expected_workspace_counts
-        and len(topics) == DEV_SEED_TOPIC_COUNT
+        and set(actual_user_memories) == set(expected_user_memories)
+        and set(actual_workspace_memories) == set(expected_workspace_memories)
+        and all(
+            _memory_matches_expected(actual_user_memories[memory_id], expected)
+            for memory_id, expected in expected_user_memories.items()
+        )
+        and all(
+            _memory_matches_expected(actual_workspace_memories[memory_id], expected)
+            for memory_id, expected in expected_workspace_memories.items()
+        )
+        and set(store.list_workspace_uids(include_archived=True))
+        == expected_workspace_uids
+        and Counter(memory.workspace_uid for memory in workspace_memories)
+        == expected_workspace_counts
+        and actual_topic_counts == expected_topic_counts
         and len(set(user_contents)) == DEV_SEED_USER_MEMORY_COUNT
         and len(set(workspace_contents)) == DEV_SEED_TOTAL_WORKSPACE_MEMORIES
         and len(set(all_contents))
         == DEV_SEED_USER_MEMORY_COUNT + DEV_SEED_TOTAL_WORKSPACE_MEMORIES
+        and all(_has_acceptable_visible_content(content) for content in all_contents)
         and all(
-            not content.startswith("Fictional dev user") for content in user_contents
-        )
-        and all(" fact 1:" not in content for content in user_contents)
-        and all(
-            "fictional project memory" not in content for content in workspace_contents
-        )
-        and all(memory.metadata.get("dev_seed") is True for memory in user_memories)
-        and all(memory.metadata.get("fictional") is True for memory in user_memories)
-        and all(
-            memory.metadata.get("dev_seed") is True for memory in workspace_memories
-        )
-        and all(
-            memory.metadata.get("fictional") is True for memory in workspace_memories
-        )
-        and all(
-            memory.metadata.get("dev_project_name")
+            memory.workspace_uid is not None
+            and memory.metadata.get("dev_project_name")
+            == expected_project_names[memory.workspace_uid]
             and memory.metadata.get("dev_project_uid") == memory.workspace_uid
             for memory in workspace_memories
         )

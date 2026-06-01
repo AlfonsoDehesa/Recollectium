@@ -98,15 +98,15 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
     )
     assert DEV_SEED_PROJECTS == (
         {
-            "uid": "proj_fic_cedarledger_01",
+            "uid": "proj-fic-cedarledger-01",
             "name": "CedarLedger",
         },
         {
-            "uid": "proj_fic_northstar_forms_01",
+            "uid": "proj-fic-northstar-forms-01",
             "name": "Northstar Forms",
         },
         {
-            "uid": "proj_fic_harborpilot_01",
+            "uid": "proj-fic-harborpilot-01",
             "name": "HarborPilot",
         },
     )
@@ -141,6 +141,15 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
         "Fictional dev user",
         "fact 1:",
         "project memory",
+        "seed data",
+        "seeded demo",
+        "seeded bookkeeping",
+        "seeded scheduling",
+        "public-safe",
+        "safe for public screenshots",
+        "fixture",
+        "demo",
+        "fabricated",
         "pretend",
         "imaginary",
         "make-believe",
@@ -184,6 +193,56 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
     )
 
 
+def test_core_seeded_workspace_uids_are_retrievable_with_default_normalization(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    regular_db = tmp_path / "regular.db"
+    dev_db = tmp_path / "dev.db"
+    config_path.write_text(
+        "{"
+        f'"database": {{"path": "{regular_db}"}}, '
+        f'"development": {{"use_seeded_database": true, "seeded_database_path": "{dev_db}"}}'
+        "}",
+        encoding="utf-8",
+    )
+
+    core = RecollectiumCore(
+        config_path=config_path,
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+
+    expected_uids = [
+        "proj-fic-cedarledger-01",
+        "proj-fic-northstar-forms-01",
+        "proj-fic-harborpilot-01",
+    ]
+    assert set(core.list_workspaces(include_archived=True)) == set(expected_uids)
+    for workspace_uid in expected_uids:
+        underscored_input = workspace_uid.replace("-", "_")
+        assert core.resolve_workspace(underscored_input) == {
+            "input_uid": underscored_input,
+            "normalized_uid": workspace_uid,
+            "canonical_uid": workspace_uid,
+            "resolved_by_alias": False,
+        }
+        listed = core.list_memories(
+            space="workspace",
+            workspace_uid=underscored_input,
+            include_archived=True,
+        )
+        assert len(listed) == 30
+        assert {memory.workspace_uid for memory in listed} == {workspace_uid}
+        results = core.search_workspace_memories(
+            "project dashboard task",
+            workspace_uid=underscored_input,
+            limit=3,
+            include_archived=True,
+        )
+        assert len(results) == 3
+        assert {result.memory.workspace_uid for result in results} == {workspace_uid}
+
+
 def test_seeded_dev_database_is_reinitialized_after_mutation(tmp_path: Path) -> None:
     db_path = tmp_path / "dev.db"
     provider = FakeEmbeddingProvider()
@@ -198,6 +257,63 @@ def test_seeded_dev_database_is_reinitialized_after_mutation(tmp_path: Path) -> 
     assert result["status"] == "reset"
     assert len(store.list_memories(space="user", include_archived=True)) == 100
     assert len(store.list_memories(space="user")) == 100
+
+
+def test_seeded_dev_database_rejects_mutated_same_count_content(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "dev.db"
+    provider = FakeEmbeddingProvider()
+    reset_seeded_dev_database(db_path, provider)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE memories SET content = ? WHERE id = ?",
+            (
+                "The user prefers a stale mutated memory with the same ID.",
+                "dev-user-001",
+            ),
+        )
+
+    assert not seeded_dev_database_is_initialized(db_path)
+
+    result = ensure_seeded_dev_database(db_path, provider)
+
+    store = SQLiteMemoryStore(db_path)
+    assert result is not None
+    assert result["status"] == "reset"
+    assert store.get_memory("dev-user-001").content.startswith(
+        "The user prefers planning trips"
+    )
+
+
+def test_seeded_dev_database_rejects_mutated_project_metadata(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "dev.db"
+    provider = FakeEmbeddingProvider()
+    reset_seeded_dev_database(db_path, provider)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE memories
+            SET metadata_json = json_set(metadata_json, '$.dev_project_name', 'Wrong Project')
+            WHERE id = ?
+            """,
+            ("dev-workspace-01-001",),
+        )
+
+    assert not seeded_dev_database_is_initialized(db_path)
+
+    result = ensure_seeded_dev_database(db_path, provider)
+
+    store = SQLiteMemoryStore(db_path)
+    repaired = store.get_memory("dev-workspace-01-001")
+    assert result is not None
+    assert result["status"] == "reset"
+    assert repaired.metadata["dev_project_name"] == DEV_SEED_PROJECTS[0]["name"]
+    assert repaired.metadata["dev_project_uid"] == DEV_SEED_PROJECTS[0]["uid"]
 
 
 def test_seeded_dev_database_ensure_skips_complete_seed_state(tmp_path: Path) -> None:
