@@ -260,8 +260,23 @@ print_final_guidance() {
   info "Then verify with: recollectium --version"
 }
 
+resolve_install_state_dir() {
+  case "$(uname -s)" in
+    Darwin)
+      if [ -n "${XDG_STATE_HOME:-}" ]; then
+        printf '%s/recollectium' "$XDG_STATE_HOME"
+      else
+        printf '%s/Library/Application Support/recollectium' "$HOME"
+      fi
+      ;;
+    *)
+      printf '%s/recollectium' "${XDG_STATE_HOME:-${HOME}/.local/state}"
+      ;;
+  esac
+}
+
 record_install_metadata() {
-  state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/recollectium"
+  state_dir=$(resolve_install_state_dir)
   metadata_path="${state_dir}/install.json"
   installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   mkdir -p "$state_dir"
