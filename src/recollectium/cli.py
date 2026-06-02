@@ -18,6 +18,7 @@ import tempfile
 import time
 from io import StringIO
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Sequence
 
 from rich.console import Console
@@ -52,6 +53,16 @@ from recollectium.config import (
     set_config_value,
     unset_config_value,
     validate_config_file,
+)
+from recollectium.dev_eval import (
+    ExactMRRReport,
+    RankedSetNDCGReport,
+    SemanticMRRReport,
+    ThematicPrecisionReport,
+    evaluate_exact_mrr_for_core,
+    evaluate_ranked_set_ndcg_for_core,
+    evaluate_semantic_mrr_for_core,
+    evaluate_thematic_precision_for_core,
 )
 from recollectium.dev_seed import ensure_seeded_dev_database, reset_seeded_dev_database
 from recollectium.embeddings import BuiltinFastEmbedProvider
@@ -414,6 +425,104 @@ def _format_human_output(
             + "\n"
         )
 
+    if command == "dev eval":
+        metrics = payload["metrics"]
+        diagnostics = payload["diagnostics"]
+        phases = payload["phases"]
+        exact_phase = phases["exact_mrr"]
+        semantic_phase = phases["semantic_mrr"]
+        thematic_phase = phases["thematic_precision_at_10"]
+        ranked_phase = phases["ranked_set_ndcg_at_5"]
+        lines = [_style("Recollectium dev eval", _RICH_HEADING, enabled=color), ""]
+        lines.append(f"Seeded dev DB: {payload['database']}")
+        lines.append(f"Regular DB: {payload['regular_database']}")
+        lines.append("Regular DB not touched: yes")
+        lines.append(
+            f"Preparing seeded development database... {payload['preparation']['seeded_database']}"
+        )
+        lines.append(f"Loading eval fixtures... {payload['preparation']['fixtures']}")
+        lines.extend(
+            [
+                "",
+                "Running exact MRR",
+                f"  user memories       {exact_phase['user_memories']}/{exact_phase['user_memories']}",
+                f"  workspace memories  {exact_phase['workspace_memories']}/{exact_phase['workspace_memories']}",
+                "",
+                "Running semantic MRR",
+                f"  paraphrases         {semantic_phase['paraphrases']}/{semantic_phase['paraphrases']}",
+                "",
+                "Running thematic Precision@10",
+                f"  user topics         {thematic_phase['user_topics']}/{thematic_phase['user_topics']}",
+                f"  workspace themes    {thematic_phase['workspace_themes']}/{thematic_phase['workspace_themes']}",
+                "",
+                "Running ranked-set NDCG@5",
+                f"  cases               {ranked_phase['cases']}/{ranked_phase['cases']}",
+                "",
+                "Results",
+                f"  Exact MRR              {metrics['exact_mrr']['value']:.3f}",
+                f"  Semantic MRR           {metrics['semantic_mrr']['value']:.3f}",
+                f"  Thematic Precision@10  {metrics['thematic_precision_at_10']['value']:.3f}",
+                f"  Ranked-set NDCG@5      {metrics['ranked_set_ndcg_at_5']['value']:.3f}",
+                "",
+                "Diagnostics",
+            ]
+        )
+        if diagnostics["worst_exact"]:
+            worst_exact = diagnostics["worst_exact"][0]
+            rank = worst_exact["rank"] if worst_exact["rank"] is not None else "miss"
+            lines.append(
+                f"  Worst exact target: {worst_exact['target_id']}, rank {rank}"
+            )
+        else:
+            lines.append("  Worst exact target: none")
+        if diagnostics["worst_semantic"]:
+            worst_semantic = diagnostics["worst_semantic"][0]
+            lines.append(
+                "  Worst semantic target: "
+                f"{worst_semantic['target_id']}, average {worst_semantic['average_reciprocal_rank']:.3f}"
+            )
+        else:
+            lines.append("  Worst semantic target: none")
+        if diagnostics["confusers"]:
+            confuser = diagnostics["confusers"][0]
+            lines.append(
+                "  Most confused group: "
+                f"{confuser['expected_group']} returned {confuser['confuser_group']} in {confuser['count']} slots"
+            )
+        else:
+            lines.append("  Most confused group: none")
+        if diagnostics["worst_thematic"]:
+            worst_thematic = diagnostics["worst_thematic"][0]
+            distribution = ", ".join(
+                f"{entry['group']}={entry['count']}"
+                for entry in worst_thematic["group_distribution"][:3]
+            )
+            lines.append(
+                "  Worst thematic query: "
+                f"{worst_thematic['expected_group']}, precision {worst_thematic['precision']:.3f}, "
+                f"matches {worst_thematic['matching_results']}, returned {distribution or 'none'}"
+            )
+        else:
+            lines.append("  Worst thematic query: none")
+        if diagnostics["worst_ranked_sets"]:
+            worst_ranked = diagnostics["worst_ranked_sets"][0]
+            expected = ", ".join(
+                f"{memory['memory_id']}:{memory['grade']}"
+                for memory in worst_ranked["expected_memories"][:3]
+            )
+            returned = ", ".join(
+                f"{memory['memory_id']}:{memory['grade']}"
+                for memory in worst_ranked["returned_top"][:5]
+            )
+            lines.append(
+                f"  Worst ranked-set case: {worst_ranked['case_id']}, NDCG {worst_ranked['ndcg']:.3f}"
+            )
+            lines.append(f"    expected top grades: {expected or 'none'}")
+            lines.append(f"    returned top grades: {returned or 'none'}")
+        else:
+            lines.append("  Worst ranked-set case: none")
+        return "\n".join(lines) + "\n"
+
     if command == "init":
         lines = [_style("Recollectium initialized", _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
@@ -467,6 +576,11 @@ def _emit_success(
         )
         return
     print(json.dumps(payload, indent=json_indent, sort_keys=True))
+
+
+def _emit_human_progress(message: str) -> None:
+    sys.stdout.write(f"Status: {message}\n")
+    sys.stdout.flush()
 
 
 def _parse_config_value(raw: str) -> Any:
@@ -1106,6 +1220,247 @@ def _resolve_seeded_dev_database_path(cfg: RecollectiumConfig) -> Path:
     if not dev_path.is_absolute():
         dev_path = cfg.xdg_dirs["data"] / dev_path
     return dev_path
+
+
+def _resolve_regular_database_path(
+    cfg: RecollectiumConfig, db_path_override: str | None = None
+) -> Path:
+    if db_path_override is not None:
+        return Path(db_path_override).expanduser()
+    db_path = Path(cfg.effective_config["database"]["path"])
+    if not db_path.is_absolute():
+        db_path = cfg.xdg_dirs["data"] / db_path
+    return db_path
+
+
+def _paths_equal(first: Path, second: Path) -> bool:
+    return first.resolve(strict=False) == second.resolve(strict=False)
+
+
+def _metric_value(value: float) -> float:
+    return round(value, 6)
+
+
+def _exact_mrr_payload(report: ExactMRRReport) -> dict[str, object]:
+    return {
+        "value": _metric_value(report.value),
+        "cutoff": report.cutoff,
+        "targets": report.targets,
+        "user_targets": report.user_targets,
+        "workspace_targets": report.workspace_targets,
+        "user_value": _metric_value(report.user_value),
+        "workspace_value": _metric_value(report.workspace_value),
+        "hit_at_1": _metric_value(report.hit_at_1),
+        "hit_at_3": _metric_value(report.hit_at_3),
+    }
+
+
+def _semantic_mrr_payload(report: SemanticMRRReport) -> dict[str, object]:
+    return {
+        "value": _metric_value(report.value),
+        "cutoff": report.cutoff,
+        "targets": report.targets,
+        "queries": report.queries,
+        "paraphrases_per_target": report.paraphrases_per_target,
+        "user_targets": report.user_targets,
+        "workspace_targets": report.workspace_targets,
+        "user_value": _metric_value(report.user_value),
+        "workspace_value": _metric_value(report.workspace_value),
+    }
+
+
+def _thematic_precision_payload(report: ThematicPrecisionReport) -> dict[str, object]:
+    return {
+        "value": _metric_value(report.value),
+        "cutoff": report.cutoff,
+        "groups": report.groups,
+        "queries": report.queries,
+        "queries_per_group": report.queries_per_group,
+        "user_groups": report.user_groups,
+        "workspace_groups": report.workspace_groups,
+        "user_value": _metric_value(report.user_value),
+        "workspace_value": _metric_value(report.workspace_value),
+    }
+
+
+def _ranked_set_ndcg_payload(report: RankedSetNDCGReport) -> dict[str, object]:
+    return {
+        "value": _metric_value(report.value),
+        "cutoff": report.cutoff,
+        "cases": report.cases,
+        "user_cases": report.user_cases,
+        "workspace_cases": report.workspace_cases,
+        "user_value": _metric_value(report.user_value),
+        "workspace_value": _metric_value(report.workspace_value),
+    }
+
+
+def _dev_eval_diagnostics_payload(
+    exact_report: ExactMRRReport,
+    semantic_report: SemanticMRRReport,
+    thematic_report: ThematicPrecisionReport,
+    ranked_set_report: RankedSetNDCGReport,
+) -> dict[str, object]:
+    return {
+        "worst_exact": [
+            {
+                "target_id": miss.target_id,
+                "expected_scope": miss.expected_scope,
+                "workspace_uid": miss.workspace_uid,
+                "rank": miss.rank,
+                "reciprocal_rank": _metric_value(miss.reciprocal_rank),
+                "query_snippet": miss.query_snippet,
+                "returned_top_ids": list(miss.returned_top_ids),
+            }
+            for miss in exact_report.worst_misses
+        ],
+        "worst_semantic": [
+            {
+                "target_id": target.target_id,
+                "expected_scope": target.expected_scope,
+                "workspace_uid": target.workspace_uid,
+                "average_reciprocal_rank": _metric_value(
+                    target.average_reciprocal_rank
+                ),
+                "queries": [
+                    {
+                        "query_index": score.query_index,
+                        "rank": score.rank,
+                        "reciprocal_rank": _metric_value(score.reciprocal_rank),
+                        "returned_top_ids": list(score.returned_top_ids),
+                    }
+                    for score in target.query_scores
+                ],
+            }
+            for target in semantic_report.worst_targets
+        ],
+        "worst_thematic": [
+            {
+                "scope": failure.scope,
+                "expected_group": failure.expected_group,
+                "workspace_uid": failure.workspace_uid,
+                "query_index": failure.query_index,
+                "precision": _metric_value(failure.precision),
+                "matching_results": failure.matching_results,
+                "group_distribution": [
+                    {"group": group, "count": count}
+                    for group, count in failure.group_distribution
+                ],
+                "returned_top_ids": list(failure.returned_top_ids),
+            }
+            for failure in thematic_report.failures
+        ],
+        "worst_ranked_sets": [
+            {
+                "case_id": case.case_id,
+                "expected_scope": case.expected_scope,
+                "workspace_uid": case.workspace_uid,
+                "ndcg": _metric_value(case.ndcg),
+                "expected_memories": [
+                    {
+                        "memory_id": memory.memory_id,
+                        "grade": memory.grade,
+                        "rationale": memory.rationale,
+                    }
+                    for memory in case.expected_memories
+                ],
+                "returned_top": [
+                    {
+                        "memory_id": memory.memory_id,
+                        "rank": memory.rank,
+                        "grade": memory.grade,
+                    }
+                    for memory in case.returned_top
+                ],
+            }
+            for case in ranked_set_report.lowest_cases
+        ],
+        "confusers": [
+            {
+                "scope": confuser.scope,
+                "expected_group": confuser.expected_group,
+                "confuser_group": confuser.confuser_group,
+                "count": confuser.count,
+                "workspace_uid": confuser.workspace_uid,
+            }
+            for confuser in thematic_report.confusers
+        ],
+    }
+
+
+def _run_seeded_dev_eval(
+    cfg: RecollectiumConfig,
+    *,
+    provider: Any,
+    config_path: Path | None,
+    regular_db_path: Path,
+    progress: Callable[[str], None] | None = None,
+) -> dict[str, object]:
+    dev_db_path = _resolve_seeded_dev_database_path(cfg)
+    if progress is not None:
+        progress(f"Preparing seeded development database: {dev_db_path}")
+    seed_result = ensure_seeded_dev_database(dev_db_path, provider)
+    if progress is not None:
+        progress("Loading eval fixtures")
+    core = RecollectiumCore(
+        db_path=dev_db_path,
+        config_path=config_path,
+        embedding_provider=provider,
+        log_level=cfg.effective_config["logging"]["level"],
+    )
+    if progress is not None:
+        progress("Running exact MRR")
+    exact_report = evaluate_exact_mrr_for_core(core)
+    if progress is not None:
+        progress("Running semantic MRR")
+    semantic_report = evaluate_semantic_mrr_for_core(core)
+    if progress is not None:
+        progress("Running thematic Precision@10")
+    thematic_report = evaluate_thematic_precision_for_core(core)
+    if progress is not None:
+        progress("Running ranked-set NDCG@5")
+    ranked_set_report = evaluate_ranked_set_ndcg_for_core(core)
+    return {
+        "status": "ok",
+        "database": str(dev_db_path),
+        "regular_database": str(regular_db_path),
+        "regular_database_not_touched": True,
+        "preparation": {
+            "seeded_database": "ready"
+            if seed_result is None
+            else seed_result["status"],
+            "fixtures": "loaded",
+        },
+        "phases": {
+            "exact_mrr": {
+                "user_memories": exact_report.user_targets,
+                "workspace_memories": exact_report.workspace_targets,
+                "total": exact_report.targets,
+            },
+            "semantic_mrr": {
+                "paraphrases": semantic_report.queries,
+                "targets": semantic_report.targets,
+            },
+            "thematic_precision_at_10": {
+                "user_topics": thematic_report.user_groups,
+                "workspace_themes": thematic_report.workspace_groups,
+                "queries": thematic_report.queries,
+            },
+            "ranked_set_ndcg_at_5": {"cases": ranked_set_report.cases},
+        },
+        "metrics": {
+            "exact_mrr": _exact_mrr_payload(exact_report),
+            "semantic_mrr": _semantic_mrr_payload(semantic_report),
+            "thematic_precision_at_10": _thematic_precision_payload(thematic_report),
+            "ranked_set_ndcg_at_5": _ranked_set_ndcg_payload(ranked_set_report),
+        },
+        "diagnostics": _dev_eval_diagnostics_payload(
+            exact_report,
+            semantic_report,
+            thematic_report,
+            ranked_set_report,
+        ),
+    }
 
 
 def _handle_upgrade_command(
@@ -2938,24 +3293,57 @@ def _build_parser() -> argparse.ArgumentParser:
     # -- dev ---------------------------------------------------------------
     dev_parser = subparsers.add_parser(
         "dev",
-        help="switch or reset the seeded development memory database",
+        help="switch, reset, or evaluate the seeded development memory database",
         description=(
             "Switch Recollectium between the normal user database and a pre-seeded "
-            "development database, or reset the development database to its canonical "
-            "fixture: 100 user memories across 10 topics and 90 workspace memories "
-            "across 3 workspaces. The regular database is not touched, and the "
-            "command refuses to run while a managed service is already running."
+            "development database, reset the development database to its canonical "
+            "fixture, or run retrieval evaluation against the seeded development "
+            "database only. The regular database is not touched. Switch and reset "
+            "actions refuse to run while a managed service is already running."
         ),
     )
-    dev_parser.add_argument(
-        "state",
-        choices=("true", "false", "reset"),
-        help=(
-            "Use 'true' to route future activity to the seeded dev database, "
-            "'false' to return to the normal database, or 'reset' to recreate "
-            "the seeded dev database."
+    dev_subparsers = dev_parser.add_subparsers(
+        dest="dev_action",
+        required=True,
+        title="dev actions",
+        metavar="ACTION",
+    )
+    dev_true_parser = dev_subparsers.add_parser(
+        "true",
+        help="route future activity to the seeded dev database",
+        description=(
+            "Enable the seeded development database for future Recollectium activity "
+            "and initialize or refresh the seeded fixture if needed."
         ),
     )
+    dev_true_parser.set_defaults(state="true")
+    dev_false_parser = dev_subparsers.add_parser(
+        "false",
+        help="return future activity to the normal database",
+        description="Disable the seeded development database and return to the normal configured database.",
+    )
+    dev_false_parser.set_defaults(state="false")
+    dev_reset_parser = dev_subparsers.add_parser(
+        "reset",
+        help="recreate the seeded dev database fixture",
+        description=(
+            "Recreate the seeded development database fixture with 100 user memories "
+            "across 10 topics and 90 workspace memories across 3 workspaces."
+        ),
+    )
+    dev_reset_parser.set_defaults(state="reset")
+    dev_eval_parser = dev_subparsers.add_parser(
+        "eval",
+        help="run seeded development retrieval regression metrics",
+        description=(
+            "Initialize or refresh the seeded development database if needed, then "
+            "run Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set "
+            "NDCG@5 against that database only. This is a seeded development "
+            "regression check, not a benchmark leaderboard or user-facing quality "
+            "guarantee. No combined score is reported."
+        ),
+    )
+    dev_eval_parser.set_defaults(state="eval")
 
     # -- workspace ---------------------------------------------------------
     workspace_parser = subparsers.add_parser(
@@ -3594,6 +3982,45 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "dev":
         try:
             cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
+            if args.state == "eval":
+                dev_db_path = _resolve_seeded_dev_database_path(cfg)
+                regular_db_path = _resolve_regular_database_path(cfg, args.db_path)
+                if _paths_equal(dev_db_path, regular_db_path):
+                    return _emit_cli_failure(
+                        status="unsafe_seeded_database_path",
+                        message="Seeded dev database path matches the regular database path.",
+                        detail=(
+                            "dev eval can reset the seeded database, so it will not run "
+                            "when both paths resolve to the same file."
+                        ),
+                        hint=(
+                            "Set development.seeded_database_path to a separate development "
+                            "database before running recollectium dev eval."
+                        ),
+                        exit_code=1,
+                        command="dev eval",
+                        seeded_database=str(dev_db_path),
+                        regular_database=str(regular_db_path),
+                    )
+                progress = (
+                    _emit_human_progress
+                    if output_format == CLI_OUTPUT_HUMAN_READABLE
+                    else None
+                )
+                if progress is not None:
+                    progress("Checking embedding provider readiness")
+                provider = BuiltinFastEmbedProvider()
+                provider.ensure_ready()
+                result = _run_seeded_dev_eval(
+                    cfg,
+                    provider=provider,
+                    config_path=core_config_path,
+                    progress=progress,
+                    regular_db_path=regular_db_path,
+                )
+                _emit_success(result, output_format=output_format, command="dev eval")
+                return 0
+
             raw_config = load_config_file(config_path)
             running = check_running_service(cfg)
             if running is not None:

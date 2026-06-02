@@ -8,6 +8,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### ✨ Features
 
+- Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set NDCG@5 separately without a combined score.
 - Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
 
 ### 🐛 Fixes
@@ -23,7 +24,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 - Added installer selector metadata test coverage and CI install-smoke metadata assertions.
 - Updated seeded development memory fixtures with unique fictional user and project memories safe for public repositories, without visible deterministic label prefixes in stored content.
-- Refreshed the optional seeded development database with normal fictional user preferences, three software-style demo projects, and varied one-to-three-sentence memories for public-safe testing.
+- Refreshed workspace seeded development memories so each dummy workspace has three 10-memory themes for retrieval efficacy testing.
 
 ## v1.0.0
 

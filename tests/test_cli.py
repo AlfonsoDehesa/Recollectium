@@ -697,6 +697,26 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["up_to_date"] is True
 
 
+def test_cli_dev_help_documents_actions(capsys) -> None:
+    dev_help = _run_help(["dev", "--help"], capsys)
+    assert "seeded development" in dev_help
+    assert "true" in dev_help
+    assert "false" in dev_help
+    assert "reset" in dev_help
+    assert "eval" in dev_help
+
+    eval_help = _run_help(["dev", "eval", "--help"], capsys)
+    assert "Exact MRR" in eval_help
+    assert "Semantic MRR" in eval_help
+    assert "Thematic Precision@10" in eval_help
+    assert "Ranked-set NDCG@5" in eval_help
+    normalized_eval_help = " ".join(eval_help.split())
+    assert "seeded development regression check" in normalized_eval_help
+    assert "not a benchmark leaderboard" in normalized_eval_help
+    assert "user-facing quality guarantee" in normalized_eval_help
+    assert "No combined score" in eval_help
+
+
 def test_cli_dev_reset_resets_configured_seed_database(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -780,6 +800,438 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     loaded = json.loads(config_path.read_text(encoding="utf-8"))
     assert loaded["development"]["use_seeded_database"] is False
     assert not regular_db.exists()
+
+
+def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "dev", "eval"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "ok"
+    assert payload["database"] == str(dev_db)
+    assert payload["regular_database"] == str(regular_db)
+    assert payload["regular_database_not_touched"] is True
+    assert payload["preparation"]["seeded_database"] == "reset"
+    assert payload["preparation"]["fixtures"] == "loaded"
+    assert set(payload["metrics"]) == {
+        "exact_mrr",
+        "semantic_mrr",
+        "thematic_precision_at_10",
+        "ranked_set_ndcg_at_5",
+    }
+    assert "combined_score" not in payload
+    assert "combined_score" not in payload["metrics"]
+    assert payload["metrics"]["exact_mrr"]["targets"] == 190
+    assert payload["metrics"]["exact_mrr"]["hit_at_1"] >= 0.0
+    assert payload["metrics"]["exact_mrr"]["hit_at_3"] >= 0.0
+    assert payload["metrics"]["semantic_mrr"]["queries"] == 570
+    assert payload["metrics"]["thematic_precision_at_10"]["groups"] == 19
+    assert payload["metrics"]["ranked_set_ndcg_at_5"]["cases"] >= 12
+    assert set(payload["diagnostics"]) == {
+        "worst_exact",
+        "worst_semantic",
+        "worst_thematic",
+        "worst_ranked_sets",
+        "confusers",
+    }
+    assert "Status:" not in stdout
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_eval_human_output_contains_progress_and_separate_metrics(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "dev", "eval", "--human-readable"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert stdout.index("Status: Checking embedding provider readiness") < stdout.index(
+        "Recollectium dev eval"
+    )
+    assert f"Status: Preparing seeded development database: {dev_db}" in stdout
+    assert "Recollectium dev eval" in stdout
+    assert f"Seeded dev DB: {dev_db}" in stdout
+    assert f"Regular DB: {regular_db}" in stdout
+    assert "Regular DB not touched: yes" in stdout
+    assert "Preparing seeded development database... reset" in stdout
+    assert "Loading eval fixtures... loaded" in stdout
+    assert "Running exact MRR" in stdout
+    assert "user memories       100/100" in stdout
+    assert "workspace memories  90/90" in stdout
+    assert "Running semantic MRR" in stdout
+    assert "paraphrases         570/570" in stdout
+    assert "Running thematic Precision@10" in stdout
+    assert "Running ranked-set NDCG@5" in stdout
+    assert "Results" in stdout
+    assert "Exact MRR" in stdout
+    assert "Semantic MRR" in stdout
+    assert "Thematic Precision@10" in stdout
+    assert "Ranked-set NDCG@5" in stdout
+    assert "Diagnostics" in stdout
+    assert "combined" not in stdout.casefold()
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
+    output = _format_human_output(
+        {
+            "status": "ok",
+            "database": "/tmp/dev.db",
+            "regular_database": "/tmp/regular.db",
+            "regular_database_not_touched": True,
+            "preparation": {"seeded_database": "ready", "fixtures": "loaded"},
+            "phases": {
+                "exact_mrr": {
+                    "user_memories": 1,
+                    "workspace_memories": 1,
+                    "total": 2,
+                },
+                "semantic_mrr": {"paraphrases": 6, "targets": 2},
+                "thematic_precision_at_10": {
+                    "user_topics": 1,
+                    "workspace_themes": 1,
+                    "queries": 6,
+                },
+                "ranked_set_ndcg_at_5": {"cases": 2},
+            },
+            "metrics": {
+                "exact_mrr": {"value": 1.0},
+                "semantic_mrr": {"value": 1.0},
+                "thematic_precision_at_10": {"value": 1.0},
+                "ranked_set_ndcg_at_5": {"value": 1.0},
+            },
+            "diagnostics": {
+                "worst_exact": [],
+                "worst_semantic": [],
+                "worst_thematic": [],
+                "worst_ranked_sets": [],
+                "confusers": [],
+            },
+        },
+        command="dev eval",
+    )
+
+    assert "Worst exact target: none" in output
+    assert "Worst semantic target: none" in output
+    assert "Worst thematic query: none" in output
+    assert "Most confused group: none" in output
+    assert "Worst ranked-set case: none" in output
+
+
+def test_cli_dev_eval_human_output_includes_compact_diagnostics() -> None:
+    output = _format_human_output(
+        {
+            "status": "ok",
+            "database": "/tmp/dev.db",
+            "regular_database": "/tmp/regular.db",
+            "regular_database_not_touched": True,
+            "preparation": {"seeded_database": "ready", "fixtures": "loaded"},
+            "phases": {
+                "exact_mrr": {"user_memories": 1, "workspace_memories": 1, "total": 2},
+                "semantic_mrr": {"paraphrases": 6, "targets": 2},
+                "thematic_precision_at_10": {
+                    "user_topics": 1,
+                    "workspace_themes": 1,
+                    "queries": 6,
+                },
+                "ranked_set_ndcg_at_5": {"cases": 2},
+            },
+            "metrics": {
+                "exact_mrr": {"value": 0.5},
+                "semantic_mrr": {"value": 0.5},
+                "thematic_precision_at_10": {"value": 0.4},
+                "ranked_set_ndcg_at_5": {"value": 0.3},
+            },
+            "diagnostics": {
+                "worst_exact": [],
+                "worst_semantic": [],
+                "worst_thematic": [
+                    {
+                        "expected_group": "project_planning",
+                        "precision": 0.2,
+                        "matching_results": 2,
+                        "group_distribution": [
+                            {"group": "infra", "count": 4},
+                            {"group": "project_planning", "count": 2},
+                        ],
+                    }
+                ],
+                "worst_ranked_sets": [
+                    {
+                        "case_id": "ranked-case",
+                        "ndcg": 0.25,
+                        "expected_memories": [
+                            {"memory_id": "expected-a", "grade": 3},
+                            {"memory_id": "expected-b", "grade": 2},
+                        ],
+                        "returned_top": [
+                            {"memory_id": "actual-x", "grade": 0},
+                            {"memory_id": "expected-b", "grade": 2},
+                        ],
+                    }
+                ],
+                "confusers": [],
+            },
+        },
+        command="dev eval",
+    )
+
+    assert "Worst thematic query: project_planning, precision 0.200" in output
+    assert "matches 2, returned infra=4, project_planning=2" in output
+    assert "Worst ranked-set case: ranked-case, NDCG 0.250" in output
+    assert "expected top grades: expected-a:3, expected-b:2" in output
+    assert "returned top grades: actual-x:0, expected-b:2" in output
+
+
+@pytest.mark.parametrize("output_mode", ["--json", "--human-readable"])
+def test_cli_dev_eval_refuses_when_seeded_database_matches_regular_database(
+    tmp_path, capsys, monkeypatch, output_mode
+) -> None:
+    config_path = tmp_path / "config.json"
+    shared_db = tmp_path / "shared.db"
+    shared_db.write_text("regular database marker", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(shared_db)},
+                "development": {"seeded_database_path": str(shared_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [output_mode, "--config", str(config_path), "dev", "eval"],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    if output_mode == "--json":
+        payload = json.loads(stderr)
+        assert payload["status"] == "unsafe_seeded_database_path"
+        assert payload["seeded_database"] == str(shared_db)
+        assert payload["regular_database"] == str(shared_db)
+    else:
+        assert "Seeded dev database path matches the regular database path." in stderr
+        assert "Status: unsafe_seeded_database_path" in stderr
+        assert f"Seeded database: {shared_db}" in stderr
+        assert f"Regular database: {shared_db}" in stderr
+    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
+
+
+def test_cli_dev_eval_refuses_db_override_matching_seeded_database(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    configured_regular_db = tmp_path / "regular.db"
+    shared_db = tmp_path / "dev.db"
+    shared_db.write_text("regular database marker", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(configured_regular_db)},
+                "development": {"seeded_database_path": str(shared_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--db", str(shared_db), "--config", str(config_path), "dev", "eval"],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "unsafe_seeded_database_path"
+    assert payload["seeded_database"] == str(shared_db)
+    assert payload["regular_database"] == str(shared_db)
+    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
+    assert not configured_regular_db.exists()
+
+
+def test_cli_dev_eval_refuses_tilde_db_override_matching_seeded_database(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "config.json"
+    configured_regular_db = tmp_path / "regular.db"
+    shared_db = home_dir / "shared.db"
+    shared_db.write_text("regular database marker", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(configured_regular_db)},
+                "development": {"seeded_database_path": str(shared_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--db", "~/shared.db", "--config", str(config_path), "dev", "eval"],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "unsafe_seeded_database_path"
+    assert payload["seeded_database"] == str(shared_db)
+    assert payload["regular_database"] == str(shared_db)
+    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
+    assert not configured_regular_db.exists()
+
+
+def test_cli_dev_eval_reports_db_override_as_regular_database(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    configured_regular_db = tmp_path / "regular.db"
+    override_regular_db = tmp_path / "override.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(configured_regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--db",
+            str(override_regular_db),
+            "--config",
+            str(config_path),
+            "dev",
+            "eval",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["database"] == str(dev_db)
+    assert payload["regular_database"] == str(override_regular_db)
+    assert payload["regular_database_not_touched"] is True
+    assert dev_db.exists()
+    assert not configured_regular_db.exists()
+    assert not override_regular_db.exists()
+
+
+def test_cli_dev_eval_refuses_relative_regular_database_overlap(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    data_dir = tmp_path / "data"
+    shared_db = data_dir / "shared.db"
+    shared_db.parent.mkdir(parents=True)
+    shared_db.write_text("regular database marker", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": "shared.db"},
+                "directories": {"data": str(data_dir)},
+                "development": {"seeded_database_path": str(shared_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--config", str(config_path), "dev", "eval"],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "unsafe_seeded_database_path"
+    assert payload["seeded_database"] == str(shared_db)
+    assert payload["regular_database"] == str(shared_db)
+    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
 
 
 def test_cli_dev_reset_resolves_relative_seed_database_path(

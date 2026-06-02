@@ -6,8 +6,10 @@ from collections import Counter
 from pathlib import Path
 
 from recollectium.dev_seed import (
+    DEV_SEED_PROJECT_THEMES_BY_UID,
     DEV_SEED_PROJECTS,
     DEV_SEED_USER_TOPICS,
+    PROJECT_MEMORIES_BY_UID,
     ensure_seeded_dev_database,
     reset_seeded_dev_database,
     seeded_dev_database_is_initialized,
@@ -18,6 +20,63 @@ from recollectium.storage import SQLiteMemoryStore
 
 def _sentence_count(content: str) -> int:
     return len(re.findall(r"[.!?](?:\s|$)", content.strip()))
+
+
+def _meaningful_tokens(contents: list[str]) -> set[str]:
+    stop_words = {
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "when",
+        "should",
+        "must",
+        "can",
+        "not",
+        "only",
+        "into",
+        "before",
+        "after",
+        "each",
+        "every",
+        "users",
+        "user",
+        "team",
+        "teams",
+        "app",
+        "screen",
+        "workspace",
+        "workflow",
+        "needs",
+        "need",
+        "found",
+        "bug",
+        "task",
+        "decision",
+        "notes",
+        "note",
+        "include",
+        "includes",
+        "cedarledger",
+        "northstar",
+        "forms",
+        "harborpilot",
+    }
+    return {
+        token
+        for content in contents
+        for token in re.findall(r"[a-z][a-z0-9-]*", content.lower())
+        if len(token) > 2 and token not in stop_words
+    }
+
+
+def _contains_anchor(content: str, anchors: tuple[str, ...]) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(anchor)}\b", content, re.IGNORECASE)
+        for anchor in anchors
+    )
 
 
 class FakeEmbeddingProvider:
@@ -116,6 +175,11 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
             "name": "HarborPilot",
         },
     )
+    assert DEV_SEED_PROJECT_THEMES_BY_UID == {
+        "proj-fic-cedarledger-01": ("permissions", "exports", "reconciliation"),
+        "proj-fic-northstar-forms-01": ("form-builder", "offline-sync", "review"),
+        "proj-fic-harborpilot-01": ("scheduling", "equipment", "handoff"),
+    }
     assert {memory.metadata["dev_topic"] for memory in user_memories} == set(
         DEV_SEED_USER_TOPICS
     )
@@ -188,6 +252,33 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
     } == {
         project["uid"]: Counter({1: 10, 2: 10, 3: 10}) for project in DEV_SEED_PROJECTS
     }
+    assert {
+        project["uid"]: Counter(
+            memory.metadata["dev_theme"]
+            for memory in workspace_memories
+            if memory.workspace_uid == project["uid"]
+        )
+        for project in DEV_SEED_PROJECTS
+    } == {
+        uid: Counter({theme: 10 for theme in themes})
+        for uid, themes in DEV_SEED_PROJECT_THEMES_BY_UID.items()
+    }
+    assert all(
+        memory.workspace_uid is not None
+        and memory.metadata["dev_theme"]
+        in DEV_SEED_PROJECT_THEMES_BY_UID[memory.workspace_uid]
+        for memory in workspace_memories
+    )
+    assert {
+        project["uid"]: Counter(
+            memory.metadata["dev_theme_index"]
+            for memory in workspace_memories
+            if memory.workspace_uid == project["uid"]
+        )
+        for project in DEV_SEED_PROJECTS
+    } == {
+        project["uid"]: Counter({0: 10, 1: 10, 2: 10}) for project in DEV_SEED_PROJECTS
+    }
     expected_project_names = {
         project["uid"]: project["name"] for project in DEV_SEED_PROJECTS
     }
@@ -215,6 +306,72 @@ def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(
         for banned_term in banned_public_seed_terms
         for content in all_contents
     )
+
+
+def test_workspace_theme_memories_are_semantic_not_keyword_repeated() -> None:
+    theme_anchor_terms = {
+        "proj-fic-cedarledger-01": {
+            "permissions": ("permissions", "permission", "access", "role"),
+            "exports": ("export", "exports", "csv", "json", "backup", "file"),
+            "reconciliation": (
+                "reconciliation",
+                "reconcile",
+                "matched",
+                "matching",
+                "receipt",
+                "invoice",
+                "paid",
+            ),
+        },
+        "proj-fic-northstar-forms-01": {
+            "form-builder": ("field", "builder", "template", "schema"),
+            "offline-sync": (
+                "offline",
+                "sync",
+                "queued",
+                "draft",
+                "drafts",
+                "receipt",
+                "upload",
+            ),
+            "review": ("review", "approval", "required", "validation", "answer"),
+        },
+        "proj-fic-harborpilot-01": {
+            "scheduling": ("schedule", "planned", "start", "lane", "shift"),
+            "equipment": (
+                "equipment",
+                "resource",
+                "lift",
+                "compressor",
+                "tablet",
+                "reservation",
+            ),
+            "handoff": ("handoff", "blocked", "ready", "inspection", "shift"),
+        },
+    }
+
+    for project_uid, project_themes in DEV_SEED_PROJECT_THEMES_BY_UID.items():
+        memories = PROJECT_MEMORIES_BY_UID[project_uid]
+        tokens_by_theme: dict[str, set[str]] = {}
+        for theme_index, theme in enumerate(project_themes):
+            theme_memories = list(memories[theme_index * 10 : (theme_index + 1) * 10])
+            tokens_by_theme[theme] = _meaningful_tokens(theme_memories)
+            anchor_count = sum(
+                _contains_anchor(content, theme_anchor_terms[project_uid][theme])
+                for content in theme_memories
+            )
+
+            assert len(tokens_by_theme[theme]) >= 120
+            assert anchor_count <= 7
+
+        for index, first_theme in enumerate(project_themes):
+            for second_theme in project_themes[index + 1 :]:
+                first_tokens = tokens_by_theme[first_theme]
+                second_tokens = tokens_by_theme[second_theme]
+                overlap = len(first_tokens & second_tokens) / len(
+                    first_tokens | second_tokens
+                )
+                assert overlap <= 0.18
 
 
 def test_core_seeded_workspace_uids_are_retrievable_with_default_normalization(
