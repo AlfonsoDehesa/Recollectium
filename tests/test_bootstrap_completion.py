@@ -164,6 +164,23 @@ def test_unix_bootstrap_removes_legacy_path_line_when_repairing_block(
     assert content.count(expected_line) == 1
 
 
+def test_bootstrap_installers_run_embedding_maintenance_strictly() -> None:
+    unix_script = (ROOT / "install.sh").read_text(encoding="utf-8")
+    windows_script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert "recollectium embedding-maintenance" in unix_script
+    assert "recollectium init || true" not in unix_script
+    assert "recollectium embedding-maintenance" in windows_script
+    assert (
+        'if ($LASTEXITCODE -ne 0) { throw "failed to install Recollectium package" }'
+        in windows_script
+    )
+    assert (
+        'if ($LASTEXITCODE -ne 0) { throw "embedding maintenance failed; retry with: recollectium embedding-maintenance" }'
+        in windows_script
+    )
+
+
 def test_unix_bootstrap_resolves_tracking_metadata_in_current_shell() -> None:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
 
