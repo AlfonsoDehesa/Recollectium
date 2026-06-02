@@ -9,22 +9,33 @@ import pytest
 from recollectium.dev_eval import (
     ExactMRRTarget,
     SemanticMRRTarget,
+    ThematicPrecisionTarget,
     evaluate_exact_mrr,
     evaluate_exact_mrr_for_core,
     evaluate_semantic_mrr,
     evaluate_semantic_mrr_for_core,
+    evaluate_thematic_precision,
+    evaluate_thematic_precision_for_core,
     seeded_exact_mrr_targets,
     seeded_semantic_mrr_targets,
     semantic_mrr_targets_from_exact_targets,
+    thematic_precision_targets_from_fixture,
 )
 from recollectium.dev_eval_semantic_fixtures import (
     SEMANTIC_MRR_FIXTURE,
     SemanticMRRFixtureEntry,
 )
+from recollectium.dev_eval_thematic_fixtures import (
+    THEMATIC_PRECISION_FIXTURE,
+    THEMATIC_PRECISION_QUERIES_PER_GROUP,
+    ThematicPrecisionFixtureEntry,
+)
 from recollectium.dev_seed import (
     DEV_SEED_PROJECTS,
+    DEV_SEED_PROJECT_THEMES_BY_UID,
     DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
     DEV_SEED_USER_MEMORY_COUNT,
+    DEV_SEED_USER_TOPICS,
     PROJECT_MEMORIES_BY_UID,
     USER_FACTS_BY_TOPIC,
 )
@@ -38,14 +49,16 @@ def _memory(
     content: str | None = None,
     workspace_uid: str | None = None,
     dev_seed: bool = True,
+    metadata: dict[str, object] | None = None,
 ) -> Memory:
+    memory_metadata = {"dev_seed": dev_seed, **(metadata or {})}
     return Memory(
         id=memory_id,
         space=space,
         type="fact",
         content=content or f"Content for {memory_id}",
         workspace_uid=workspace_uid,
-        metadata={"dev_seed": dev_seed},
+        metadata=memory_metadata,
         created_at="2026-01-01T00:00:00Z",
         updated_at="2026-01-01T00:00:00Z",
     )
@@ -62,6 +75,28 @@ def _search_results(
             rank=rank,
         )
         for rank, memory_id in enumerate(ids, start=1)
+    ]
+
+
+def _thematic_results(
+    groups: Sequence[str],
+    *,
+    scope: str = SPACE_USER,
+    workspace_uid: str | None = None,
+) -> list[SearchResult]:
+    metadata_key = "dev_topic" if scope == SPACE_USER else "dev_theme"
+    return [
+        SearchResult(
+            memory=_memory(
+                f"{group}-{rank}",
+                space=scope,
+                workspace_uid=workspace_uid,
+                metadata={metadata_key: group},
+            ),
+            score=1.0 / rank,
+            rank=rank,
+        )
+        for rank, group in enumerate(groups, start=1)
     ]
 
 
@@ -681,6 +716,362 @@ def test_evaluate_semantic_mrr_rejects_invalid_inputs() -> None:
             search_user=lambda query, limit: [],
             search_workspace=lambda query, workspace_uid, limit: [],
         )
+
+
+def test_evaluate_thematic_precision_scores_groups_and_breakdowns() -> None:
+    targets = (
+        ThematicPrecisionTarget("user", SPACE_USER, ("u1", "u2", "u3")),
+        ThematicPrecisionTarget(
+            "workspace", SPACE_WORKSPACE, ("w1", "w2", "w3"), "project-a"
+        ),
+    )
+    user_results = {
+        "u1": _thematic_results(["user"] * 10),
+        "u2": _thematic_results(["user"] * 5 + ["other"] * 5),
+        "u3": _thematic_results(["other"] * 10),
+    }
+    workspace_results = {
+        ("project-a", "w1"): _thematic_results(
+            ["workspace"] * 7 + ["review"] * 3,
+            scope=SPACE_WORKSPACE,
+            workspace_uid="project-a",
+        ),
+        ("project-a", "w2"): _thematic_results(
+            ["workspace"] * 10,
+            scope=SPACE_WORKSPACE,
+            workspace_uid="project-a",
+        ),
+        ("project-a", "w3"): _thematic_results(
+            ["review"] * 10,
+            scope=SPACE_WORKSPACE,
+            workspace_uid="project-a",
+        ),
+    }
+
+    report = evaluate_thematic_precision(
+        targets,
+        search_user=lambda query, limit: user_results[query][:limit],
+        search_workspace=lambda query, workspace_uid, limit: workspace_results[
+            (workspace_uid, query)
+        ][:limit],
+    )
+
+    user_average = (1.0 + 0.5 + 0.0) / 3.0
+    workspace_average = (0.7 + 1.0 + 0.0) / 3.0
+    assert report.groups == 2
+    assert report.queries == 6
+    assert report.queries_per_group == 3
+    assert report.user_groups == 1
+    assert report.workspace_groups == 1
+    assert report.user_value == pytest.approx(user_average)
+    assert report.workspace_value == pytest.approx(workspace_average)
+    assert report.value == pytest.approx((user_average + workspace_average) / 2.0)
+    assert report.group_scores[0].average_precision == pytest.approx(user_average)
+    assert report.group_scores[0].query_scores[1].matching_results == 5
+    assert report.group_scores[0].query_scores[1].group_distribution == (
+        ("other", 5),
+        ("user", 5),
+    )
+
+
+def test_evaluate_thematic_precision_reports_failures_confusers_and_cutoff() -> None:
+    target = ThematicPrecisionTarget("target", SPACE_USER, ("q1", "q2", "q3"))
+    results = {
+        "q1": _thematic_results(["target", "other", "target"]),
+        "q2": _thematic_results(["target", "target", "miss"]),
+        "q3": _thematic_results(["miss", "other", "target"]),
+    }
+
+    report = evaluate_thematic_precision(
+        (target,),
+        search_user=lambda query, limit: results[query][:limit],
+        search_workspace=lambda query, workspace_uid, limit: [],
+        cutoff=2,
+        failure_limit=2,
+        confuser_limit=2,
+    )
+
+    assert [score.precision for score in report.group_scores[0].query_scores] == [
+        0.5,
+        1.0,
+        0.0,
+    ]
+    assert report.value == pytest.approx(0.5)
+    assert len(report.failures) == 2
+    assert report.failures[0].query == "q3"
+    assert report.failures[0].group_distribution == (("miss", 1), ("other", 1))
+    assert report.failures[0].returned_top_ids == ("miss-1", "other-2")
+    assert [
+        (confuser.confuser_group, confuser.count) for confuser in report.confusers
+    ] == [
+        ("other", 2),
+        ("miss", 1),
+    ]
+
+
+def test_evaluate_thematic_precision_counts_scope_workspace_and_missing_confusers() -> (
+    None
+):
+    workspace_target = ThematicPrecisionTarget(
+        "exports", SPACE_WORKSPACE, ("q1", "q2", "q3"), "project-a"
+    )
+    wrong_scope = _memory(
+        "wrong-scope",
+        metadata={"dev_topic": "exports", "dev_theme": "exports"},
+    )
+    wrong_workspace = _memory(
+        "wrong-workspace",
+        space=SPACE_WORKSPACE,
+        workspace_uid="project-b",
+        metadata={"dev_theme": "exports"},
+    )
+    missing_theme = _memory(
+        "missing-theme",
+        space=SPACE_WORKSPACE,
+        workspace_uid="project-a",
+        metadata={},
+    )
+    matching = _memory(
+        "matching",
+        space=SPACE_WORKSPACE,
+        workspace_uid="project-a",
+        metadata={"dev_theme": "exports"},
+    )
+    results = [
+        SearchResult(memory=wrong_scope, score=1.0, rank=1),
+        SearchResult(memory=wrong_workspace, score=0.9, rank=2),
+        SearchResult(memory=missing_theme, score=0.8, rank=3),
+        SearchResult(memory=matching, score=0.7, rank=4),
+    ]
+
+    report = evaluate_thematic_precision(
+        (workspace_target,),
+        search_user=lambda query, limit: [],
+        search_workspace=lambda query, workspace_uid, limit: results[:limit],
+        cutoff=4,
+    )
+
+    assert report.value == pytest.approx(0.25)
+    assert report.group_scores[0].query_scores[0].group_distribution == (
+        ("<missing>", 1),
+        ("<wrong-scope:user:exports>", 1),
+        ("<wrong-workspace:project-b:exports>", 1),
+        ("exports", 1),
+    )
+    assert report.group_scores[0].query_scores[0].matching_results == 1
+    assert [
+        (confuser.confuser_group, confuser.count) for confuser in report.confusers
+    ] == [
+        ("<missing>", 3),
+        ("<wrong-scope:user:exports>", 3),
+        ("<wrong-workspace:project-b:exports>", 3),
+    ]
+
+
+def test_thematic_precision_targets_validate_fixture_shape_and_mismatches() -> None:
+    fixture: tuple[ThematicPrecisionFixtureEntry, ...] = (
+        {
+            "scope": SPACE_USER,
+            "group": "travel",
+            "workspace_uid": None,
+            "queries": ("a", "b", "c"),
+        },
+        {
+            "scope": SPACE_WORKSPACE,
+            "group": "exports",
+            "workspace_uid": "project-a",
+            "queries": ("d", "e", "f"),
+        },
+    )
+
+    assert thematic_precision_targets_from_fixture(fixture) == (
+        ThematicPrecisionTarget("travel", SPACE_USER, ("a", "b", "c")),
+        ThematicPrecisionTarget(
+            "exports", SPACE_WORKSPACE, ("d", "e", "f"), "project-a"
+        ),
+    )
+    with pytest.raises(ValueError, match="duplicate"):
+        thematic_precision_targets_from_fixture((fixture[0], fixture[0]))
+    with pytest.raises(ValueError, match="unsupported"):
+        thematic_precision_targets_from_fixture(({**fixture[0], "scope": "bad-scope"},))
+    with pytest.raises(ValueError, match="non-empty"):
+        thematic_precision_targets_from_fixture(({**fixture[0], "group": ""},))
+    with pytest.raises(ValueError, match="workspace_uid"):
+        thematic_precision_targets_from_fixture(({**fixture[0], "workspace_uid": "x"},))
+    with pytest.raises(ValueError, match="workspace_uid"):
+        thematic_precision_targets_from_fixture(
+            ({**fixture[1], "workspace_uid": None},)
+        )
+    with pytest.raises(ValueError, match="exactly 3"):
+        thematic_precision_targets_from_fixture(
+            ({**fixture[0], "queries": cast(tuple[str, str, str], ("a", "b"))},)
+        )
+    with pytest.raises(ValueError, match="empty query"):
+        thematic_precision_targets_from_fixture(
+            ({**fixture[0], "queries": ("a", "", "c")},)
+        )
+
+
+def test_evaluate_thematic_precision_for_core_uses_fixture_and_scope_searches() -> None:
+    query_to_entry = {
+        query: entry
+        for entry in THEMATIC_PRECISION_FIXTURE
+        for query in entry["queries"]
+    }
+
+    class FakeCore:
+        def list_memories(
+            self,
+            space: str | None = None,
+            type: str | None = None,
+            status: str | None = None,
+            workspace_uid: str | None = None,
+            include_archived: bool = False,
+            limit: int | None = None,
+        ) -> list[Memory]:
+            del space, type, status, workspace_uid, include_archived, limit
+            return []
+
+        def __init__(self) -> None:
+            self.user_queries: list[tuple[str, int, bool]] = []
+            self.workspace_queries: list[tuple[str, str | None, int, bool]] = []
+
+        def search_user_memories(
+            self,
+            query: str,
+            limit: int = 10,
+            include_archived: bool = False,
+            type: str | None = None,
+        ) -> list[SearchResult]:
+            del type
+            self.user_queries.append((query, limit, include_archived))
+            entry = query_to_entry[query]
+            return _thematic_results([entry["group"]] * limit)
+
+        def search_workspace_memories(
+            self,
+            query: str,
+            workspace_uid: str | None,
+            limit: int = 10,
+            include_archived: bool = False,
+            type: str | None = None,
+        ) -> list[SearchResult]:
+            del type
+            self.workspace_queries.append(
+                (query, workspace_uid, limit, include_archived)
+            )
+            entry = query_to_entry[query]
+            return _thematic_results(
+                [entry["group"]] * limit,
+                scope=SPACE_WORKSPACE,
+                workspace_uid=workspace_uid,
+            )
+
+    core = FakeCore()
+
+    report = evaluate_thematic_precision_for_core(core, cutoff=5)
+
+    assert report.value == 1.0
+    assert report.groups == 19
+    assert report.queries == 57
+    assert core.user_queries[:3] == [
+        (query, 5, True) for query in THEMATIC_PRECISION_FIXTURE[0]["queries"]
+    ]
+    assert (
+        THEMATIC_PRECISION_FIXTURE[10]["queries"][0],
+        "proj-fic-cedarledger-01",
+        5,
+        True,
+    ) in core.workspace_queries
+
+
+def test_evaluate_thematic_precision_rejects_invalid_inputs() -> None:
+    with pytest.raises(ValueError, match="cutoff"):
+        evaluate_thematic_precision(
+            (),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+            cutoff=0,
+        )
+    with pytest.raises(ValueError, match="failure_limit"):
+        evaluate_thematic_precision(
+            (),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+            failure_limit=-1,
+        )
+    with pytest.raises(ValueError, match="confuser_limit"):
+        evaluate_thematic_precision(
+            (),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+            confuser_limit=-1,
+        )
+    with pytest.raises(ValueError, match="exactly 3"):
+        evaluate_thematic_precision(
+            (
+                ThematicPrecisionTarget(
+                    "bad", SPACE_USER, cast(tuple[str, str, str], ("a", "b"))
+                ),
+            ),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+    with pytest.raises(ValueError, match="workspace_uid"):
+        evaluate_thematic_precision(
+            (ThematicPrecisionTarget("workspace", SPACE_WORKSPACE, ("a", "b", "c")),),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+    with pytest.raises(ValueError, match="workspace_uid"):
+        evaluate_thematic_precision(
+            (
+                ThematicPrecisionTarget(
+                    "user", SPACE_USER, ("a", "b", "c"), "project-a"
+                ),
+            ),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+    with pytest.raises(ValueError, match="unsupported target scope"):
+        evaluate_thematic_precision(
+            (ThematicPrecisionTarget("bad", "bad-scope", ("a", "b", "c")),),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+
+
+def test_thematic_fixture_covers_seeded_groups_with_three_queries() -> None:
+    targets = thematic_precision_targets_from_fixture()
+    expected_user_groups = set(DEV_SEED_USER_TOPICS)
+    expected_workspace_groups = {
+        (workspace_uid, theme)
+        for workspace_uid, themes in DEV_SEED_PROJECT_THEMES_BY_UID.items()
+        for theme in themes
+    }
+    all_queries = [query for target in targets for query in target.queries]
+
+    assert len(targets) == len(expected_user_groups) + len(expected_workspace_groups)
+    assert {
+        target.group for target in targets if target.scope == SPACE_USER
+    } == expected_user_groups
+    assert {
+        (target.workspace_uid, target.group)
+        for target in targets
+        if target.scope == SPACE_WORKSPACE
+    } == expected_workspace_groups
+    assert all(
+        len(target.queries) == THEMATIC_PRECISION_QUERIES_PER_GROUP
+        for target in targets
+    )
+    assert len(all_queries) == 57
+    assert len(all_queries) == len(set(all_queries))
+    assert not any(not query.strip() for query in all_queries)
+    assert not any(
+        target.group == query.casefold().strip()
+        for target in targets
+        for query in target.queries
+    )
 
 
 def test_semantic_fixture_covers_every_seeded_memory_with_three_queries() -> None:

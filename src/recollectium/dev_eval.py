@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -10,11 +11,17 @@ from recollectium.dev_eval_semantic_fixtures import (
     SEMANTIC_MRR_FIXTURE,
     SemanticMRRFixtureEntry,
 )
+from recollectium.dev_eval_thematic_fixtures import (
+    THEMATIC_PRECISION_FIXTURE,
+    THEMATIC_PRECISION_QUERIES_PER_GROUP,
+    ThematicPrecisionFixtureEntry,
+)
 from recollectium.models import Memory, SPACE_USER, SPACE_WORKSPACE, SearchResult
 
 EXACT_MRR_CUTOFF = 10
 SEMANTIC_MRR_CUTOFF = 10
 SEMANTIC_MRR_PARAPHRASES_PER_TARGET = 3
+THEMATIC_PRECISION_CUTOFF = 10
 DEFAULT_WORST_MISS_LIMIT = 10
 QUERY_SNIPPET_LENGTH = 120
 
@@ -139,6 +146,90 @@ class SemanticMRRReport:
     target_scores: tuple[SemanticMRRTargetScore, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ThematicPrecisionTarget:
+    """A seeded topic or workspace theme group with broad semantic queries."""
+
+    group: str
+    scope: str
+    queries: tuple[str, str, str]
+    workspace_uid: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ThematicPrecisionQueryScore:
+    """Per-query thematic Precision@10 score details."""
+
+    query_index: int
+    query: str
+    matching_results: int
+    precision: float
+    group_distribution: tuple[tuple[str, int], ...]
+    returned_top_ids: tuple[str, ...]
+
+
+ThematicPrecisionQueryScoreTriple = tuple[
+    ThematicPrecisionQueryScore,
+    ThematicPrecisionQueryScore,
+    ThematicPrecisionQueryScore,
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ThematicPrecisionGroupScore:
+    """Per-topic or per-theme Precision@10 averaged across fixture queries."""
+
+    scope: str
+    group: str
+    workspace_uid: str | None
+    average_precision: float
+    query_scores: ThematicPrecisionQueryScoreTriple
+
+
+@dataclass(frozen=True, slots=True)
+class ThematicPrecisionFailure:
+    """Diagnostic row for a thematic query that missed at least one result slot."""
+
+    scope: str
+    expected_group: str
+    workspace_uid: str | None
+    query_index: int
+    query: str
+    precision: float
+    matching_results: int
+    group_distribution: tuple[tuple[str, int], ...]
+    returned_top_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ThematicPrecisionConfuser:
+    """Frequently returned non-matching topic or theme group."""
+
+    scope: str
+    expected_group: str
+    confuser_group: str
+    count: int
+    workspace_uid: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ThematicPrecisionReport:
+    """Aggregate thematic Precision@10 metric report."""
+
+    value: float
+    user_value: float
+    workspace_value: float
+    cutoff: int
+    groups: int
+    queries: int
+    queries_per_group: int
+    user_groups: int
+    workspace_groups: int
+    group_scores: tuple[ThematicPrecisionGroupScore, ...]
+    failures: tuple[ThematicPrecisionFailure, ...]
+    confusers: tuple[ThematicPrecisionConfuser, ...]
+
+
 class SeededMemoryLister(Protocol):
     """Core-like object that can list seeded memories by scope."""
 
@@ -176,6 +267,10 @@ class ExactMRRCore(SeededMemoryLister, Protocol):
 
 class SemanticMRRCore(ExactMRRCore, Protocol):
     """Core-like object that can run semantic MRR searches."""
+
+
+class ThematicPrecisionCore(ExactMRRCore, Protocol):
+    """Core-like object that can run thematic Precision@10 searches."""
 
 
 UserSearch = Callable[[str, int], Sequence[SearchResult]]
@@ -313,6 +408,61 @@ def seeded_semantic_mrr_targets(
     """Return every seeded memory target with its semantic paraphrase queries."""
 
     return semantic_mrr_targets_from_exact_targets(seeded_exact_mrr_targets(core))
+
+
+def _validate_thematic_fixture_entry(
+    entry: ThematicPrecisionFixtureEntry,
+) -> tuple[str, str, tuple[str, str, str], str | None]:
+    scope = entry["scope"]
+    group = entry["group"]
+    workspace_uid = entry["workspace_uid"]
+    queries = entry["queries"]
+    if scope not in {SPACE_USER, SPACE_WORKSPACE}:
+        raise ValueError(f"unsupported thematic fixture scope: {scope!r}")
+    if not group.strip():
+        raise ValueError("thematic fixture group must be non-empty")
+    if scope == SPACE_USER and workspace_uid is not None:
+        raise ValueError(
+            f"user thematic group {group!r} must not include workspace_uid"
+        )
+    if scope == SPACE_WORKSPACE and workspace_uid is None:
+        raise ValueError(f"workspace thematic group {group!r} requires workspace_uid")
+    if len(queries) != THEMATIC_PRECISION_QUERIES_PER_GROUP:
+        raise ValueError(
+            f"thematic fixture group {group!r} must have exactly "
+            f"{THEMATIC_PRECISION_QUERIES_PER_GROUP} queries"
+        )
+    if any(not query.strip() for query in queries):
+        raise ValueError(f"thematic fixture group {group!r} has an empty query")
+    return scope, group, queries, workspace_uid
+
+
+def thematic_precision_targets_from_fixture(
+    fixture: Sequence[ThematicPrecisionFixtureEntry] = THEMATIC_PRECISION_FIXTURE,
+) -> tuple[ThematicPrecisionTarget, ...]:
+    """Return deterministic thematic Precision@10 target groups.
+
+    The checked-in fixture is explicit source data: ten user topics and nine
+    workspace themes, each with exactly three broad natural-language queries.
+    """
+
+    targets: list[ThematicPrecisionTarget] = []
+    seen_keys: set[tuple[str, str | None, str]] = set()
+    for entry in fixture:
+        scope, group, queries, workspace_uid = _validate_thematic_fixture_entry(entry)
+        key = (scope, workspace_uid, group)
+        if key in seen_keys:
+            raise ValueError(f"duplicate thematic fixture group: {key!r}")
+        seen_keys.add(key)
+        targets.append(
+            ThematicPrecisionTarget(
+                scope=scope,
+                group=group,
+                workspace_uid=workspace_uid,
+                queries=queries,
+            )
+        )
+    return tuple(targets)
 
 
 def evaluate_exact_mrr(
@@ -534,6 +684,205 @@ def evaluate_semantic_mrr(
     )
 
 
+def _thematic_metadata_group(scope: str, result: SearchResult) -> str:
+    metadata_key = "dev_topic" if scope == SPACE_USER else "dev_theme"
+    value = result.memory.metadata.get(metadata_key)
+    if isinstance(value, str) and value.strip():
+        return value
+    return "<missing>"
+
+
+def _thematic_result_group(
+    target: ThematicPrecisionTarget, result: SearchResult
+) -> str:
+    actual_group = _thematic_metadata_group(result.memory.space, result)
+    if result.memory.space != target.scope:
+        return f"<wrong-scope:{result.memory.space}:{actual_group}>"
+    if (
+        target.scope == SPACE_WORKSPACE
+        and result.memory.workspace_uid != target.workspace_uid
+    ):
+        workspace_uid = result.memory.workspace_uid or "<none>"
+        return f"<wrong-workspace:{workspace_uid}:{actual_group}>"
+    return _thematic_metadata_group(target.scope, result)
+
+
+def _thematic_result_matches(
+    target: ThematicPrecisionTarget, result: SearchResult
+) -> bool:
+    if result.memory.space != target.scope:
+        return False
+    if (
+        target.scope == SPACE_WORKSPACE
+        and result.memory.workspace_uid != target.workspace_uid
+    ):
+        return False
+    return _thematic_result_group(target, result) == target.group
+
+
+def _thematic_query_score(
+    target: ThematicPrecisionTarget,
+    query_index: int,
+    query: str,
+    results: Sequence[SearchResult],
+    cutoff: int,
+) -> ThematicPrecisionQueryScore:
+    top_results = results[:cutoff]
+    matching_results = sum(
+        1 for result in top_results if _thematic_result_matches(target, result)
+    )
+    distribution = Counter(
+        _thematic_result_group(target, result) for result in top_results
+    )
+    return ThematicPrecisionQueryScore(
+        query_index=query_index,
+        query=query,
+        matching_results=matching_results,
+        precision=matching_results / cutoff,
+        group_distribution=tuple(sorted(distribution.items())),
+        returned_top_ids=_returned_ids(results, cutoff),
+    )
+
+
+def evaluate_thematic_precision(
+    targets: Sequence[ThematicPrecisionTarget],
+    *,
+    search_user: UserSearch,
+    search_workspace: WorkspaceSearch,
+    cutoff: int = THEMATIC_PRECISION_CUTOFF,
+    failure_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    confuser_limit: int = DEFAULT_WORST_MISS_LIMIT,
+) -> ThematicPrecisionReport:
+    """Evaluate thematic Precision@10 for seeded topic and theme groups."""
+
+    if cutoff < 1:
+        raise ValueError("cutoff must be at least 1")
+    if failure_limit < 0:
+        raise ValueError("failure_limit must be non-negative")
+    if confuser_limit < 0:
+        raise ValueError("confuser_limit must be non-negative")
+
+    group_scores: list[ThematicPrecisionGroupScore] = []
+    confuser_counts: Counter[tuple[str, str | None, str, str]] = Counter()
+    for target in targets:
+        if len(target.queries) != THEMATIC_PRECISION_QUERIES_PER_GROUP:
+            raise ValueError(
+                f"thematic target {target.group!r} must have exactly "
+                f"{THEMATIC_PRECISION_QUERIES_PER_GROUP} queries"
+            )
+        if target.scope == SPACE_WORKSPACE and target.workspace_uid is None:
+            raise ValueError(
+                f"workspace thematic group {target.group!r} requires workspace_uid"
+            )
+        if target.scope == SPACE_USER and target.workspace_uid is not None:
+            raise ValueError(
+                f"user thematic group {target.group!r} must not include workspace_uid"
+            )
+        if target.scope not in {SPACE_USER, SPACE_WORKSPACE}:
+            raise ValueError(f"unsupported target scope: {target.scope!r}")
+
+        query_scores: list[ThematicPrecisionQueryScore] = []
+        for index, query in enumerate(target.queries, start=1):
+            if target.scope == SPACE_USER:
+                results = search_user(query, cutoff)
+            else:
+                assert target.workspace_uid is not None
+                results = search_workspace(query, target.workspace_uid, cutoff)
+            for result in results[:cutoff]:
+                if not _thematic_result_matches(target, result):
+                    confuser_counts[
+                        (
+                            target.scope,
+                            target.workspace_uid,
+                            target.group,
+                            _thematic_result_group(target, result),
+                        )
+                    ] += 1
+            query_scores.append(
+                _thematic_query_score(target, index, query, results, cutoff)
+            )
+
+        score_triple = (query_scores[0], query_scores[1], query_scores[2])
+        group_scores.append(
+            ThematicPrecisionGroupScore(
+                scope=target.scope,
+                group=target.group,
+                workspace_uid=target.workspace_uid,
+                average_precision=_mean([score.precision for score in score_triple]),
+                query_scores=score_triple,
+            )
+        )
+
+    user_scores = [
+        score.average_precision for score in group_scores if score.scope == SPACE_USER
+    ]
+    workspace_scores = [
+        score.average_precision
+        for score in group_scores
+        if score.scope == SPACE_WORKSPACE
+    ]
+    all_scores = [score.average_precision for score in group_scores]
+    failures = sorted(
+        (
+            ThematicPrecisionFailure(
+                scope=group_score.scope,
+                expected_group=group_score.group,
+                workspace_uid=group_score.workspace_uid,
+                query_index=query_score.query_index,
+                query=query_score.query,
+                precision=query_score.precision,
+                matching_results=query_score.matching_results,
+                group_distribution=query_score.group_distribution,
+                returned_top_ids=query_score.returned_top_ids,
+            )
+            for group_score in group_scores
+            for query_score in group_score.query_scores
+            if query_score.precision < 1.0
+        ),
+        key=lambda failure: (
+            failure.precision,
+            failure.scope,
+            failure.workspace_uid or "",
+            failure.expected_group,
+            failure.query_index,
+        ),
+    )[:failure_limit]
+    confusers = tuple(
+        ThematicPrecisionConfuser(
+            scope=scope,
+            workspace_uid=workspace_uid,
+            expected_group=expected_group,
+            confuser_group=confuser_group,
+            count=count,
+        )
+        for (scope, workspace_uid, expected_group, confuser_group), count in sorted(
+            confuser_counts.items(),
+            key=lambda item: (
+                -item[1],
+                item[0][0],
+                item[0][1] or "",
+                item[0][2],
+                item[0][3],
+            ),
+        )[:confuser_limit]
+    )
+
+    return ThematicPrecisionReport(
+        value=_mean(all_scores),
+        user_value=_mean(user_scores),
+        workspace_value=_mean(workspace_scores),
+        cutoff=cutoff,
+        groups=len(group_scores),
+        queries=len(group_scores) * THEMATIC_PRECISION_QUERIES_PER_GROUP,
+        queries_per_group=THEMATIC_PRECISION_QUERIES_PER_GROUP,
+        user_groups=len(user_scores),
+        workspace_groups=len(workspace_scores),
+        group_scores=tuple(group_scores),
+        failures=tuple(failures),
+        confusers=confusers,
+    )
+
+
 def evaluate_exact_mrr_for_core(
     core: ExactMRRCore,
     *,
@@ -589,4 +938,35 @@ def evaluate_semantic_mrr_for_core(
         ),
         cutoff=cutoff,
         worst_target_limit=worst_target_limit,
+    )
+
+
+def evaluate_thematic_precision_for_core(
+    core: ThematicPrecisionCore,
+    *,
+    cutoff: int = THEMATIC_PRECISION_CUTOFF,
+    failure_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    confuser_limit: int = DEFAULT_WORST_MISS_LIMIT,
+) -> ThematicPrecisionReport:
+    """Evaluate thematic Precision@10 against a seeded development database."""
+
+    targets = thematic_precision_targets_from_fixture()
+    return evaluate_thematic_precision(
+        targets,
+        search_user=lambda query, limit: core.search_user_memories(
+            query,
+            limit=limit,
+            include_archived=True,
+        ),
+        search_workspace=lambda query, workspace_uid, limit: (
+            core.search_workspace_memories(
+                query,
+                workspace_uid=workspace_uid,
+                limit=limit,
+                include_archived=True,
+            )
+        ),
+        cutoff=cutoff,
+        failure_limit=failure_limit,
+        confuser_limit=confuser_limit,
     )
