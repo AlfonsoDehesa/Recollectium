@@ -1068,6 +1068,47 @@ def test_cli_dev_eval_refuses_when_seeded_database_matches_regular_database(
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
 
 
+def test_cli_dev_eval_refuses_relative_regular_database_overlap(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    data_dir = tmp_path / "data"
+    shared_db = data_dir / "shared.db"
+    shared_db.parent.mkdir(parents=True)
+    shared_db.write_text("regular database marker", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": "shared.db"},
+                "directories": {"data": str(data_dir)},
+                "development": {"seeded_database_path": str(shared_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--config", str(config_path), "dev", "eval"],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "unsafe_seeded_database_path"
+    assert payload["seeded_database"] == str(shared_db)
+    assert payload["regular_database"] == str(shared_db)
+    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
+
+
 def test_cli_dev_reset_resolves_relative_seed_database_path(
     tmp_path, capsys, monkeypatch
 ) -> None:
