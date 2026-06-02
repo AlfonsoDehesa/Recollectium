@@ -322,6 +322,9 @@ def test_unix_bootstrap_prints_final_guidance_without_source_guidance() -> None:
     assert "Open a new terminal window before using recollectium" in script
     assert "current_terminal_path_command()" in script
     assert 'export PATH="%s:$PATH"' in script
+    assert "__recollectium_path_check_$$__" in script
+    assert "command -v recollectium" in script
+    assert "seen_sentinel=0" in script
     assert 'source "${COMPLETION_RC}"' not in script
     assert "source ${COMPLETION_RC}" not in script
 
@@ -375,7 +378,10 @@ def test_unix_final_guidance_current_missing_but_future_shell_resolves(
     recollectium.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     recollectium.chmod(0o755)
     zsh = fake_bin / "zsh"
-    zsh.write_text(f"#!/bin/sh\nprintf '%s\\n' '{recollectium}'\n", encoding="utf-8")
+    zsh.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'startup noise'\nPATH=\"$FUTURE_TOOL_BIN:$PATH\" eval \"$2\"\n",
+        encoding="utf-8",
+    )
     zsh.chmod(0o755)
 
     result = subprocess.run(
@@ -394,6 +400,7 @@ def test_unix_final_guidance_current_missing_but_future_shell_resolves(
             "HOME": str(tmp_path / "home"),
             "PATH": f"{fake_bin}:/usr/bin:/bin",
             "SHELL": "/bin/bash",
+            "FUTURE_TOOL_BIN": str(tool_bin),
         },
     )
 
@@ -434,11 +441,46 @@ def test_unix_final_guidance_current_and_future_path_verification_fail(
         },
     )
 
-    assert (
-        "Recollectium installed, but PATH setup could not be verified." in result.stdout
-    )
+    assert "PATH files were updated, but PATH setup could not be verified" in result.stdout
     assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
     assert f"Managed PATH files updated: {profile}" in result.stdout
+    assert "Add Recollectium to your shell startup file" not in result.stdout
+    assert (
+        "Restart your terminal, or run this command in the current terminal:"
+        in result.stdout
+    )
+    assert "Then verify with: recollectium --version" in result.stdout
+
+
+def test_unix_final_guidance_without_managed_edits_tells_user_to_edit_startup_file(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    tool_bin.mkdir()
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nORIGINAL_PATH="/usr/bin:/bin"\nprint_final_guidance',
+            "sh",
+            str(tool_bin),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/bin/bash",
+        },
+    )
+
+    assert "Recollectium installed, but PATH setup could not be verified." in result.stdout
+    assert "Add Recollectium to your shell startup file:" in result.stdout
+    assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
+    assert "Managed PATH files updated" not in result.stdout
     assert (
         "Then restart your terminal, or run the command above in the current terminal."
         in result.stdout
@@ -559,7 +601,10 @@ def test_unix_final_guidance_color_supported_path_includes_ansi(
     recollectium.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     recollectium.chmod(0o755)
     zsh = fake_bin / "zsh"
-    zsh.write_text(f"#!/bin/sh\nprintf '%s\\n' '{recollectium}'\n", encoding="utf-8")
+    zsh.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'startup noise'\nPATH=\"$FUTURE_TOOL_BIN:$PATH\" eval \"$2\"\n",
+        encoding="utf-8",
+    )
     zsh.chmod(0o755)
 
     result = subprocess.run(
@@ -581,6 +626,7 @@ def test_unix_final_guidance_color_supported_path_includes_ansi(
             "HOME": str(tmp_path / "home"),
             "PATH": f"{fake_bin}:/usr/bin:/bin",
             "SHELL": "/bin/bash",
+            "FUTURE_TOOL_BIN": str(tool_bin),
         },
     )
 
@@ -775,16 +821,39 @@ def test_windows_final_guidance_current_session_resolves_installed_recollectium(
     assert "Verify with: recollectium --version" in script
 
 
-def test_windows_final_guidance_future_or_user_path_resolves_with_restart_guidance() -> (
+def test_windows_final_guidance_future_path_resolves_with_restart_guidance() -> (
     None
 ):
     script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+    future_branch = script.split("if (Test-FutureRecollectiumPath)", maxsplit=1)[1].split(
+        "if (Test-UserPathContainsToolBin)", maxsplit=1
+    )[0]
 
     assert "function Test-FutureRecollectiumPath" in script
     assert "function Test-UserPathContainsToolBin" in script
-    assert "Open a new terminal window before using recollectium" in script
+    assert "(Test-UserPathContainsToolBin) -or (Test-FutureRecollectiumPath)" not in script
+    assert "Open a new terminal window before using recollectium" in future_branch
+    assert "Test-UserPathContainsToolBin" not in future_branch
+    assert "$tempPathCommand" in future_branch
     assert '$env:Path = "{0};$env:Path"' in script
-    assert "Then verify with: recollectium --version" in script
+    assert "Then verify with: recollectium --version" in future_branch
+
+
+def test_windows_final_guidance_user_path_only_uses_verification_failed_branch() -> (
+    None
+):
+    script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+    user_path_branch = script.split(
+        "if (Test-UserPathContainsToolBin)", maxsplit=1
+    )[1].split(
+        'Write-Guidance "Recollectium installed, but PATH setup could not be verified."',
+        maxsplit=1,
+    )[0]
+
+    assert "PATH setup could not be verified for a new terminal" in user_path_branch
+    assert "Your User Path already includes this directory:" in user_path_branch
+    assert "Open a new terminal window before using recollectium" not in user_path_branch
+    assert "Restart your terminal, or run this command in the current terminal:" in user_path_branch
 
 
 def test_windows_final_guidance_path_verification_fails_with_add_to_path_guidance() -> (

@@ -118,9 +118,19 @@ function Write-FinalGuidance {
         return
     }
 
-    if ((Test-UserPathContainsToolBin) -or (Test-FutureRecollectiumPath)) {
+    if (Test-FutureRecollectiumPath) {
         Write-Guidance "Recollectium installed." Green
         Write-Guidance "Open a new terminal window before using recollectium, or run this command in the current terminal:" Yellow
+        Write-Guidance $tempPathCommand Yellow
+        Write-Guidance "Then verify with: recollectium --version" Yellow
+        return
+    }
+
+    if (Test-UserPathContainsToolBin) {
+        Write-Guidance "Recollectium installed, but PATH setup could not be verified for a new terminal." Yellow
+        Write-Guidance "Your User Path already includes this directory:" Yellow
+        Write-Guidance "  $ToolBin" Yellow
+        Write-Guidance "Restart your terminal, or run this command in the current terminal:" Yellow
         Write-Guidance $tempPathCommand Yellow
         Write-Guidance "Then verify with: recollectium --version" Yellow
         return
