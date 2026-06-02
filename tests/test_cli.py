@@ -2196,6 +2196,19 @@ def test_cli_verbosity_extraction_conflicts_order_and_literals(monkeypatch) -> N
     assert verbosity_conflict is False
 
 
+def test_cli_human_readable_verbosity_conflict_uses_human_error(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "--verbose", "list"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "Choose either --compact or --verbose, not both." in stderr
+    assert not stderr.lstrip().startswith("{")
+
+
 def test_cli_json_verbosity_compact_vs_verbose_memory_shapes(tmp_path, capsys) -> None:
     db_path = tmp_path / "verbosity.db"
 

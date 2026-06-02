@@ -4000,6 +4000,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             command="output",
         )
     if verbosity_conflict:
+        _set_cli_output_format(output_override or CLI_OUTPUT_JSON)
         return _emit_cli_failure(
             status="validation_error",
             message="Choose either --compact or --verbose, not both.",

@@ -82,6 +82,8 @@ def serialize_search_result(
     payload = result.to_dict()
     if verbosity is None and operation is None:
         return payload
+    if operation is None:
+        operation = OPERATION_MEMORIES_SEARCH_USER
     return project_payload(payload, verbosity=verbosity, operation=operation)
 
 

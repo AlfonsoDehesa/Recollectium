@@ -150,6 +150,12 @@ def test_serializers_use_existing_models(tmp_path: Path) -> None:
     serialized_results = serialize_search_results(results)
     assert serialized_results == [result.to_dict() for result in results]
 
+    compact_results = serialize_search_results(results, verbosity="compact")
+    assert compact_results == [
+        {"id": memory.id, "content": "Kaylee likes tea", "match": results[0].score}
+    ]
+    assert isinstance(compact_results[0]["match"], float)
+
     status = {"provider_status": "configured"}
     assert serialize_embedding_status(status) is status
 
