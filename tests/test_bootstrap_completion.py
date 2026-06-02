@@ -441,7 +441,9 @@ def test_unix_final_guidance_current_and_future_path_verification_fail(
         },
     )
 
-    assert "PATH files were updated, but PATH setup could not be verified" in result.stdout
+    assert (
+        "PATH files were updated, but PATH setup could not be verified" in result.stdout
+    )
     assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
     assert f"Managed PATH files updated: {profile}" in result.stdout
     assert "Add Recollectium to your shell startup file" not in result.stdout
@@ -477,7 +479,9 @@ def test_unix_final_guidance_without_managed_edits_tells_user_to_edit_startup_fi
         },
     )
 
-    assert "Recollectium installed, but PATH setup could not be verified." in result.stdout
+    assert (
+        "Recollectium installed, but PATH setup could not be verified." in result.stdout
+    )
     assert "Add Recollectium to your shell startup file:" in result.stdout
     assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
     assert "Managed PATH files updated" not in result.stdout
@@ -821,17 +825,17 @@ def test_windows_final_guidance_current_session_resolves_installed_recollectium(
     assert "Verify with: recollectium --version" in script
 
 
-def test_windows_final_guidance_future_path_resolves_with_restart_guidance() -> (
-    None
-):
+def test_windows_final_guidance_future_path_resolves_with_restart_guidance() -> None:
     script = (ROOT / "install.ps1").read_text(encoding="utf-8")
-    future_branch = script.split("if (Test-FutureRecollectiumPath)", maxsplit=1)[1].split(
-        "if (Test-UserPathContainsToolBin)", maxsplit=1
-    )[0]
+    future_branch = script.split("if (Test-FutureRecollectiumPath)", maxsplit=1)[
+        1
+    ].split("if (Test-UserPathContainsToolBin)", maxsplit=1)[0]
 
     assert "function Test-FutureRecollectiumPath" in script
     assert "function Test-UserPathContainsToolBin" in script
-    assert "(Test-UserPathContainsToolBin) -or (Test-FutureRecollectiumPath)" not in script
+    assert (
+        "(Test-UserPathContainsToolBin) -or (Test-FutureRecollectiumPath)" not in script
+    )
     assert "Open a new terminal window before using recollectium" in future_branch
     assert "Test-UserPathContainsToolBin" not in future_branch
     assert "$tempPathCommand" in future_branch
@@ -843,17 +847,22 @@ def test_windows_final_guidance_user_path_only_uses_verification_failed_branch()
     None
 ):
     script = (ROOT / "install.ps1").read_text(encoding="utf-8")
-    user_path_branch = script.split(
-        "if (Test-UserPathContainsToolBin)", maxsplit=1
-    )[1].split(
+    user_path_branch = script.split("if (Test-UserPathContainsToolBin)", maxsplit=1)[
+        1
+    ].split(
         'Write-Guidance "Recollectium installed, but PATH setup could not be verified."',
         maxsplit=1,
     )[0]
 
     assert "PATH setup could not be verified for a new terminal" in user_path_branch
     assert "Your User Path already includes this directory:" in user_path_branch
-    assert "Open a new terminal window before using recollectium" not in user_path_branch
-    assert "Restart your terminal, or run this command in the current terminal:" in user_path_branch
+    assert (
+        "Open a new terminal window before using recollectium" not in user_path_branch
+    )
+    assert (
+        "Restart your terminal, or run this command in the current terminal:"
+        in user_path_branch
+    )
 
 
 def test_windows_final_guidance_path_verification_fails_with_add_to_path_guidance() -> (
