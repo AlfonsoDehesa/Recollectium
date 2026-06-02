@@ -183,11 +183,11 @@ RANKED_SET_NDCG_FIXTURE: tuple[RankedSetNDCGFixtureEntry, ...] = (
             },
             "dev-user-092": {
                 "grade": 2,
-                "rationale": "Clearly relevant storage context for keeping entryway items contained.",
+                "rationale": "Covers the requested tidy storage, but only for entryway containment rather than the broader cozy room setup.",
             },
             "dev-user-094": {
                 "grade": 2,
-                "rationale": "Clearly relevant because plant clusters near windows are requested.",
+                "rationale": "Covers the requested plants, but only as window plant clusters rather than the room's lighting, storage, and reading needs.",
             },
             "dev-user-096": {
                 "grade": 1,
@@ -211,11 +211,11 @@ RANKED_SET_NDCG_FIXTURE: tuple[RankedSetNDCGFixtureEntry, ...] = (
             },
             "dev-user-076": {
                 "grade": 2,
-                "rationale": "Relevant support because enrichment ideas are explicitly requested.",
+                "rationale": "Covers the requested enrichment ideas, but not the calmer routine, durable gear, or household safety choices needed for grade 3.",
             },
             "dev-user-079": {
                 "grade": 2,
-                "rationale": "Relevant support because safe household choices around plants, cleaners, and small objects are requested.",
+                "rationale": "Covers requested household safety choices, but not the pet-care routine, washable gear, or enrichment pieces needed for grade 3.",
             },
             "dev-user-073": {
                 "grade": 1,
@@ -255,7 +255,7 @@ RANKED_SET_NDCG_FIXTURE: tuple[RankedSetNDCGFixtureEntry, ...] = (
         "id": "cedarledger-month-end-closeout-review",
         "scope": SPACE_WORKSPACE,
         "workspace_uid": "proj-fic-cedarledger-01",
-        "query": "month-end closeout review with expense proof, outstanding bills, duplicate imports, and disabled approval",
+        "query": "I need the month-end closeout notes that explain why approval is still blocked and what proof, bills, or duplicate imports are holding it up",
         "relevance": {
             "dev-workspace-01-022": {
                 "grade": 3,
@@ -371,7 +371,7 @@ RANKED_SET_NDCG_FIXTURE: tuple[RankedSetNDCGFixtureEntry, ...] = (
         "id": "harborpilot-dispatch-scheduling-clashes",
         "scope": SPACE_WORKSPACE,
         "workspace_uid": "proj-fic-harborpilot-01",
-        "query": "dispatch scheduling with repair time blocks, urgent ordering, crew windows, and idle gaps",
+        "query": "Help me find the dispatch scheduling notes about fitting repair crews into available windows without missing urgent jobs or wasting idle gaps",
         "relevance": {
             "dev-workspace-03-001": {
                 "grade": 3,
@@ -387,7 +387,7 @@ RANKED_SET_NDCG_FIXTURE: tuple[RankedSetNDCGFixtureEntry, ...] = (
             },
             "dev-workspace-03-002": {
                 "grade": 2,
-                "rationale": "Relevant support about arrival windows as ranges for dispatch flexibility.",
+                "rationale": "Covers requested crew arrival windows, but not repair block clashes, urgent ordering, or idle-gap fitting needed for grade 3.",
             },
             "dev-workspace-03-004": {
                 "grade": 1,
@@ -427,7 +427,7 @@ RANKED_SET_NDCG_FIXTURE: tuple[RankedSetNDCGFixtureEntry, ...] = (
         "id": "northstar-form-builder-conditional-authoring",
         "scope": SPACE_WORKSPACE,
         "workspace_uid": "proj-fic-northstar-forms-01",
-        "query": "form builder conditional display rules, repeatable sections, immutable field ids, and authoring warnings",
+        "query": "I'm looking for form-builder guidance on authoring conditional sections safely, including repeatable areas, stable field IDs, and warnings before designers publish",
         "relevance": {
             "dev-workspace-02-003": {
                 "grade": 3,
