@@ -1222,7 +1222,11 @@ def _resolve_seeded_dev_database_path(cfg: RecollectiumConfig) -> Path:
     return dev_path
 
 
-def _resolve_regular_database_path(cfg: RecollectiumConfig) -> Path:
+def _resolve_regular_database_path(
+    cfg: RecollectiumConfig, db_path_override: str | None = None
+) -> Path:
+    if db_path_override is not None:
+        return Path(db_path_override)
     db_path = Path(cfg.effective_config["database"]["path"])
     if not db_path.is_absolute():
         db_path = cfg.xdg_dirs["data"] / db_path
@@ -1389,10 +1393,10 @@ def _run_seeded_dev_eval(
     *,
     provider: Any,
     config_path: Path | None,
+    regular_db_path: Path,
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, object]:
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
-    regular_db_path = _resolve_regular_database_path(cfg)
     if progress is not None:
         progress(f"Preparing seeded development database: {dev_db_path}")
     seed_result = ensure_seeded_dev_database(dev_db_path, provider)
@@ -3980,7 +3984,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             if args.state == "eval":
                 dev_db_path = _resolve_seeded_dev_database_path(cfg)
-                regular_db_path = _resolve_regular_database_path(cfg)
+                regular_db_path = _resolve_regular_database_path(cfg, args.db_path)
                 if _paths_equal(dev_db_path, regular_db_path):
                     return _emit_cli_failure(
                         status="unsafe_seeded_database_path",
@@ -4012,6 +4016,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     provider=provider,
                     config_path=core_config_path,
                     progress=progress,
+                    regular_db_path=regular_db_path,
                 )
                 _emit_success(result, output_format=output_format, command="dev eval")
                 return 0
