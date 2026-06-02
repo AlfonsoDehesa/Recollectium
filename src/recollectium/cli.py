@@ -2677,6 +2677,10 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
             continue
         seen.add(resolved)
         targets.append(target)
+    targets.sort(
+        key=lambda target: len(target.expanduser().resolve(strict=False).parts),
+        reverse=True,
+    )
 
     results = [
         _delete_purge_target(target, dry_run=dry_run, owned_paths=owned_paths)
