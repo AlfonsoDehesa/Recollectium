@@ -315,31 +315,114 @@ def test_unix_bootstrap_uses_original_path_for_durable_path_hint(
     assert f'export PATH="{tool_bin}:$PATH"' not in result.stdout
 
 
-def test_unix_bootstrap_prints_final_restart_or_current_terminal_guidance() -> None:
+def test_unix_bootstrap_prints_final_guidance_without_source_guidance() -> None:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
 
     assert "print_final_guidance()" in script
-    assert "Restart your terminal session" in script
-    assert r"export PATH=\"${TOOL_BIN_DIR}:\$PATH\"" in script
-    assert r"source \"${COMPLETION_RC}\"" in script
+    assert "Open a new terminal window before using recollectium" in script
+    assert "current_terminal_path_command()" in script
+    assert 'export PATH="%s:$PATH"' in script
+    assert 'source "${COMPLETION_RC}"' not in script
     assert "source ${COMPLETION_RC}" not in script
 
 
-def test_unix_bootstrap_prints_quoted_final_source_guidance(tmp_path: Path) -> None:
+def test_unix_final_guidance_current_path_resolves_installed_executable(
+    tmp_path: Path,
+) -> None:
     helpers = _unix_bootstrap_helpers()
-    tool_bin = tmp_path / "uv tools"
-    completion_rc = tmp_path / "home dir" / ".bashrc"
+    tool_bin = tmp_path / "uv-tools"
     tool_bin.mkdir()
-    completion_rc.parent.mkdir()
+    recollectium = tool_bin / "recollectium"
+    recollectium.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    recollectium.chmod(0o755)
 
     result = subprocess.run(
         [
             "sh",
             "-c",
-            f'{helpers}\nTOOL_BIN_DIR="$1"\nCOMPLETION_RC="$2"\nCOMPLETION_SHELL="bash"\nprint_final_guidance',
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nORIGINAL_PATH="$1:/usr/bin:/bin"\nprint_final_guidance',
             "sh",
             str(tool_bin),
-            str(completion_rc),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "PATH": f"{tool_bin}:/usr/bin:/bin",
+            "SHELL": "/bin/bash",
+        },
+    )
+
+    assert (
+        result.stdout
+        == "Recollectium installed.\nVerify with: recollectium --version\n"
+    )
+    assert "Restart your terminal session" not in result.stdout
+    assert "export PATH" not in result.stdout
+    assert "source" not in result.stdout
+
+
+def test_unix_final_guidance_current_missing_but_future_shell_resolves(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    fake_bin = tmp_path / "fake-bin"
+    tool_bin.mkdir()
+    fake_bin.mkdir()
+    recollectium = tool_bin / "recollectium"
+    recollectium.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    recollectium.chmod(0o755)
+    zsh = fake_bin / "zsh"
+    zsh.write_text(f"#!/bin/sh\nprintf '%s\\n' '{recollectium}'\n", encoding="utf-8")
+    zsh.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nORIGINAL_PATH="$2:/usr/bin:/bin"\nprint_final_guidance',
+            "sh",
+            str(tool_bin),
+            str(fake_bin),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "SHELL": "/bin/bash",
+        },
+    )
+
+    assert "Recollectium installed." in result.stdout
+    assert "Open a new terminal window before using recollectium" in result.stdout
+    assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
+    assert "Then verify with: recollectium --version" in result.stdout
+    assert "source" not in result.stdout
+
+
+def test_unix_final_guidance_current_and_future_path_verification_fail(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    profile = tmp_path / "home" / ".profile"
+    tool_bin.mkdir()
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            (
+                f'{helpers}\nTOOL_BIN_DIR="$1"\nORIGINAL_PATH="/usr/bin:/bin"\n'
+                'MANAGED_PATH_EDITS="$2\n"\nprint_final_guidance'
+            ),
+            "sh",
+            str(tool_bin),
+            str(profile),
         ],
         check=True,
         capture_output=True,
@@ -351,27 +434,73 @@ def test_unix_bootstrap_prints_quoted_final_source_guidance(tmp_path: Path) -> N
         },
     )
 
+    assert (
+        "Recollectium installed, but PATH setup could not be verified." in result.stdout
+    )
     assert f'export PATH="{tool_bin}:$PATH"' in result.stdout
-    assert f'source "{completion_rc}"' in result.stdout
-    assert f"source {completion_rc}" not in result.stdout
+    assert f"Managed PATH files updated: {profile}" in result.stdout
+    assert (
+        "Then restart your terminal, or run the command above in the current terminal."
+        in result.stdout
+    )
+    assert "Then verify with: recollectium --version" in result.stdout
 
 
-def test_unix_bootstrap_prints_fish_current_terminal_path_command(
+def test_unix_final_guidance_zsh_path_edit_does_not_force_restart_when_current_resolves(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    profile = tmp_path / "home" / ".zshrc"
+    tool_bin.mkdir(parents=True)
+    recollectium = tool_bin / "recollectium"
+    recollectium.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    recollectium.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            (
+                f'{helpers}\nTOOL_BIN_DIR="$1"\nORIGINAL_PATH="$1:/usr/bin:/bin"\n'
+                'MANAGED_PATH_EDITS="$2\n"\nprint_final_guidance'
+            ),
+            "sh",
+            str(tool_bin),
+            str(profile),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "PATH": f"{tool_bin}:/usr/bin:/bin",
+            "SHELL": "/bin/zsh",
+        },
+    )
+
+    assert (
+        result.stdout
+        == "Recollectium installed.\nVerify with: recollectium --version\n"
+    )
+    assert "Restart your terminal session" not in result.stdout
+    assert "Managed PATH files updated" not in result.stdout
+
+
+def test_unix_final_guidance_fish_current_terminal_path_command(
     tmp_path: Path,
 ) -> None:
     helpers = _unix_bootstrap_helpers()
     tool_bin = tmp_path / "uv tools"
-    completion_rc = tmp_path / "config.fish"
     tool_bin.mkdir()
 
     result = subprocess.run(
         [
             "sh",
             "-c",
-            f'{helpers}\nTOOL_BIN_DIR="$1"\nCOMPLETION_RC="$2"\nCOMPLETION_SHELL="fish"\nprint_final_guidance',
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nORIGINAL_PATH="/usr/bin:/bin"\nprint_final_guidance',
             "sh",
             str(tool_bin),
-            str(completion_rc),
         ],
         check=True,
         capture_output=True,
@@ -385,7 +514,78 @@ def test_unix_bootstrap_prints_fish_current_terminal_path_command(
 
     assert f'set -gx PATH "{tool_bin}" $PATH' in result.stdout
     assert f'export PATH="{tool_bin}:$PATH"' not in result.stdout
-    assert f'source "{completion_rc}"' in result.stdout
+    assert "source" not in result.stdout
+
+
+def test_unix_final_guidance_no_color_disables_ansi(tmp_path: Path) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    tool_bin.mkdir()
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            (
+                f"{helpers}\nrecollectium_stdout_is_tty() {{ return 0; }}\n"
+                'TOOL_BIN_DIR="$1"\nORIGINAL_PATH="/usr/bin:/bin"\nprint_final_guidance'
+            ),
+            "sh",
+            str(tool_bin),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/bin/bash",
+            "NO_COLOR": "1",
+        },
+    )
+
+    assert "\033[" not in result.stdout
+
+
+def test_unix_final_guidance_color_supported_path_includes_ansi(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    tool_bin = tmp_path / "uv-tools"
+    fake_bin = tmp_path / "fake-bin"
+    tool_bin.mkdir()
+    fake_bin.mkdir()
+    recollectium = tool_bin / "recollectium"
+    recollectium.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    recollectium.chmod(0o755)
+    zsh = fake_bin / "zsh"
+    zsh.write_text(f"#!/bin/sh\nprintf '%s\\n' '{recollectium}'\n", encoding="utf-8")
+    zsh.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            (
+                f"{helpers}\nrecollectium_stdout_is_tty() {{ return 0; }}\n"
+                'TOOL_BIN_DIR="$1"\nORIGINAL_PATH="$2:/usr/bin:/bin"\nprint_final_guidance'
+            ),
+            "sh",
+            str(tool_bin),
+            str(fake_bin),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "SHELL": "/bin/bash",
+        },
+    )
+
+    assert "\033[32m" in result.stdout
+    assert "\033[33m" in result.stdout
 
 
 def test_unix_bootstrap_resolves_uv_tool_bin_before_tool_install() -> None:
@@ -562,3 +762,56 @@ def test_windows_bootstrap_installs_powershell_current_user_current_host_complet
     assert "RECOLLECTIUM_POWERSHELL_PROFILE" in script
     assert "recollectium completion --install powershell --yes" in script
     assert "managed_completion_edits" in script
+
+
+def test_windows_final_guidance_current_session_resolves_installed_recollectium() -> (
+    None
+):
+    script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert "function Test-CurrentRecollectiumPath" in script
+    assert "Get-Command recollectium -ErrorAction SilentlyContinue" in script
+    assert "Recollectium installed." in script
+    assert "Verify with: recollectium --version" in script
+
+
+def test_windows_final_guidance_future_or_user_path_resolves_with_restart_guidance() -> (
+    None
+):
+    script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert "function Test-FutureRecollectiumPath" in script
+    assert "function Test-UserPathContainsToolBin" in script
+    assert "Open a new terminal window before using recollectium" in script
+    assert '$env:Path = "{0};$env:Path"' in script
+    assert "Then verify with: recollectium --version" in script
+
+
+def test_windows_final_guidance_path_verification_fails_with_add_to_path_guidance() -> (
+    None
+):
+    script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert "Recollectium installed, but PATH setup could not be verified." in script
+    assert "Add this directory to your User Path:" in script
+    assert "Then verify with: recollectium --version" in script
+
+
+def test_windows_final_guidance_no_color_disables_write_host_foreground_color() -> None:
+    script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert "function Write-Guidance" in script
+    assert "$env:NO_COLOR" in script
+    assert "Write-Host $Message" in script
+    assert "-ForegroundColor $Color" in script
+
+
+def test_windows_final_guidance_color_supported_path_uses_write_host_color() -> None:
+    script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert 'Write-Guidance "Recollectium installed." Green' in script
+    assert (
+        'Write-Guidance "Recollectium installed, but PATH setup could not be verified." Yellow'
+        in script
+    )
+    assert "Write-Guidance" in script
