@@ -28,13 +28,11 @@ from recollectium.errors import (
 )
 from recollectium.mcp_server import create_mcp_server
 from recollectium.representations import (
-    OPERATION_CAPABILITIES_READ,
     OPERATION_EMBEDDING_JOBS_CLEAR,
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_JOBS_LIST,
     OPERATION_EMBEDDING_REFRESH,
     OPERATION_EMBEDDING_STATUS,
-    OPERATION_HEALTH_READ,
     OPERATION_MEMORIES_ADD,
     OPERATION_MEMORIES_ARCHIVE,
     OPERATION_MEMORIES_GET,
@@ -42,14 +40,14 @@ from recollectium.representations import (
     OPERATION_MEMORIES_SEARCH_USER,
     OPERATION_MEMORIES_SEARCH_WORKSPACE,
     OPERATION_MEMORIES_UPDATE,
-    OPERATION_VERSION_READ,
     OPERATION_WORKSPACES_ALIASES_ADD,
     OPERATION_WORKSPACES_ALIASES_LIST,
     OPERATION_WORKSPACES_ALIASES_REMOVE,
     OPERATION_WORKSPACES_LIST,
     OPERATION_WORKSPACES_RENAME,
     OPERATION_WORKSPACES_RESOLVE,
-    SUPPORTED_RESPONSE_VERBOSITIES,
+    ResponseVerbosity,
+    project_payload,
     validate_response_verbosity,
 )
 from recollectium.service_contract import (
@@ -61,6 +59,7 @@ from recollectium.service_contract import (
     health_payload,
     serialize_embedding_job,
     serialize_embedding_jobs,
+    serialize_embedding_operation_result,
     serialize_embedding_status,
     serialize_memories,
     serialize_memory,
@@ -329,11 +328,27 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         return _json_response(status, payload)
 
     @app.get(f"{SERVICE_API_PREFIX}/health", tags=["service"])
-    def health() -> dict[str, Any]:
+    def health(
+        verbosity: str | None = Query(default=None),
+        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+    ) -> dict[str, Any]:
+        _resolve_verbosity(
+            verbosity,
+            x_recollectium_verbosity,
+            core.config.effective_config.get("response_verbosity"),
+        )
         return health_payload()
 
     @app.get(f"{SERVICE_API_PREFIX}/version", tags=["service"])
-    def version() -> dict[str, Any]:
+    def version(
+        verbosity: str | None = Query(default=None),
+        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+    ) -> dict[str, Any]:
+        _resolve_verbosity(
+            verbosity,
+            x_recollectium_verbosity,
+            core.config.effective_config.get("response_verbosity"),
+        )
         return version_payload()
 
     @app.get(f"{SERVICE_API_PREFIX}/capabilities", tags=["service"])
@@ -347,7 +362,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             core.config.effective_config.get("response_verbosity"),
         )
         payload = capabilities_payload()
-        if resolved == "verbose":
+        if resolved == ResponseVerbosity.VERBOSE.value:
             payload["data"]["response_verbosity"] = resolved
         return payload
 
@@ -510,7 +525,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(
-            serialize_embedding_status(
+            serialize_embedding_operation_result(
                 result,
                 verbosity=resolved,
                 operation=OPERATION_EMBEDDING_REFRESH,
@@ -539,7 +554,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(
-            serialize_embedding_status(
+            serialize_embedding_operation_result(
                 result,
                 verbosity=resolved,
                 operation=OPERATION_EMBEDDING_JOBS_CLEAR,
@@ -799,9 +814,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                 "context": {"result_count": len(uids)},
             },
         )
-        from recollectium.representations import project_payload as _project
         return success_payload(
-            _project(uids, verbosity=resolved, operation=OPERATION_WORKSPACES_LIST)
+            project_payload(uids, verbosity=resolved, operation=OPERATION_WORKSPACES_LIST)
         )
 
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/resolve", tags=["workspaces"])
@@ -823,9 +837,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                 "context": {"input_uid": uid},
             },
         )
-        from recollectium.representations import project_payload as _project
         return success_payload(
-            _project(result, verbosity=resolved, operation=OPERATION_WORKSPACES_RESOLVE)
+            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_RESOLVE)
         )
 
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/aliases", tags=["workspaces"])
@@ -847,9 +860,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                 "context": {"canonical_uid": uid},
             },
         )
-        from recollectium.representations import project_payload as _project
         return success_payload(
-            _project(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_LIST)
+            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_LIST)
         )
 
     @app.post(f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/aliases", tags=["workspaces"])
@@ -876,9 +888,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                 "context": {"canonical_uid": uid, "alias_uid": body.alias_uid},
             },
         )
-        from recollectium.representations import project_payload as _project
         return success_payload(
-            _project(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_ADD)
+            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_ADD)
         )
 
     @app.delete(
@@ -902,9 +913,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                 "context": {"alias_uid": alias_uid},
             },
         )
-        from recollectium.representations import project_payload as _project
         return success_payload(
-            _project(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_REMOVE)
+            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_REMOVE)
         )
 
     @app.post(
@@ -934,9 +944,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                 },
             },
         )
-        from recollectium.representations import project_payload as _project
         return success_payload(
-            _project(result, verbosity=resolved, operation=OPERATION_WORKSPACES_RENAME)
+            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_RENAME)
         )
 
     return app

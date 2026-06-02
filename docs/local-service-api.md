@@ -152,6 +152,8 @@ Error responses use:
 
 Purpose: service liveness check.
 
+Optional response controls: `verbosity` query parameter or `X-Recollectium-Verbosity` header (`compact` or `verbose`). The response shape is unchanged.
+
 Response example:
 
 ```json
@@ -165,6 +167,8 @@ Response example:
 ### `GET /v1/version`
 
 Purpose: report service API and package version.
+
+Optional response controls: `verbosity` query parameter or `X-Recollectium-Verbosity` header (`compact` or `verbose`). The response shape is unchanged.
 
 Response example:
 

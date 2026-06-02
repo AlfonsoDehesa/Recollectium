@@ -50,6 +50,7 @@ from recollectium.service_contract import (
     health_payload,
     serialize_embedding_job,
     serialize_embedding_jobs,
+    serialize_embedding_operation_result,
     serialize_embedding_status,
     serialize_memories,
     serialize_memory,
@@ -158,6 +159,7 @@ def test_serializers_use_existing_models(tmp_path: Path) -> None:
 
     status = {"provider_status": "configured"}
     assert serialize_embedding_status(status) is status
+    assert serialize_embedding_operation_result(status) is status
 
     job = {"id": "job-1"}
     assert serialize_embedding_job(job) is job
@@ -310,6 +312,12 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
 
     archive_operation = paths["/v1/memories/{memory_id}/archive"]["post"]
     assert "requestBody" not in archive_operation
+
+    for metadata_path in ("/v1/health", "/v1/version"):
+        parameter_names = {
+            parameter["name"] for parameter in paths[metadata_path]["get"]["parameters"]
+        }
+        assert {"verbosity", "X-Recollectium-Verbosity"} <= parameter_names
 
     schemas = contract["components"]["schemas"]
     for schema_name in (
@@ -1219,6 +1227,20 @@ class TestVerbosityOverride:
         )
         assert status == 400
         assert payload["error"]["code"] == "validation_error"
+
+        # Metadata endpoints accept and validate verbosity even though response shape is unchanged
+        for path in ("/v1/health", "/v1/version"):
+            status, payload = _request_verbosity(
+                client, "GET", path, query_verbosity="invalid"
+            )
+            assert status == 400
+            assert payload["error"]["code"] == "validation_error"
+
+            status, payload = _request_verbosity(
+                client, "GET", path, query_verbosity="verbose"
+            )
+            assert status == 200
+            assert "data" in payload
 
     def test_compact_default_for_memory_endpoints(self, tmp_path: Path) -> None:
         """Without verbosity override, memory endpoints return compact payloads."""

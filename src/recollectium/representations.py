@@ -154,6 +154,15 @@ def project_embedding_refresh(
     return compact
 
 
+def _is_memory_payload(payload: dict[str, Any]) -> bool:
+    """Return whether an untagged payload has the expected memory shape."""
+    return (
+        isinstance(payload.get("id"), str)
+        and isinstance(payload.get("content"), str)
+        and any(key in payload for key in ("type", "space", "workspace_uid"))
+    )
+
+
 def project_payload(
     data: Any,
     *,
@@ -189,7 +198,7 @@ def project_payload(
         return project_search_result(data, selected)
     if (
         operation in {OPERATION_MEMORIES_LIST, OPERATION_MEMORIES_GET}
-        or "content" in data
+        or _is_memory_payload(data)
     ):
         return project_memory(data, selected)
     if operation == OPERATION_EMBEDDING_STATUS:

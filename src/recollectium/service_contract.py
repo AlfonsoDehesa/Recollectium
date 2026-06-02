@@ -119,6 +119,15 @@ def serialize_embedding_status(
     return project_payload(status, verbosity=verbosity, operation=operation)
 
 
+def serialize_embedding_operation_result(
+    result: dict[str, Any], *, verbosity: str | None = None, operation: str | None = None
+) -> dict[str, Any]:
+    """Serialize an embedding operation result such as status, refresh, or clear."""
+    if verbosity is None and operation is None:
+        return result
+    return project_payload(result, verbosity=verbosity, operation=operation)
+
+
 def serialize_embedding_job(
     job: dict[str, Any], *, verbosity: str | None = None, operation: str | None = None
 ) -> dict[str, Any]:
