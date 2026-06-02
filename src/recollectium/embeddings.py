@@ -28,9 +28,9 @@ class EmbeddingProvider(Protocol):
     def similarity(self, first: list[float], second: list[float]) -> float: ...
 
 
-def _fastembed_readiness_worker(result_connection: Connection) -> None:
+def _fastembed_readiness_worker(result_connection: Connection, model_name: str) -> None:
     try:
-        BuiltinFastEmbedProvider()._ensure_ready_unbounded()
+        BuiltinFastEmbedProvider(model_name)._ensure_ready_unbounded()
     except Exception as exc:  # pragma: no cover - exercised through parent process
         result_connection.send(
             {
@@ -213,7 +213,7 @@ class BuiltinFastEmbedProvider:
         parent_connection, child_connection = context.Pipe(duplex=False)
         process = context.Process(
             target=_fastembed_readiness_worker,
-            args=(child_connection,),
+            args=(child_connection, self.model_name),
         )
         process.start()
         child_connection.close()

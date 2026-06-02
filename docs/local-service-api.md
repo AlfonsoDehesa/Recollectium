@@ -631,7 +631,14 @@ Search responses return a list of search-result objects. The inner `memory` fiel
 
 ### 8) Embedding status
 
-The default built-in FastEmbed profile uses `BAAI/bge-base-en-v1.5` with 768 dimensions, profile `builtin-fastembed-bge-base-en-v1-5-v1`, max tokens 512, chunk tokens 384, and overlap 64. The legacy supported built-in alternative is `jinaai/jina-embeddings-v2-small-en` with 512 dimensions, profile `builtin-fastembed-jina-v2-small-en-v1`, max tokens 8192, chunk tokens 6144, and overlap 512. Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path.
+Supported built-in FastEmbed profiles:
+
+| Model | Role | Profile | Dimensions | Max tokens | Chunk tokens | Overlap tokens |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `BAAI/bge-base-en-v1.5` | default | `builtin-fastembed-bge-base-en-v1-5-v1` | 768 | 512 | 384 | 64 |
+| `jinaai/jina-embeddings-v2-small-en` | legacy supported | `builtin-fastembed-jina-v2-small-en-v1` | 512 | 8192 | 6144 | 512 |
+
+Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path.
 
 - Method and path: `GET /v1/embedding/status`
 - Purpose: return the active local embedding profile, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.

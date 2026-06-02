@@ -338,6 +338,11 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class ReadyProvider:
+        configured_models: list[str] = []
+
+        def __init__(self, model_name: str) -> None:
+            self.configured_models.append(model_name)
+
         def _ensure_ready_unbounded(self) -> None:
             pass
 
@@ -345,24 +350,28 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
         "recollectium.embeddings.BuiltinFastEmbedProvider", ReadyProvider
     )
     success_connection = FakeConnection()
-    _fastembed_readiness_worker(cast(Any, success_connection))
+    _fastembed_readiness_worker(cast(Any, success_connection), "legacy-model")
+    assert ReadyProvider.configured_models == ["legacy-model"]
     assert success_connection.messages == [{"ok": True}]
     assert success_connection.closed is True
 
     class FailingProvider:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+
         def _ensure_ready_unbounded(self) -> None:
-            raise EmbeddingModelUnavailableError("missing model")
+            raise EmbeddingModelUnavailableError(f"missing model {self.model_name}")
 
     monkeypatch.setattr(
         "recollectium.embeddings.BuiltinFastEmbedProvider", FailingProvider
     )
     failure_connection = FakeConnection()
-    _fastembed_readiness_worker(cast(Any, failure_connection))
+    _fastembed_readiness_worker(cast(Any, failure_connection), "legacy-model")
     assert failure_connection.messages == [
         {
             "ok": False,
             "error_type": "EmbeddingModelUnavailableError",
-            "message": "missing model",
+            "message": "missing model legacy-model",
         }
     ]
     assert failure_connection.closed is True
@@ -433,7 +442,7 @@ class FakeSpawnContext:
 
     def Process(self, *, target: object, args: tuple[object, ...]) -> FakeProcess:
         assert target is _fastembed_readiness_worker
-        assert args == (self.child,)
+        assert args == (self.child, "BAAI/bge-base-en-v1.5")
         return self.process
 
 
