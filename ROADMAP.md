@@ -22,7 +22,7 @@ Completed in v1.0.0:
 - [x] Bash, zsh, fish, and PowerShell shell completion support.
 - [x] Local service discovery for adapters through `recollectium service discover` and `service-discovery.json`.
 - [x] Workspace UID contract: normalization, listing, rename, aliasing, and CLI/API/MCP parity.
-- [x] Install-time init and model readiness checks for CLI, service startup, and bootstrap install flows.
+- [x] Install-time and upgrade-time embedding maintenance prepares the configured model and refreshes stale embeddings when needed.
 - [x] Canonical memory buckets and optional read filters across CLI, API, MCP, docs, and completion.
 - [x] OpenCode adapter readiness handoff through documented service discovery, health, version, capabilities, workspace UID behavior, and adapter contract docs.
 - [x] Package upgrade flow through `recollectium upgrade` with dry-run/check modes and service-state preservation.

@@ -111,6 +111,8 @@ $ref = Get-RecollectiumInstallRef
 $package = "git+https://github.com/$Repo.git@$ref"
 Write-Host "Installing Recollectium from $ref..."
 & $uv tool install --python 3.12 --force $package
+Write-Host "Maintaining embeddings (config, database, model, stale memories)..."
+& $uv tool run --from $package recollectium embedding-maintenance
 if ($env:Path -notlike "*$ToolBin*") {
     $env:Path = "$ToolBin;$env:Path"
 }

@@ -41,7 +41,7 @@ Windows PowerShell:
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/AlfonsoDehesa/recollectium/main/install.ps1 | iex"
 ```
 
-The bootstrap installer tracks the latest release by default. See [Installation](https://github.com/AlfonsoDehesa/Recollectium/wiki/Installation) for pinned versions, `main`, and upgrade targets.
+The bootstrap installer tracks the latest release by default. It also prepares the configured embedding model and refreshes stale local embeddings when needed. See [Installation](https://github.com/AlfonsoDehesa/Recollectium/wiki/Installation) for pinned versions, `main`, and upgrade targets.
 
 For the full setup flow, including first memory, service startup, MCP, API, logs, and troubleshooting, see the [Quick Start](https://github.com/AlfonsoDehesa/Recollectium/wiki/Quick-Start) in the GitHub Wiki.
 
@@ -71,7 +71,7 @@ Common next steps:
 - Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB.
 - Managed API and MCP service lifecycle with discovery metadata for adapters.
 - Structured JSON logging with rotation.
-- Bootstrap install, package upgrade, safe uninstall, and shell completion.
+- Bootstrap install, package upgrade with embedding maintenance, safe uninstall, and shell completion.
 
 ## Documentation
 
