@@ -4744,6 +4744,46 @@ def test_cli_uninstall_purge_deletes_recollectium_owned_paths(
     assert (tmp_path / "data").exists()
 
 
+def test_cli_uninstall_purge_deletes_macos_application_support_install_metadata(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    metadata_path = (
+        tmp_path / "Library" / "Application Support" / "recollectium" / "install.json"
+    )
+    config_path.parent.mkdir(parents=True)
+    metadata_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "recollectium.cli.user_state_dir",
+        lambda _app_name: str(metadata_path.parent),
+    )
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--purge", "--yes-delete-all-recollectium-data"], capsys
+    )
+
+    payload = json.loads(stdout)
+    skipped = payload["data"]["purge"]["skipped"]
+    assert exit_code == 0
+    assert "permanently deleted" in stderr
+    assert not metadata_path.exists()
+    assert any(
+        item["path"] == str(metadata_path)
+        for item in payload["data"]["purge"]["deleted"]
+    )
+    assert not any(
+        item["path"] == str(metadata_path)
+        and item["reason"] == "not_recollectium_owned"
+        for item in skipped
+    )
+
+
 def test_cli_uninstall_purge_reports_delete_errors(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

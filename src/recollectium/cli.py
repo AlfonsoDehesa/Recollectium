@@ -2658,6 +2658,7 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
             owned_paths.add(default_dirs[key].expanduser().resolve(strict=False))
     if plan.config.xdg_dirs["data"].expanduser().resolve(strict=False) in owned_paths:
         owned_paths.add(plan.database_path.expanduser().resolve(strict=False))
+    owned_paths.add(plan.install_metadata_path.expanduser().resolve(strict=False))
 
     raw_targets = [
         plan.config_path,
