@@ -158,6 +158,55 @@ def test_serializers_use_existing_models(tmp_path: Path) -> None:
     assert serialize_embedding_jobs([job]) == [job]
 
 
+def test_embedding_serializers_project_with_operation_and_verbosity() -> None:
+    status = {
+        "provider_status": "configured",
+        "embedding_profile": {"provider": "fake", "model": "fake-model"},
+        "model_status": {"ready": True},
+        "embedding_jobs_status_path": "/tmp/jobs.json",
+        "extra_detail": "verbose-only",
+    }
+
+    compact_status = serialize_embedding_status(
+        status, operation=OPERATION_EMBEDDING_STATUS
+    )
+    assert compact_status == {
+        "provider_status": "configured",
+        "embedding_profile": {"provider": "fake", "model": "fake-model"},
+        "model_status": {"ready": True},
+        "embedding_jobs_status_path": "/tmp/jobs.json",
+    }
+    assert serialize_embedding_status(
+        status,
+        verbosity="verbose",
+        operation=OPERATION_EMBEDDING_STATUS,
+    ) is status
+
+    job = {
+        "id": "job-1",
+        "state": "completed",
+        "reason": "test",
+        "total": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "started_at": "verbose-only",
+    }
+    compact_job = {
+        "id": "job-1",
+        "state": "completed",
+        "reason": "test",
+        "total": 2,
+        "succeeded": 2,
+        "failed": 0,
+    }
+    assert serialize_embedding_job(
+        job, operation=OPERATION_EMBEDDING_JOBS_GET
+    ) == compact_job
+    assert serialize_embedding_jobs(
+        [job], operation=OPERATION_EMBEDDING_JOBS_LIST
+    ) == [compact_job]
+
+
 def test_success_payload_wraps_data_without_mutation() -> None:
     data = [{"id": "m-1"}, {"id": "m-2"}]
     assert success_payload(data) == {"data": data}

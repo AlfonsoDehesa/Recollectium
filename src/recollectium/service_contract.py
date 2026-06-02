@@ -13,8 +13,27 @@ from recollectium.models import (
     SearchResult,
 )
 from recollectium.representations import (
+    OPERATION_CAPABILITIES_READ,
+    OPERATION_EMBEDDING_JOBS_CLEAR,
+    OPERATION_EMBEDDING_JOBS_GET,
+    OPERATION_EMBEDDING_JOBS_LIST,
+    OPERATION_EMBEDDING_REFRESH,
+    OPERATION_EMBEDDING_STATUS,
+    OPERATION_HEALTH_READ,
+    OPERATION_MEMORIES_ADD,
+    OPERATION_MEMORIES_ARCHIVE,
+    OPERATION_MEMORIES_GET,
+    OPERATION_MEMORIES_LIST,
     OPERATION_MEMORIES_SEARCH_USER,
     OPERATION_MEMORIES_SEARCH_WORKSPACE,
+    OPERATION_MEMORIES_UPDATE,
+    OPERATION_VERSION_READ,
+    OPERATION_WORKSPACES_ALIASES_ADD,
+    OPERATION_WORKSPACES_ALIASES_LIST,
+    OPERATION_WORKSPACES_ALIASES_REMOVE,
+    OPERATION_WORKSPACES_LIST,
+    OPERATION_WORKSPACES_RENAME,
+    OPERATION_WORKSPACES_RESOLVE,
     project_payload,
 )
 
@@ -22,26 +41,6 @@ SERVICE_API_VERSION = "1"
 SERVICE_API_PREFIX = f"/v{SERVICE_API_VERSION}"
 SERVICE_DEFAULT_HOST = "127.0.0.1"
 SERVICE_DEFAULT_PORT = 8765
-
-OPERATION_HEALTH_READ = "health.read"
-OPERATION_VERSION_READ = "version.read"
-OPERATION_CAPABILITIES_READ = "capabilities.read"
-OPERATION_MEMORIES_ADD = "memories.add"
-OPERATION_MEMORIES_UPDATE = "memories.update"
-OPERATION_MEMORIES_ARCHIVE = "memories.archive"
-OPERATION_MEMORIES_LIST = "memories.list"
-OPERATION_MEMORIES_GET = "memories.get"
-OPERATION_EMBEDDING_STATUS = "embedding.status"
-OPERATION_EMBEDDING_JOBS_LIST = "embedding.jobs.list"
-OPERATION_EMBEDDING_JOBS_GET = "embedding.jobs.get"
-OPERATION_EMBEDDING_REFRESH = "embedding.refresh"
-OPERATION_EMBEDDING_JOBS_CLEAR = "embedding.jobs.clear"
-OPERATION_WORKSPACES_LIST = "workspaces.list"
-OPERATION_WORKSPACES_RENAME = "workspaces.rename"
-OPERATION_WORKSPACES_RESOLVE = "workspaces.resolve"
-OPERATION_WORKSPACES_ALIASES_LIST = "workspaces.aliases.list"
-OPERATION_WORKSPACES_ALIASES_ADD = "workspaces.aliases.add"
-OPERATION_WORKSPACES_ALIASES_REMOVE = "workspaces.aliases.remove"
 
 SERVICE_CAPABILITIES = (
     OPERATION_HEALTH_READ,
@@ -110,16 +109,32 @@ def serialize_search_results(
     ]
 
 
-def serialize_embedding_status(status: dict[str, Any]) -> dict[str, Any]:
-    return status
+def serialize_embedding_status(
+    status: dict[str, Any], *, verbosity: str | None = None, operation: str | None = None
+) -> dict[str, Any]:
+    if verbosity is None and operation is None:
+        return status
+    return project_payload(status, verbosity=verbosity, operation=operation)
 
 
-def serialize_embedding_job(job: dict[str, Any]) -> dict[str, Any]:
-    return job
+def serialize_embedding_job(
+    job: dict[str, Any], *, verbosity: str | None = None, operation: str | None = None
+) -> dict[str, Any]:
+    if verbosity is None and operation is None:
+        return job
+    return project_payload(job, verbosity=verbosity, operation=operation)
 
 
-def serialize_embedding_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [serialize_embedding_job(job) for job in jobs]
+def serialize_embedding_jobs(
+    jobs: list[dict[str, Any]],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        serialize_embedding_job(job, verbosity=verbosity, operation=operation)
+        for job in jobs
+    ]
 
 
 def success_payload(data: Any) -> dict[str, Any]:

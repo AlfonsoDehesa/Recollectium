@@ -2258,6 +2258,66 @@ def test_cli_json_verbosity_compact_vs_verbose_memory_shapes(tmp_path, capsys) -
     assert isinstance(compact_search[0]["match"], float)
 
 
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("add", "Memory saved!\n"),
+        ("update", "Memory updated.\n"),
+        ("archive", "Memory archived.\n"),
+    ],
+)
+def test_cli_human_compact_projects_mutations_to_short_messages(
+    command: str,
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        {
+            "id": "mem-1",
+            "content": "compact human mutation",
+            "type": "fact",
+            "space": "user",
+            "metadata": {"source": "test"},
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        output_format="human_readable",
+        command=command,
+        response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+    )
+
+    assert stream.getvalue() == expected
+
+
+def test_cli_human_verbose_preserves_detailed_mutation_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        {
+            "id": "mem-1",
+            "content": "verbose human mutation",
+            "type": "fact",
+            "space": "user",
+            "metadata": {"source": "test"},
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        output_format="human_readable",
+        command="add",
+        response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
+    )
+
+    output = stream.getvalue()
+    assert output.startswith("Memory added\n")
+    assert "Memory mem-1 (fact)" in output
+    assert "Content: verbose human mutation" in output
+    assert "Metadata: {\"source\": \"test\"}" in output
+
+
 def test_cli_response_verbosity_flag_overrides_config_without_mutation(
     tmp_path, capsys
 ) -> None:

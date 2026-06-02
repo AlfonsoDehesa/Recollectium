@@ -32,6 +32,15 @@ OPERATION_EMBEDDING_JOBS_LIST = "embedding.jobs.list"
 OPERATION_EMBEDDING_JOBS_GET = "embedding.jobs.get"
 OPERATION_EMBEDDING_REFRESH = "embedding.refresh"
 OPERATION_EMBEDDING_JOBS_CLEAR = "embedding.jobs.clear"
+OPERATION_HEALTH_READ = "health.read"
+OPERATION_VERSION_READ = "version.read"
+OPERATION_CAPABILITIES_READ = "capabilities.read"
+OPERATION_WORKSPACES_LIST = "workspaces.list"
+OPERATION_WORKSPACES_RENAME = "workspaces.rename"
+OPERATION_WORKSPACES_RESOLVE = "workspaces.resolve"
+OPERATION_WORKSPACES_ALIASES_LIST = "workspaces.aliases.list"
+OPERATION_WORKSPACES_ALIASES_ADD = "workspaces.aliases.add"
+OPERATION_WORKSPACES_ALIASES_REMOVE = "workspaces.aliases.remove"
 
 
 def validate_response_verbosity(
