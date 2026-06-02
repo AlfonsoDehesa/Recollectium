@@ -10,8 +10,8 @@ import pytest
 from recollectium.core import RecollectiumCore
 from recollectium.model_state import read_model_state, write_model_state
 
-# The only model name config validation currently accepts.
-_SUPPORTED_MODEL = "jinaai/jina-embeddings-v2-small-en"
+# The default model name config validation accepts.
+_SUPPORTED_MODEL = "BAAI/bge-base-en-v1.5"
 
 
 class TrackedEmbeddingProvider:
@@ -121,6 +121,28 @@ def test_ensure_model_ready_prepares_when_model_mismatch(tmp_path: Path):
     assert len(provider.ensure_ready_calls) == 1
     state = read_model_state(state_dir)
     assert state["prepared_model"] == _SUPPORTED_MODEL  # type: ignore[reportOptionalSubscript]
+
+
+def test_ensure_model_ready_prepares_when_profile_mismatch(tmp_path: Path):
+    """If profile in state file differs from provider profile, ensure_ready is called."""
+    state_dir = tmp_path / "state"
+    write_model_state(
+        state_dir,
+        model=_SUPPORTED_MODEL,
+        dimensions=3,
+        profile="old-profile",
+    )
+    provider = TrackedEmbeddingProvider()
+    config = _make_config(tmp_path)
+    core = RecollectiumCore(
+        db_path=tmp_path / "test.db",
+        config_path=config,
+        embedding_provider=provider,
+    )
+    core._ensure_model_ready(state_dir=state_dir)
+    assert len(provider.ensure_ready_calls) == 1
+    state = read_model_state(state_dir)
+    assert state["profile"] == "fake-profile-v1"  # type: ignore[reportOptionalSubscript]
 
 
 def test_ensure_model_ready_raises_on_provider_failure(tmp_path: Path):

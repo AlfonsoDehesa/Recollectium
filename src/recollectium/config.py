@@ -21,6 +21,10 @@ from platformdirs import (
 )
 
 from recollectium.errors import ValidationError
+from recollectium.embeddings import (
+    BUILTIN_FASTEMBED_MODEL_SPECS,
+    DEFAULT_BUILTIN_FASTEMBED_MODEL,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -28,7 +32,8 @@ from recollectium.errors import ValidationError
 
 CONFIG_VERSION = 1
 SUPPORTED_EMBEDDING_PROVIDER = "builtin-fastembed"
-SUPPORTED_EMBEDDING_MODEL = "jinaai/jina-embeddings-v2-small-en"
+SUPPORTED_EMBEDDING_MODEL = DEFAULT_BUILTIN_FASTEMBED_MODEL
+SUPPORTED_EMBEDDING_MODELS = frozenset(BUILTIN_FASTEMBED_MODEL_SPECS)
 SUPPORTED_LOGGING_LEVELS = {"debug", "info", "warning", "error"}
 SUPPORTED_LOGGING_FORMATS = {"json"}
 CLI_OUTPUT_JSON = "json"
@@ -148,11 +153,10 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
                 f"(got {provider!r})"
             )
         model = embedding.get("model")
-        if isinstance(model, str) and model != SUPPORTED_EMBEDDING_MODEL:
+        if isinstance(model, str) and model not in SUPPORTED_EMBEDDING_MODELS:
+            allowed = ", ".join(sorted(SUPPORTED_EMBEDDING_MODELS))
             raise ValidationError(
-                "embedding.model only supports "
-                f"{SUPPORTED_EMBEDDING_MODEL!r} in this release "
-                f"(got {model!r})"
+                f"embedding.model must be one of: {allowed} (got {model!r})"
             )
 
     # Service port range

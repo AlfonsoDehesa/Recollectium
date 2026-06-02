@@ -8,6 +8,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### ✨ Features
 
+- Changed the default built-in FastEmbed model to `BAAI/bge-base-en-v1.5` with profile `builtin-fastembed-bge-base-en-v1-5-v1`, 768 dimensions, max tokens 512, chunk tokens 384, and overlap 64; `jinaai/jina-embeddings-v2-small-en` remains supported as the legacy built-in profile with 512 dimensions, max tokens 8192, chunk tokens 6144, and overlap 512.
 - Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set NDCG@5 separately without a combined score.
 - Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
 

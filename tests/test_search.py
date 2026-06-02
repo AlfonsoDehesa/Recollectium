@@ -43,23 +43,44 @@ def test_provider_profile_matches_fastembed_spec() -> None:
 
     assert provider.embedding_profile == {
         "provider": "builtin-fastembed",
-        "model": "jinaai/jina-embeddings-v2-small-en",
-        "dimensions": 512,
+        "model": "BAAI/bge-base-en-v1.5",
+        "dimensions": 768,
         "version": "1",
-        "profile": "builtin-fastembed-jina-v2-small-en-v1",
-        "max_tokens": 8192,
-        "chunk_tokens": 6144,
-        "chunk_overlap_tokens": 512,
+        "profile": "builtin-fastembed-bge-base-en-v1-5-v1",
+        "max_tokens": 512,
+        "chunk_tokens": 384,
+        "chunk_overlap_tokens": 64,
         "query_prompt_policy": "raw",
     }
 
+    legacy_provider = BuiltinFastEmbedProvider("jinaai/jina-embeddings-v2-small-en")
+    assert (
+        legacy_provider.embedding_profile["model"]
+        == "jinaai/jina-embeddings-v2-small-en"
+    )
+    assert legacy_provider.embedding_profile["dimensions"] == 512
+    assert (
+        legacy_provider.embedding_profile["profile"]
+        == "builtin-fastembed-jina-v2-small-en-v1"
+    )
 
-def test_real_embedding_shape_is_512() -> None:
+
+def test_provider_rejects_unsupported_model() -> None:
+    with pytest.raises(EmbeddingModelUnavailableError) as exc_info:
+        BuiltinFastEmbedProvider("unknown-model")
+
+    message = str(exc_info.value)
+    assert "unsupported built-in FastEmbed model 'unknown-model'" in message
+    assert "BAAI/bge-base-en-v1.5" in message
+    assert "jinaai/jina-embeddings-v2-small-en" in message
+
+
+def test_real_embedding_shape_is_768() -> None:
     pytest.importorskip("fastembed")
     provider = BuiltinFastEmbedProvider()
     vector = provider.embed("Recollectium should return stable embedding dimensions")
 
-    assert len(vector) == 512
+    assert len(vector) == 768
     assert any(value != 0.0 for value in vector)
 
 
@@ -281,7 +302,7 @@ def test_builtin_fastembed_get_embedder_import_load_and_cache_failures(
 def test_builtin_fastembed_dimension_validation_and_zero_ready_check() -> None:
     provider = BuiltinFastEmbedProvider()
 
-    with pytest.raises(EmbeddingDimensionMismatchError, match="expected 512"):
+    with pytest.raises(EmbeddingDimensionMismatchError, match="expected 768"):
         provider._validate_dimensions([1.0])
 
     class ZeroProvider(BuiltinFastEmbedProvider):

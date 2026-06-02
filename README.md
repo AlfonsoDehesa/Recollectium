@@ -63,8 +63,8 @@ Common next steps:
 - Explicit `user` and `workspace` memory scopes.
 - Canonical memory buckets for preferences, facts, decisions, task context, configuration, bug findings, and notes.
 - Create, search, list, get, update, and archive memory operations.
-- Local FastEmbed embeddings with `jinaai/jina-embeddings-v2-small-en`.
-- Background re-embedding jobs and embedding status inspection.
+- Local FastEmbed embeddings with `BAAI/bge-base-en-v1.5` by default, plus legacy `jinaai/jina-embeddings-v2-small-en` support. BGE base uses 768 dimensions, max tokens 512, chunk tokens 384, and overlap 64. Jina small uses 512 dimensions, max tokens 8192, chunk tokens 6144, and overlap 512.
+- Background re-embedding jobs and embedding status inspection. Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path.
 - CLI, Python API, local HTTP API, and MCP surfaces.
 - Configurable CLI output, with Rich-backed TTY color for human-readable text and JSON available for automation.
 - Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB.

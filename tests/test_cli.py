@@ -53,7 +53,8 @@ from recollectium.core import RecollectiumCore
 class FakeEmbeddingProvider:
     """Lightweight fake embedding provider for CLI workspace tests."""
 
-    def __init__(self) -> None:
+    def __init__(self, model_name: str | None = None) -> None:
+        self.model_name = model_name
         self.embedding_profile = {
             "provider": "fake",
             "model": "fake-model",
@@ -182,8 +183,8 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
 
     embedding_status_help = _run_help(["embedding-status", "--help"], capsys)
     assert "built-in local FastEmbed" in embedding_status_help
-    assert "jinaai/jina-" in embedding_status_help
-    assert "embeddings-v2-small-en" in embedding_status_help
+    assert "BAAI/bge-base-en-v1.5" in embedding_status_help
+    assert "jinaai/jina-embeddings-v2-small-en" in embedding_status_help
 
     embedding_jobs_help = _run_help(["embedding-jobs", "--help"], capsys)
     assert "--job-id" in embedding_jobs_help
@@ -540,7 +541,10 @@ def test_cli_explicit_missing_config_fails_for_normal_command(
     assert f"config file not found: {config_path}" in stderr
 
 
-def test_cli_full_workflow(tmp_path, capsys) -> None:
+def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
     db_path = tmp_path / "cli.db"
 
     add_user_code, add_user_out, add_user_err = _run_cli(
@@ -2603,6 +2607,49 @@ class TestConfigCommand:
         assert loaded["service"]["port"] == 9090
         assert isinstance(loaded["service"]["port"], int)
 
+    @pytest.mark.parametrize(
+        "model_name",
+        ["BAAI/bge-base-en-v1.5", "jinaai/jina-embeddings-v2-small-en"],
+    )
+    def test_config_set_accepts_supported_embedding_models(
+        self, tmp_path, capsys, model_name: str
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--config",
+                str(config_path),
+                "config",
+                "set",
+                "embedding.model",
+                model_name,
+            ],
+            capsys,
+        )
+        assert exit_code == 0
+        assert stderr == ""
+        loaded = json.loads(config_path.read_text())
+        assert loaded["embedding"]["model"] == model_name
+
+    def test_config_set_rejects_unknown_embedding_model(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--config",
+                str(config_path),
+                "config",
+                "set",
+                "embedding.model",
+                "unknown-model",
+            ],
+            capsys,
+        )
+        assert exit_code == 2
+        assert stdout == ""
+        assert "embedding.model must be one of" in stderr
+        assert "BAAI/bge-base-en-v1.5" in stderr
+        assert "jinaai/jina-embeddings-v2-small-en" in stderr
+
     def test_config_set_can_enable_seeded_dev_database(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
         exit_code, stdout, stderr = _run_cli(
@@ -3172,7 +3219,7 @@ def test_cli_init_creates_runtime_files_and_downloads_model(
     assert payload["status"] == "initialized"
     assert payload["config"] == str(config_path)
     assert payload["database"] == str(db_path)
-    assert payload["embedding_model"] == "jinaai/jina-embeddings-v2-small-en"
+    assert payload["embedding_model"] == "BAAI/bge-base-en-v1.5"
     assert config_path.exists()
     assert db_path.exists()
     assert (tmp_path / "cache" / "recollectium").is_dir()
