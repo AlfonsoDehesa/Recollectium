@@ -697,6 +697,22 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["up_to_date"] is True
 
 
+def test_cli_dev_help_documents_actions(capsys) -> None:
+    dev_help = _run_help(["dev", "--help"], capsys)
+    assert "seeded development" in dev_help
+    assert "true" in dev_help
+    assert "false" in dev_help
+    assert "reset" in dev_help
+    assert "eval" in dev_help
+
+    eval_help = _run_help(["dev", "eval", "--help"], capsys)
+    assert "Exact MRR" in eval_help
+    assert "Semantic MRR" in eval_help
+    assert "Thematic Precision@10" in eval_help
+    assert "Ranked-set NDCG@5" in eval_help
+    assert "No combined score" in eval_help
+
+
 def test_cli_dev_reset_resets_configured_seed_database(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -780,6 +796,149 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     loaded = json.loads(config_path.read_text(encoding="utf-8"))
     assert loaded["development"]["use_seeded_database"] is False
     assert not regular_db.exists()
+
+
+def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "dev", "eval"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "ok"
+    assert payload["database"] == str(dev_db)
+    assert payload["preparation"]["seeded_database"] == "reset"
+    assert payload["preparation"]["fixtures"] == "loaded"
+    assert set(payload["metrics"]) == {
+        "exact_mrr",
+        "semantic_mrr",
+        "thematic_precision_at_10",
+        "ranked_set_ndcg_at_5",
+    }
+    assert "combined_score" not in payload
+    assert "combined_score" not in payload["metrics"]
+    assert payload["metrics"]["exact_mrr"]["targets"] == 190
+    assert payload["metrics"]["exact_mrr"]["hit_at_1"] >= 0.0
+    assert payload["metrics"]["exact_mrr"]["hit_at_3"] >= 0.0
+    assert payload["metrics"]["semantic_mrr"]["queries"] == 570
+    assert payload["metrics"]["thematic_precision_at_10"]["groups"] == 19
+    assert payload["metrics"]["ranked_set_ndcg_at_5"]["cases"] >= 12
+    assert set(payload["diagnostics"]) == {
+        "worst_exact",
+        "worst_semantic",
+        "worst_thematic",
+        "worst_ranked_sets",
+        "confusers",
+    }
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_eval_human_output_contains_progress_and_separate_metrics(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "dev", "eval", "--human-readable"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Recollectium dev eval" in stdout
+    assert "Preparing seeded development database... reset" in stdout
+    assert "Loading eval fixtures... loaded" in stdout
+    assert "Running exact MRR" in stdout
+    assert "user memories       100/100" in stdout
+    assert "workspace memories  90/90" in stdout
+    assert "Running semantic MRR" in stdout
+    assert "paraphrases         570/570" in stdout
+    assert "Running thematic Precision@10" in stdout
+    assert "Running ranked-set NDCG@5" in stdout
+    assert "Results" in stdout
+    assert "Exact MRR" in stdout
+    assert "Semantic MRR" in stdout
+    assert "Thematic Precision@10" in stdout
+    assert "Ranked-set NDCG@5" in stdout
+    assert "Diagnostics" in stdout
+    assert "combined" not in stdout.casefold()
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
+    output = _format_human_output(
+        {
+            "status": "ok",
+            "database": "/tmp/dev.db",
+            "preparation": {"seeded_database": "ready", "fixtures": "loaded"},
+            "phases": {
+                "exact_mrr": {
+                    "user_memories": 1,
+                    "workspace_memories": 1,
+                    "total": 2,
+                },
+                "semantic_mrr": {"paraphrases": 6, "targets": 2},
+                "thematic_precision_at_10": {
+                    "user_topics": 1,
+                    "workspace_themes": 1,
+                    "queries": 6,
+                },
+                "ranked_set_ndcg_at_5": {"cases": 2},
+            },
+            "metrics": {
+                "exact_mrr": {"value": 1.0},
+                "semantic_mrr": {"value": 1.0},
+                "thematic_precision_at_10": {"value": 1.0},
+                "ranked_set_ndcg_at_5": {"value": 1.0},
+            },
+            "diagnostics": {
+                "worst_exact": [],
+                "worst_semantic": [],
+                "worst_thematic": [],
+                "worst_ranked_sets": [],
+                "confusers": [],
+            },
+        },
+        command="dev eval",
+    )
+
+    assert "Worst exact target: none" in output
+    assert "Worst semantic target: none" in output
+    assert "Most confused group: none" in output
+    assert "Worst ranked-set case: none" in output
 
 
 def test_cli_dev_reset_resolves_relative_seed_database_path(
