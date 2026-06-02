@@ -18,6 +18,7 @@ import tempfile
 import time
 from io import StringIO
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Sequence
 
 from rich.console import Console
@@ -433,6 +434,9 @@ def _format_human_output(
         thematic_phase = phases["thematic_precision_at_10"]
         ranked_phase = phases["ranked_set_ndcg_at_5"]
         lines = [_style("Recollectium dev eval", _RICH_HEADING, enabled=color), ""]
+        lines.append(f"Seeded dev DB: {payload['database']}")
+        lines.append(f"Regular DB: {payload['regular_database']}")
+        lines.append("Regular DB not touched: yes")
         lines.append(
             f"Preparing seeded development database... {payload['preparation']['seeded_database']}"
         )
@@ -487,11 +491,34 @@ def _format_human_output(
             )
         else:
             lines.append("  Most confused group: none")
+        if diagnostics["worst_thematic"]:
+            worst_thematic = diagnostics["worst_thematic"][0]
+            distribution = ", ".join(
+                f"{entry['group']}={entry['count']}"
+                for entry in worst_thematic["group_distribution"][:3]
+            )
+            lines.append(
+                "  Worst thematic query: "
+                f"{worst_thematic['expected_group']}, precision {worst_thematic['precision']:.3f}, "
+                f"matches {worst_thematic['matching_results']}, returned {distribution or 'none'}"
+            )
+        else:
+            lines.append("  Worst thematic query: none")
         if diagnostics["worst_ranked_sets"]:
             worst_ranked = diagnostics["worst_ranked_sets"][0]
+            expected = ", ".join(
+                f"{memory['memory_id']}:{memory['grade']}"
+                for memory in worst_ranked["expected_memories"][:3]
+            )
+            returned = ", ".join(
+                f"{memory['memory_id']}:{memory['grade']}"
+                for memory in worst_ranked["returned_top"][:5]
+            )
             lines.append(
                 f"  Worst ranked-set case: {worst_ranked['case_id']}, NDCG {worst_ranked['ndcg']:.3f}"
             )
+            lines.append(f"    expected top grades: {expected or 'none'}")
+            lines.append(f"    returned top grades: {returned or 'none'}")
         else:
             lines.append("  Worst ranked-set case: none")
         return "\n".join(lines) + "\n"
@@ -549,6 +576,11 @@ def _emit_success(
         )
         return
     print(json.dumps(payload, indent=json_indent, sort_keys=True))
+
+
+def _emit_human_progress(message: str) -> None:
+    sys.stdout.write(f"Status: {message}\n")
+    sys.stdout.flush()
 
 
 def _parse_config_value(raw: str) -> Any:
@@ -1190,6 +1222,17 @@ def _resolve_seeded_dev_database_path(cfg: RecollectiumConfig) -> Path:
     return dev_path
 
 
+def _resolve_regular_database_path(cfg: RecollectiumConfig) -> Path:
+    db_path = Path(cfg.effective_config["database"]["path"])
+    if not db_path.is_absolute():
+        db_path = cfg.xdg_dirs["data"] / db_path
+    return db_path
+
+
+def _paths_equal(first: Path, second: Path) -> bool:
+    return first.resolve(strict=False) == second.resolve(strict=False)
+
+
 def _metric_value(value: float) -> float:
     return round(value, 6)
 
@@ -1346,22 +1389,38 @@ def _run_seeded_dev_eval(
     *,
     provider: Any,
     config_path: Path | None,
+    progress: Callable[[str], None] | None = None,
 ) -> dict[str, object]:
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
+    regular_db_path = _resolve_regular_database_path(cfg)
+    if progress is not None:
+        progress(f"Preparing seeded development database: {dev_db_path}")
     seed_result = ensure_seeded_dev_database(dev_db_path, provider)
+    if progress is not None:
+        progress("Loading eval fixtures")
     core = RecollectiumCore(
         db_path=dev_db_path,
         config_path=config_path,
         embedding_provider=provider,
         log_level=cfg.effective_config["logging"]["level"],
     )
+    if progress is not None:
+        progress("Running exact MRR")
     exact_report = evaluate_exact_mrr_for_core(core)
+    if progress is not None:
+        progress("Running semantic MRR")
     semantic_report = evaluate_semantic_mrr_for_core(core)
+    if progress is not None:
+        progress("Running thematic Precision@10")
     thematic_report = evaluate_thematic_precision_for_core(core)
+    if progress is not None:
+        progress("Running ranked-set NDCG@5")
     ranked_set_report = evaluate_ranked_set_ndcg_for_core(core)
     return {
         "status": "ok",
         "database": str(dev_db_path),
+        "regular_database": str(regular_db_path),
+        "regular_database_not_touched": True,
         "preparation": {
             "seeded_database": "ready"
             if seed_result is None
@@ -3271,11 +3330,13 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_reset_parser.set_defaults(state="reset")
     dev_eval_parser = dev_subparsers.add_parser(
         "eval",
-        help="run seeded retrieval metrics against the dev database",
+        help="run seeded development retrieval regression metrics",
         description=(
             "Initialize or refresh the seeded development database if needed, then "
             "run Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set "
-            "NDCG@5 against that database only. No combined score is reported."
+            "NDCG@5 against that database only. This is a seeded development "
+            "regression check, not a benchmark leaderboard or user-facing quality "
+            "guarantee. No combined score is reported."
         ),
     )
     dev_eval_parser.set_defaults(state="eval")
@@ -3918,12 +3979,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             if args.state == "eval":
+                dev_db_path = _resolve_seeded_dev_database_path(cfg)
+                regular_db_path = _resolve_regular_database_path(cfg)
+                if _paths_equal(dev_db_path, regular_db_path):
+                    return _emit_cli_failure(
+                        status="unsafe_seeded_database_path",
+                        message="Seeded dev database path matches the regular database path.",
+                        detail=(
+                            "dev eval can reset the seeded database, so it will not run "
+                            "when both paths resolve to the same file."
+                        ),
+                        hint=(
+                            "Set development.seeded_database_path to a separate development "
+                            "database before running recollectium dev eval."
+                        ),
+                        exit_code=1,
+                        command="dev eval",
+                        seeded_database=str(dev_db_path),
+                        regular_database=str(regular_db_path),
+                    )
+                progress = (
+                    _emit_human_progress
+                    if output_format == CLI_OUTPUT_HUMAN_READABLE
+                    else None
+                )
+                if progress is not None:
+                    progress("Checking embedding provider readiness")
                 provider = BuiltinFastEmbedProvider()
                 provider.ensure_ready()
                 result = _run_seeded_dev_eval(
                     cfg,
                     provider=provider,
                     config_path=core_config_path,
+                    progress=progress,
                 )
                 _emit_success(result, output_format=output_format, command="dev eval")
                 return 0

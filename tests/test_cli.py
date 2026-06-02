@@ -710,6 +710,10 @@ def test_cli_dev_help_documents_actions(capsys) -> None:
     assert "Semantic MRR" in eval_help
     assert "Thematic Precision@10" in eval_help
     assert "Ranked-set NDCG@5" in eval_help
+    normalized_eval_help = " ".join(eval_help.split())
+    assert "seeded development regression check" in normalized_eval_help
+    assert "not a benchmark leaderboard" in normalized_eval_help
+    assert "user-facing quality guarantee" in normalized_eval_help
     assert "No combined score" in eval_help
 
 
@@ -825,6 +829,8 @@ def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
     payload = json.loads(stdout)
     assert payload["status"] == "ok"
     assert payload["database"] == str(dev_db)
+    assert payload["regular_database"] == str(regular_db)
+    assert payload["regular_database_not_touched"] is True
     assert payload["preparation"]["seeded_database"] == "reset"
     assert payload["preparation"]["fixtures"] == "loaded"
     assert set(payload["metrics"]) == {
@@ -848,6 +854,7 @@ def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
         "worst_ranked_sets",
         "confusers",
     }
+    assert "Status:" not in stdout
     assert dev_db.exists()
     assert not regular_db.exists()
 
@@ -877,7 +884,14 @@ def test_cli_dev_eval_human_output_contains_progress_and_separate_metrics(
 
     assert exit_code == 0
     assert stderr == ""
+    assert stdout.index("Status: Checking embedding provider readiness") < stdout.index(
+        "Recollectium dev eval"
+    )
+    assert f"Status: Preparing seeded development database: {dev_db}" in stdout
     assert "Recollectium dev eval" in stdout
+    assert f"Seeded dev DB: {dev_db}" in stdout
+    assert f"Regular DB: {regular_db}" in stdout
+    assert "Regular DB not touched: yes" in stdout
     assert "Preparing seeded development database... reset" in stdout
     assert "Loading eval fixtures... loaded" in stdout
     assert "Running exact MRR" in stdout
@@ -903,6 +917,8 @@ def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
         {
             "status": "ok",
             "database": "/tmp/dev.db",
+            "regular_database": "/tmp/regular.db",
+            "regular_database_not_touched": True,
             "preparation": {"seeded_database": "ready", "fixtures": "loaded"},
             "phases": {
                 "exact_mrr": {
@@ -937,8 +953,119 @@ def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
 
     assert "Worst exact target: none" in output
     assert "Worst semantic target: none" in output
+    assert "Worst thematic query: none" in output
     assert "Most confused group: none" in output
     assert "Worst ranked-set case: none" in output
+
+
+def test_cli_dev_eval_human_output_includes_compact_diagnostics() -> None:
+    output = _format_human_output(
+        {
+            "status": "ok",
+            "database": "/tmp/dev.db",
+            "regular_database": "/tmp/regular.db",
+            "regular_database_not_touched": True,
+            "preparation": {"seeded_database": "ready", "fixtures": "loaded"},
+            "phases": {
+                "exact_mrr": {"user_memories": 1, "workspace_memories": 1, "total": 2},
+                "semantic_mrr": {"paraphrases": 6, "targets": 2},
+                "thematic_precision_at_10": {
+                    "user_topics": 1,
+                    "workspace_themes": 1,
+                    "queries": 6,
+                },
+                "ranked_set_ndcg_at_5": {"cases": 2},
+            },
+            "metrics": {
+                "exact_mrr": {"value": 0.5},
+                "semantic_mrr": {"value": 0.5},
+                "thematic_precision_at_10": {"value": 0.4},
+                "ranked_set_ndcg_at_5": {"value": 0.3},
+            },
+            "diagnostics": {
+                "worst_exact": [],
+                "worst_semantic": [],
+                "worst_thematic": [
+                    {
+                        "expected_group": "project_planning",
+                        "precision": 0.2,
+                        "matching_results": 2,
+                        "group_distribution": [
+                            {"group": "infra", "count": 4},
+                            {"group": "project_planning", "count": 2},
+                        ],
+                    }
+                ],
+                "worst_ranked_sets": [
+                    {
+                        "case_id": "ranked-case",
+                        "ndcg": 0.25,
+                        "expected_memories": [
+                            {"memory_id": "expected-a", "grade": 3},
+                            {"memory_id": "expected-b", "grade": 2},
+                        ],
+                        "returned_top": [
+                            {"memory_id": "actual-x", "grade": 0},
+                            {"memory_id": "expected-b", "grade": 2},
+                        ],
+                    }
+                ],
+                "confusers": [],
+            },
+        },
+        command="dev eval",
+    )
+
+    assert "Worst thematic query: project_planning, precision 0.200" in output
+    assert "matches 2, returned infra=4, project_planning=2" in output
+    assert "Worst ranked-set case: ranked-case, NDCG 0.250" in output
+    assert "expected top grades: expected-a:3, expected-b:2" in output
+    assert "returned top grades: actual-x:0, expected-b:2" in output
+
+
+@pytest.mark.parametrize("output_mode", ["--json", "--human-readable"])
+def test_cli_dev_eval_refuses_when_seeded_database_matches_regular_database(
+    tmp_path, capsys, monkeypatch, output_mode
+) -> None:
+    config_path = tmp_path / "config.json"
+    shared_db = tmp_path / "shared.db"
+    shared_db.write_text("regular database marker", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(shared_db)},
+                "development": {"seeded_database_path": str(shared_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [output_mode, "--config", str(config_path), "dev", "eval"],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    if output_mode == "--json":
+        payload = json.loads(stderr)
+        assert payload["status"] == "unsafe_seeded_database_path"
+        assert payload["seeded_database"] == str(shared_db)
+        assert payload["regular_database"] == str(shared_db)
+    else:
+        assert "Seeded dev database path matches the regular database path." in stderr
+        assert "Status: unsafe_seeded_database_path" in stderr
+        assert f"Seeded database: {shared_db}" in stderr
+        assert f"Regular database: {shared_db}" in stderr
+    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
 
 
 def test_cli_dev_reset_resolves_relative_seed_database_path(
