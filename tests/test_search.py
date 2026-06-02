@@ -43,23 +43,44 @@ def test_provider_profile_matches_fastembed_spec() -> None:
 
     assert provider.embedding_profile == {
         "provider": "builtin-fastembed",
-        "model": "jinaai/jina-embeddings-v2-small-en",
-        "dimensions": 512,
+        "model": "BAAI/bge-base-en-v1.5",
+        "dimensions": 768,
         "version": "1",
-        "profile": "builtin-fastembed-jina-v2-small-en-v1",
-        "max_tokens": 8192,
-        "chunk_tokens": 6144,
-        "chunk_overlap_tokens": 512,
+        "profile": "builtin-fastembed-bge-base-en-v1-5-v1",
+        "max_tokens": 512,
+        "chunk_tokens": 384,
+        "chunk_overlap_tokens": 64,
         "query_prompt_policy": "raw",
     }
 
+    legacy_provider = BuiltinFastEmbedProvider("jinaai/jina-embeddings-v2-small-en")
+    assert (
+        legacy_provider.embedding_profile["model"]
+        == "jinaai/jina-embeddings-v2-small-en"
+    )
+    assert legacy_provider.embedding_profile["dimensions"] == 512
+    assert (
+        legacy_provider.embedding_profile["profile"]
+        == "builtin-fastembed-jina-v2-small-en-v1"
+    )
 
-def test_real_embedding_shape_is_512() -> None:
+
+def test_provider_rejects_unsupported_model() -> None:
+    with pytest.raises(EmbeddingModelUnavailableError) as exc_info:
+        BuiltinFastEmbedProvider("unknown-model")
+
+    message = str(exc_info.value)
+    assert "unsupported built-in FastEmbed model 'unknown-model'" in message
+    assert "BAAI/bge-base-en-v1.5" in message
+    assert "jinaai/jina-embeddings-v2-small-en" in message
+
+
+def test_real_embedding_shape_is_768() -> None:
     pytest.importorskip("fastembed")
     provider = BuiltinFastEmbedProvider()
     vector = provider.embed("Recollectium should return stable embedding dimensions")
 
-    assert len(vector) == 512
+    assert len(vector) == 768
     assert any(value != 0.0 for value in vector)
 
 
@@ -281,7 +302,7 @@ def test_builtin_fastembed_get_embedder_import_load_and_cache_failures(
 def test_builtin_fastembed_dimension_validation_and_zero_ready_check() -> None:
     provider = BuiltinFastEmbedProvider()
 
-    with pytest.raises(EmbeddingDimensionMismatchError, match="expected 512"):
+    with pytest.raises(EmbeddingDimensionMismatchError, match="expected 768"):
         provider._validate_dimensions([1.0])
 
     class ZeroProvider(BuiltinFastEmbedProvider):
@@ -317,6 +338,11 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class ReadyProvider:
+        configured_models: list[str] = []
+
+        def __init__(self, model_name: str) -> None:
+            self.configured_models.append(model_name)
+
         def _ensure_ready_unbounded(self) -> None:
             pass
 
@@ -324,24 +350,28 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
         "recollectium.embeddings.BuiltinFastEmbedProvider", ReadyProvider
     )
     success_connection = FakeConnection()
-    _fastembed_readiness_worker(cast(Any, success_connection))
+    _fastembed_readiness_worker(cast(Any, success_connection), "legacy-model")
+    assert ReadyProvider.configured_models == ["legacy-model"]
     assert success_connection.messages == [{"ok": True}]
     assert success_connection.closed is True
 
     class FailingProvider:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+
         def _ensure_ready_unbounded(self) -> None:
-            raise EmbeddingModelUnavailableError("missing model")
+            raise EmbeddingModelUnavailableError(f"missing model {self.model_name}")
 
     monkeypatch.setattr(
         "recollectium.embeddings.BuiltinFastEmbedProvider", FailingProvider
     )
     failure_connection = FakeConnection()
-    _fastembed_readiness_worker(cast(Any, failure_connection))
+    _fastembed_readiness_worker(cast(Any, failure_connection), "legacy-model")
     assert failure_connection.messages == [
         {
             "ok": False,
             "error_type": "EmbeddingModelUnavailableError",
-            "message": "missing model",
+            "message": "missing model legacy-model",
         }
     ]
     assert failure_connection.closed is True
@@ -412,7 +442,7 @@ class FakeSpawnContext:
 
     def Process(self, *, target: object, args: tuple[object, ...]) -> FakeProcess:
         assert target is _fastembed_readiness_worker
-        assert args == (self.child,)
+        assert args == (self.child, "BAAI/bge-base-en-v1.5")
         return self.process
 
 

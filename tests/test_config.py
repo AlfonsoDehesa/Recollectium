@@ -227,8 +227,16 @@ class TestValidateConfigValue:
     def test_unsupported_embedding_model_raises(self) -> None:
         data = deepcopy(DEFAULTS)
         data["embedding"]["model"] = "other-model"
-        with pytest.raises(ValidationError, match="embedding.model only supports"):
+        with pytest.raises(ValidationError, match="embedding.model must be one of"):
             _validate_config_value(data)
+
+    def test_legacy_jina_embedding_model_is_supported(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["embedding"]["model"] = "jinaai/jina-embeddings-v2-small-en"
+
+        _validate_config_value(data)
+
+        assert data["embedding"]["model"] == "jinaai/jina-embeddings-v2-small-en"
 
     def test_invalid_service_port_range_raises(self) -> None:
         data = deepcopy(DEFAULTS)
@@ -401,7 +409,7 @@ class TestConfigValueAccessors:
 
     def test_get_deeply_nested_key(self) -> None:
         value = get_config_value(DEFAULTS, "embedding.model")
-        assert value == "jinaai/jina-embeddings-v2-small-en"
+        assert value == "BAAI/bge-base-en-v1.5"
 
     def test_get_missing_top_level_raises(self) -> None:
         with pytest.raises(KeyError, match="not found"):

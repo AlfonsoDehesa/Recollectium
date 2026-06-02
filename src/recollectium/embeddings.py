@@ -28,9 +28,9 @@ class EmbeddingProvider(Protocol):
     def similarity(self, first: list[float], second: list[float]) -> float: ...
 
 
-def _fastembed_readiness_worker(result_connection: Connection) -> None:
+def _fastembed_readiness_worker(result_connection: Connection, model_name: str) -> None:
     try:
-        BuiltinFastEmbedProvider()._ensure_ready_unbounded()
+        BuiltinFastEmbedProvider(model_name)._ensure_ready_unbounded()
     except Exception as exc:  # pragma: no cover - exercised through parent process
         result_connection.send(
             {
@@ -52,6 +52,41 @@ class ContentChunk:
     text: str
     token_start: int
     token_end: int
+
+
+@dataclass(frozen=True, slots=True)
+class FastEmbedModelSpec:
+    model_name: str
+    dimensions: int
+    profile_name: str
+    max_tokens: int
+    chunk_tokens: int
+    chunk_overlap_tokens: int
+    query_prompt_policy: str = "raw"
+
+
+BGE_BASE_EN_V15_MODEL = "BAAI/bge-base-en-v1.5"
+JINA_SMALL_EN_MODEL = "jinaai/jina-embeddings-v2-small-en"
+
+BUILTIN_FASTEMBED_MODEL_SPECS: dict[str, FastEmbedModelSpec] = {
+    BGE_BASE_EN_V15_MODEL: FastEmbedModelSpec(
+        model_name=BGE_BASE_EN_V15_MODEL,
+        dimensions=768,
+        profile_name="builtin-fastembed-bge-base-en-v1-5-v1",
+        max_tokens=512,
+        chunk_tokens=384,
+        chunk_overlap_tokens=64,
+    ),
+    JINA_SMALL_EN_MODEL: FastEmbedModelSpec(
+        model_name=JINA_SMALL_EN_MODEL,
+        dimensions=512,
+        profile_name="builtin-fastembed-jina-v2-small-en-v1",
+        max_tokens=8192,
+        chunk_tokens=6144,
+        chunk_overlap_tokens=512,
+    ),
+}
+DEFAULT_BUILTIN_FASTEMBED_MODEL = BGE_BASE_EN_V15_MODEL
 
 
 def chunk_text_for_profile(text: str, profile: dict[str, object]) -> list[ContentChunk]:
@@ -112,18 +147,25 @@ class BuiltinFastEmbedProvider:
     """Built-in production embedding provider backed by FastEmbed."""
 
     provider_name = "builtin-fastembed"
-    model_name = "jinaai/jina-embeddings-v2-small-en"
-    dimensions = 512
     version = "1"
-    profile_name = "builtin-fastembed-jina-v2-small-en-v1"
-    max_tokens = 8192
-    chunk_tokens = 6144
-    chunk_overlap_tokens = 512
-    query_prompt_policy = "raw"
     runtime_threads = 1
     _shared_embedders: ClassVar[dict[tuple[str, int], Any]] = {}
 
-    def __init__(self) -> None:
+    def __init__(self, model_name: str = DEFAULT_BUILTIN_FASTEMBED_MODEL) -> None:
+        try:
+            spec = BUILTIN_FASTEMBED_MODEL_SPECS[model_name]
+        except KeyError as exc:
+            supported = ", ".join(sorted(BUILTIN_FASTEMBED_MODEL_SPECS))
+            raise EmbeddingModelUnavailableError(
+                f"unsupported built-in FastEmbed model {model_name!r}; supported models: {supported}"
+            ) from exc
+        self.model_name = spec.model_name
+        self.dimensions = spec.dimensions
+        self.profile_name = spec.profile_name
+        self.max_tokens = spec.max_tokens
+        self.chunk_tokens = spec.chunk_tokens
+        self.chunk_overlap_tokens = spec.chunk_overlap_tokens
+        self.query_prompt_policy = spec.query_prompt_policy
         self._embedder: Any | None = None
 
     @property
@@ -171,7 +213,7 @@ class BuiltinFastEmbedProvider:
         parent_connection, child_connection = context.Pipe(duplex=False)
         process = context.Process(
             target=_fastembed_readiness_worker,
-            args=(child_connection,),
+            args=(child_connection, self.model_name),
         )
         process.start()
         child_connection.close()

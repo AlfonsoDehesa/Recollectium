@@ -45,6 +45,7 @@ from recollectium.config import (
     CLI_OUTPUT_JSON,
     DEFAULTS,
     RecollectiumConfig,
+    SUPPORTED_EMBEDDING_MODELS,
     _deep_merge,
     _resolve_xdg_dirs,
     _validate_config_value,
@@ -131,6 +132,7 @@ _COMPLETABLE_CONFIG_KEYS = [
     "development.seeded_database_path",
     "workspace.uid_normalization",
 ]
+_SUPPORTED_EMBEDDING_MODELS_HELP = ", ".join(sorted(SUPPORTED_EMBEDDING_MODELS))
 
 
 def _memory_type_choices_for_space(space: Any | None) -> tuple[str, ...]:
@@ -709,6 +711,18 @@ def _directory_writable(path: Path) -> bool:
         return False
 
 
+def _builtin_fastembed_provider_from_config(
+    config: dict[str, Any],
+) -> BuiltinFastEmbedProvider:
+    embedding = config.get("embedding", {})
+    model_name = (
+        embedding.get("model")
+        if isinstance(embedding, dict)
+        else DEFAULTS["embedding"]["model"]
+    )
+    return BuiltinFastEmbedProvider(str(model_name))
+
+
 def _handle_config_command(
     args: argparse.Namespace,
     config_path: Path,
@@ -946,14 +960,14 @@ def _handle_init_command(
     )
     SQLiteMemoryStore(selected_db_path)
     _log.info(
-        "preparing embedding model (first run may download ~100 MB)",
+        "preparing embedding model (first run may download the configured FastEmbed model)",
         extra={"event": "init.model_prepare"},
     )
-    BuiltinFastEmbedProvider().ensure_ready()
+    provider = _builtin_fastembed_provider_from_config(cfg.effective_config)
+    provider.ensure_ready()
 
     # Record the prepared model so the readiness gate sees it.
     model_name = cfg.effective_config["embedding"]["model"]
-    provider = BuiltinFastEmbedProvider()
     write_model_state(
         Path(user_state_dir("recollectium")),
         model=model_name,
@@ -2743,8 +2757,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="initialize Recollectium config, database, and model cache",
         description=(
             "Create the config file and XDG directories, run database migrations, "
-            "and download the built-in FastEmbed model so Recollectium is ready to use. "
-            "The first run downloads ~100 MB and may take 30-120 seconds."
+            "and download the configured built-in FastEmbed model so Recollectium is ready to use. "
+            "The first run may take 30-120 seconds depending on the selected model."
         ),
     )
     init_parser = subparsers.choices["init"]
@@ -2806,7 +2820,11 @@ def _build_parser() -> argparse.ArgumentParser:
     set_parser = config_sub.add_parser(
         "set",
         help="set a config value by dot-notation key",
-        description="Write a value to the config file, auto-creating it if needed.",
+        description=(
+            "Write a value to the config file, auto-creating it if needed. "
+            "embedding.model supports: "
+            f"{_SUPPORTED_EMBEDDING_MODELS_HELP}."
+        ),
     )
     set_parser.add_argument(
         "key",
@@ -3445,7 +3463,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Show the active built-in local FastEmbed embedding profile plus startup "
             "re-embedding job metadata. Recollectium uses the local model cache for "
-            "jinaai/jina-embeddings-v2-small-en."
+            f"the configured embedding.model. Default: {DEFAULTS['embedding']['model']}. "
+            f"Supported models: {_SUPPORTED_EMBEDDING_MODELS_HELP}."
         ),
     )
 
@@ -4009,7 +4028,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 if progress is not None:
                     progress("Checking embedding provider readiness")
-                provider = BuiltinFastEmbedProvider()
+                provider = _builtin_fastembed_provider_from_config(cfg.effective_config)
                 provider.ensure_ready()
                 result = _run_seeded_dev_eval(
                     cfg,
@@ -4043,7 +4062,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 merged = _deep_merge(deepcopy(DEFAULTS), raw_config)
                 _validate_config_value(merged)
                 if use_seeded_database:
-                    provider = BuiltinFastEmbedProvider()
+                    provider = _builtin_fastembed_provider_from_config(merged)
                     provider.ensure_ready()
                     seed_result = ensure_seeded_dev_database(
                         _resolve_seeded_dev_database_path(cfg), provider
@@ -4076,7 +4095,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         }
                     )
             else:
-                provider = BuiltinFastEmbedProvider()
+                provider = _builtin_fastembed_provider_from_config(cfg.effective_config)
                 provider.ensure_ready()
                 result = reset_seeded_dev_database(
                     _resolve_seeded_dev_database_path(cfg), provider

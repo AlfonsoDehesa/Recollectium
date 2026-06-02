@@ -631,6 +631,15 @@ Search responses return a list of search-result objects. The inner `memory` fiel
 
 ### 8) Embedding status
 
+Supported built-in FastEmbed profiles:
+
+| Model | Role | Profile | Dimensions | Max tokens | Chunk tokens | Overlap tokens |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `BAAI/bge-base-en-v1.5` | default | `builtin-fastembed-bge-base-en-v1-5-v1` | 768 | 512 | 384 | 64 |
+| `jinaai/jina-embeddings-v2-small-en` | legacy supported | `builtin-fastembed-jina-v2-small-en-v1` | 512 | 8192 | 6144 | 512 |
+
+Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path.
+
 - Method and path: `GET /v1/embedding/status`
 - Purpose: return the active local embedding profile, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.
 - Side effects: none.
@@ -643,13 +652,13 @@ Example response:
   "data": {
     "embedding_profile": {
       "provider": "builtin-fastembed",
-      "model": "jinaai/jina-embeddings-v2-small-en",
-      "dimensions": 512,
+      "model": "BAAI/bge-base-en-v1.5",
+      "dimensions": 768,
       "version": "1",
-      "profile": "builtin-fastembed-jina-v2-small-en-v1",
-      "max_tokens": 8192,
-      "chunk_tokens": 6144,
-      "chunk_overlap_tokens": 512,
+      "profile": "builtin-fastembed-bge-base-en-v1-5-v1",
+      "max_tokens": 512,
+      "chunk_tokens": 384,
+      "chunk_overlap_tokens": 64,
       "query_prompt_policy": "raw"
     },
     "provider_status": "configured",
@@ -696,16 +705,16 @@ Example response:
       "succeeded_count": 0,
       "failed_count": 1,
       "provider": "builtin-fastembed",
-      "model": "jinaai/jina-embeddings-v2-small-en",
+      "model": "BAAI/bge-base-en-v1.5",
       "embedding_profile": {
         "provider": "builtin-fastembed",
-        "model": "jinaai/jina-embeddings-v2-small-en",
-        "dimensions": 512,
+        "model": "BAAI/bge-base-en-v1.5",
+        "dimensions": 768,
         "version": "1",
-        "profile": "builtin-fastembed-jina-v2-small-en-v1",
-        "max_tokens": 8192,
-        "chunk_tokens": 6144,
-        "chunk_overlap_tokens": 512,
+        "profile": "builtin-fastembed-bge-base-en-v1-5-v1",
+        "max_tokens": 512,
+        "chunk_tokens": 384,
+        "chunk_overlap_tokens": 64,
         "query_prompt_policy": "raw"
       },
       "error_message": "runtime re-embedding failed",
@@ -740,16 +749,16 @@ Example response:
     "succeeded_count": 4,
     "failed_count": 0,
     "provider": "builtin-fastembed",
-    "model": "jinaai/jina-embeddings-v2-small-en",
+    "model": "BAAI/bge-base-en-v1.5",
     "embedding_profile": {
       "provider": "builtin-fastembed",
-      "model": "jinaai/jina-embeddings-v2-small-en",
-      "dimensions": 512,
+      "model": "BAAI/bge-base-en-v1.5",
+      "dimensions": 768,
       "version": "1",
-      "profile": "builtin-fastembed-jina-v2-small-en-v1",
-      "max_tokens": 8192,
-      "chunk_tokens": 6144,
-      "chunk_overlap_tokens": 512,
+      "profile": "builtin-fastembed-bge-base-en-v1-5-v1",
+      "max_tokens": 512,
+      "chunk_tokens": 384,
+      "chunk_overlap_tokens": 64,
       "query_prompt_policy": "raw"
     },
     "error_message": "triggered by search",

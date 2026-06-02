@@ -79,7 +79,15 @@ class RecollectiumCore:
             extra={"event": "core.init", "context": {"db_path": str(selected_path)}},
         )
 
-        self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider()
+        configured_embedding = self.config.effective_config.get("embedding", {})
+        configured_model = (
+            configured_embedding.get("model")
+            if isinstance(configured_embedding, dict)
+            else None
+        )
+        self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider(
+            str(configured_model)
+        )
         development = self.config.effective_config.get("development", {})
         if (
             db_path is None
@@ -567,6 +575,7 @@ class RecollectiumCore:
             existing is not None
             and existing.get("prepared_model") == model_name
             and existing.get("dimensions") == dimensions
+            and existing.get("profile") == profile_name
         ):
             return  # already prepared, nothing to do
 
