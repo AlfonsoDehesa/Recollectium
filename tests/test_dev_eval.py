@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from math import log2
 from typing import cast
 import re
 
@@ -8,18 +9,28 @@ import pytest
 
 from recollectium.dev_eval import (
     ExactMRRTarget,
+    RankedSetNDCGTarget,
+    RankedSetRelevance,
     SemanticMRRTarget,
     ThematicPrecisionTarget,
     evaluate_exact_mrr,
     evaluate_exact_mrr_for_core,
+    evaluate_ranked_set_ndcg,
+    evaluate_ranked_set_ndcg_for_core,
     evaluate_semantic_mrr,
     evaluate_semantic_mrr_for_core,
     evaluate_thematic_precision,
     evaluate_thematic_precision_for_core,
+    ranked_set_ndcg_targets_from_fixture,
     seeded_exact_mrr_targets,
     seeded_semantic_mrr_targets,
     semantic_mrr_targets_from_exact_targets,
     thematic_precision_targets_from_fixture,
+)
+from recollectium.dev_eval_ranked_set_fixtures import (
+    RANKED_SET_NDCG_CUTOFF,
+    RANKED_SET_NDCG_FIXTURE,
+    RankedSetNDCGFixtureEntry,
 )
 from recollectium.dev_eval_semantic_fixtures import (
     SEMANTIC_MRR_FIXTURE,
@@ -1041,6 +1052,314 @@ def test_evaluate_thematic_precision_rejects_invalid_inputs() -> None:
         )
 
 
+def _test_dcg(grades: Sequence[int]) -> float:
+    return sum(
+        ((2.0**grade) - 1.0) / log2(rank + 1)
+        for rank, grade in enumerate(grades, start=1)
+    )
+
+
+def _ranked_target(
+    case_id: str,
+    scope: str,
+    query: str,
+    relevance: dict[str, int],
+    workspace_uid: str | None = None,
+) -> RankedSetNDCGTarget:
+    return RankedSetNDCGTarget(
+        case_id=case_id,
+        scope=scope,
+        workspace_uid=workspace_uid,
+        query=query,
+        relevance={
+            memory_id: RankedSetRelevance(grade=grade, rationale=f"why {memory_id}")
+            for memory_id, grade in relevance.items()
+        },
+    )
+
+
+def test_evaluate_ranked_set_ndcg_scores_ordering_zeroes_and_breakdowns() -> None:
+    user_target = _ranked_target(
+        "user-case",
+        SPACE_USER,
+        "user query",
+        {"u3a": 3, "u3b": 3, "u2": 2, "u1": 1},
+    )
+    workspace_target = _ranked_target(
+        "workspace-case",
+        SPACE_WORKSPACE,
+        "workspace query",
+        {"w3": 3, "w2": 2, "w1": 1},
+        "project-a",
+    )
+    user_ideal = _test_dcg([3, 3, 2, 1])
+    workspace_ideal = _test_dcg([3, 2, 1])
+    user_expected = _test_dcg([3, 3, 2, 1, 0]) / user_ideal
+    workspace_expected = _test_dcg([0, 1, 2, 3]) / workspace_ideal
+
+    report = evaluate_ranked_set_ndcg(
+        (user_target, workspace_target),
+        search_user=lambda query, limit: _search_results(
+            ["u3a", "u3b", "u2", "u1", "miss"]
+        )[:limit],
+        search_workspace=lambda query, workspace_uid, limit: _search_results(
+            ["unknown", "w1", "w2", "w3"], workspace_uid=workspace_uid
+        )[:limit],
+        cutoff=5,
+    )
+
+    assert report.cases == 2
+    assert report.user_cases == 1
+    assert report.workspace_cases == 1
+    assert report.user_value == pytest.approx(user_expected)
+    assert report.workspace_value == pytest.approx(workspace_expected)
+    assert report.value == pytest.approx((user_expected + workspace_expected) / 2.0)
+    assert report.case_scores[0].ideal_dcg == pytest.approx(user_ideal)
+    assert [returned.grade for returned in report.case_scores[0].returned_top] == [
+        3,
+        3,
+        2,
+        1,
+        0,
+    ]
+    assert [returned.grade for returned in report.case_scores[1].returned_top] == [
+        0,
+        1,
+        2,
+        3,
+    ]
+    assert report.case_scores[1].returned_top[0].memory_id == "unknown"
+
+
+def test_evaluate_ranked_set_ndcg_reports_lowest_case_diagnostics() -> None:
+    targets = (
+        _ranked_target("worst", SPACE_USER, "worst query", {"a": 3, "b": 2, "c": 1}),
+        _ranked_target(
+            "perfect", SPACE_USER, "perfect query", {"x": 3, "y": 2, "z": 1}
+        ),
+        _ranked_target("weak", SPACE_USER, "weak query", {"m": 3, "n": 2, "o": 1}),
+    )
+    results = {
+        "worst query": _search_results(["miss-1", "miss-2", "miss-3"]),
+        "perfect query": _search_results(["x", "y", "z"]),
+        "weak query": _search_results(["o", "n", "m"]),
+    }
+
+    report = evaluate_ranked_set_ndcg(
+        targets,
+        search_user=lambda query, limit: results[query][:limit],
+        search_workspace=lambda query, workspace_uid, limit: [],
+        cutoff=3,
+        lowest_case_limit=2,
+    )
+
+    assert [case.case_id for case in report.lowest_cases] == ["worst", "weak"]
+    assert report.lowest_cases[0].query == "worst query"
+    assert report.lowest_cases[0].expected_scope == SPACE_USER
+    assert report.lowest_cases[0].ndcg == 0.0
+    assert [
+        (memory.memory_id, memory.grade)
+        for memory in report.lowest_cases[0].expected_memories
+    ] == [
+        ("a", 3),
+        ("b", 2),
+        ("c", 1),
+    ]
+    assert report.lowest_cases[0].expected_memories[0].rationale == "why a"
+    assert [
+        (memory.memory_id, memory.grade)
+        for memory in report.lowest_cases[0].returned_top
+    ] == [
+        ("miss-1", 0),
+        ("miss-2", 0),
+        ("miss-3", 0),
+    ]
+
+
+def test_ranked_set_ndcg_targets_validate_fixture_shape_and_mismatches() -> None:
+    fixture: tuple[RankedSetNDCGFixtureEntry, ...] = (
+        {
+            "id": "case-a",
+            "scope": SPACE_USER,
+            "workspace_uid": None,
+            "query": "find the right memories",
+            "relevance": {
+                "dev-user-001": {"grade": 3, "rationale": "Direct match."},
+                "dev-user-002": {"grade": 1, "rationale": "Weaker match."},
+            },
+        },
+    )
+
+    assert ranked_set_ndcg_targets_from_fixture(fixture) == (
+        RankedSetNDCGTarget(
+            "case-a",
+            SPACE_USER,
+            None,
+            "find the right memories",
+            {
+                "dev-user-001": RankedSetRelevance(3, "Direct match."),
+                "dev-user-002": RankedSetRelevance(1, "Weaker match."),
+            },
+        ),
+    )
+    with pytest.raises(ValueError, match="duplicate ranked-set case id"):
+        ranked_set_ndcg_targets_from_fixture((fixture[0], fixture[0]))
+    with pytest.raises(ValueError, match="duplicate ranked-set query"):
+        ranked_set_ndcg_targets_from_fixture(
+            ({**fixture[0], "id": "case-b"}, fixture[0])
+        )
+    with pytest.raises(ValueError, match="non-empty"):
+        ranked_set_ndcg_targets_from_fixture(({**fixture[0], "id": ""},))
+    with pytest.raises(ValueError, match="unsupported"):
+        ranked_set_ndcg_targets_from_fixture(({**fixture[0], "scope": "bad-scope"},))
+    with pytest.raises(ValueError, match="workspace_uid"):
+        ranked_set_ndcg_targets_from_fixture(({**fixture[0], "workspace_uid": "x"},))
+    with pytest.raises(ValueError, match="workspace_uid"):
+        ranked_set_ndcg_targets_from_fixture(
+            ({**fixture[0], "scope": SPACE_WORKSPACE, "workspace_uid": None},)
+        )
+    with pytest.raises(ValueError, match="empty query"):
+        ranked_set_ndcg_targets_from_fixture(({**fixture[0], "query": ""},))
+    with pytest.raises(ValueError, match="requires relevance"):
+        ranked_set_ndcg_targets_from_fixture(({**fixture[0], "relevance": {}},))
+    with pytest.raises(ValueError, match="invalid grade"):
+        ranked_set_ndcg_targets_from_fixture(
+            (
+                {
+                    **fixture[0],
+                    "relevance": {"dev-user-001": {"grade": 4, "rationale": "bad"}},
+                },
+            )
+        )
+    with pytest.raises(ValueError, match="empty rationale"):
+        ranked_set_ndcg_targets_from_fixture(
+            (
+                {
+                    **fixture[0],
+                    "relevance": {"dev-user-001": {"grade": 3, "rationale": ""}},
+                },
+            )
+        )
+    with pytest.raises(ValueError, match="grade 3"):
+        ranked_set_ndcg_targets_from_fixture(
+            (
+                {
+                    **fixture[0],
+                    "relevance": {"dev-user-001": {"grade": 2, "rationale": "support"}},
+                },
+            )
+        )
+
+
+def test_evaluate_ranked_set_ndcg_for_core_uses_fixture_and_scope_searches() -> None:
+    query_to_entry = {entry["query"]: entry for entry in RANKED_SET_NDCG_FIXTURE}
+
+    class FakeCore:
+        def list_memories(
+            self,
+            space: str | None = None,
+            type: str | None = None,
+            status: str | None = None,
+            workspace_uid: str | None = None,
+            include_archived: bool = False,
+            limit: int | None = None,
+        ) -> list[Memory]:
+            del space, type, status, workspace_uid, include_archived, limit
+            return []
+
+        def __init__(self) -> None:
+            self.user_queries: list[tuple[str, int, bool]] = []
+            self.workspace_queries: list[tuple[str, str | None, int, bool]] = []
+
+        def search_user_memories(
+            self,
+            query: str,
+            limit: int = 10,
+            include_archived: bool = False,
+            type: str | None = None,
+        ) -> list[SearchResult]:
+            del type
+            self.user_queries.append((query, limit, include_archived))
+            entry = query_to_entry[query]
+            return _search_results(
+                sorted(
+                    entry["relevance"],
+                    key=lambda memory_id: -entry["relevance"][memory_id]["grade"],
+                )
+            )
+
+        def search_workspace_memories(
+            self,
+            query: str,
+            workspace_uid: str | None,
+            limit: int = 10,
+            include_archived: bool = False,
+            type: str | None = None,
+        ) -> list[SearchResult]:
+            del type
+            self.workspace_queries.append(
+                (query, workspace_uid, limit, include_archived)
+            )
+            entry = query_to_entry[query]
+            return _search_results(
+                sorted(
+                    entry["relevance"],
+                    key=lambda memory_id: -entry["relevance"][memory_id]["grade"],
+                ),
+                workspace_uid=workspace_uid,
+            )
+
+    core = FakeCore()
+
+    report = evaluate_ranked_set_ndcg_for_core(core, cutoff=5)
+
+    assert report.value == 1.0
+    assert report.cases == len(RANKED_SET_NDCG_FIXTURE)
+    assert report.cutoff == RANKED_SET_NDCG_CUTOFF
+    assert core.user_queries[0] == (RANKED_SET_NDCG_FIXTURE[0]["query"], 5, True)
+    assert (
+        RANKED_SET_NDCG_FIXTURE[7]["query"],
+        "proj-fic-cedarledger-01",
+        5,
+        True,
+    ) in core.workspace_queries
+
+
+def test_evaluate_ranked_set_ndcg_rejects_invalid_inputs() -> None:
+    with pytest.raises(ValueError, match="cutoff"):
+        evaluate_ranked_set_ndcg(
+            (),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+            cutoff=0,
+        )
+    with pytest.raises(ValueError, match="lowest_case_limit"):
+        evaluate_ranked_set_ndcg(
+            (),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+            lowest_case_limit=-1,
+        )
+    with pytest.raises(ValueError, match="workspace_uid"):
+        evaluate_ranked_set_ndcg(
+            (_ranked_target("workspace", SPACE_WORKSPACE, "q", {"a": 3}),),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+    with pytest.raises(ValueError, match="workspace_uid"):
+        evaluate_ranked_set_ndcg(
+            (_ranked_target("user", SPACE_USER, "q", {"a": 3}, "project-a"),),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+    with pytest.raises(ValueError, match="unsupported target scope"):
+        evaluate_ranked_set_ndcg(
+            (_ranked_target("bad", "bad-scope", "q", {"a": 3}),),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+
+
 def test_thematic_fixture_covers_seeded_groups_with_three_queries() -> None:
     targets = thematic_precision_targets_from_fixture()
     expected_user_groups = set(DEV_SEED_USER_TOPICS)
@@ -1072,6 +1391,66 @@ def test_thematic_fixture_covers_seeded_groups_with_three_queries() -> None:
         for target in targets
         for query in target.queries
     )
+
+
+def test_ranked_set_fixture_is_curated_and_references_seeded_memories() -> None:
+    targets = ranked_set_ndcg_targets_from_fixture()
+    source_memories = _semantic_fixture_source_memories()
+    case_ids = [target.case_id for target in targets]
+    queries = [target.query for target in targets]
+    user_cases = [target for target in targets if target.scope == SPACE_USER]
+    workspace_cases = [target for target in targets if target.scope == SPACE_WORKSPACE]
+    workspace_uids = {project["uid"] for project in DEV_SEED_PROJECTS}
+
+    assert 12 <= len(targets) <= 20
+    assert len(case_ids) == len(set(case_ids))
+    assert len(queries) == len(set(queries))
+    assert len(user_cases) >= 6
+    assert len(workspace_cases) >= 6
+    assert {target.workspace_uid for target in workspace_cases} == workspace_uids
+    assert all(target.workspace_uid is None for target in user_cases)
+    for target in targets:
+        grades = [judgment.grade for judgment in target.relevance.values()]
+        assert all(memory_id in source_memories for memory_id in target.relevance)
+        assert all(grade in {1, 2, 3} for grade in grades)
+        assert 3 in grades
+        assert any(grade < 3 for grade in grades)
+        assert all(judgment.rationale.strip() for judgment in target.relevance.values())
+        if target.scope == SPACE_USER:
+            assert all(
+                memory_id.startswith("dev-user-") for memory_id in target.relevance
+            )
+        else:
+            assert target.workspace_uid is not None
+            workspace_index = next(
+                index
+                for index, project in enumerate(DEV_SEED_PROJECTS, start=1)
+                if project["uid"] == target.workspace_uid
+            )
+            assert all(
+                memory_id.startswith(f"dev-workspace-{workspace_index:02d}-")
+                for memory_id in target.relevance
+            )
+
+
+def test_ranked_set_fixture_contains_spot_checked_ambiguous_cases() -> None:
+    harbor = next(
+        target
+        for target in ranked_set_ndcg_targets_from_fixture()
+        if target.case_id == "harborpilot-shared-gear-blockers"
+    )
+    cooking = next(
+        target
+        for target in ranked_set_ndcg_targets_from_fixture()
+        if target.case_id == "user-cooking-weeknight-leftover-dinner"
+    )
+
+    assert harbor.workspace_uid == "proj-fic-harborpilot-01"
+    assert harbor.relevance["dev-workspace-03-011"].grade == 3
+    assert harbor.relevance["dev-workspace-03-010"].grade == 1
+    assert "single-capacity" in harbor.relevance["dev-workspace-03-011"].rationale
+    assert cooking.relevance["dev-user-041"].grade == 3
+    assert cooking.relevance["dev-user-049"].grade == 1
 
 
 def test_semantic_fixture_covers_every_seeded_memory_with_three_queries() -> None:

@@ -5,8 +5,14 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from math import log2
 from typing import Protocol
 
+from recollectium.dev_eval_ranked_set_fixtures import (
+    RANKED_SET_NDCG_CUTOFF,
+    RANKED_SET_NDCG_FIXTURE,
+    RankedSetNDCGFixtureEntry,
+)
 from recollectium.dev_eval_semantic_fixtures import (
     SEMANTIC_MRR_FIXTURE,
     SemanticMRRFixtureEntry,
@@ -230,6 +236,86 @@ class ThematicPrecisionReport:
     confusers: tuple[ThematicPrecisionConfuser, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class RankedSetRelevance:
+    """A graded relevance judgment for one memory in a ranked-set query."""
+
+    grade: int
+    rationale: str
+
+
+@dataclass(frozen=True, slots=True)
+class RankedSetNDCGTarget:
+    """A curated query with graded relevance judgments for NDCG@5."""
+
+    case_id: str
+    scope: str
+    workspace_uid: str | None
+    query: str
+    relevance: Mapping[str, RankedSetRelevance]
+
+
+@dataclass(frozen=True, slots=True)
+class RankedSetExpectedMemory:
+    """Diagnostic view of an expected graded memory."""
+
+    memory_id: str
+    grade: int
+    rationale: str
+
+
+@dataclass(frozen=True, slots=True)
+class RankedSetReturnedMemory:
+    """Diagnostic view of an actual returned memory."""
+
+    memory_id: str
+    rank: int
+    grade: int
+
+
+@dataclass(frozen=True, slots=True)
+class RankedSetNDCGCaseScore:
+    """Per-case ranked-set NDCG@5 score details."""
+
+    case_id: str
+    scope: str
+    workspace_uid: str | None
+    query: str
+    dcg: float
+    ideal_dcg: float
+    ndcg: float
+    expected_memories: tuple[RankedSetExpectedMemory, ...]
+    returned_top: tuple[RankedSetReturnedMemory, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RankedSetNDCGWorstCase:
+    """Diagnostic row for a low-scoring ranked-set NDCG case."""
+
+    case_id: str
+    expected_scope: str
+    workspace_uid: str | None
+    query: str
+    ndcg: float
+    expected_memories: tuple[RankedSetExpectedMemory, ...]
+    returned_top: tuple[RankedSetReturnedMemory, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RankedSetNDCGReport:
+    """Aggregate ranked-set NDCG@5 metric report."""
+
+    value: float
+    user_value: float
+    workspace_value: float
+    cutoff: int
+    cases: int
+    user_cases: int
+    workspace_cases: int
+    lowest_cases: tuple[RankedSetNDCGWorstCase, ...]
+    case_scores: tuple[RankedSetNDCGCaseScore, ...]
+
+
 class SeededMemoryLister(Protocol):
     """Core-like object that can list seeded memories by scope."""
 
@@ -271,6 +357,10 @@ class SemanticMRRCore(ExactMRRCore, Protocol):
 
 class ThematicPrecisionCore(ExactMRRCore, Protocol):
     """Core-like object that can run thematic Precision@10 searches."""
+
+
+class RankedSetNDCGCore(ExactMRRCore, Protocol):
+    """Core-like object that can run ranked-set NDCG@5 searches."""
 
 
 UserSearch = Callable[[str, int], Sequence[SearchResult]]
@@ -463,6 +553,215 @@ def thematic_precision_targets_from_fixture(
             )
         )
     return tuple(targets)
+
+
+def _validate_ranked_set_fixture_entry(
+    entry: RankedSetNDCGFixtureEntry,
+) -> tuple[str, str, str | None, Mapping[str, RankedSetRelevance]]:
+    case_id = entry["id"]
+    scope = entry["scope"]
+    workspace_uid = entry["workspace_uid"]
+    query = entry["query"]
+    relevance = entry["relevance"]
+    if not case_id.strip():
+        raise ValueError("ranked-set fixture id must be non-empty")
+    if scope not in {SPACE_USER, SPACE_WORKSPACE}:
+        raise ValueError(f"unsupported ranked-set fixture scope: {scope!r}")
+    if scope == SPACE_USER and workspace_uid is not None:
+        raise ValueError(
+            f"user ranked-set case {case_id!r} must not include workspace_uid"
+        )
+    if scope == SPACE_WORKSPACE and workspace_uid is None:
+        raise ValueError(
+            f"workspace ranked-set case {case_id!r} requires workspace_uid"
+        )
+    if not query.strip():
+        raise ValueError(f"ranked-set case {case_id!r} has an empty query")
+    if not relevance:
+        raise ValueError(f"ranked-set case {case_id!r} requires relevance judgments")
+
+    judgments: dict[str, RankedSetRelevance] = {}
+    for memory_id, judgment in relevance.items():
+        grade = judgment["grade"]
+        rationale = judgment["rationale"]
+        if grade not in {1, 2, 3}:
+            raise ValueError(
+                f"ranked-set case {case_id!r} has invalid grade {grade!r} for {memory_id!r}"
+            )
+        if not rationale.strip():
+            raise ValueError(
+                f"ranked-set case {case_id!r} has empty rationale for {memory_id!r}"
+            )
+        judgments[memory_id] = RankedSetRelevance(grade=grade, rationale=rationale)
+    if 3 not in {judgment.grade for judgment in judgments.values()}:
+        raise ValueError(f"ranked-set case {case_id!r} requires at least one grade 3")
+    return case_id, query, workspace_uid, judgments
+
+
+def ranked_set_ndcg_targets_from_fixture(
+    fixture: Sequence[RankedSetNDCGFixtureEntry] = RANKED_SET_NDCG_FIXTURE,
+) -> tuple[RankedSetNDCGTarget, ...]:
+    """Return deterministic ranked-set NDCG@5 cases from checked-in fixtures."""
+
+    targets: list[RankedSetNDCGTarget] = []
+    seen_ids: set[str] = set()
+    seen_queries: set[tuple[str, str | None, str]] = set()
+    for entry in fixture:
+        case_id, query, workspace_uid, relevance = _validate_ranked_set_fixture_entry(
+            entry
+        )
+        scope = entry["scope"]
+        if case_id in seen_ids:
+            raise ValueError(f"duplicate ranked-set case id: {case_id!r}")
+        seen_ids.add(case_id)
+        query_key = (scope, workspace_uid, query.casefold().strip())
+        if query_key in seen_queries:
+            raise ValueError(f"duplicate ranked-set query: {query!r}")
+        seen_queries.add(query_key)
+        targets.append(
+            RankedSetNDCGTarget(
+                case_id=case_id,
+                scope=scope,
+                workspace_uid=workspace_uid,
+                query=query,
+                relevance=relevance,
+            )
+        )
+    return tuple(targets)
+
+
+def _dcg(grades: Sequence[int]) -> float:
+    return sum(
+        ((2.0**grade) - 1.0) / log2(rank + 1)
+        for rank, grade in enumerate(grades, start=1)
+    )
+
+
+def _ranked_set_expected_memories(
+    target: RankedSetNDCGTarget,
+) -> tuple[RankedSetExpectedMemory, ...]:
+    return tuple(
+        RankedSetExpectedMemory(
+            memory_id=memory_id,
+            grade=judgment.grade,
+            rationale=judgment.rationale,
+        )
+        for memory_id, judgment in sorted(
+            target.relevance.items(), key=lambda item: (-item[1].grade, item[0])
+        )
+    )
+
+
+def _ranked_set_case_score(
+    target: RankedSetNDCGTarget,
+    results: Sequence[SearchResult],
+    cutoff: int,
+) -> RankedSetNDCGCaseScore:
+    top_results = results[:cutoff]
+    returned_top = tuple(
+        RankedSetReturnedMemory(
+            memory_id=result.memory.id,
+            rank=rank,
+            grade=target.relevance.get(
+                result.memory.id, RankedSetRelevance(0, "")
+            ).grade,
+        )
+        for rank, result in enumerate(top_results, start=1)
+    )
+    returned_grades = [returned.grade for returned in returned_top]
+    dcg = _dcg(returned_grades)
+    ideal_grades = sorted(
+        (judgment.grade for judgment in target.relevance.values()), reverse=True
+    )[:cutoff]
+    ideal_dcg = _dcg(ideal_grades)
+    return RankedSetNDCGCaseScore(
+        case_id=target.case_id,
+        scope=target.scope,
+        workspace_uid=target.workspace_uid,
+        query=target.query,
+        dcg=dcg,
+        ideal_dcg=ideal_dcg,
+        ndcg=dcg / ideal_dcg if ideal_dcg > 0 else 0.0,
+        expected_memories=_ranked_set_expected_memories(target),
+        returned_top=returned_top,
+    )
+
+
+def evaluate_ranked_set_ndcg(
+    targets: Sequence[RankedSetNDCGTarget],
+    *,
+    search_user: UserSearch,
+    search_workspace: WorkspaceSearch,
+    cutoff: int = RANKED_SET_NDCG_CUTOFF,
+    lowest_case_limit: int = DEFAULT_WORST_MISS_LIMIT,
+) -> RankedSetNDCGReport:
+    """Evaluate curated ranked-set NDCG@5 cases.
+
+    Each case runs one scope-specific search at ``cutoff`` and treats returned
+    memories absent from the relevance map as grade zero.
+    """
+
+    if cutoff < 1:
+        raise ValueError("cutoff must be at least 1")
+    if lowest_case_limit < 0:
+        raise ValueError("lowest_case_limit must be non-negative")
+
+    case_scores: list[RankedSetNDCGCaseScore] = []
+    for target in targets:
+        if target.scope == SPACE_WORKSPACE and target.workspace_uid is None:
+            raise ValueError(
+                f"workspace ranked-set case {target.case_id!r} requires workspace_uid"
+            )
+        if target.scope == SPACE_USER and target.workspace_uid is not None:
+            raise ValueError(
+                f"user ranked-set case {target.case_id!r} must not include workspace_uid"
+            )
+        if target.scope not in {SPACE_USER, SPACE_WORKSPACE}:
+            raise ValueError(f"unsupported target scope: {target.scope!r}")
+        if target.scope == SPACE_USER:
+            results = search_user(target.query, cutoff)
+        else:
+            assert target.workspace_uid is not None
+            results = search_workspace(target.query, target.workspace_uid, cutoff)
+        case_scores.append(_ranked_set_case_score(target, results, cutoff))
+
+    user_scores = [score.ndcg for score in case_scores if score.scope == SPACE_USER]
+    workspace_scores = [
+        score.ndcg for score in case_scores if score.scope == SPACE_WORKSPACE
+    ]
+    all_scores = [score.ndcg for score in case_scores]
+    lowest_cases = tuple(
+        RankedSetNDCGWorstCase(
+            case_id=score.case_id,
+            expected_scope=score.scope,
+            workspace_uid=score.workspace_uid,
+            query=score.query,
+            ndcg=score.ndcg,
+            expected_memories=score.expected_memories,
+            returned_top=score.returned_top,
+        )
+        for score in sorted(
+            case_scores,
+            key=lambda score: (
+                score.ndcg,
+                score.scope,
+                score.workspace_uid or "",
+                score.case_id,
+            ),
+        )[:lowest_case_limit]
+        if score.ndcg < 1.0
+    )
+    return RankedSetNDCGReport(
+        value=_mean(all_scores),
+        user_value=_mean(user_scores),
+        workspace_value=_mean(workspace_scores),
+        cutoff=cutoff,
+        cases=len(case_scores),
+        user_cases=len(user_scores),
+        workspace_cases=len(workspace_scores),
+        lowest_cases=lowest_cases,
+        case_scores=tuple(case_scores),
+    )
 
 
 def evaluate_exact_mrr(
@@ -969,4 +1268,33 @@ def evaluate_thematic_precision_for_core(
         cutoff=cutoff,
         failure_limit=failure_limit,
         confuser_limit=confuser_limit,
+    )
+
+
+def evaluate_ranked_set_ndcg_for_core(
+    core: RankedSetNDCGCore,
+    *,
+    cutoff: int = RANKED_SET_NDCG_CUTOFF,
+    lowest_case_limit: int = DEFAULT_WORST_MISS_LIMIT,
+) -> RankedSetNDCGReport:
+    """Evaluate ranked-set NDCG@5 against a seeded development database."""
+
+    targets = ranked_set_ndcg_targets_from_fixture()
+    return evaluate_ranked_set_ndcg(
+        targets,
+        search_user=lambda query, limit: core.search_user_memories(
+            query,
+            limit=limit,
+            include_archived=True,
+        ),
+        search_workspace=lambda query, workspace_uid, limit: (
+            core.search_workspace_memories(
+                query,
+                workspace_uid=workspace_uid,
+                limit=limit,
+                include_archived=True,
+            )
+        ),
+        cutoff=cutoff,
+        lowest_case_limit=lowest_case_limit,
     )
