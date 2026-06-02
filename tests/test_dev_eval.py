@@ -698,7 +698,16 @@ def test_semantic_fixture_covers_every_seeded_memory_with_three_queries() -> Non
     all_queries = [
         query for entry in SEMANTIC_MRR_FIXTURE.values() for query in entry["queries"]
     ]
-    banned_fragments = ("seeded item", "original wording", "the person ")
+    banned_fragments = (
+        "seeded item",
+        "original wording",
+        "find the user memory about",
+        "the person ",
+    )
+    banned_patterns = (
+        re.compile(r"\bwhich\b.+\bsays\b", re.IGNORECASE),
+        re.compile(r"\bwhich\b.+\bmentions\b", re.IGNORECASE),
+    )
 
     assert all(
         len(entry["queries"]) == 3 and all(query.strip() for query in entry["queries"])
@@ -711,7 +720,38 @@ def test_semantic_fixture_covers_every_seeded_memory_with_three_queries() -> Non
         for fragment in banned_fragments
     )
     assert not any(
+        pattern.search(query) for query in all_queries for pattern in banned_patterns
+    )
+    assert not any(
         query.endswith((" with.", " for.", " and.", " to.")) for query in all_queries
+    )
+
+
+def test_semantic_fixture_queries_are_not_keyword_bag_artifacts() -> None:
+    """Reject review-regressed comma-list prompts masquerading as paraphrases."""
+    all_queries = [
+        query for entry in SEMANTIC_MRR_FIXTURE.values() for query in entry["queries"]
+    ]
+    comma_list_pattern = re.compile(
+        r"\b[\w'-]+(?:,\s+[\w'-]+){4,},?\s+and\s+[\w'-]+[?.]?$",
+        re.IGNORECASE,
+    )
+
+    assert not any(comma_list_pattern.search(query) for query in all_queries)
+    assert not any(query.count(",") >= 8 for query in all_queries)
+
+
+def test_semantic_fixture_contains_natural_spot_checked_queries() -> None:
+    assert SEMANTIC_MRR_FIXTURE["dev-user-001"]["queries"] == (
+        "How do they enjoy spending time thinking about train journeys along the coast?",
+        "What should I recall about their fondness for make-believe seaside rail routes with artistic details?",
+        "When planning a weekend escape story, what kind of transport fantasy do they mention — one involving colorful little stations along the shore?",
+    )
+    assert SEMANTIC_MRR_FIXTURE["dev-workspace-01-001"]["queries"][0] == (
+        "How should CedarLedger divide access between owners, report reviewers, and sales clerks?"
+    )
+    assert SEMANTIC_MRR_FIXTURE["dev-workspace-03-001"]["queries"][0] == (
+        "How should HarborPilot help dispatchers notice when crane, welding, and survey jobs collide at one pier?"
     )
 
 
