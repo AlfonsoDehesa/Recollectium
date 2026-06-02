@@ -354,7 +354,16 @@ def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> N
         )
         memory = added["data"]
         assert isinstance(memory, dict)
-        assert memory["content"] == "api daemon memory"
+        # compact mutation: {id, status}
+        assert memory["status"] == "saved"
+        assert isinstance(memory["id"], str)
+        memory_id = memory["id"]
+
+        # fetch in verbose to verify content
+        fetched = _request_service_json(
+            endpoint, "GET", f"/v1/memories/{memory_id}?verbosity=verbose"
+        )
+        assert fetched["data"]["content"] == "api daemon memory"
 
         search = _request_service_json(
             endpoint,
@@ -364,7 +373,8 @@ def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> N
         )
         results = search["data"]
         assert isinstance(results, list)
-        assert results[0]["memory"]["id"] == memory["id"]
+        # compact search: {id, content, match}
+        assert results[0]["id"] == memory_id
     finally:
         _stop_real_service(config_path, pid)
 
