@@ -1226,7 +1226,7 @@ def _resolve_regular_database_path(
     cfg: RecollectiumConfig, db_path_override: str | None = None
 ) -> Path:
     if db_path_override is not None:
-        return Path(db_path_override)
+        return Path(db_path_override).expanduser()
     db_path = Path(cfg.effective_config["database"]["path"])
     if not db_path.is_absolute():
         db_path = cfg.xdg_dirs["data"] / db_path
