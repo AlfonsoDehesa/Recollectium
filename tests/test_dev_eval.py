@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import cast
+import re
+
 import pytest
 
 from recollectium.dev_eval import (
@@ -20,8 +22,11 @@ from recollectium.dev_eval_semantic_fixtures import (
     SemanticMRRFixtureEntry,
 )
 from recollectium.dev_seed import (
+    DEV_SEED_PROJECTS,
     DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
     DEV_SEED_USER_MEMORY_COUNT,
+    PROJECT_MEMORIES_BY_UID,
+    USER_FACTS_BY_TOPIC,
 )
 from recollectium.models import Memory, SPACE_USER, SPACE_WORKSPACE, SearchResult
 
@@ -708,3 +713,63 @@ def test_semantic_fixture_covers_every_seeded_memory_with_three_queries() -> Non
     assert not any(
         query.endswith((" with.", " for.", " and.", " to.")) for query in all_queries
     )
+
+
+def _semantic_fixture_source_memories() -> dict[str, str]:
+    sources: dict[str, str] = {}
+    user_index = 1
+    for topic_memories in USER_FACTS_BY_TOPIC:
+        for memory in topic_memories:
+            sources[f"dev-user-{user_index:03d}"] = memory
+            user_index += 1
+    for workspace_index, project in enumerate(DEV_SEED_PROJECTS, start=1):
+        for memory_index, memory in enumerate(
+            PROJECT_MEMORIES_BY_UID[project["uid"]], start=1
+        ):
+            sources[f"dev-workspace-{workspace_index:02d}-{memory_index:03d}"] = memory
+    return sources
+
+
+def _semantic_fixture_tokens(text: str) -> tuple[str, ...]:
+    return tuple(
+        token.strip("'")
+        for token in re.findall(r"[a-z0-9][a-z0-9'-]*", text.casefold())
+    )
+
+
+def _max_contiguous_token_overlap(source: str, query: str) -> int:
+    source_tokens = _semantic_fixture_tokens(source)
+    query_tokens = _semantic_fixture_tokens(query)
+    max_overlap = 0
+    for source_index in range(len(source_tokens)):
+        for query_index in range(len(query_tokens)):
+            overlap = 0
+            while (
+                source_index + overlap < len(source_tokens)
+                and query_index + overlap < len(query_tokens)
+                and source_tokens[source_index + overlap]
+                == query_tokens[query_index + overlap]
+            ):
+                overlap += 1
+            max_overlap = max(max_overlap, overlap)
+    return max_overlap
+
+
+def test_semantic_fixture_avoids_near_exact_source_copies() -> None:
+    """Semantic queries must not copy long spans from the target memory.
+
+    Product review found that the original fixture mostly wrapped exact source
+    text in shallow templates. Keep every query below a ten-token contiguous
+    overlap with its target memory so Semantic MRR remains distinct from Exact
+    MRR and continues to exercise paraphrase retrieval.
+    """
+    source_memories = _semantic_fixture_source_memories()
+    assert set(source_memories) == set(SEMANTIC_MRR_FIXTURE)
+
+    overlaps = [
+        _max_contiguous_token_overlap(source_memories[memory_id], query)
+        for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+        for query in entry["queries"]
+    ]
+
+    assert max(overlaps) < 10
