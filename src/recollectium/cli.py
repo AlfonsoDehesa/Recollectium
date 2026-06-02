@@ -384,18 +384,21 @@ def _format_human_output(
         command == "add"
         and isinstance(payload, dict)
         and payload.get("status") == "saved"
+        and "content" not in payload
     ):
         return _style("Memory saved!", _RICH_SUCCESS, enabled=color) + "\n"
     if (
         command == "update"
         and isinstance(payload, dict)
         and payload.get("status") == "updated"
+        and "content" not in payload
     ):
         return _style("Memory updated.", _RICH_SUCCESS, enabled=color) + "\n"
     if (
         command == "archive"
         and isinstance(payload, dict)
         and payload.get("status") == "archived"
+        and "content" not in payload
     ):
         return _style("Memory archived.", _RICH_SUCCESS, enabled=color) + "\n"
     if payload is None:

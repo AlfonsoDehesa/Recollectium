@@ -2038,6 +2038,28 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     assert "Memory added" in _format_human_output(memory, command="add")
     assert "Memory updated" in _format_human_output(memory, command="update")
     assert "Memory archived" in _format_human_output(memory, command="archive")
+    # Compact archive projection (id + status only, no content) → short output
+    assert _format_human_output(
+        {"id": 456, "status": "archived"}, command="archive"
+    ) == "Memory archived.\n"
+    # Compact archive with just status (no id, no content) → short output
+    assert _format_human_output(
+        {"status": "archived"}, command="archive"
+    ) == "Memory archived.\n"
+    # Verbose archive (full memory dict with content + archived status) → detailed output
+    archived_memory = {**memory, "status": "archived"}
+    verbose_output = _format_human_output(archived_memory, command="archive")
+    assert "Memory archived" in verbose_output
+    assert "Use SQLite." in verbose_output  # content present
+    assert "decision" in verbose_output  # type present
+    # Compact add projection → short output
+    assert _format_human_output(
+        {"id": 789, "status": "saved"}, command="add"
+    ) == "Memory saved!\n"
+    # Compact update projection → short output
+    assert _format_human_output(
+        {"id": 789, "status": "updated"}, command="update"
+    ) == "Memory updated.\n"
     assert "cli_output: human_readable" in _format_human_output(
         "human_readable", command="config get", label="cli_output"
     )
