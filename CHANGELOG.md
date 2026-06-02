@@ -13,7 +13,7 @@ This release provides working embedding-powered semantic memory for agents, expo
   - Legacy supported profile: `jinaai/jina-embeddings-v2-small-en`, `builtin-fastembed-jina-v2-small-en-v1`, 512 dimensions, 8192 max tokens, 6144 chunk tokens, 512 overlap tokens.
 - Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set NDCG@5 separately without a combined score.
 - Added explicit stale-embedding refresh and embedding job cleanup controls across CLI, HTTP API, and MCP.
-- Added install and upgrade embedding maintenance so bootstrap installs and successful package upgrades prepare the configured model and refresh stale embeddings inline when needed.
+- Added install and upgrade embedding maintenance so bootstrap installs and successful package upgrades prepare the configured model and refresh stale or missing embeddings inline when needed.
 - Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
 
 ### 🐛 Fixes

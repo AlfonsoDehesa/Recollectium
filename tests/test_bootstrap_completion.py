@@ -171,6 +171,14 @@ def test_bootstrap_installers_run_embedding_maintenance_strictly() -> None:
     assert "recollectium embedding-maintenance" in unix_script
     assert "recollectium init || true" not in unix_script
     assert "recollectium embedding-maintenance" in windows_script
+    assert (
+        'if ($LASTEXITCODE -ne 0) { throw "failed to install Recollectium package" }'
+        in windows_script
+    )
+    assert (
+        'if ($LASTEXITCODE -ne 0) { throw "embedding maintenance failed; retry with: recollectium embedding-maintenance" }'
+        in windows_script
+    )
 
 
 def test_unix_bootstrap_resolves_tracking_metadata_in_current_shell() -> None:
