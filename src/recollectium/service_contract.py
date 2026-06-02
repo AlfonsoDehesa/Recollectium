@@ -12,6 +12,11 @@ from recollectium.models import (
     Memory,
     SearchResult,
 )
+from recollectium.representations import (
+    OPERATION_MEMORIES_SEARCH_USER,
+    OPERATION_MEMORIES_SEARCH_WORKSPACE,
+    project_payload,
+)
 
 SERVICE_API_VERSION = "1"
 SERVICE_API_PREFIX = f"/v{SERVICE_API_VERSION}"
@@ -21,8 +26,6 @@ SERVICE_DEFAULT_PORT = 8765
 OPERATION_HEALTH_READ = "health.read"
 OPERATION_VERSION_READ = "version.read"
 OPERATION_CAPABILITIES_READ = "capabilities.read"
-OPERATION_MEMORIES_SEARCH_USER = "memories.search_user"
-OPERATION_MEMORIES_SEARCH_WORKSPACE = "memories.search_workspace"
 OPERATION_MEMORIES_ADD = "memories.add"
 OPERATION_MEMORIES_UPDATE = "memories.update"
 OPERATION_MEMORIES_ARCHIVE = "memories.archive"
@@ -65,20 +68,46 @@ SERVICE_CAPABILITIES = (
 )
 
 
-def serialize_memory(memory: Memory) -> dict[str, Any]:
-    return memory.to_dict()
+def serialize_memory(
+    memory: Memory, *, verbosity: str | None = None, operation: str | None = None
+) -> dict[str, Any]:
+    payload = memory.to_dict()
+    if verbosity is None and operation is None:
+        return payload
+    return project_payload(payload, verbosity=verbosity, operation=operation)
 
 
-def serialize_search_result(result: SearchResult) -> dict[str, Any]:
-    return result.to_dict()
+def serialize_search_result(
+    result: SearchResult, *, verbosity: str | None = None, operation: str | None = None
+) -> dict[str, Any]:
+    payload = result.to_dict()
+    if verbosity is None and operation is None:
+        return payload
+    return project_payload(payload, verbosity=verbosity, operation=operation)
 
 
-def serialize_memories(memories: list[Memory]) -> list[dict[str, Any]]:
-    return [serialize_memory(memory) for memory in memories]
+def serialize_memories(
+    memories: list[Memory],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        serialize_memory(memory, verbosity=verbosity, operation=operation)
+        for memory in memories
+    ]
 
 
-def serialize_search_results(results: list[SearchResult]) -> list[dict[str, Any]]:
-    return [serialize_search_result(result) for result in results]
+def serialize_search_results(
+    results: list[SearchResult],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        serialize_search_result(result, verbosity=verbosity, operation=operation)
+        for result in results
+    ]
 
 
 def serialize_embedding_status(status: dict[str, Any]) -> dict[str, Any]:
