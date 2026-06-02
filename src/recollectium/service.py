@@ -245,7 +245,15 @@ def _resolve_verbosity(
 
     Returns a resolved verbosity string or the default compact value.
     """
-    selected = query_value or header_value or config_default or RESPONSE_VERBOSITY_COMPACT
+    selected = (
+        query_value
+        if query_value is not None
+        else header_value
+        if header_value is not None
+        else config_default
+        if config_default is not None
+        else RESPONSE_VERBOSITY_COMPACT
+    )
     return validate_response_verbosity(selected).value
 
 

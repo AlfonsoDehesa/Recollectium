@@ -363,7 +363,9 @@ def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> N
         fetched = _request_service_json(
             endpoint, "GET", f"/v1/memories/{memory_id}?verbosity=verbose"
         )
-        assert fetched["data"]["content"] == "api daemon memory"
+        fetched_memory = fetched["data"]
+        assert isinstance(fetched_memory, dict)
+        assert fetched_memory["content"] == "api daemon memory"
 
         search = _request_service_json(
             endpoint,

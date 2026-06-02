@@ -1221,9 +1221,27 @@ class TestVerbosityOverride:
         assert payload["error"]["code"] == "validation_error"
         assert "verbosity must be one of" in payload["error"]["message"]
 
+        # Empty query param is invalid and does not fall through to a valid header.
+        status, payload = _request_verbosity(
+            client,
+            "GET",
+            "/v1/memories",
+            query_verbosity="",
+            header_verbosity="verbose",
+        )
+        assert status == 400
+        assert payload["error"]["code"] == "validation_error"
+        assert "verbosity must be one of" in payload["error"]["message"]
+
         # Invalid header
         status, payload = _request_verbosity(
             client, "GET", "/v1/embedding/status", header_verbosity="WRONG"
+        )
+        assert status == 400
+        assert payload["error"]["code"] == "validation_error"
+
+        status, payload = _request_verbosity(
+            client, "GET", "/v1/embedding/status", header_verbosity=""
         )
         assert status == 400
         assert payload["error"]["code"] == "validation_error"

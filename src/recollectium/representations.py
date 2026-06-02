@@ -49,7 +49,9 @@ def validate_response_verbosity(
     """Normalize and validate a response verbosity value."""
     if isinstance(value, ResponseVerbosity):
         return value
-    verbosity = (value or RESPONSE_VERBOSITY_COMPACT).lower()
+    if value is None:
+        return ResponseVerbosity(RESPONSE_VERBOSITY_COMPACT)
+    verbosity = value.lower()
     if verbosity not in SUPPORTED_RESPONSE_VERBOSITIES:
         allowed = ", ".join(sorted(SUPPORTED_RESPONSE_VERBOSITIES))
         raise ValidationError(f"verbosity must be one of: {allowed}")
