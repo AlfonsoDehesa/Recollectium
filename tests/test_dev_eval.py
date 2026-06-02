@@ -743,15 +743,30 @@ def test_semantic_fixture_queries_are_not_keyword_bag_artifacts() -> None:
 
 def test_semantic_fixture_contains_natural_spot_checked_queries() -> None:
     assert SEMANTIC_MRR_FIXTURE["dev-user-001"]["queries"] == (
-        "How do they enjoy spending time thinking about train journeys along the coast?",
-        "What should I recall about their fondness for make-believe seaside rail routes with artistic details?",
-        "When planning a weekend escape story, what kind of transport fantasy do they mention — one involving colorful little stations along the shore?",
+        "What travel preference says they like unscheduled time for exploring neighborhoods?",
+        "Ask for the user's tendency to avoid overbooking vacations with reservations.",
+        "Ask about their preference for city trip days with room to wander locally.",
     )
+    assert SEMANTIC_MRR_FIXTURE["dev-user-027"]["queries"] == (
+        "What kinds of games help the user relax after work?",
+        "Look up their preference for cozy games with gentle objectives, pleasant soundtracks, and forgiving systems.",
+        "Show their preference for low-stress games that are forgiving when they pause or leave.",
+    )
+    user_001_text = " ".join(SEMANTIC_MRR_FIXTURE["dev-user-001"]["queries"]).casefold()
+    user_027_text = " ".join(SEMANTIC_MRR_FIXTURE["dev-user-027"]["queries"]).casefold()
+    assert "neighborhood" in user_001_text
+    assert "reservation" in user_001_text
+    assert "seaside" not in user_001_text
+    assert "train" not in user_001_text
+    assert "cozy" in user_027_text
+    assert "low-stress" in user_027_text
+    assert "synth" not in user_027_text
+    assert "chimes" not in user_027_text
     assert SEMANTIC_MRR_FIXTURE["dev-workspace-01-001"]["queries"][0] == (
         "How should CedarLedger divide access between owners, report reviewers, and sales clerks?"
     )
-    assert SEMANTIC_MRR_FIXTURE["dev-workspace-03-001"]["queries"][0] == (
-        "How should HarborPilot help dispatchers notice when crane, welding, and survey jobs collide at one pier?"
+    assert SEMANTIC_MRR_FIXTURE["dev-workspace-03-030"]["queries"][0] == (
+        "What assignment problem happened to jobs cleared before the shift change?"
     )
 
 

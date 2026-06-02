@@ -24,1258 +24,900 @@ SEMANTIC_MRR_FIXTURE: dict[str, SemanticMRRFixtureEntry] = {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they enjoy spending time thinking about train journeys along "
-            "the coast?",
-            "What should I recall about their fondness for make-believe seaside "
-            "rail routes with artistic details?",
-            "When planning a weekend escape story, what kind of transport "
-            "fantasy do they mention — one involving colorful little stations "
-            "along the shore?",
+            "What travel preference says they like unscheduled time for exploring neighborhoods?",
+            "Ask for the user's tendency to avoid overbooking vacations with reservations.",
+            "Ask about their preference for city trip days with room to wander locally.",
         ),
     },
     "dev-user-002": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What collection do they maintain that organizes scenic pictures by "
-            "landscape type?",
-            "Tell me about the imaginary album they keep where postcards are "
-            "grouped into four nature categories.",
-            "If I wanted to browse their pretend photo collection, how would the "
-            "pictures be sorted — by terrain like peaks, islands, deserts, and "
-            "woodlands?",
+            "What kind of lodging location does the user look for when traveling?",
+            "Find their preference for staying near transit, casual food, and basic groceries.",
+            "How does the user choose hotels or rentals based on nearby everyday conveniences?",
         ),
     },
     "dev-user-003": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What is their ideal short fictional getaway composed of — a calm "
-            "museum and an early walk?",
-            "When they dream up a two-day escape, which two gentle activities do "
-            "they always include?",
-            "Describe the kind of pretend weekend trip they favor: one cultural "
-            "stop plus a peaceful morning stroll.",
+            "What does the user compare before picking a place to stay on a trip?",
+            "Retrieve the travel planning habit about trains, airport access, and walkability.",
+            "Show their habit of evaluating transport links and walkability before booking lodging.",
         ),
     },
     "dev-user-004": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What habit do they have around designing artificial city layouts "
-            "and noting the pastry district?",
-            "Tell me about the game they play where they draw made-up urban maps "
-            "and highlight where the best fictional bakeries are.",
-            "When they sketch an invented city, what specific landmark do they "
-            "always identify — the area with the finest imagined bread and "
-            "sweets?",
+            "How does the user prefer travel days to be paced around departures?",
+            "Find the preference for having time to buy coffee and locate the right platform.",
+            "What memory says rushed connections make travel days less enjoyable for them?",
         ),
     },
     "dev-user-005": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they like to create for imaginary cabin stays where the "
-            "climate shifts every hour?",
-            "Recall their interest in writing supply lists for storybook "
-            "cottages with rapidly changing weather.",
-            "When preparing for a whimsical lodge visit, what organizational "
-            "task do they enjoy — making a packing checklist for a place where "
-            "it might rain, snow, and shine all in one afternoon?",
+            "What does the user like doing at local markets near the start of a trip?",
+            "Look up their habit of using markets to understand a neighborhood and stock snacks.",
+            "Show their interest in early market stops for local atmosphere and snacks.",
         ),
     },
     "dev-user-006": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "Which would they pick: a quiet scenic rail ride through an invented "
-            "gorge, or a loud fantasy celebration?",
-            "What preference do they hold about preferring serene observation "
-            "over crowded spectacle when traveling in stories?",
-            "If offered a choice between a glass-ceiling train journey across a "
-            "fictional ravine and a bustling mythical festival, which experience "
-            "would appeal more — and why does it involve panoramic windows?",
+            "What packing style does the user prefer for urban vacations?",
+            "Ask how they pack lightly for city travel while relying on quick laundry.",
+            "How does the user balance packing light with washing clothes during city travel?",
         ),
     },
     "dev-user-007": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they catalog dream locations — by the hue of the street "
-            "lighting in each place?",
-            "What unusual detail do they record about fantasy destinations in a "
-            "private notebook?",
-            "When they jot down places they hope to visit someday, what visual "
-            "feature do they use to characterize each town — the color of its "
-            "evening lamps?",
+            "What destination advice helps the user handle ticketed attractions and bad weather?",
+            "Retrieve their preference for knowing which sights require booking ahead.",
+            "Show the travel advice they value about rainy-day options and tickets to reserve ahead.",
         ),
     },
     "dev-user-008": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of fictional coastal inn do they picture — one that "
-            "offers a warm pear drink before a lighthouse stroll?",
-            "Describe the make-believe seaside lodging they enjoy: a place with "
-            "a specific tea service and an evening walk to the beacon.",
-            "What two details define their ideal imaginary shorefront guesthouse "
-            "— a fruit infusion served to visitors and a nearby tower with a "
-            "guiding light?",
+            "How much structure does the user like for each vacation day?",
+            "Find their preference for one main museum, hike, or food activity with flexible time around it.",
+            "What travel memory says detailed minute-by-minute schedules feel too restrictive?",
         ),
     },
     "dev-user-009": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What sort of structures do they add to a wish list for calm autumn "
-            "evening crossings?",
-            "Tell me about the collection of fictitious bridges they dream of "
-            "traversing during peaceful fall nights.",
-            "What themed list do they keep — spanning desired walkways to "
-            "experience when the air is crisp and the sun sets early?",
+            "What dining rhythm does the user enjoy when traveling?",
+            "Look up their preference for regional morning meals, casual cafes, and calmer evenings.",
+            "Show their habit of choosing the nicer meal at lunch so travel evenings stay easy.",
         ),
     },
     "dev-user-010": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What does a perfect make-believe travel day look like to them — no "
-            "schedules, a couple of unplanned turns, and time for drawing?",
-            "How would they design a relaxed fictional travel itinerary: "
-            "unstructured, with two detours, and space for sketching?",
-            "If they described their ultimate unhurried journey, what three "
-            "elements would appear — freedom from alarms, a pair of spontaneous "
-            "route changes, and an opportunity to draw?",
+            "What kind of backup options does the user save before a trip?",
+            "Ask how they prepare flexible fallback plans with indoor stops, quiet parks, and casual food.",
+            "How do transit time, price, and reservation notes make travel recommendations more useful to them?",
         ),
     },
     "dev-user-011": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What small vehicle do they favor for running errands in their "
-            "imagined town — a teal bike with a bell?",
-            "Describe their preferred mode of getting around the fictional "
-            "village square for quick tasks.",
-            "When they need to pick up a few things in the storybook downtown, "
-            "what color and style of bicycle do they reach for, and what small "
-            "accessory does it have?",
+            "When does the user prefer trains instead of flying?",
+            "Retrieve the transportation preference for rail when door-to-door time is similar to an air trip.",
+            "Show their rail preference when flying would not save much total time.",
         ),
     },
     "dev-user-012": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they name pretend transit lines to make them easier to "
-            "recall — using star patterns?",
-            "What system do they use for labeling invented bus services so the "
-            "routes are memorable?",
-            "Tell me about their trick for remembering which imaginary coach "
-            "goes where: they assign each line the name of a constellation.",
+            "How does the user feel about transfers when choosing a route?",
+            "Find the preference for a more direct trip even if it is slightly slower.",
+            "What transportation memory says fewer connections can matter more than saving a few minutes?",
         ),
     },
     "dev-user-013": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "Why do they choose tram seats at the back — to better view made-up "
-            "wall paintings?",
-            "Where do they prefer to sit on a fictional streetcar and what do "
-            "they hope to spot from that spot?",
-            "When riding an imaginary tram, what seating area offers the best "
-            "vantage for admiring the invented city artwork, according to "
-            "them?",
+            "What does the user check before leaving for time-sensitive travel or appointments?",
+            "Look up the habit of reviewing traffic ahead of airport runs and station pickups.",
+            "Show their routine of checking traffic before leaving for scheduled travel.",
         ),
     },
     "dev-user-014": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they keep tucked inside a notebook for planning imaginary "
-            "boat journeys — a fabricated schedule?",
-            "Tell me about the pretend nautical timetable they maintain for "
-            "route-planning diversions.",
-            "What reference document do they fold into their journal to help "
-            "plot storybook ferry adventures?",
+            "When is the user open to bike-share or scooters for short trips?",
+            "Ask when scooters or shared bikes feel acceptable for short city transportation.",
+            "What transportation preference mentions bikes or scooters for brief city errands when infrastructure feels safe?",
         ),
     },
     "dev-user-015": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "Which would they choose for crossing a tiny invented campus: a "
-            "quiet electric scooter or a car?",
-            "What stance do they take on moving around a small fictional "
-            "academic setting — preferring a near-silent two-wheeler?",
-            "If they had to get from one end of a miniature storybook college to "
-            "the other, what vehicle feels right to them and why does the "
-            "quietness matter?",
+            "What route information does the user appreciate when multiple transportation modes are realistic?",
+            "Retrieve the preference for comparing car, transit, and walking by time, cost, and inconvenience.",
+            "Show their interest in route advice that weighs practical tradeoffs among travel modes.",
         ),
     },
     "dev-user-016": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they orient themselves at fantasy rail stations — by noting "
-            "which snack stand is closest to the departure display?",
-            "What is their landmark for finding the right platform in an "
-            "imaginary train terminal?",
-            "When navigating a made-up transit hub, what specific kiosk do they "
-            "use as a reference point relative to the schedule board?",
+            "What parking details does the user want before driving to a busy area?",
+            "Find their habit of checking garages, meters, permit zones, and likely prices in advance.",
+            "Show their preference for knowing parking options before driving somewhere busy.",
         ),
     },
     "dev-user-017": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of paths do they favor when strolling between invented "
-            "districts — ones with painted distance markers?",
-            "Describe the walking routes they enjoy in storybook neighborhoods: "
-            "marked trails with artistic mileposts.",
-            "When designing a fictional pedestrian route, what decorative "
-            "element do they include every so often to show how far they've "
-            "come?",
+            "How does the user weigh reliability against the lowest transportation cost?",
+            "Look up their willingness to spend a bit more to avoid stressful connections.",
+            "What memory says dependable travel plans matter more than the cheapest option?",
         ),
     },
     "dev-user-018": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What imaginary transport do they enjoy — a hillside cable car that "
-            "stops midway for a view of scarlet roofs?",
-            "Tell me about the fantasy lift ride they like, where the journey "
-            "pauses halfway up to admire the town below.",
-            "What specific detail do they appreciate about make-believe aerial "
-            "trams: a deliberate halt partway that reveals a panorama of "
-            "red-tiled buildings?",
+            "How does the user use rideshare in their transportation planning?",
+            "Find the preference for treating ride-hailing as a backup at night or in bad weather rather than the default.",
+            "Show their view that ride-hailing is a fallback while dependable public transit is preferred.",
         ),
     },
     "dev-user-019": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they maintain for a mint-green cargo bike named Clover — a "
-            "fictional upkeep list?",
-            "Describe the pretend record they keep for servicing their invented "
-            "freight bicycle.",
-            "What color is the made-up delivery cycle they care for, what is its "
-            "name, and what kind of document tracks its maintenance?",
+            "When does the user like walking for short urban trips?",
+            "Retrieve their walking preference for safe sidewalks, decent weather, and pleasant street scenery.",
+            "What preference warns against walking plans through confusing highways or dark areas?",
         ),
     },
     "dev-user-020": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they pick transportation in narratives — whichever option "
-            "preserves the most time for letting the mind wander?",
-            "What principle guides their choice of travel methods in stories: "
-            "maximizing daydreaming opportunities?",
-            "When characters in a tale need to get somewhere, what criterion "
-            "does this person apply — which mode of movement leaves the greatest "
-            "space for idle thought?",
+            "How early does the user like to arrive for buses, trains, or flights?",
+            "Ask how much extra time they want before departures for tickets, gates, or screening.",
+            "What preference says waiting calmly is better than cutting an important trip close?",
         ),
     },
     "dev-user-021": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What genre do they enjoy where the main storyline can be postponed "
-            "while they rearrange garden plots?",
-            "Tell me about their taste for gentle exploration titles that allow "
-            "ignoring the primary quest to tend flower beds.",
-            "When playing a calm sandbox game, what side activity do they "
-            "prioritize — reorganizing planted areas — even if the central "
-            "mission waits?",
+            "What kind of games does the user enjoy for narrative and mood?",
+            "Retrieve the gaming preference for atmospheric stories and characters that stick with them.",
+            "Show their interest in narrative games with atmosphere and characters they remember.",
         ),
     },
     "dev-user-022": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of pretend puzzle games appeal to them — ones with penned "
-            "clue journals and zero rushing timers?",
-            "Describe the logbook-and-no-pressure style of brain teasers they "
-            "gravitate toward.",
-            "In an ideal fictional riddle game, what two features must be "
-            "present: handwritten hints and the absence of any countdown "
-            "clock?",
+            "Why does the user value adjustable difficulty in games?",
+            "Find the preference for changing challenge level depending on how they feel.",
+            "What gaming memory says flexible settings help match the user's mood?",
         ),
     },
     "dev-user-023": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What naming convention do they use for game save slots — "
-            "atmospheric terms like drizzle and ember?",
-            "How do they label their progress files in video games, drawing from "
-            "weather and light vocabulary?",
-            "When they start a new playthrough, what kind of words inspire the "
-            "names they type into the save screen — misty, glowing, dusky?",
+            "What makes puzzle mechanics appealing to the user in games?",
+            "Look up their preference for puzzles that feel like part of the world rather than detached obstacles.",
+            "Show their preference for puzzle design that feels embedded in the game world.",
         ),
     },
     "dev-user-024": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of character do they like to roleplay — someone who "
-            "resolves conflict by bartering dishes instead of gathering weapons?",
-            "Tell me about their preference for protagonists who trade culinary "
-            "creations rather than collect arms.",
-            "In their ideal RPG, how does the hero solve problems — by "
-            "exchanging recipes, not by amassing a sword collection?",
+            "What practical details does the user want in game recommendations?",
+            "Ask what session-length information makes game suggestions more useful to them.",
+            "Show the gaming recommendation detail about playtime and session length.",
         ),
     },
     "dev-user-025": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What digital keepsake do they hold on to — a fabricated arcade coin "
-            "from a moth-themed library delivery game?",
-            "Describe the pixel-art memento they treasure from a title about "
-            "insects carrying books.",
-            "What imaginary token do they own that commemorates a retro-style "
-            "game where winged nocturnal creatures serve as postal workers for a "
-            "reading room?",
+            "When does the user enjoy open-world games?",
+            "Retrieve the preference for exploration that rewards curiosity instead of feeling like errands on a list.",
+            "What memory says maps should invite discovery rather than just completion chores?",
         ),
     },
     "dev-user-026": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "When do round-based fights feel most satisfying — when the win "
-            "display features tiny festive animations?",
-            "What heightens their enjoyment of tactical combat: celebratory "
-            "miniature visuals after a successful match?",
-            "In a turn-oriented battle system, what post-victory detail matters "
-            "to them — small, charming motion graphics on the results screen?",
+            "What multiplayer setup does the user tend to avoid?",
+            "Ask why online games with constant stranger voice chat are not a good fit for them.",
+            "Show their comfort with cooperative play that can stay quiet or use basic pings.",
         ),
     },
     "dev-user-027": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What audio palette do they prefer in game backgrounds — gentle "
-            "synth chimes, rainy loops, and soft interface sounds?",
-            "Describe the soundtrack style they favor: delicate electronic "
-            "bells, drizzle ambience, and quiet menu clicks.",
-            "When evaluating a game's music, what three elements tend to win "
-            "them over — mellow synthesized tones, precipitation loops, and "
-            "subtle button sounds?",
+            "What kinds of games help the user relax after work?",
+            "Look up their preference for cozy games with gentle objectives, pleasant soundtracks, and forgiving systems.",
+            "Show their preference for low-stress games that are forgiving when they pause or leave.",
         ),
     },
     "dev-user-028": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What self-imposed rule do they follow in creative builder titles — "
-            "constructing mirrored farms even when lopsided would be quicker?",
-            "Tell me about their aesthetic choice in sandbox games: always "
-            "placing crops and structures in balanced, matching layouts.",
-            "When speed isn't the goal, why do they spend extra minutes ensuring "
-            "their agricultural plots are perfectly even on both sides?",
+            "What save system qualities does the user care about in games?",
+            "Ask why clear checkpoints matter before the user starts a longer game session.",
+            "Show their view that autosave is useful but a manual save option is ideal.",
         ),
     },
     "dev-user-029": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What condition must a made-up horror title meet before they'll try "
-            "it — courteous spirits and cozy illumination?",
-            "Under what circumstances would they consider a spooky game: if the "
-            "ghosts are friendly and the lighting stays gentle?",
-            "They normally steer clear of frightening fiction, but what two "
-            "traits might change their mind — well-mannered apparitions and a "
-            "warm, inviting glow throughout?",
+            "What draws the user to indie games?",
+            "Retrieve the preference for unusual mechanics or distinctive visuals despite minor rough edges.",
+            "Show their openness to rough indie games when the central concept feels original.",
         ),
     },
     "dev-user-030": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What odd habit do they have around fictional game characters — "
-            "recording their birth dates to send digital pastry gifts?",
-            "Why do they track the birthdays of made-up NPCs — so nobody misses "
-            "out on a virtual baked treat?",
-            "What peculiar calendar do they maintain inside their game notebook, "
-            "and what small present do they give on each listed date?",
+            "What makes a game suitable for the user's couch or TV setup?",
+            "Find the preference for controller support, readable interface text, adjustable captions, and mouse-free menus.",
+            "Show their tendency to reserve controller-awkward games for a desk setup.",
         ),
     },
     "dev-user-031": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of novels draw them in — ones with illustrated "
-            "cartography and headings that feel like hidden entrances?",
-            "Tell me about the two book features they love: a drawn map and "
-            "chapter names that whisper of secret passages.",
-            "When browsing for a story, what combination signals a must-read — a "
-            "visual guide to the world and titles that evoke mysterious "
-            "doorways?",
+            "What qualities does the user enjoy in novels?",
+            "Retrieve the reading preference for nuanced character arcs and a vivid setting.",
+            "Show their taste for fiction where characters deepen and the setting feels vivid.",
         ),
     },
     "dev-user-032": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they keep stocked in their imaginary reading corner — "
-            "citrus biscuits and a blue woolen throw?",
-            "Describe the pretend nook where they curl up with a book: two "
-            "specific comforts are always within reach.",
-            "If you were to set up a cozy story-time spot for them, what edible "
-            "and what blanket would you provide, and what color is the "
-            "blanket?",
+            "How should book recommendations explain why a title fits the user?",
+            "Find the preference for brief reasons without revealing plot spoilers.",
+            "What reading memory says suggested books should include a short spoiler-safe fit explanation?",
         ),
     },
     "dev-user-033": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What twist do they enjoy in library-centered whodunits — the lost "
-            "item is a page-marker, not a gem?",
-            "Tell me about their preferred mystery premise: a missing "
-            "placeholder strip rather than a stolen treasure.",
-            "In detective tales set among bookshelves, what humble object do "
-            "they want to be the center of the puzzle instead of something "
-            "precious?",
+            "What nonfiction style does the user prefer?",
+            "Look up their interest in clear nonfiction that avoids a textbook tone.",
+            "Show their nonfiction preference for clarity without a dry classroom feel.",
         ),
     },
     "dev-user-034": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they organize imagined library shelves — by feeling, mixing "
-            "tempestuous journeys with gentle comedies?",
-            "What unusual sorting method do they apply to their pretend book "
-            "collection: grouping by emotional tone?",
-            "Instead of author or genre, what criterion guides the arrangement "
-            "of their fantasy bookcases — placing stormy tales next to calm, "
-            "funny ones?",
+            "Why does the user appreciate shorter chapters?",
+            "Ask why concise book sections are helpful for their reading routine.",
+            "Show why short chapters help them read during small pockets of time.",
         ),
     },
     "dev-user-035": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of anthology appeals to them — tales about kind "
-            "automatons caring for greenery on building tops?",
-            "Describe the subject of their favorite short story collections: "
-            "softhearted machines maintaining elevated gardens.",
-            "What niche theme do they seek in compilations — mechanical beings "
-            "with gentle dispositions tending plants on high ledges?",
+            "How does the user avoid reading burnout?",
+            "Retrieve the habit of alternating demanding books with easier, comforting reads.",
+            "What memory says they like a lighter option ready after finishing something dense?",
         ),
     },
     "dev-user-036": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What physical book style do they favor in tales about roaming "
-            "mapmakers — softcovers with rough-cut page borders?",
-            "Tell me about the paperback format they prefer for stories of "
-            "wandering cartographers: uneven, feathery edges.",
-            "When the protagonist is a traveling chart-drawer, what tactile "
-            "quality of the volume itself do they appreciate?",
+            "What kind of science fiction appeals to the user?",
+            "Find the preference for speculative stories centered on human effects and believable relationships.",
+            "Show their sci-fi taste for emotional consequences rather than technology alone.",
         ),
     },
     "dev-user-037": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What rule governs their make-believe reading circle — every pick "
-            "must feature at least one creature that speaks?",
-            "Describe the one requirement for books chosen in their fictional "
-            "club: the presence of a conversational animal.",
-            "What unifying element must appear in every selection on their "
-            "imaginary book-group roster?",
+            "What does the user like in mystery novels?",
+            "Look up the preference for fair clues and twists that do not feel overly convenient.",
+            "Show their mystery preference for clues that feel fair once the solution is known.",
         ),
     },
     "dev-user-038": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What small detail do they revisit in stories — footnotes that hide "
-            "tiny jokes about made-up scholars?",
-            "Tell me about the ancillary text they love rediscovering: marginal "
-            "comments with quiet humor at the expense of fictitious academics.",
-            "Where do they find hidden delight in certain novels — among the "
-            "annotations that poke gentle fun at imaginary historians?",
+            "How many book suggestions does the user prefer at once?",
+            "Ask how they prefer a concise to-read list to describe tone, pacing, length, and series commitment.",
+            "What reading preference says three to five strong options beat a huge catalog?",
         ),
     },
     "dev-user-039": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What impossible memorabilia do they gather — autographs from "
-            "writers whose works exist only in daydreams?",
-            "Describe the collection of signatures they've assembled from "
-            "novelists who aren't real.",
-            "What kind of inscription do they treasure — signed pages from books "
-            "that were never actually published outside their imagination?",
+            "What kind of memoirs interest the user?",
+            "Retrieve the preference for personal narratives connected to cultural or historical context.",
+            "Show their preference for grounded reflective memoirs over gossip or sensationalism.",
         ),
     },
     "dev-user-040": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What three endings do they hope for in a story — characters "
-            "launching a patisserie, reviving a garden, or welcoming a drowsy "
-            "feline?",
-            "Tell me about the conclusions that satisfy them most: opening a "
-            "bake shop, restoring greenery, or giving a home to a sleepy cat.",
-            "When they near the final chapter, which outcomes feel right — a new "
-            "pastry business, a renewed flower bed, or adopting a tired kitty?",
+            "What does the user avoid reading late at night?",
+            "Ask what kinds of intense books they avoid close to bedtime.",
+            "Show the calmer genres they prefer for bedtime reading.",
         ),
     },
     "dev-user-041": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What fantasy breakfast do they enjoy making — star-shaped tropical "
-            "fruit flapjacks with spiced sugary clouds?",
-            "Describe their lazy weekend morning creation: a pancake involving "
-            "exotic fruit and a topping reminiscent of cinnamon mist.",
-            "What two unusual elements appear in their favorite make-believe "
-            "griddle cakes served on a slow Sunday?",
+            "What does the user want from weeknight dinner recipes?",
+            "Retrieve the cooking preference for meals around half an hour with little cleanup.",
+            "Show their preference for fast dinners with minimal cleanup on work nights.",
         ),
     },
     "dev-user-042": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What storied seasoning do they keep — a container marked lunar "
-            "pepper for adding to broths?",
-            "Tell me about the imaginary spice jar they reach for when preparing "
-            "fictional soups.",
-            "What label is on the pretend condiment tin they use to season "
-            "pottages in made-up recipes, and what celestial body does it "
-            "reference?",
+            "What style of meals does the user enjoy with vegetables, grains, and olive oil?",
+            "Ask about their taste for Mediterranean-leaning meals built around simple proteins.",
+            "Show their interest in Mediterranean-style grain and vegetable meals.",
         ),
     },
     "dev-user-043": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "Why do they dice produce into tiny cubes — because imagined stews "
-            "simply look neater that way?",
-            "What precision habit do they apply to vegetable preparation when "
-            "cooking in fantasy?",
-            "When chopping ingredients for a storybook pot, what size do they "
-            "aim for and what aesthetic reasoning drives that choice?",
+            "What pantry staples does the user tend to keep available?",
+            "Look up their habit of stocking pasta, rice, beans, canned tomatoes, and everyday spices.",
+            "Show the pantry basics they usually keep ready for cooking.",
         ),
     },
     "dev-user-044": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they enjoy assembling — meadow concert picnic menus with "
-            "stone-fruit pastries and citrus-basil refreshment?",
-            "Describe their ideal outdoor feast plan for a musical gathering in "
-            "a field.",
-            "What two items always appear when they design a basket for an "
-            "open-air performance: a dessert with plums and a drink blending "
-            "lemon and an herb?",
+            "What breakfast flavor profile does the user prefer when cooking?",
+            "Ask whether they lean savory or sweet for breakfast when they can cook.",
+            "Show their preference for savory breakfasts when they have time to cook.",
         ),
     },
     "dev-user-045": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What imaginary kitchen policy do they follow — adding a small "
-            "sketch next to every untried dish?",
-            "Tell me about their rule for new recipes: each one earns a doodle "
-            "in the margin.",
-            "What visual tradition accompanies any first attempt at a meal in "
-            "their pretend culinary world — a quick drawing beside the "
-            "instructions?",
+            "What recipe format does the user appreciate for home cooking?",
+            "Retrieve the preference for clear instructions and substitutions for ingredients they may already have.",
+            "Show their interest in recipes with clear steps and practical ingredient swaps.",
         ),
     },
     "dev-user-046": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they like to bake for storybook neighbors — spherical "
-            "loaves with decorative botanical slashes?",
-            "Describe the bread they prepare for the invented community: round, "
-            "with leaf-shaped scoring on top.",
-            "What shape and what surface pattern characterize the oven goods "
-            "they gift to fictional folks next door?",
+            "What kinds of make-ahead lunches does the user like preparing?",
+            "Ask what batch-cooked meals they like for easy lunches during the week.",
+            "Show their reliance on reheatable batch-cooked meals for weekday lunches.",
         ),
     },
     "dev-user-047": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they categorize imaginary noodle toppings — using "
-            "time-of-year labels instead of component lists?",
-            "Tell me about their naming system for made-up pasta dressing: "
-            "spring, summer, autumn, winter designations.",
-            "What unconventional taxonomy do they apply to the sauces in their "
-            "pretend recipe notes — seasonal names rather than ingredient "
-            "descriptions?",
+            "When is the user more willing to try complicated recipe projects?",
+            "Look up the preference for new recipes without difficult techniques on busy days.",
+            "Show their tendency to save more ambitious recipe projects for calm weekends.",
         ),
     },
     "dev-user-048": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of culinary plot do they find amusing — a story whose "
-            "central tension is whether the custard needs additional vanilla?",
-            "Describe the stakes they enjoy in cooking fiction: a debate over "
-            "the correct quantity of a floral extract.",
-            "In a tale set in a kitchen, what disagreement feels perfectly "
-            "scaled to them — an argument about an aromatic liquid's proportion "
-            "in a creamy dessert?",
+            "What cooking skill does the user want to improve?",
+            "Ask what practical knife-prep guidance would help them cook faster and more safely.",
+            "Show their interest in brief practical knife-skill practice rather than formal lessons.",
         ),
     },
     "dev-user-049": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What material and palette do they prefer for mixing bowls — "
-            "ceramic, in invented shades like cloudberry and tidepool?",
-            "Tell me about the vessel style they favor for blending: earthenware "
-            "in fantasy hues.",
-            "When choosing a bowl to combine ingredients, what three imaginary "
-            "color names attract them?",
+            "What balance does the user want in dinner recipes?",
+            "Retrieve their preference for protein, vegetables, and satisfying carbs without heavy sauces or too many ingredients.",
+            "Show how a simple salad or roasted vegetable fits their idea of a balanced dinner.",
         ),
     },
     "dev-user-050": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they enjoy putting together — imaginary midday meal boxes "
-            "with miniature waffles, cucumber crescents, and fruit-infused tea?",
-            "Describe the pretend packed lunches they assemble for work or outings.",
-            "What three items typically fill their fantasy lunch container — "
-            "tiny grid-patterned pastries, cool moon-shaped slices, and a warm "
-            "red beverage?",
+            "How does the user use refrigerator leftovers when planning meals?",
+            "Ask how they prefer to turn extra herbs, partial vegetables, or cooked grains into planned meals.",
+            "Show their desire to use leftovers creatively without making dinner feel second-rate.",
         ),
     },
     "dev-user-051": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What morning routine do they picture — soft movements in a bright "
-            "room dappled with fern silhouettes?",
-            "Tell me about the gentle stretching session they imagine in a "
-            "sun-filled studio with plant shadows.",
-            "When they visualize an ideal start to the day, what activity and "
-            "what kind of light and botanical backdrop are present?",
+            "Help me design exercise habits that fit around regular office hours.",
+            "I need a workout schedule that feels realistic during a busy week.",
+            "Look up my preference for fitness routines that are easy to maintain with work.",
         ),
     },
     "dev-user-052": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they track their walking habit — by counting circuits around "
-            "a small comma-shaped pond?",
-            "Describe the metric they use for their stroll consistency: laps of "
-            "a tiny curved lake.",
-            "What landmark defines the walking route they measure their streak "
-            "against, and what punctuation mark does its outline resemble?",
+            "Show me strength workouts that say what each lift is meant to accomplish.",
+            "I want resistance training advice with the reasoning behind the movements.",
+            "Find my preference for weight training plans that explain why exercises are included.",
         ),
     },
     "dev-user-053": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What charming detail do they include in workout plans — recovery "
-            "days named after cozy creatures like otter and dormouse?",
-            "Tell me about how they label rest periods in their exercise "
-            "schedule using animal monikers.",
-            "Instead of calling them 'off days,' what cute naming approach do "
-            "they take, pulling from the names of snuggly fauna?",
+            "Remind me how walking fits into my approach to staying active.",
+            "What low-key activity do I use for both movement and mental reset?",
+            "Pull up my note about using strolls to decompress while keeping fit.",
         ),
     },
     "dev-user-054": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What type of free weights do they picture for a compact flat gym — "
-            "small ones tinted a soft purple?",
-            "Describe the hand weights they'd choose for a modest apartment "
-            "workout space, including the color.",
-            "When outfitting a tiny home exercise corner, what shade and size of "
-            "dumbbell feels right to them?",
+            "I need habit tracking that rewards showing up, not flawless performance.",
+            "Find my fitness tracking preference about steady consistency over perfect streaks.",
+            "What kind of progress log keeps me motivated without all-or-nothing pressure?",
         ),
     },
     "dev-user-055": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What sticker system do they use for fitness goals — cloud and green "
-            "hill shapes moved on a chart after each session?",
-            "Tell me about the visual reward method they employ to mark "
-            "completed workouts.",
-            "How do they tangibly track progress: by relocating adhesive "
-            "pictures of sky formations and tiny mounds across a paper display "
-            "after every finished routine?",
+            "Show me workouts that ease in with a manageable warmup at the beginning.",
+            "I am more likely to exercise if the opening minutes do not feel intimidating.",
+            "Find my preference for plans that include simple warmup instructions.",
         ),
     },
     "dev-user-056": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of low-pressure movement do they enjoy — dance sessions "
-            "synced to radio broadcasts from an airborne city?",
-            "Describe their preferred cardio: relaxed choreography paired with "
-            "transmissions from a floating metropolis.",
-            "What audio source guides their gentle dance workouts, and what "
-            "feeling do the opening tracks aim to evoke — the start of a new "
-            "day?",
+            "I want exercise options using bands, dumbbells, or just my own body.",
+            "Find routines that do not require fighting for equipment at a busy fitness center.",
+            "What is my preference about simple gear for workouts at home or anywhere?",
         ),
     },
     "dev-user-057": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "Where do they like fictional hiking paths to conclude — at a tea "
-            "stall, not a peak plaque?",
-            "Tell me about their ideal trail ending in stories: a warm drink "
-            "stand, with a flask of imaginary brew as incentive for the last "
-            "curve.",
-            "What destination and what carried reward define their perfect "
-            "make-believe trek — a beverage cart at the terminus and a thermos "
-            "treat for the final bend?",
+            "Show me quick mobility work for my hips, shoulders, and back.",
+            "I need short stretching-style routines I can actually keep doing.",
+            "Find my note about joint comfort exercises being easier when they are brief.",
         ),
     },
     "dev-user-058": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What indoor pool environment appeals to them — lanes marked by "
-            "painted aquatic creatures and a cooldown of three unhurried "
-            "backstroke lengths?",
-            "Describe their swimming preference: a calm natatorium with tile "
-            "fish art and a deliberate winding-down routine.",
-            "How do they track laps in a serene pool, what decorates the lane "
-            "lines, and how many slow back-crawl passes end the session?",
+            "I need fitness guidance that treats recovery as part of the plan.",
+            "Find my preference for sustainable exercise without guilt after skipping a day.",
+            "What workout advice helps me avoid turning missed sessions into failure?",
         ),
     },
     "dev-user-059": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What self-care checklist do they maintain during extended "
-            "map-drawing sessions — shoulder rolls and wrist circles with "
-            "leaf-mark rewards?",
-            "Tell me about the posture-break system they follow when absorbed in "
-            "long cartographic work.",
-            "What gentle reminders do they set while making maps for hours, and "
-            "what tiny symbol do they earn for each completed break?",
+            "Give me cardio ideas I can scale based on how energetic I feel.",
+            "Find my preference for walks, biking, or intervals with clear effort levels.",
+            "What aerobic options let me choose an easier or harder version for the day?",
         ),
     },
     "dev-user-060": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they celebrate personal bests — with a sparkling fruit drink "
-            "and a garden stroll, valuing steadiness over big leaps?",
-            "What reward and what reflection matter after achieving a fitness "
-            "milestone?",
-            "When they hit a record, what treat do they give themselves and what "
-            "philosophy do they hold — consistency trumps chasing flashy "
-            "numbers?",
+            "I want strength plans focused on gradual gains and solid technique.",
+            "Find my preference for getting stronger without chasing extreme outcomes.",
+            "What fitness approach feels trustworthy because it includes realistic recovery?",
         ),
     },
     "dev-user-061": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What instrumental sound do they enjoy — harp, soft percussion, and "
-            "remote rainfall ambience blended together?",
-            "Describe the gentle acoustic mix they favor: plucked strings, light "
-            "rhythm, and distant drizzle.",
-            "What three components make up their ideal background listening — a "
-            "classical string instrument, brushed drum hits, and the sound of "
-            "faraway rain?",
+            "Remind me how I organize playlists for different parts of my day.",
+            "I want music separated for concentration, chores, exercise, and unwinding.",
+            "Find my note about keeping distinct mixes for work focus and home relaxation.",
         ),
     },
     "dev-user-062": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What impossible event stub do they possess — a concert pass from a "
-            "group that only performs as the moon appears?",
-            "Tell me about the cherished fictional ticket they own for a show "
-            "that happens exclusively at a particular celestial moment.",
-            "What imaginary admission slip do they treasure, and what "
-            "astronomical timing governs the performance it grants entry to?",
+            "Suggest new musicians by starting from tracks I already enjoy.",
+            "Find my preference for discovering artists through similar song recommendations.",
+            "How do I like to branch out musically from favorites I know?",
         ),
     },
     "dev-user-063": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What lyrical themes and musical qualities appeal to them — cozy "
-            "low-end melodies and verses mentioning vessels, reading halls, or "
-            "warm-season storms?",
-            "Describe the song ingredients they're drawn to: a full bass "
-            "presence and words about maritime craft, book collections, or "
-            "hot-weather tempests.",
-            "When a track features a rich bottom register and storytelling about "
-            "sailing, libraries, or seasonal squalls, how do they typically "
-            "react?",
+            "What kind of music do I put on when I need to concentrate?",
+            "Find my preference for mostly non-lyrical background audio during deep work.",
+            "I need focus music with few vocals or an instrumental feel.",
         ),
     },
     "dev-user-064": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "By what unusual criterion do they sequence imaginary compilation "
-            "tapes — hue, not style or year?",
-            "Tell me about their method for organizing pretend mixtapes: "
-            "grouping tracks by shade.",
-            "When building a fantasy playlist, what visual property do they use "
-            "to order the songs instead of genre or chronological data?",
+            "Give me energetic songs for tidying up or making dinner.",
+            "Find my preference for lively music during cooking and chores.",
+            "What soundtrack do I like for household tasks that need momentum?",
         ),
     },
     "dev-user-065": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What instrument do they imagine practicing — a tangerine-colored "
-            "miniature guitar named Clementine?",
-            "Describe the fantasy instrument they strum: a small, citrus-hued "
-            "uke with a personal name.",
-            "What color and what name belong to the make-believe four-stringed "
-            "instrument they enjoy learning simple chords on?",
+            "Recommend music with a quick note about pace, singing, and energy.",
+            "Find my preference for song suggestions that explain why they match the mood.",
+            "I am more likely to try a track if the recommendation describes its feel.",
         ),
     },
     "dev-user-066": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What fictional venue do they like — cafés whose in-house ensemble "
-            "performs soft dances during the reading period?",
-            "Tell me about the dream coffeehouse where the resident musicians "
-            "play gentle two-step tunes while patrons browse books.",
-            "What two activities coexist in their ideal pretend café — a live "
-            "band offering calm ballroom numbers and a designated quiet reading "
-            "hour?",
+            "When exploring a style, I like both classics and current songs.",
+            "Find my music preference about connecting newer releases to older influences.",
+            "I want genre recommendations with history lightly explained, not a lecture.",
         ),
     },
     "dev-user-067": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What creative naming do they engage in — dreaming up record titles "
-            "such as Lantern Orchard and Velvet Comet?",
-            "Describe the hobby of inventing album names from evocative word pairs.",
-            "What are a couple of examples of the imagined LP labels they jot "
-            "down, blending light sources with nature or soft fabric with "
-            "celestial bodies?",
+            "Build me a playlist that keeps the vibe steady from song to song.",
+            "Find my preference for smooth mood transitions over strict genre boundaries.",
+            "What playlist style do I dislike when it jumps abruptly between sounds?",
         ),
     },
     "dev-user-068": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What storybook object fascinates them — melodic boxes that shift "
-            "their song whenever a concealed drawer slides open?",
-            "Tell me about the whimsical music-playing trinket that changes its "
-            "tune based on hidden compartment access.",
-            "What property of certain narrative music boxes captures their "
-            "imagination: the melody transforms each time a secret storage space "
-            "is revealed?",
+            "What music suits me at night when I want something gentle?",
+            "Find my preference for soft evening songs with mellow vocals or quiet instruments.",
+            "I want calm late-day music and usually avoid harsh percussion then.",
         ),
     },
     "dev-user-069": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "Why do they hum while preparing food — because make-believe soups "
-            "supposedly gain flavor from a small tune?",
-            "What quirky belief do they hold about cooking: a little melody "
-            "improves the taste of imaginary broths?",
-            "When standing at the stove in a fantasy kitchen, what sound do they "
-            "make and what superstitious benefit do they think it brings to the "
-            "pot?",
+            "Recommend international songs where the overall feel matters more than lyrics.",
+            "Find my openness to music in other languages when the mood fits.",
+            "I like a brief style or region note before trying global music.",
         ),
     },
     "dev-user-070": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What pretend broadcast do they enjoy — stations that read weather "
-            "bulletins for undiscovered landmasses?",
-            "Describe the fictitious radio programming they tune into: forecasts "
-            "for islands absent from any chart.",
-            "What kind of imaginary channel captures their attention — one that "
-            "announces climatic conditions for shores no explorer has "
-            "documented?",
+            "Tell me a few memorable facts about an artist or record before I listen.",
+            "Find my preference for concise music context instead of a long history lesson.",
+            "I like album notes that mention era, instruments, and the best listening mood.",
         ),
     },
     "dev-user-071": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What pet lives in their imagination — a black-and-white feline "
-            "named Miso who absconds with plush page-markers?",
-            "Tell me about the made-up cat they describe: a tuxedo-patterned "
-            "companion with a habit of pilfering reading accessories.",
-            "What is the name and coat pattern of their pretend kitty, and what "
-            "item does it repeatedly steal from the armchair?",
+            "I need pet routines that feel peaceful, regular, and not hard to sustain.",
+            "Find my preference for animal care habits that are predictable and calm.",
+            "What kind of daily pet schedule is easiest for me to maintain?",
         ),
     },
     "dev-user-072": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of make-believe canine jobs amuse them — official greeter "
-            "at a beacon tower or supervisor of pastry shop crumbs?",
-            "Describe the serious-sounding yet whimsical occupations they assign "
-            "to fictional dogs.",
-            "What two imaginary roles for pups do they find delightful — "
-            "welcoming visitors at a coastal light and inspecting baking "
-            "debris?",
+            "When recommending pet gear, mention whether it lasts, washes easily, and is quiet.",
+            "Find my criteria for choosing animal products based on sturdiness and noise.",
+            "I want pet item suggestions that cover cleaning ease and durability.",
         ),
     },
     "dev-user-073": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of tank do they envision — one with translucent swimmers "
-            "that emit light whenever humor is present?",
-            "Tell me about the fantasy fishbowl where the inhabitants glow in "
-            "response to punchlines.",
-            "What triggers the luminescence of the aquatic creatures in their "
-            "imagined aquarium: the sound of someone telling a funny story?",
+            "Help me set up a home drop zone for pet supplies and cleanup items.",
+            "Find my preference for practical places to store leashes, treats, and brushes.",
+            "I like houses organized so animal-care gear has an obvious spot.",
         ),
     },
     "dev-user-074": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What trait do they value in storybook birds — the ability to echo "
-            "kind words rather than private information?",
-            "Describe their preference for avian companions in tales: ones that "
-            "repeat praise, not secrets.",
-            "When a feathered friend appears in a narrative, what should its "
-            "mimicry focus on — compliments, never confidential matters?",
+            "Give me pet advice that is safe and enriching without being precious.",
+            "Find my preference for animal guidance that balances wellbeing with practicality.",
+            "I want comfort and safety for pets, but not fussy overcomplication.",
         ),
     },
     "dev-user-075": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What bunny do they imagine — one called Pollen who dozes inside a "
-            "container of freshly laundered cloths?",
-            "Tell me about the rabbit they've dreamed up: its name and its "
-            "favorite sleeping spot.",
-            "What is the chosen napping location for their pretend long-eared "
-            "pet, and what is the pet's nature-inspired name?",
+            "Set up straightforward pet feeding prompts for morning and night.",
+            "Find my preference for consistent mealtime reminders for an animal.",
+            "I follow pet feeding routines best when the checkpoints are simple.",
         ),
     },
     "dev-user-076": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they enjoy creating — miniature fictional waterproof coats "
-            "for short-legged dogs guarding fungus plots?",
-            "Describe the tiny garments they design for corgis tasked with "
-            "watching over mushroom beds.",
-            "What breed of dog receives their invented rainwear, and what "
-            "botanical responsibility does that dog hold in their imagination?",
+            "Give me easy enrichment ideas like toy rotation and quick training games.",
+            "Find my pet preference for puzzle feeders and activities that fit a normal day.",
+            "I want animal stimulation options that do not require a big production.",
         ),
     },
     "dev-user-077": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What care chart do they maintain for pretend animals — a schedule "
-            "written with violet-colored ink listing treat times?",
-            "Tell me about the husbandry record they keep: colored writing and "
-            "snack-time entries.",
-            "What hue is the pen they use for their imaginary pet timeline, and "
-            "what information does the chart primarily track?",
+            "When traveling with a pet, I need lodging rules and calm walking options.",
+            "Find my preference for animal-friendly trip advice that considers green space and crowds.",
+            "I dislike pet travel tips that assume every animal enjoys busy places.",
         ),
     },
     "dev-user-078": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What role do they value for creature sidekicks in interactive "
-            "entertainment — foraging for plants instead of engaging in combat?",
-            "Describe their ideal animal ally in games: one that helps locate "
-            "botanical items rather than fighting adversaries.",
-            "In video games, how do they prefer their companion beasts to "
-            "contribute — by seeking out greenery, not by battling beasts?",
+            "Help me make a pet corner tidy, washable, and welcoming to guests.",
+            "Find my preference for animal areas with water access, toy storage, and a blanket.",
+            "I want pet spaces that feel intentional without looking overly sterile.",
         ),
     },
     "dev-user-079": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What leisurely reptile lives in their stories — a drowsy shelled "
-            "creature named Button that can distinguish among evening meal "
-            "signals?",
-            "Tell me about the fictional tortoise they describe: its name, its "
-            "general energy level, and its special auditory skill.",
-            "How many different supper chimes can their imaginary slow-moving "
-            "pet recognize, and what is its moniker?",
+            "Before bringing things home, remind me to check if they are safe for pets.",
+            "Find my caution about plants, cleaners, and little objects around animals.",
+            "I care more about pet safety than perfect room styling when placing new items.",
         ),
     },
     "dev-user-080": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they enjoy in animal adoption tales — each new companion "
-            "receiving a handcrafted cover and a bright windowsill?",
-            "Describe the ending they hope for in pet rescue stories: a woven "
-            "wrap and a sunlit perch for every creature.",
-            "What two comforting provisions do they want every adopted animal to "
-            "receive in a heartwarming fiction — a knit throw and a spot bathed "
-            "in daylight?",
+            "I prefer pet training with brief practices, rewards, and patient cues.",
+            "Find my approach to animal training that avoids fear or confusion.",
+            "What training style keeps pets positive with breaks and small incentives?",
         ),
     },
     "dev-user-081": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they enjoy studying invented writing systems — by "
-            "transcribing pastry shop signage from imaginary coastal "
-            "settlements?",
-            "Tell me about their method for learning make-believe alphabets: "
-            "copying bakery placards in fictional harbour villages.",
-            "What real-world inspiration do they use to practice pretend scripts "
-            "— the storefront lettering of dreamt-up seaside bakehouses?",
+            "Break a new skill into tiny actionable steps for me.",
+            "Find my preference for learning plans made from concrete bite-size tasks.",
+            "I learn better when a skill is divided into manageable pieces.",
         ),
     },
     "dev-user-082": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of study tracker do they keep — one with golden adhesive "
-            "stars for cartographic symbols, avian sounds, and broth "
-            "terminology?",
-            "Describe the reward chart they use for learning: shiny foil "
-            "stickers earned across three diverse subjects.",
-            "What three categories appear on their imaginary progress board, and "
-            "what color are the markers of achievement?",
+            "Give me a lesson format with a hands-on task after each idea.",
+            "Find my preference for tutorials that pair concepts with immediate practice.",
+            "I want every new learning point followed by one practical exercise.",
         ),
     },
     "dev-user-083": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What makes a tutorial appealing to them — including a miniature "
-            "practice build and a lighthearted dictionary of errors?",
-            "Tell me about the two features they value in instructional content: "
-            "a small hands-on project and a cheerful typo reference.",
-            "When evaluating a how-to guide, what complementary elements win "
-            "their approval — a compact exercise and a whimsical listing of "
-            "common mistakes?",
+            "I stay motivated when lessons show milestones and clear progress markers.",
+            "Find my learning preference for checkpoints that make advancement visible.",
+            "What course structure helps me keep momentum through obvious next goals?",
         ),
     },
     "dev-user-084": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they enjoy committing to memory — fabricated star groupings "
-            "shaped like cups, animals, and wind-powered mills?",
-            "Describe their mnemonic hobby: learning invented celestial patterns "
-            "resembling crockery, wild creatures, and grain-grinding structures.",
-            "What three everyday objects inspire the shapes of the imaginary "
-            "constellations they memorize?",
+            "Explain new material with an example first, then give me the terminology.",
+            "Find my preference for learning that begins concretely before naming concepts.",
+            "I understand formal terms better after seeing them used in a sample.",
         ),
     },
     "dev-user-085": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What two-column note format do they prefer — practical insights on "
-            "the left and fanciful wonderings on the right?",
-            "Tell me about their organized page layout: useful knowledge in one "
-            "column, playful what-ifs in the other.",
-            "When jotting ideas in a notebook, how do they spatially separate "
-            "actionable content from curious musings?",
+            "After a lesson, I like summarizing the idea in my own phrasing.",
+            "Find my note-taking habit that helps reveal what I actually understood.",
+            "What learning practice do I use after finishing a lesson to check comprehension?",
         ),
     },
     "dev-user-086": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they like study sessions to conclude — by sketching a small "
-            "illustration of the concept they grasped?",
-            "Describe their preferred wind-down after absorbing new material: a "
-            "tiny drawing capturing the lesson.",
-            "What creative ritual marks the end of a learning period for them — "
-            "translating understanding into a simple visual?",
+            "I learn well through small projects that make something useful.",
+            "Find my preference for visible outcomes instead of only abstract drills.",
+            "Give me practice tasks with a practical product at the end.",
         ),
     },
     "dev-user-087": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What sort of review tool do they keep — a fictional deck about "
-            "cloud varieties from a narrative meteorology school?",
-            "Tell me about the pretend study cards they maintain: focused on "
-            "atmospheric formations in a whimsical weather curriculum.",
-            "What subject do their imaginary flashcards cover, and what "
-            "fictional institution are they associated with?",
+            "I need review sessions that revisit old material without feeling like punishment.",
+            "Find my preference for gentle repetition to help information stick.",
+            "What study approach helps me retain details by calmly returning to earlier topics?",
         ),
     },
     "dev-user-088": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they imagine happening after a fictional workshop — "
-            "participants exchanging handcrafted reading accessories?",
-            "Describe the closing ritual of their dream class: students swapping "
-            "artisanal placeholders.",
-            "At the conclusion of a made-up educational session, what item do "
-            "attendees gift one another — and what is it used for?",
+            "I get frustrated when courses gloss over installation or setup steps.",
+            "Find my preference for instructions that include prerequisites, mistakes, and verification.",
+            "A learning guide should help me confirm the first result before moving on.",
         ),
     },
     "dev-user-089": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of teachers do they admire in stories — those who clarify "
-            "tough concepts through gardens, vessels, and cookware?",
-            "Tell me about the three everyday metaphors they feel make the best "
-            "narrative educators.",
-            "When an instructor in a tale breaks down a difficult topic, what "
-            "trio of familiar objects do they hope will appear in the "
-            "explanation — patches of earth, watercraft, and cooking pots?",
+            "Show me two or three examples so I can learn a new pattern.",
+            "Find my preference for comparing the same idea across different situations.",
+            "I prefer concise explanations over heavy theory when generalizing a concept.",
         ),
     },
     "dev-user-090": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What pace do they prefer for acquiring abilities — mastering one "
-            "micro-skill and naming each new stage after an amiable orbiter?",
-            "Describe their incremental approach to growth: a single small "
-            "competency at a time, with planet-themed milestone labels.",
-            "How do they celebrate progress steps in their learning journey — by "
-            "associating each achievement with a friendly celestial body?",
+            "Make my learning plan realistic with short sessions and spaced practice.",
+            "Find my preference for small milestones instead of marathon weekend studying.",
+            "I finish courses more often when the workload has structure but is not rigid.",
         ),
     },
     "dev-user-091": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What interior qualities do they favor — warm illumination, curved "
-            "furnishings, and open shelves of vivid tableware?",
-            "Tell me about the three elements that define their ideal room: "
-            "gentle light sources, smooth-edged pieces, and displays of bright "
-            "ceramics.",
-            "When designing a living space, what combination feels right — cozy "
-            "lamps, non-angular furniture, and visible stacks of colorful "
-            "dishes?",
+            "Describe my decorating taste for cozy rooms with warm light and natural materials.",
+            "Find my home style preference for lived-in spaces rather than showroom staging.",
+            "I like interiors that feel comfortable, textured, and not overly polished.",
         ),
     },
     "dev-user-092": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they place near the front door — a receptacle for shore "
-            "pebbles, backup keys, and borrowing slips?",
-            "Describe the catch-all they maintain in a make-believe entrance for "
-            "natural souvenirs, spare access, and reading records.",
-            "What three categories of items gather in the fictional hallway "
-            "basket they've imagined?",
+            "Help me organize an entryway so keys, bags, footwear, and mail stay contained.",
+            "Find my preference for mudroom-style storage near the door.",
+            "I want a landing area that stops everyday items from drifting through the house.",
         ),
     },
     "dev-user-093": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What fabric, color, and length do they prefer for window dressings "
-            "in invented flats — flax-based, sage-toned, and slightly dragging?",
-            "Tell me about their ideal drapery: a natural weave in a muted green "
-            "that puddles a bit on the floor.",
-            "When outfitting imaginary apartment windows, what material and "
-            "shade do they select, and what deliberate sizing quirk do they "
-            "include?",
+            "What curtains, rugs, and color palette match my home taste?",
+            "Find my preference for muted interiors with linen, simple floor coverings, and warm accents.",
+            "I like soft colors and uncomplicated textiles with a little warmth added.",
         ),
     },
     "dev-user-094": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they arrange potted greenery — in clusters of three, five, "
-            "or seven next to bright openings?",
-            "Describe their plant placement rule: grouping indoor flora in odd "
-            "quantities beside sunlit panes.",
-            "What numeric pattern guides the positioning of their houseplants, "
-            "and what environmental factor determines the location?",
+            "Arrange my houseplants in little window groups that are easy to water.",
+            "Find my preference for clustering plants near natural light.",
+            "I like plant displays that look nice but still make watering convenient.",
         ),
     },
     "dev-user-095": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What kind of armchair do they envision — one that rotates to face "
-            "either a rainy window or a hearth?",
-            "Tell me about the swiveling seat they dream of: it turns toward "
-            "precipitation on one side and warm flames on the other.",
-            "What dual-facing capability does their fantasy reading chair "
-            "possess, and what two views does it offer?",
+            "Set up one inviting reading nook with a lamp, table, and blanket.",
+            "Find my preference for a comfortable reading spot over extra decor.",
+            "What elements matter most to me for a cozy place to read?",
         ),
     },
     "dev-user-096": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What do they put on their workspace walls — boards covered in "
-            "charts, meal instructions, and kind reminder slips?",
-            "Describe the pinboard setup in their ideal study: a collage of "
-            "cartography, dishes, and soft nudges.",
-            "What three kinds of paper decor do they imagine above their desk — "
-            "navigational drawings, culinary formulas, and gentle "
-            "self-prompts?",
+            "Design a home office with an uncluttered desk and a place to collect notes.",
+            "Find my preference for workspaces where papers have a tray or visible board.",
+            "I feel less stressed by office clutter when there is a designated spot for it.",
         ),
     },
     "dev-user-097": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What floor covering style attracts them — mats with subtle "
-            "geometric motifs reminiscent of miniature garden walkways?",
-            "Tell me about their rug preference: quiet angular designs that "
-            "evoke small horticultural paths.",
-            "What does the pattern on their ideal carpet suggest to them — tiny "
-            "trails through a planted space?",
+            "I want my kitchen counters mostly open with useful storage nearby.",
+            "Find my preference for practical kitchens without crowded displays.",
+            "A few everyday objects can stay out, but too many items on counters annoy me.",
         ),
     },
     "dev-user-098": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How do they outfit a spare bedroom — with fluffy cloud-shaped "
-            "cushions and a container of minty candy sticks?",
-            "Describe the provisions they stock in a make-believe visitor's "
-            "room: two specific comfort items.",
-            "What pillow form and what edible treat await anyone staying in "
-            "their imaginary guest quarters?",
+            "Make a guest room calm, useful, and easy to reset after visitors.",
+            "Find my preference for spare rooms with a lamp, surface, blanket, and suitcase space.",
+            "I do not need a formal guest bedroom, just a simple comfortable setup.",
         ),
     },
     "dev-user-099": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "What organizing system do they picture in a fantasy cookspace — "
-            "cups suspended by hue and stirring implements resting in a cobalt "
-            "pot?",
-            "Tell me about the color-coded hanging storage and the blue vessel "
-            "for utensils in their dream kitchen.",
-            "What two visual rules govern their imagined culinary workspace: a "
-            "chromatic arrangement of drinkware and a navy container for mixing "
-            "tools?",
+            "Describe my cozy palette with pale wood, brass, greens, and clay tones.",
+            "Find my home style preference for subtle handmade touches and personal warmth.",
+            "I like rooms that are tidy and comfortable with soft green and earthy accents.",
         ),
     },
     "dev-user-100": {
         "scope": "user",
         "workspace_uid": None,
         "queries": (
-            "How would they describe their preferred tranquil decor — a blend of "
-            "coastal beacon-keeper dwelling and gentle woodland studio?",
-            "What two-part label captures their calm interior aesthetic: "
-            "lighthouse cottage meets soft forest workshop?",
-            "Tell me about the dual-inspired home vibe they gravitate toward — "
-            "something maritime and guiding combined with a serene, tree-filled "
-            "craft space.",
+            "I prefer seasonal decorating with just a wreath, candle, or fruit bowl.",
+            "Find my preference for holiday touches that are easy to store and reuse.",
+            "I like small seasonal accents better than redecorating an entire room.",
         ),
     },
     "dev-workspace-01-001": {
