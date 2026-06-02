@@ -277,7 +277,7 @@ def detect_install_method(
     executable_path: str | None = None,
     env: dict[str, str] | None = None,
 ) -> InstallMethod:
-    """Return bootstrap from metadata, else inspect environment and executable path."""
+    """Return bootstrap from metadata, else inspect module and executable paths."""
     if metadata.install_method != "unknown":
         return metadata.install_method
 
@@ -298,9 +298,6 @@ def detect_install_method(
     if "/site-packages/" in path or "/dist-packages/" in path:
         return "pip"
 
-    source_root = find_source_checkout_root(Path.cwd())
-    if source_root is not None:
-        return "source"
     if executable_path is None and sys.prefix != getattr(
         sys, "base_prefix", sys.prefix
     ):
