@@ -186,7 +186,7 @@ THEMATIC_PRECISION_FIXTURE: tuple[ThematicPrecisionFixtureEntry, ...] = (
         "queries": (
             "dispatch board timing for repair blocks, crew windows, and pier work clashes",
             "harbor job ordering around urgent repairs, crew blocks, filters, and idle gaps",
-            "schedule bugs when moving repair cards or preserving kickoff windows",
+            "dispatch scheduling changes that preserve timing, filters, and crew readiness",
         ),
     },
     {
