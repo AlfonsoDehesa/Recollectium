@@ -32,6 +32,7 @@ from recollectium.cli import (
     _extract_cli_output_override,
     _format_human_error,
     _format_human_output,
+    _format_memory,
     _resolve_output_format,
     _set_cli_output_format,
     _supports_color,
@@ -2302,6 +2303,17 @@ def test_cli_human_compact_projects_mutations_to_short_messages(
     )
 
     assert stream.getvalue() == expected
+
+
+def test_cli_compact_human_search_output_includes_match_score() -> None:
+    """Compact human search results should display the match score."""
+    payload = {
+        "id": "mem-search-1",
+        "content": "a searchable fact",
+        "match": 0.87,
+    }
+    lines = _format_memory(payload)
+    assert any("score=0.87" in line for line in lines)
 
 
 def test_cli_human_verbose_preserves_detailed_mutation_output(

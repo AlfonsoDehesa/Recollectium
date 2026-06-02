@@ -341,7 +341,7 @@ def _format_memory(
     memory_id = memory.get("id", "unknown")
     type_value = memory.get("type")
     status = memory.get("status")
-    score = payload.get("score", memory.get("score"))
+    score = payload.get("score", payload.get("match", memory.get("score")))
     headline = f"{title_prefix}Memory {memory_id}"
     details = [str(item) for item in (type_value, status) if item]
     if details:
