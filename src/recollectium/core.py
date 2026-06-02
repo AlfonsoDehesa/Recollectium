@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import logging
 from pathlib import Path
 from platformdirs import user_state_dir
@@ -40,6 +41,8 @@ from recollectium.search import rank_memory_candidates
 from recollectium.storage import SQLiteMemoryStore, utc_now_iso
 
 _log = logging.getLogger(__name__)
+
+ReembeddingProgressCallback = Callable[[dict[str, Any]], None]
 
 
 def _validate_optional_string(field_name: str, value: str | None) -> str | None:
@@ -161,12 +164,14 @@ class RecollectiumCore:
         limit: int = 10,
         include_archived: bool = False,
         type: str | None = None,
+        progress_callback: ReembeddingProgressCallback | None = None,
     ) -> list[SearchResult]:
         validated_type = validate_memory_type_filter(type) if type is not None else None
         self._ensure_scope_embeddings_ready(
             space=SPACE_USER,
             include_archived=include_archived,
             status_path="/v1/embedding/jobs",
+            progress_callback=progress_callback,
         )
         candidates = self.store.list_chunk_candidates(
             space=SPACE_USER,
@@ -198,6 +203,7 @@ class RecollectiumCore:
         limit: int = 10,
         include_archived: bool = False,
         type: str | None = None,
+        progress_callback: ReembeddingProgressCallback | None = None,
     ) -> list[SearchResult]:
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
         if workspace_uid is None:
@@ -211,6 +217,7 @@ class RecollectiumCore:
             workspace_uid=workspace_uid,
             include_archived=include_archived,
             status_path="/v1/embedding/jobs",
+            progress_callback=progress_callback,
         )
         candidates = self.store.list_chunk_candidates(
             space=SPACE_WORKSPACE,
@@ -367,6 +374,7 @@ class RecollectiumCore:
         space: str | None = None,
         workspace_uid: str | None = None,
         include_archived: bool = False,
+        progress_callback: ReembeddingProgressCallback | None = None,
     ) -> dict[str, Any]:
         """Force an inline refresh of stale embeddings for the active profile."""
         if space is not None and space not in {SPACE_USER, SPACE_WORKSPACE}:
@@ -399,6 +407,7 @@ class RecollectiumCore:
             workspace_uid=workspace_uid,
             include_archived=include_archived,
             fail_on_error=True,
+            progress_callback=progress_callback,
         )
         if job_result is None:
             return {
@@ -679,6 +688,7 @@ class RecollectiumCore:
         workspace_uid: str | None = None,
         include_archived: bool = False,
         status_path: str,
+        progress_callback: ReembeddingProgressCallback | None = None,
     ) -> None:
         stale_count = self.store.count_memories_needing_profile_reembedding(
             embedding_profile=self.embedding_provider.embedding_profile,
@@ -695,6 +705,7 @@ class RecollectiumCore:
             workspace_uid=workspace_uid,
             include_archived=include_archived,
             fail_on_error=True,
+            progress_callback=progress_callback,
         )
         if job_result is not None and job_result[1]:
             job_id = job_result[0]
@@ -728,6 +739,7 @@ class RecollectiumCore:
         workspace_uid: str | None = None,
         include_archived: bool = False,
         fail_on_error: bool = False,
+        progress_callback: ReembeddingProgressCallback | None = None,
     ) -> tuple[str, bool] | None:
         stale_memories = self.store.list_memories_needing_profile_reembedding(
             embedding_profile=self.embedding_provider.embedding_profile,
@@ -761,6 +773,21 @@ class RecollectiumCore:
                 "context": {"job_id": job_id, "reason": reason},
             },
         )
+        self._emit_reembedding_progress(
+            progress_callback,
+            {
+                "event": "started",
+                "job_id": job_id,
+                "reason": reason,
+                "space": space,
+                "workspace_uid": workspace_uid,
+                "total": len(stale_memories),
+                "processed": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "model": str(self.embedding_provider.embedding_profile["model"]),
+            },
+        )
 
         failed = self._process_reembedding_job(
             job_id=job_id,
@@ -770,8 +797,18 @@ class RecollectiumCore:
             include_archived=include_archived,
             fail_on_error=fail_on_error,
             stale_memories=stale_memories,
+            progress_callback=progress_callback,
         )
         return (job_id, failed)
+
+    @staticmethod
+    def _emit_reembedding_progress(
+        progress_callback: ReembeddingProgressCallback | None,
+        event: dict[str, Any],
+    ) -> None:
+        if progress_callback is None:
+            return
+        progress_callback(event)
 
     def _process_reembedding_job(
         self,
@@ -783,6 +820,7 @@ class RecollectiumCore:
         include_archived: bool = False,
         fail_on_error: bool = False,
         stale_memories: list[Memory] | None = None,
+        progress_callback: ReembeddingProgressCallback | None = None,
     ) -> bool:
         if stale_memories is None:
             stale_memories = self.store.list_memories_needing_profile_reembedding(
@@ -834,6 +872,21 @@ class RecollectiumCore:
                 succeeded_count=succeeded,
                 failed_count=failed,
             )
+            self._emit_reembedding_progress(
+                progress_callback,
+                {
+                    "event": "progress",
+                    "job_id": job_id,
+                    "reason": reason,
+                    "space": space,
+                    "workspace_uid": workspace_uid,
+                    "total": len(stale_memories),
+                    "processed": processed,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                    "model": str(self.embedding_provider.embedding_profile["model"]),
+                },
+            )
 
             if fail_on_error and failed > 0:
                 break
@@ -845,6 +898,21 @@ class RecollectiumCore:
             state=final_state,
             error_message=failure_message,
             completed_at=completed_at,
+        )
+        self._emit_reembedding_progress(
+            progress_callback,
+            {
+                "event": final_state,
+                "job_id": job_id,
+                "reason": reason,
+                "space": space,
+                "workspace_uid": workspace_uid,
+                "total": len(stale_memories),
+                "processed": processed,
+                "succeeded": succeeded,
+                "failed": failed,
+                "model": str(self.embedding_provider.embedding_profile["model"]),
+            },
         )
         if failed == 0:
             _log.info(

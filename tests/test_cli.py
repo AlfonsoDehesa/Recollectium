@@ -22,6 +22,7 @@ from pytest import CaptureFixture
 import recollectium.cli as cli_module
 from recollectium.config import DEFAULTS
 from recollectium.cli import (
+    _ReembeddingProgressReporter,
     _emit_failure_payload,
     _emit_success,
     _extract_cli_output_override,
@@ -34,6 +35,8 @@ from recollectium.cli import (
 )
 from recollectium.models import (
     ALL_MEMORY_TYPES,
+    SPACE_USER,
+    SPACE_WORKSPACE,
     USER_MEMORY_TYPES,
     WORKSPACE_MEMORY_TYPES,
 )
@@ -91,6 +94,22 @@ def _run_cli(
     exit_code = main(args)
     captured = capsys.readouterr()
     return exit_code, captured.out, captured.err
+
+
+def _isolate_xdg_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+
+def _mark_memory_profile_stale(db_path: Path, memory_id: str) -> None:
+    stale_profile = {
+        **FakeEmbeddingProvider().embedding_profile,
+        "profile": "stale-profile",
+    }
+    SQLiteMemoryStore(db_path).update_memory(memory_id, embedding_profile=stale_profile)
 
 
 def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
@@ -551,6 +570,247 @@ def test_cli_explicit_missing_config_fails_for_normal_command(
     assert exit_code == 1
     assert stdout == ""
     assert f"config file not found: {config_path}" in stderr
+
+
+def test_cli_human_search_emits_reembedding_progress_to_stderr(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
+    db_path = tmp_path / "human-search-progress.db"
+
+    add_code, add_out, add_err = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            SPACE_USER,
+            "--type",
+            "fact",
+            "--content",
+            "Hermes prefers live re-embedding progress",
+        ],
+        capsys,
+    )
+    assert add_code == 0
+    assert add_err == ""
+    memory_id = json.loads(add_out)["id"]
+    _mark_memory_profile_stale(db_path, memory_id)
+
+    search_code, search_out, search_err = _run_cli(
+        [
+            "--human-readable",
+            "--db",
+            str(db_path),
+            "search-user",
+            "live progress",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert search_code == 0
+    assert "1 result" in search_out
+    assert "Re-embedding memories started: 0/1 (search, fake-model)" in search_err
+    assert "Re-embedding memories: 1/1 processed, 1 succeeded, 0 failed" in search_err
+    assert "Re-embedding memories completed: 1/1 succeeded" in search_err
+
+
+def test_cli_human_embedding_refresh_emits_reembedding_progress_to_stderr(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
+    db_path = tmp_path / "human-refresh-progress.db"
+
+    add_code, add_out, _ = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            SPACE_USER,
+            "--type",
+            "fact",
+            "--content",
+            "Refresh stale embedding explicitly",
+        ],
+        capsys,
+    )
+    assert add_code == 0
+    memory_id = json.loads(add_out)["id"]
+    _mark_memory_profile_stale(db_path, memory_id)
+
+    refresh_code, refresh_out, refresh_err = _run_cli(
+        [
+            "--human-readable",
+            "--db",
+            str(db_path),
+            "embedding-refresh",
+            "--space",
+            SPACE_USER,
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert refresh_code == 0
+    assert "Embedding refresh" in refresh_out
+    assert (
+        "Re-embedding memories started: 0/1 (force-refresh, fake-model)" in refresh_err
+    )
+    assert "Re-embedding memories: 1/1 processed, 1 succeeded, 0 failed" in refresh_err
+    assert "Re-embedding memories completed: 1/1 succeeded" in refresh_err
+
+
+def test_cli_json_search_reembedding_remains_parse_safe(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
+    db_path = tmp_path / "json-search-progress.db"
+
+    add_code, add_out, _ = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            SPACE_USER,
+            "--type",
+            "fact",
+            "--content",
+            "JSON output must stay parse-safe during refresh",
+        ],
+        capsys,
+    )
+    assert add_code == 0
+    memory_id = json.loads(add_out)["id"]
+    _mark_memory_profile_stale(db_path, memory_id)
+
+    search_code, search_out, search_err = _run_cli(
+        ["--db", str(db_path), "search-user", "parse-safe"],
+        capsys,
+    )
+
+    assert search_code == 0
+    payload = json.loads(search_out)
+    assert payload[0]["memory"]["id"] == memory_id
+    assert "Re-embedding memories" not in search_out
+    assert "Re-embedding memories" not in search_err
+
+
+def test_cli_human_workspace_search_emits_reembedding_progress_to_stderr(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
+    db_path = tmp_path / "human-workspace-search-progress.db"
+
+    add_code, add_out, _ = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            SPACE_WORKSPACE,
+            "--workspace-uid",
+            "recollectium",
+            "--type",
+            "fact",
+            "--content",
+            "Workspace search should show live re-embedding progress",
+        ],
+        capsys,
+    )
+    assert add_code == 0
+    memory_id = json.loads(add_out)["id"]
+    _mark_memory_profile_stale(db_path, memory_id)
+
+    search_code, search_out, search_err = _run_cli(
+        [
+            "--human-readable",
+            "--db",
+            str(db_path),
+            "search-workspace",
+            "live progress",
+            "--workspace-uid",
+            "recollectium",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert search_code == 0
+    assert "1 result" in search_out
+    assert "Re-embedding memories started: 0/1 (search, fake-model)" in search_err
+    assert "Re-embedding memories: 1/1 processed, 1 succeeded, 0 failed" in search_err
+    assert "Re-embedding memories completed: 1/1 succeeded" in search_err
+
+
+class _OSErrorIsattyStream(io.StringIO):
+    def isatty(self) -> bool:
+        raise OSError("isatty unavailable")
+
+
+def test_reembedding_progress_reporter_handles_isatty_errors() -> None:
+    stream = _OSErrorIsattyStream()
+    reporter = _ReembeddingProgressReporter(stream)
+
+    reporter(
+        {
+            "event": "failed",
+            "reason": "search",
+            "model": "fake-model",
+            "total": 2,
+            "processed": 1,
+            "succeeded": 0,
+            "failed": 1,
+        }
+    )
+
+    assert "Re-embedding memories failed: 1/2 failed" in stream.getvalue()
+
+
+def test_reembedding_progress_reporter_uses_rich_for_tty() -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    reporter = _ReembeddingProgressReporter(stream)
+
+    with reporter:
+        reporter(
+            {
+                "event": "started",
+                "reason": "force-refresh",
+                "model": "fake-model",
+                "total": 2,
+                "processed": 0,
+                "succeeded": 0,
+                "failed": 0,
+            }
+        )
+        reporter(
+            {
+                "event": "progress",
+                "reason": "force-refresh",
+                "model": "fake-model",
+                "total": 2,
+                "processed": 1,
+                "succeeded": 1,
+                "failed": 0,
+            }
+        )
+
+    assert "Re-embedding memories" in stream.getvalue()
 
 
 def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:

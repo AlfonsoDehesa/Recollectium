@@ -304,8 +304,9 @@ def test_evaluate_exact_mrr_for_core_uses_seeded_targets_and_scope_searches() ->
             limit: int = 10,
             include_archived: bool = False,
             type: str | None = None,
+            progress_callback: object = None,
         ) -> list[SearchResult]:
-            del type
+            del type, progress_callback
             self.user_queries.append((query, limit, include_archived))
             return _search_results(["dev-user"])
 
@@ -316,8 +317,9 @@ def test_evaluate_exact_mrr_for_core_uses_seeded_targets_and_scope_searches() ->
             limit: int = 10,
             include_archived: bool = False,
             type: str | None = None,
+            progress_callback: object = None,
         ) -> list[SearchResult]:
-            del type
+            del type, progress_callback
             self.workspace_queries.append(
                 (query, workspace_uid, limit, include_archived)
             )
@@ -652,8 +654,9 @@ def test_evaluate_semantic_mrr_for_core_uses_seeded_targets_and_scope_searches()
             limit: int = 10,
             include_archived: bool = False,
             type: str | None = None,
+            progress_callback: object = None,
         ) -> list[SearchResult]:
-            del type
+            del type, progress_callback
             self.user_queries.append((query, limit, include_archived))
             return _search_results([query_to_memory_id[query]])
 
@@ -664,8 +667,9 @@ def test_evaluate_semantic_mrr_for_core_uses_seeded_targets_and_scope_searches()
             limit: int = 10,
             include_archived: bool = False,
             type: str | None = None,
+            progress_callback: object = None,
         ) -> list[SearchResult]:
-            del type
+            del type, progress_callback
             self.workspace_queries.append(
                 (query, workspace_uid, limit, include_archived)
             )
@@ -953,8 +957,9 @@ def test_evaluate_thematic_precision_for_core_uses_fixture_and_scope_searches() 
             limit: int = 10,
             include_archived: bool = False,
             type: str | None = None,
+            progress_callback: object = None,
         ) -> list[SearchResult]:
-            del type
+            del type, progress_callback
             self.user_queries.append((query, limit, include_archived))
             entry = query_to_entry[query]
             return _thematic_results([entry["group"]] * limit)
@@ -966,8 +971,9 @@ def test_evaluate_thematic_precision_for_core_uses_fixture_and_scope_searches() 
             limit: int = 10,
             include_archived: bool = False,
             type: str | None = None,
+            progress_callback: object = None,
         ) -> list[SearchResult]:
-            del type
+            del type, progress_callback
             self.workspace_queries.append(
                 (query, workspace_uid, limit, include_archived)
             )
@@ -1277,8 +1283,9 @@ def test_evaluate_ranked_set_ndcg_for_core_uses_fixture_and_scope_searches() -> 
             limit: int = 10,
             include_archived: bool = False,
             type: str | None = None,
+            progress_callback: object = None,
         ) -> list[SearchResult]:
-            del type
+            del type, progress_callback
             self.user_queries.append((query, limit, include_archived))
             entry = query_to_entry[query]
             return _search_results(
@@ -1295,8 +1302,9 @@ def test_evaluate_ranked_set_ndcg_for_core_uses_fixture_and_scope_searches() -> 
             limit: int = 10,
             include_archived: bool = False,
             type: str | None = None,
+            progress_callback: object = None,
         ) -> list[SearchResult]:
-            del type
+            del type, progress_callback
             self.workspace_queries.append(
                 (query, workspace_uid, limit, include_archived)
             )

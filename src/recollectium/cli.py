@@ -22,6 +22,7 @@ from collections.abc import Callable
 from typing import Any, Sequence
 
 from rich.console import Console
+from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
 from rich.text import Text
 
 from platformdirs import user_state_dir
@@ -586,6 +587,85 @@ def _emit_success(
 def _emit_human_progress(message: str) -> None:
     sys.stdout.write(f"Status: {message}\n")
     sys.stdout.flush()
+
+
+class _ReembeddingProgressReporter:
+    """Render inline re-embedding progress for human-readable CLI commands."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        isatty = getattr(stream, "isatty", None)
+        self._isatty = False
+        if callable(isatty):
+            try:
+                self._isatty = bool(isatty())
+            except OSError:
+                self._isatty = False
+        self._progress: Progress | None = None
+        self._task_id: TaskID | None = None
+
+    def __enter__(self) -> _ReembeddingProgressReporter:
+        if self._isatty:
+            progress = Progress(
+                TextColumn("[bold cyan]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                TimeElapsedColumn(),
+                console=Console(file=self._stream),
+                transient=False,
+            )
+            progress.start()
+            self._progress = progress
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        if self._progress is not None:
+            self._progress.stop()
+            self._progress = None
+            self._task_id = None
+
+    def __call__(self, event: dict[str, Any]) -> None:
+        total = int(event.get("total") or 0)
+        processed = int(event.get("processed") or 0)
+        succeeded = int(event.get("succeeded") or 0)
+        failed = int(event.get("failed") or 0)
+        reason = str(event.get("reason") or "re-embedding")
+        model = str(event.get("model") or "unknown model")
+        event_name = str(event.get("event") or "progress")
+        label = f"Re-embedding memories ({reason}, {model})"
+
+        if self._progress is not None:
+            if self._task_id is None:
+                self._task_id = self._progress.add_task(label, total=total)
+            self._progress.update(
+                self._task_id,
+                completed=processed,
+                total=total,
+                description=label,
+            )
+            return
+
+        if event_name == "started":
+            line = f"Re-embedding memories started: 0/{total} ({reason}, {model})"
+        elif event_name == "progress":
+            line = (
+                f"Re-embedding memories: {processed}/{total} "
+                f"processed, {succeeded} succeeded, {failed} failed"
+            )
+        elif event_name == "completed":
+            line = f"Re-embedding memories completed: {succeeded}/{total} succeeded"
+        else:
+            line = f"Re-embedding memories failed: {failed}/{total} failed"
+        self._stream.write(f"{line}\n")
+        self._stream.flush()
+
+
+def _human_reembedding_progress_reporter(
+    output_format: str,
+) -> _ReembeddingProgressReporter | None:
+    if output_format != CLI_OUTPUT_HUMAN_READABLE:
+        return None
+    return _ReembeddingProgressReporter(sys.stderr)
 
 
 def _parse_config_value(raw: str) -> Any:
@@ -1453,6 +1533,7 @@ def _run_seeded_dev_eval(
     config_path: Path | None,
     regular_db_path: Path,
     progress: Callable[[str], None] | None = None,
+    reembedding_progress: _ReembeddingProgressReporter | None = None,
 ) -> dict[str, object]:
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
     if progress is not None:
@@ -1468,16 +1549,24 @@ def _run_seeded_dev_eval(
     )
     if progress is not None:
         progress("Running exact MRR")
-    exact_report = evaluate_exact_mrr_for_core(core)
+    exact_report = evaluate_exact_mrr_for_core(
+        core, progress_callback=reembedding_progress
+    )
     if progress is not None:
         progress("Running semantic MRR")
-    semantic_report = evaluate_semantic_mrr_for_core(core)
+    semantic_report = evaluate_semantic_mrr_for_core(
+        core, progress_callback=reembedding_progress
+    )
     if progress is not None:
         progress("Running thematic Precision@10")
-    thematic_report = evaluate_thematic_precision_for_core(core)
+    thematic_report = evaluate_thematic_precision_for_core(
+        core, progress_callback=reembedding_progress
+    )
     if progress is not None:
         progress("Running ranked-set NDCG@5")
-    ranked_set_report = evaluate_ranked_set_ndcg_for_core(core)
+    ranked_set_report = evaluate_ranked_set_ndcg_for_core(
+        core, progress_callback=reembedding_progress
+    )
     return {
         "status": "ok",
         "database": str(dev_db_path),
@@ -4220,13 +4309,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                     progress("Checking embedding provider readiness")
                 provider = _builtin_fastembed_provider_from_config(cfg.effective_config)
                 provider.ensure_ready()
-                result = _run_seeded_dev_eval(
-                    cfg,
-                    provider=provider,
-                    config_path=core_config_path,
-                    progress=progress,
-                    regular_db_path=regular_db_path,
+                reembedding_progress = _human_reembedding_progress_reporter(
+                    output_format
                 )
+                if reembedding_progress is None:
+                    result = _run_seeded_dev_eval(
+                        cfg,
+                        provider=provider,
+                        config_path=core_config_path,
+                        progress=progress,
+                        regular_db_path=regular_db_path,
+                    )
+                else:
+                    with reembedding_progress:
+                        result = _run_seeded_dev_eval(
+                            cfg,
+                            provider=provider,
+                            config_path=core_config_path,
+                            progress=progress,
+                            reembedding_progress=reembedding_progress,
+                            regular_db_path=regular_db_path,
+                        )
                 _emit_success(result, output_format=output_format, command="dev eval")
                 return 0
 
@@ -4364,20 +4467,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sensitivity=args.sensitivity,
             )
         elif args.command == "search-user":
-            result = core.search_user_memories(
-                query=args.query,
-                limit=args.limit,
-                include_archived=args.include_archived,
-                type=args.type,
-            )
+            progress_reporter = _human_reembedding_progress_reporter(output_format)
+            if progress_reporter is None:
+                result = core.search_user_memories(
+                    query=args.query,
+                    limit=args.limit,
+                    include_archived=args.include_archived,
+                    type=args.type,
+                )
+            else:
+                with progress_reporter:
+                    result = core.search_user_memories(
+                        query=args.query,
+                        limit=args.limit,
+                        include_archived=args.include_archived,
+                        type=args.type,
+                        progress_callback=progress_reporter,
+                    )
         elif args.command == "search-workspace":
-            result = core.search_workspace_memories(
-                query=args.query,
-                workspace_uid=args.workspace_uid,
-                limit=args.limit,
-                include_archived=args.include_archived,
-                type=args.type,
-            )
+            progress_reporter = _human_reembedding_progress_reporter(output_format)
+            if progress_reporter is None:
+                result = core.search_workspace_memories(
+                    query=args.query,
+                    workspace_uid=args.workspace_uid,
+                    limit=args.limit,
+                    include_archived=args.include_archived,
+                    type=args.type,
+                )
+            else:
+                with progress_reporter:
+                    result = core.search_workspace_memories(
+                        query=args.query,
+                        workspace_uid=args.workspace_uid,
+                        limit=args.limit,
+                        include_archived=args.include_archived,
+                        type=args.type,
+                        progress_callback=progress_reporter,
+                    )
         elif args.command == "list":
             result = core.list_memories(
                 space=args.space,
@@ -4413,11 +4539,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 result = core.list_embedding_jobs(state=args.state, limit=args.limit)
         elif args.command == "embedding-refresh":
-            result = core.refresh_stale_embeddings(
-                space=args.space,
-                workspace_uid=args.workspace_uid,
-                include_archived=args.include_archived,
-            )
+            progress_reporter = _human_reembedding_progress_reporter(output_format)
+            if progress_reporter is None:
+                result = core.refresh_stale_embeddings(
+                    space=args.space,
+                    workspace_uid=args.workspace_uid,
+                    include_archived=args.include_archived,
+                )
+            else:
+                with progress_reporter:
+                    result = core.refresh_stale_embeddings(
+                        space=args.space,
+                        workspace_uid=args.workspace_uid,
+                        include_archived=args.include_archived,
+                        progress_callback=progress_reporter,
+                    )
         elif args.command == "embedding-jobs-clear":
             if not args.yes:
                 return _emit_cli_failure(

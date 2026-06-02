@@ -6,7 +6,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from math import log2
-from typing import Protocol
+from typing import Any, Protocol
 
 from recollectium.dev_eval_ranked_set_fixtures import (
     RANKED_SET_NDCG_CUTOFF,
@@ -339,6 +339,7 @@ class ExactMRRCore(SeededMemoryLister, Protocol):
         limit: int = 10,
         include_archived: bool = False,
         type: str | None = None,
+        progress_callback: ReembeddingProgressCallback | None = None,
     ) -> list[SearchResult]: ...
 
     def search_workspace_memories(
@@ -348,6 +349,7 @@ class ExactMRRCore(SeededMemoryLister, Protocol):
         limit: int = 10,
         include_archived: bool = False,
         type: str | None = None,
+        progress_callback: ReembeddingProgressCallback | None = None,
     ) -> list[SearchResult]: ...
 
 
@@ -365,6 +367,52 @@ class RankedSetNDCGCore(ExactMRRCore, Protocol):
 
 UserSearch = Callable[[str, int], Sequence[SearchResult]]
 WorkspaceSearch = Callable[[str, str, int], Sequence[SearchResult]]
+ReembeddingProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _search_user_with_progress(
+    core: ExactMRRCore,
+    query: str,
+    *,
+    limit: int,
+    progress_callback: ReembeddingProgressCallback | None,
+) -> list[SearchResult]:
+    if progress_callback is None:
+        return core.search_user_memories(
+            query,
+            limit=limit,
+            include_archived=True,
+        )
+    return core.search_user_memories(
+        query,
+        limit=limit,
+        include_archived=True,
+        progress_callback=progress_callback,
+    )
+
+
+def _search_workspace_with_progress(
+    core: ExactMRRCore,
+    query: str,
+    *,
+    workspace_uid: str,
+    limit: int,
+    progress_callback: ReembeddingProgressCallback | None,
+) -> list[SearchResult]:
+    if progress_callback is None:
+        return core.search_workspace_memories(
+            query,
+            workspace_uid=workspace_uid,
+            limit=limit,
+            include_archived=True,
+        )
+    return core.search_workspace_memories(
+        query,
+        workspace_uid=workspace_uid,
+        limit=limit,
+        include_archived=True,
+        progress_callback=progress_callback,
+    )
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -1187,23 +1235,26 @@ def evaluate_exact_mrr_for_core(
     *,
     cutoff: int = EXACT_MRR_CUTOFF,
     worst_miss_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    progress_callback: ReembeddingProgressCallback | None = None,
 ) -> ExactMRRReport:
     """Evaluate exact MRR against a seeded development database via core methods."""
 
     targets = seeded_exact_mrr_targets(core)
     return evaluate_exact_mrr(
         targets,
-        search_user=lambda query, limit: core.search_user_memories(
+        search_user=lambda query, limit: _search_user_with_progress(
+            core,
             query,
             limit=limit,
-            include_archived=True,
+            progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
-            core.search_workspace_memories(
+            _search_workspace_with_progress(
+                core,
                 query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                include_archived=True,
+                progress_callback=progress_callback,
             )
         ),
         cutoff=cutoff,
@@ -1216,23 +1267,26 @@ def evaluate_semantic_mrr_for_core(
     *,
     cutoff: int = SEMANTIC_MRR_CUTOFF,
     worst_target_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    progress_callback: ReembeddingProgressCallback | None = None,
 ) -> SemanticMRRReport:
     """Evaluate semantic MRR against a seeded development database via core methods."""
 
     targets = seeded_semantic_mrr_targets(core)
     return evaluate_semantic_mrr(
         targets,
-        search_user=lambda query, limit: core.search_user_memories(
+        search_user=lambda query, limit: _search_user_with_progress(
+            core,
             query,
             limit=limit,
-            include_archived=True,
+            progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
-            core.search_workspace_memories(
+            _search_workspace_with_progress(
+                core,
                 query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                include_archived=True,
+                progress_callback=progress_callback,
             )
         ),
         cutoff=cutoff,
@@ -1246,23 +1300,26 @@ def evaluate_thematic_precision_for_core(
     cutoff: int = THEMATIC_PRECISION_CUTOFF,
     failure_limit: int = DEFAULT_WORST_MISS_LIMIT,
     confuser_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    progress_callback: ReembeddingProgressCallback | None = None,
 ) -> ThematicPrecisionReport:
     """Evaluate thematic Precision@10 against a seeded development database."""
 
     targets = thematic_precision_targets_from_fixture()
     return evaluate_thematic_precision(
         targets,
-        search_user=lambda query, limit: core.search_user_memories(
+        search_user=lambda query, limit: _search_user_with_progress(
+            core,
             query,
             limit=limit,
-            include_archived=True,
+            progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
-            core.search_workspace_memories(
+            _search_workspace_with_progress(
+                core,
                 query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                include_archived=True,
+                progress_callback=progress_callback,
             )
         ),
         cutoff=cutoff,
@@ -1276,23 +1333,26 @@ def evaluate_ranked_set_ndcg_for_core(
     *,
     cutoff: int = RANKED_SET_NDCG_CUTOFF,
     lowest_case_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    progress_callback: ReembeddingProgressCallback | None = None,
 ) -> RankedSetNDCGReport:
     """Evaluate ranked-set NDCG@5 against a seeded development database."""
 
     targets = ranked_set_ndcg_targets_from_fixture()
     return evaluate_ranked_set_ndcg(
         targets,
-        search_user=lambda query, limit: core.search_user_memories(
+        search_user=lambda query, limit: _search_user_with_progress(
+            core,
             query,
             limit=limit,
-            include_archived=True,
+            progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
-            core.search_workspace_memories(
+            _search_workspace_with_progress(
+                core,
                 query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                include_archived=True,
+                progress_callback=progress_callback,
             )
         ),
         cutoff=cutoff,
