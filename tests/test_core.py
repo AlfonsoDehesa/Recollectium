@@ -13,7 +13,6 @@ from recollectium.errors import (
     EmbeddingGenerationError,
     NotFoundError,
     ReembeddingFailedError,
-    ReembeddingInProgressError,
     ValidationError,
 )
 from recollectium.models import SPACE_USER, SPACE_WORKSPACE, STATUS_ARCHIVED
@@ -384,7 +383,7 @@ def test_startup_reembeds_stale_memories_for_active_profile(tmp_path: Path) -> N
     }
     core.store.update_memory(memory.id, embedding_profile=stale_profile)
 
-    restarted = RecollectiumCore(db_path=db_path)
+    restarted = RecollectiumCore(db_path=db_path, auto_startup_reembedding=True)
     stale_count = restarted.store.count_memories_needing_profile_reembedding(
         embedding_profile=restarted.embedding_provider.embedding_profile,
         space=SPACE_USER,
@@ -432,10 +431,10 @@ def test_search_reembeds_missing_profile_chunks_below_threshold(tmp_path: Path) 
     assert refreshed_chunk_count >= 1
 
 
-def test_search_raises_retryable_error_when_stale_count_exceeds_threshold(
+def test_search_reembeds_stale_memories_inline_regardless_of_count(
     tmp_path: Path,
 ) -> None:
-    db_path = tmp_path / "threshold.db"
+    db_path = tmp_path / "threshold-inline.db"
     core = RecollectiumCore(db_path=db_path, immediate_reembedding_threshold=1)
     one = core.add_memory(space=SPACE_USER, type="note", content="alpha")
     two = core.add_memory(space=SPACE_USER, type="note", content="beta")
@@ -447,23 +446,27 @@ def test_search_raises_retryable_error_when_stale_count_exceeds_threshold(
     core.store.update_memory(one.id, embedding_profile=stale_profile)
     core.store.update_memory(two.id, embedding_profile=stale_profile)
 
-    with pytest.raises(ReembeddingInProgressError) as exc_info:
-        core.search_user_memories("alpha")
+    results = core.search_user_memories("alpha")
 
-    error = exc_info.value
-    assert error.job_id
-    assert error.status_path.endswith(error.job_id)
+    assert [result.memory.id for result in results]
+    jobs = core.list_embedding_jobs(limit=1)
+    assert jobs[0]["state"] == "completed"
+    assert jobs[0]["total_count"] == 2
+    assert jobs[0]["processed_count"] == 2
+    assert jobs[0]["succeeded_count"] == 2
+    assert jobs[0]["failed_count"] == 0
+    stale_count = core.store.count_memories_needing_profile_reembedding(
+        embedding_profile=core.embedding_provider.embedding_profile,
+        space=SPACE_USER,
+    )
+    assert stale_count == 0
 
-    job = core.get_embedding_job(error.job_id)
-    assert job["state"] in {"pending", "in_progress", "completed"}
-    assert job["total_count"] == 2
 
-
-def test_startup_reembedding_defers_when_stale_count_exceeds_threshold(
+def test_startup_reembedding_runs_inline_when_stale_count_exceeds_threshold(
     tmp_path: Path,
 ) -> None:
-    db_path = tmp_path / "startup-deferred.db"
-    provider = BlockingFakeEmbeddingProvider()
+    db_path = tmp_path / "startup-inline.db"
+    provider = FakeEmbeddingProvider()
     core = RecollectiumCore(
         db_path=db_path,
         embedding_provider=provider,
@@ -476,76 +479,20 @@ def test_startup_reembedding_defers_when_stale_count_exceeds_threshold(
     make_memories_stale(
         db_path, [memory.id for memory in memories], provider.embedding_profile
     )
-    provider.block_texts.add(memories[0].content)
 
     restarted = RecollectiumCore(
         db_path=db_path,
         embedding_provider=provider,
         immediate_reembedding_threshold=1,
+        auto_startup_reembedding=True,
     )
 
     job_id = restarted._startup_reembedding_job_id
     assert job_id is not None
-    assert provider.started.wait(5)
     job = restarted.get_embedding_job(job_id)
-    assert job["state"] in {"pending", "in_progress"}
-    provider.release.set()
-    restarted._join_embedding_job(job_id)
-
-
-def test_deferred_reembedding_replaces_missing_and_completed_active_jobs(
-    tmp_path: Path,
-) -> None:
-    core = RecollectiumCore(
-        db_path=tmp_path / "deferred-job-cleanup.db",
-        embedding_provider=FakeEmbeddingProvider(),
-    )
-    key = core._reembedding_scope_key(
-        space=SPACE_USER,
-        workspace_uid=None,
-        include_archived=False,
-    )
-
-    core._active_deferred_embedding_jobs[key] = "missing-job"
-    first_job_id = core._start_deferred_reembedding(
-        reason="test",
-        stale_count=1,
-        space=SPACE_USER,
-    )
-    core._join_embedding_job(first_job_id)
-    assert first_job_id != "missing-job"
-
-    second_job_id = core._start_deferred_reembedding(
-        reason="test",
-        stale_count=1,
-        space=SPACE_USER,
-    )
-    core._join_embedding_job(second_job_id)
-    assert second_job_id != first_job_id
-
-    completed_job = core.store.create_embedding_job(
-        job_id="completed-job",
-        state="completed",
-        total_count=1,
-        processed_count=1,
-        succeeded_count=1,
-        failed_count=0,
-        provider="test",
-        model="fake",
-        embedding_profile=core.embedding_provider.embedding_profile,
-    )
-    core._active_deferred_embedding_jobs[key] = str(completed_job["id"])
-    core._embedding_job_threads[str(completed_job["id"])] = threading.Thread()
-
-    replacement_job_id = core._start_deferred_reembedding(
-        reason="test",
-        stale_count=1,
-        space=SPACE_USER,
-    )
-    core._join_embedding_job(replacement_job_id)
-
-    assert replacement_job_id != "completed-job"
-    assert "completed-job" not in core._embedding_job_threads
+    assert job["state"] == "completed"
+    assert job["processed_count"] == 2
+    assert job["succeeded_count"] == 2
 
 
 def test_reembed_stale_memories_returns_none_when_nothing_is_stale(
@@ -559,11 +506,11 @@ def test_reembed_stale_memories_returns_none_when_nothing_is_stale(
     assert core._reembed_stale_memories(reason="test") is None
 
 
-def test_deferred_reembedding_worker_completes_and_preserves_memory_fields(
+def test_inline_reembedding_completes_and_preserves_memory_fields(
     tmp_path: Path,
 ) -> None:
-    db_path = tmp_path / "deferred-worker.db"
-    provider = BlockingFakeEmbeddingProvider()
+    db_path = tmp_path / "inline-worker.db"
+    provider = FakeEmbeddingProvider()
     core = RecollectiumCore(
         db_path=db_path,
         embedding_provider=provider,
@@ -584,28 +531,11 @@ def test_deferred_reembedding_worker_completes_and_preserves_memory_fields(
         [first.id, second.id],
         provider.embedding_profile,
     )
-    provider.block_texts.add(first.content)
 
-    with pytest.raises(ReembeddingInProgressError) as exc_info:
-        core.search_user_memories("alpha")
+    results = core.search_user_memories("alpha")
+    assert [result.memory.id for result in results]
 
-    job_id = exc_info.value.job_id
-    assert exc_info.value.status_path.endswith(job_id)
-    assert provider.started.wait(5)
-
-    with pytest.raises(ReembeddingInProgressError) as duplicate_exc_info:
-        core.search_user_memories("alpha")
-    assert duplicate_exc_info.value.job_id == job_id
-
-    listed = core.list_memories(space=SPACE_USER)
-    assert {memory.id for memory in listed} == {first.id, second.id}
-    fetched_during_work = core.get_memory(first.id)
-    assert fetched_during_work.content == first.content
-
-    provider.release.set()
-    core._join_embedding_job(job_id)
-
-    job = core.get_embedding_job(job_id)
+    job = core.list_embedding_jobs(limit=1)[0]
     assert job["state"] == "completed"
     assert job["processed_count"] == 2
     assert job["succeeded_count"] == 2
@@ -637,12 +567,10 @@ def test_deferred_reembedding_worker_completes_and_preserves_memory_fields(
             (first.id,),
         ).fetchone()[0]
     assert chunk_count >= 1
-    results = core.search_user_memories("alpha")
-    assert [result.memory.id for result in results]
 
 
-def test_deferred_reembedding_worker_reports_failures(tmp_path: Path) -> None:
-    db_path = tmp_path / "deferred-failure.db"
+def test_inline_reembedding_reports_failures(tmp_path: Path) -> None:
+    db_path = tmp_path / "inline-failure.db"
     provider = BlockingFakeEmbeddingProvider()
     core = RecollectiumCore(
         db_path=db_path,
@@ -656,15 +584,12 @@ def test_deferred_reembedding_worker_reports_failures(tmp_path: Path) -> None:
         [first.id, second.id],
         provider.embedding_profile,
     )
-    provider.fail_texts.add(second.content)
+    provider.fail_texts.add(first.content)
 
-    with pytest.raises(ReembeddingInProgressError) as exc_info:
+    with pytest.raises(ReembeddingFailedError) as exc_info:
         core.search_user_memories("alpha")
 
-    job_id = exc_info.value.job_id
-    core._join_embedding_job(job_id)
-
-    job = core.get_embedding_job(job_id)
+    job = core.get_embedding_job(exc_info.value.job_id)
     assert job["state"] == "failed"
     assert job["processed_count"] == 2
     assert job["succeeded_count"] == 1
@@ -678,11 +603,11 @@ def test_deferred_reembedding_worker_reports_failures(tmp_path: Path) -> None:
     assert stale_count == 1
 
 
-def test_deferred_reembedding_scope_safety_and_archived_exclusion(
+def test_inline_reembedding_scope_safety_and_archived_exclusion(
     tmp_path: Path,
 ) -> None:
-    db_path = tmp_path / "deferred-scope.db"
-    provider = BlockingFakeEmbeddingProvider()
+    db_path = tmp_path / "inline-scope.db"
+    provider = FakeEmbeddingProvider()
     core = RecollectiumCore(
         db_path=db_path,
         embedding_provider=provider,
@@ -708,17 +633,11 @@ def test_deferred_reembedding_scope_safety_and_archived_exclusion(
         [user_memory.id, workspace_a.id, workspace_b.id, archived.id],
         provider.embedding_profile,
     )
-    provider.block_texts.add(workspace_a.content)
 
-    with pytest.raises(ReembeddingInProgressError) as exc_info:
-        core.search_workspace_memories("alpha", workspace_uid="workspace-a")
+    results = core.search_workspace_memories("alpha", workspace_uid="workspace-a")
+    assert [result.memory.id for result in results]
 
-    job_id = exc_info.value.job_id
-    assert provider.started.wait(5)
-    provider.release.set()
-    core._join_embedding_job(job_id)
-
-    job = core.get_embedding_job(job_id)
+    job = core.list_embedding_jobs(limit=1)[0]
     assert job["state"] == "completed"
     assert job["total_count"] == 1
     assert job["succeeded_count"] == 1
@@ -747,6 +666,205 @@ def test_deferred_reembedding_scope_safety_and_archived_exclusion(
             (archived.id,),
         ).fetchone()[0]
     assert json.loads(archived_profile_json)["profile"] == "stale-profile"
+
+
+def test_refresh_stale_embeddings_noops_and_filters(tmp_path: Path) -> None:
+    db_path = tmp_path / "force-refresh.db"
+    provider = FakeEmbeddingProvider()
+    core = RecollectiumCore(db_path=db_path, embedding_provider=provider)
+
+    assert core.refresh_stale_embeddings()["refreshed"] is False
+
+    user_memory = core.add_memory(space=SPACE_USER, type="fact", content="user alpha")
+    workspace_memory = core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="fact",
+        content="workspace alpha",
+        workspace_uid="team-a",
+    )
+    make_memories_stale(
+        db_path,
+        [user_memory.id, workspace_memory.id],
+        provider.embedding_profile,
+    )
+
+    result = core.refresh_stale_embeddings(
+        space=SPACE_WORKSPACE, workspace_uid="team-a"
+    )
+
+    assert result["refreshed"] is True
+    assert result["stale_count"] == 1
+    assert result["job"]["state"] == "completed"  # type: ignore[reportOptionalSubscript]
+    workspace_stale = core.store.count_memories_needing_profile_reembedding(
+        embedding_profile=provider.embedding_profile,
+        space=SPACE_WORKSPACE,
+        workspace_uid="team-a",
+    )
+    user_stale = core.store.count_memories_needing_profile_reembedding(
+        embedding_profile=provider.embedding_profile,
+        space=SPACE_USER,
+    )
+    assert workspace_stale == 0
+    assert user_stale == 1
+
+
+def test_refresh_stale_embeddings_handles_concurrent_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "force-refresh-race.db"
+    provider = FakeEmbeddingProvider()
+    core = RecollectiumCore(db_path=db_path, embedding_provider=provider)
+    memory = core.add_memory(space=SPACE_USER, type="fact", content="race alpha")
+    make_memories_stale(db_path, [memory.id], provider.embedding_profile)
+
+    def no_job_created(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(core, "_reembed_stale_memories", no_job_created)
+
+    assert core.refresh_stale_embeddings(space=SPACE_USER) == {
+        "refreshed": False,
+        "stale_count": 0,
+        "job": None,
+        "status_path": "/v1/embedding/jobs",
+    }
+
+
+def test_refresh_stale_embeddings_validates_scope_and_reports_failures(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "force-refresh-failure.db"
+    provider = BlockingFakeEmbeddingProvider()
+    core = RecollectiumCore(db_path=db_path, embedding_provider=provider)
+
+    with pytest.raises(ValidationError, match="space must be user or workspace"):
+        core.refresh_stale_embeddings(space="bad")
+    no_space_result = core.refresh_stale_embeddings(workspace_uid="team-a")
+    assert no_space_result["refreshed"] is False
+    with pytest.raises(ValidationError, match="workspace_uid requires workspace space"):
+        core.refresh_stale_embeddings(space=SPACE_USER, workspace_uid="team-a")
+
+    memory = core.add_memory(space=SPACE_USER, type="fact", content="user alpha")
+    make_memories_stale(db_path, [memory.id], provider.embedding_profile)
+    provider.fail_texts.add(memory.content)
+
+    with pytest.raises(ReembeddingFailedError) as exc_info:
+        core.refresh_stale_embeddings()
+
+    assert exc_info.value.status_path.endswith(exc_info.value.job_id)
+    job = core.get_embedding_job(exc_info.value.job_id)
+    assert job["state"] == "failed"
+
+
+def test_clear_embedding_jobs_deletes_selected_audit_records(tmp_path: Path) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "clear-jobs.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    for state in ("pending", "completed", "failed", "in_progress"):
+        core.store.create_embedding_job(
+            job_id=f"job-{state}",
+            state=state,
+            total_count=1,
+            processed_count=0,
+            succeeded_count=0,
+            failed_count=0,
+            provider="fake",
+            model="fake-model",
+            embedding_profile=core.embedding_provider.embedding_profile,
+        )
+
+    with pytest.raises(ValidationError, match="at least one job state"):
+        core.clear_embedding_jobs(states=[])
+    with pytest.raises(ValidationError, match="at least one job state"):
+        core.store.delete_embedding_jobs(states=[])
+
+    result = core.clear_embedding_jobs()
+
+    assert result == {"deleted_count": 3, "states": ["completed", "failed", "pending"]}
+    remaining = core.list_embedding_jobs()
+    assert [job["state"] for job in remaining] == ["in_progress"]
+
+    with pytest.raises(ValidationError, match="invalid embedding job state"):
+        core.clear_embedding_jobs(states=["unknown"])
+    with pytest.raises(
+        ValidationError, match="in_progress embedding jobs cannot be deleted"
+    ):
+        core.clear_embedding_jobs(states=("in_progress",))
+    assert [job["state"] for job in core.list_embedding_jobs()] == ["in_progress"]
+
+
+def test_startup_reembedding_noops_when_no_stale_memories(tmp_path: Path) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "startup-noop.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+
+    assert core._start_startup_reembedding() is None
+
+
+def test_core_can_skip_startup_reembedding_for_control_commands(tmp_path: Path) -> None:
+    db_path = tmp_path / "skip-startup.db"
+    provider = FakeEmbeddingProvider()
+    core = RecollectiumCore(db_path=db_path, embedding_provider=provider)
+    memory = core.add_memory(space=SPACE_USER, type="fact", content="stale alpha")
+    make_memories_stale(db_path, [memory.id], provider.embedding_profile)
+
+    control_core = RecollectiumCore(
+        db_path=db_path,
+        embedding_provider=provider,
+        auto_startup_reembedding=False,
+    )
+
+    assert control_core._startup_reembedding_job_id is None
+    assert (
+        control_core.store.count_memories_needing_profile_reembedding(
+            embedding_profile=provider.embedding_profile
+        )
+        == 1
+    )
+
+
+def test_startup_reembedding_failure_raises_with_job_status(tmp_path: Path) -> None:
+    db_path = tmp_path / "startup-failure.db"
+    provider = BlockingFakeEmbeddingProvider()
+    core = RecollectiumCore(db_path=db_path, embedding_provider=provider)
+    memory = core.add_memory(space=SPACE_USER, type="fact", content="startup alpha")
+    make_memories_stale(db_path, [memory.id], provider.embedding_profile)
+    provider.fail_texts.add(memory.content)
+
+    with pytest.raises(ReembeddingFailedError) as exc_info:
+        core._start_startup_reembedding()
+
+    assert exc_info.value.status_path.endswith(exc_info.value.job_id)
+    job = core.get_embedding_job(exc_info.value.job_id)
+    assert job["state"] == "failed"
+
+
+def test_process_reembedding_job_can_refresh_existing_job(tmp_path: Path) -> None:
+    db_path = tmp_path / "process-existing-job.db"
+    provider = FakeEmbeddingProvider()
+    core = RecollectiumCore(db_path=db_path, embedding_provider=provider)
+    memory = core.add_memory(space=SPACE_USER, type="fact", content="user alpha")
+    make_memories_stale(db_path, [memory.id], provider.embedding_profile)
+    core.store.create_embedding_job(
+        job_id="manual-job",
+        state="pending",
+        total_count=1,
+        processed_count=0,
+        succeeded_count=0,
+        failed_count=0,
+        provider="fake",
+        model="fake-model",
+        embedding_profile=provider.embedding_profile,
+    )
+
+    failed = core._process_reembedding_job(job_id="manual-job", reason="manual")
+
+    assert failed is False
+    job = core.get_embedding_job("manual-job")
+    assert job["state"] == "completed"
+    assert job["processed_count"] == 1
 
 
 def test_reembedding_preserves_updated_at_for_startup_and_runtime(

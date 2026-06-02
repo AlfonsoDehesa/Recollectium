@@ -544,6 +544,8 @@ def _format_human_output(
         "db-status",
         "embedding-status",
         "embedding-jobs",
+        "embedding-refresh",
+        "embedding-jobs-clear",
         "upgrade",
         "uninstall",
         "completion",
@@ -3491,6 +3493,53 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional positive integer limit for list mode.",
     )
 
+    # -- embedding-refresh -------------------------------------------------
+    embedding_refresh_parser = subparsers.add_parser(
+        "embedding-refresh",
+        help="force inline refresh of stale embeddings",
+        description=(
+            "Create an embedding job for stale memories matching the filters, "
+            "process it inline, and return after it completes or fails."
+        ),
+    )
+    embedding_refresh_parser.add_argument(
+        "--space",
+        choices=(SPACE_USER, SPACE_WORKSPACE),
+        help="Optional space filter for stale memories.",
+    )
+    embedding_refresh_parser.add_argument(
+        "--workspace-uid",
+        help="Optional workspace UID filter. Implies --space workspace if omitted.",
+    )
+    embedding_refresh_parser.add_argument(
+        "--include-archived",
+        action="store_true",
+        help="Include archived memories when finding stale embeddings.",
+    )
+
+    # -- embedding-jobs-clear ---------------------------------------------
+    embedding_jobs_clear_parser = subparsers.add_parser(
+        "embedding-jobs-clear",
+        help="delete embedding job records without deleting memories",
+        description=(
+            "Delete embedding job audit records. By default this removes completed, "
+            "failed, and pending records only; memory data is not deleted."
+        ),
+    )
+    embedding_jobs_clear_parser.add_argument(
+        "--state",
+        action="append",
+        dest="states",
+        help=(
+            "Job state to delete. May be repeated. Default: completed, failed, pending."
+        ),
+    )
+    embedding_jobs_clear_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm deletion of job audit records.",
+    )
+
     # -- mcp-stdio ---------------------------------------------------------
     subparsers.add_parser(
         "mcp-stdio",
@@ -4145,13 +4194,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     # -- all other commands use RecollectiumCore ------------------------------
     try:
         core = RecollectiumCore(
-            db_path=args.db_path, config_path=core_config_path, log_level=args.log_level
+            db_path=args.db_path,
+            config_path=core_config_path,
+            log_level=args.log_level,
         )
 
         # Ensure embedding model is ready before commands that need it.
         # Non-embedding commands (list, get, archive, workspace, db-status,
         # config, update metadata-only) skip this gate.
-        _EMBEDDING_COMMANDS = frozenset({"add", "search-user", "search-workspace"})
+        _EMBEDDING_COMMANDS = frozenset(
+            {"add", "search-user", "search-workspace", "embedding-refresh"}
+        )
         _needs_embedding = args.command in _EMBEDDING_COMMANDS or (
             args.command == "update" and args.content is not None
         )
@@ -4218,6 +4271,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = core.get_embedding_job(args.job_id)
             else:
                 result = core.list_embedding_jobs(state=args.state, limit=args.limit)
+        elif args.command == "embedding-refresh":
+            result = core.refresh_stale_embeddings(
+                space=args.space,
+                workspace_uid=args.workspace_uid,
+                include_archived=args.include_archived,
+            )
+        elif args.command == "embedding-jobs-clear":
+            if not args.yes:
+                return _emit_cli_failure(
+                    status="confirmation_required",
+                    message="Deleting embedding job audit records requires --yes.",
+                    hint="Add --yes to delete job records. Memory data is not deleted.",
+                    exit_code=1,
+                    command=args.command,
+                    event="embedding_jobs_clear.confirmation_required",
+                )
+            result = core.clear_embedding_jobs(states=args.states)
         else:
             parser.error(f"unknown command: {args.command}")
             return 2

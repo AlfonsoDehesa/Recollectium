@@ -9,7 +9,7 @@ Completed in v1.0.0:
 - [x] Core local memory MVP with user and workspace memory CRUD, search, update, archive, and list operations.
 - [x] Local FastAPI service API with health, version, capabilities, memory, and embedding endpoints.
 - [x] Smart local embeddings with built-in FastEmbed using `BAAI/bge-base-en-v1.5` by default and legacy `jinaai/jina-embeddings-v2-small-en` support.
-- [x] Background re-embedding worker with embedding job tracking.
+- [x] Inline re-embedding with embedding job tracking, explicit refresh commands, and job audit-record cleanup across CLI, API, and MCP.
 - [x] Versioned SQLite schema migrations with an internal migration runner.
 - [x] Config file system and predictable data, cache, log, and runtime directories.
 - [x] Service lifecycle and service type support for API and MCP services.

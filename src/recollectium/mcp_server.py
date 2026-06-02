@@ -376,6 +376,48 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return json.dumps({"error": str(e)}, sort_keys=True)
 
     @mcp.tool()
+    def refresh_embeddings(
+        space: str | None = None,
+        workspace_uid: str | None = None,
+        include_archived: bool = False,
+    ) -> str:
+        """Force stale embedding refresh inline and return the completed job summary."""
+        try:
+            result = core.refresh_stale_embeddings(
+                space=space,
+                workspace_uid=workspace_uid,
+                include_archived=include_archived,
+            )
+            return json.dumps(result, sort_keys=True)
+        except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "refresh_embeddings",
+                extra={
+                    "event": "mcp.refresh_embeddings_failed",
+                    "context": {"error": str(e)},
+                },
+            )
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
+    def clear_embedding_jobs(states: list[str] | None = None) -> str:
+        """Delete embedding job audit records without deleting memories."""
+        try:
+            result = core.clear_embedding_jobs(states=states)
+            return json.dumps(result, sort_keys=True)
+        except RecollectiumError as e:
+            _log.error(
+                "MCP tool %s failed",
+                "clear_embedding_jobs",
+                extra={
+                    "event": "mcp.clear_embedding_jobs_failed",
+                    "context": {"error": str(e)},
+                },
+            )
+            return json.dumps({"error": str(e)}, sort_keys=True)
+
+    @mcp.tool()
     def get_embedding_job(job_id: str) -> str:
         """Get a single embedding job by ID."""
         try:

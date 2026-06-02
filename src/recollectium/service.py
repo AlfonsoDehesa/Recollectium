@@ -146,6 +146,20 @@ class AddWorkspaceAliasRequest(BaseModel):
     migrate_existing: bool = False
 
 
+class EmbeddingRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    space: str | None = Field(default=None, min_length=1)
+    workspace_uid: str | None = Field(default=None, min_length=1)
+    include_archived: bool = False
+
+
+class ClearEmbeddingJobsRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    states: list[str] | None = None
+
+
 def _map_boundary_error(exc: Exception) -> tuple[HTTPStatus, dict[str, Any]]:
     for error_type, status, code in _BOUNDARY_ERROR_MAP:
         if isinstance(exc, error_type):
@@ -360,6 +374,44 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(serialize_embedding_jobs(jobs))
+
+    @app.post(f"{SERVICE_API_PREFIX}/embedding/refresh", tags=["embedding"])
+    def refresh_embeddings(
+        body: EmbeddingRefreshRequest | None = None,
+    ) -> dict[str, Any]:
+        request = body or EmbeddingRefreshRequest()
+        result = core.refresh_stale_embeddings(
+            space=request.space,
+            workspace_uid=request.workspace_uid,
+            include_archived=request.include_archived,
+        )
+        _log.info(
+            "refresh_embeddings completed",
+            extra={
+                "event": "service.refresh_embeddings_completed",
+                "context": {
+                    "refreshed": result.get("refreshed"),
+                    "stale_count": result.get("stale_count"),
+                },
+            },
+        )
+        return success_payload(result)
+
+    @app.delete(f"{SERVICE_API_PREFIX}/embedding/jobs", tags=["embedding"])
+    def clear_embedding_jobs(
+        body: ClearEmbeddingJobsRequest | None = None,
+    ) -> dict[str, Any]:
+        result = core.clear_embedding_jobs(
+            states=body.states if body is not None else None
+        )
+        _log.info(
+            "clear_embedding_jobs completed",
+            extra={
+                "event": "service.clear_embedding_jobs_completed",
+                "context": {"deleted_count": result.get("deleted_count")},
+            },
+        )
+        return success_payload(result)
 
     @app.get(f"{SERVICE_API_PREFIX}/embedding/jobs/{{job_id}}", tags=["embedding"])
     def get_embedding_job(job_id: str) -> dict[str, Any]:

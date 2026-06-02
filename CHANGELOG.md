@@ -12,10 +12,12 @@ This release provides working embedding-powered semantic memory for agents, expo
   - Default profile: `builtin-fastembed-bge-base-en-v1-5-v1`, 768 dimensions, 512 max tokens, 384 chunk tokens, 64 overlap tokens.
   - Legacy supported profile: `jinaai/jina-embeddings-v2-small-en`, `builtin-fastembed-jina-v2-small-en-v1`, 512 dimensions, 8192 max tokens, 6144 chunk tokens, 512 overlap tokens.
 - Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set NDCG@5 separately without a combined score.
+- Added explicit stale-embedding refresh and embedding job cleanup controls across CLI, HTTP API, and MCP.
 - Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
 
 ### 🐛 Fixes
 
+- Re-embedding now runs inline for the triggering CLI command, API request, or MCP tool call so large refreshes finish durably instead of being stranded in a process-local background daemon queue.
 - Fixed bootstrap install metadata on macOS so `recollectium upgrade` reads installs from the same state directory the installer writes.
 - Fixed `main`-tracking upgrades to compare installed and remote commit SHAs so `--check`, `--dry-run`, and plain upgrades skip work when already current unless `--force` is used.
 - Fixed bootstrap installs for macOS zsh users so the Recollectium CLI path is added to zsh startup files.

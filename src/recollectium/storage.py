@@ -819,6 +819,17 @@ class SQLiteMemoryStore:
 
         return [self._row_to_embedding_job(row) for row in rows]
 
+    def delete_embedding_jobs(self, *, states: tuple[str, ...] | list[str]) -> int:
+        if not states:
+            raise ValidationError("at least one job state is required")
+        placeholders = ", ".join("?" for _ in states)
+        with self._connect() as connection:
+            result = connection.execute(
+                f"DELETE FROM embedding_jobs WHERE state IN ({placeholders})",
+                tuple(states),
+            )
+        return int(result.rowcount)
+
     def _row_to_embedding_job(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
