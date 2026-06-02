@@ -45,6 +45,7 @@ from recollectium.errors import (
     EmbeddingModelUnavailableError,
     EmbeddingProviderUnavailableError,
     EmbeddingReadinessTimeoutError,
+    MigrationError,
     RecollectiumError,
     ServiceError,
     ValidationError,
@@ -2549,6 +2550,207 @@ def test_cli_fetches_one_embedding_job(
     assert exit_code == 0
     assert stderr == ""
     assert json.loads(stdout)["id"] == "job-1"
+
+
+def test_cli_embedding_maintenance_prepares_model_and_refreshes(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    calls: list[str] = []
+    config_path = tmp_path / "config.json"
+    db_path = tmp_path / "maintenance.db"
+
+    class FakeProvider:
+        embedding_profile = {
+            "provider": "fake",
+            "model": "fake-model",
+            "dimensions": 3,
+            "version": "1",
+            "profile": "fake-profile",
+            "max_tokens": 16,
+            "chunk_tokens": 4,
+            "chunk_overlap_tokens": 0,
+            "query_prompt_policy": "raw",
+        }
+
+        def ensure_ready(self) -> None:
+            calls.append("ensure_ready")
+
+    class FakeStore:
+        def __init__(self, path) -> None:
+            self.db_path = path
+
+    class FakeCore:
+        def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
+            calls.append(f"core:{db_path}")
+            self.config = cli_mod.RecollectiumConfig(config_path, log_level=log_level)
+            self.store = FakeStore(db_path)
+            self.embedding_provider = FakeProvider()
+
+        def _ensure_model_ready(self) -> None:
+            calls.append("model_state")
+
+        def refresh_stale_embeddings(self, *, include_archived=False, **kwargs):
+            calls.append(f"refresh:{include_archived}")
+            return {
+                "refreshed": True,
+                "stale_count": 2,
+                "job": {"id": "job-1", "state": "completed"},
+                "status_path": "/v1/embedding/jobs/job-1",
+            }
+
+    monkeypatch.setattr(
+        cli_mod, "SQLiteMemoryStore", lambda path: calls.append(f"store:{path}")
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", FakeCore)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--db", str(db_path), "embedding-maintenance"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "embedding_maintenance_completed"
+    assert payload["database"] == str(db_path)
+    assert payload["model_prepared"] is True
+    assert payload["embedding_refresh"]["stale_count"] == 2
+    assert calls == [
+        f"store:{db_path}",
+        f"core:{db_path}",
+        "ensure_ready",
+        "model_state",
+        "refresh:True",
+    ]
+
+
+def test_cli_embedding_maintenance_provider_without_ready_uses_healthcheck(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    calls: list[str] = []
+    db_path = tmp_path / "maintenance-fallback.db"
+
+    class FallbackProvider:
+        embedding_profile = {
+            "provider": "fake",
+            "model": "fallback",
+            "dimensions": 3,
+            "version": "1",
+            "profile": "fallback-profile",
+            "max_tokens": 16,
+            "chunk_tokens": 4,
+            "chunk_overlap_tokens": 0,
+            "query_prompt_policy": "raw",
+        }
+
+        def embed(self, text: str) -> list[float]:
+            calls.append(f"embed:{text}")
+            return [0.0, 0.0, 0.0]
+
+    class FakeCore:
+        def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
+            self.config = cli_mod.RecollectiumConfig(config_path, log_level=log_level)
+            self.store = type("FakeStore", (), {"db_path": db_path})()
+            self.embedding_provider = FallbackProvider()
+
+        def _ensure_model_ready(self) -> None:
+            calls.append("model_state")
+
+        def refresh_stale_embeddings(self, *, include_archived=False, **kwargs):
+            calls.append(f"refresh:{include_archived}")
+            return {"refreshed": False, "stale_count": 0, "job": None}
+
+    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", lambda path: None)
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", FakeCore)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "embedding-maintenance"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout)["status"] == "embedding_maintenance_completed"
+    assert calls == ["embed:healthcheck", "model_state", "refresh:True"]
+
+
+def test_run_installed_embedding_maintenance_builds_fresh_process_command(
+    tmp_path, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], int]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd=None):
+            calls.append((command, timeout_seconds))
+            assert cwd is None
+            return CommandResult(0, '{"status":"ok"}', "")
+
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", FakeRunner)
+    monkeypatch.setattr(cli_mod.sys, "executable", "/tmp/python")
+
+    result = cli_mod._run_installed_embedding_maintenance(
+        config_path=tmp_path / "config.json",
+        explicit=True,
+        db_path=str(tmp_path / "memory.db"),
+        log_level="debug",
+        timeout_seconds=42,
+    )
+
+    assert result.returncode == 0
+    assert calls == [
+        (
+            [
+                "/tmp/python",
+                "-m",
+                "recollectium",
+                "--json",
+                "--config",
+                str(tmp_path / "config.json"),
+                "--db",
+                str(tmp_path / "memory.db"),
+                "--log-level",
+                "debug",
+                "embedding-maintenance",
+            ],
+            42,
+        )
+    ]
+
+
+def test_cli_embedding_maintenance_error_paths_return_structured_json(
+    capsys, monkeypatch, tmp_path
+) -> None:
+    import recollectium.cli as cli_mod
+
+    cases = [
+        (FileNotFoundError("missing config"), "config_missing"),
+        (ValidationError("bad config"), "config_invalid"),
+        (
+            EmbeddingProviderUnavailableError("offline"),
+            "embedding_provider_unavailable",
+        ),
+        (MigrationError("boom"), "migration_error"),
+        (RecollectiumError("failed"), "operation_failed"),
+    ]
+    for exc, status in cases:
+        monkeypatch.setattr(
+            cli_mod,
+            "_run_embedding_maintenance",
+            lambda *a, _exc=exc, **kw: (_ for _ in ()).throw(_exc),
+        )
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(tmp_path / f"{status}.json"), "embedding-maintenance"],
+            capsys,
+        )
+        assert exit_code != 0
+        assert stdout == ""
+        assert json.loads(stderr)["status"] == status
 
 
 def test_cli_unknown_command_defensive_branch(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6083,6 +6285,92 @@ def test_cli_upgrade_applies_and_reports_service_restart_failure(
     ]
 
 
+def test_cli_upgrade_success_preserves_raw_embedding_maintenance_stdout(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "_run_installed_embedding_maintenance",
+        lambda **kw: CommandResult(0, "not-json", ""),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout)["embedding_maintenance"] == {"raw_stdout": "not-json"}
+
+
+def test_cli_upgrade_embedding_maintenance_failure_attempts_service_restore(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    calls: list[str] = []
+    fake_config = object()
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: fake_config)
+    monkeypatch.setattr(
+        cli_mod, "check_running_service", lambda cfg: {"type": "api", "pid": 1}
+    )
+    monkeypatch.setattr(cli_mod, "stop_service", lambda cfg: calls.append("stop"))
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "_run_installed_embedding_maintenance",
+        lambda **kw: CommandResult(3, "", "maintenance failed"),
+    )
+
+    def _restart(*args, **kwargs):
+        calls.append("restart")
+        raise ServiceError("restart failed")
+
+    monkeypatch.setattr(cli_mod, "start_service", _restart)
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 3
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "embedding_maintenance_failed"
+    assert payload["service_restart_errors"] == [
+        {"type": "api", "error": "restart failed"}
+    ]
+    assert calls == ["stop", "restart"]
+
+
 def test_cli_upgrade_release_lookup_error_with_repo_uses_main_fallback(
     capsys, monkeypatch
 ) -> None:
@@ -6306,6 +6594,134 @@ def test_cli_upgrade_success_restarts_running_service(capsys, monkeypatch) -> No
     payload = json.loads(stdout)
     assert payload["status"] == "updated"
     assert payload["services_to_restart"] == ["mcp"]
+
+
+def test_cli_upgrade_success_runs_installed_embedding_maintenance(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    maintenance_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+
+    def _maintenance(**kwargs):
+        maintenance_calls.append(kwargs)
+        return CommandResult(
+            0,
+            json.dumps(
+                {
+                    "status": "embedding_maintenance_completed",
+                    "model_prepared": True,
+                    "embedding_refresh": {"refreshed": False, "stale_count": 0},
+                }
+            ),
+            "",
+        )
+
+    monkeypatch.setattr(cli_mod, "_run_installed_embedding_maintenance", _maintenance)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", "/tmp/recollectium.db", "upgrade"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "updated"
+    assert (
+        payload["embedding_maintenance"]["status"] == "embedding_maintenance_completed"
+    )
+    assert len(maintenance_calls) == 1
+    assert isinstance(maintenance_calls[0]["config_path"], Path)
+    assert maintenance_calls[0] == {
+        "config_path": maintenance_calls[0]["config_path"],
+        "explicit": False,
+        "db_path": "/tmp/recollectium.db",
+        "log_level": None,
+        "timeout_seconds": 600,
+    }
+
+
+def test_cli_upgrade_check_does_not_run_embedding_maintenance(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "_run_installed_embedding_maintenance",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade", "--check"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout)["status"] == "dry_run"
+
+
+def test_cli_upgrade_embedding_maintenance_failure_reports_json(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "_run_installed_embedding_maintenance",
+        lambda **kwargs: CommandResult(7, "", "model download failed"),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
+
+    assert exit_code == 7
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "embedding_maintenance_failed"
+    assert payload["stderr"] == "model download failed"
 
 
 def test_cli_upgrade_ignores_config_errors_when_checking_services(

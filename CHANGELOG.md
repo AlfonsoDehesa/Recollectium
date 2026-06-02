@@ -14,6 +14,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set NDCG@5 separately without a combined score.
 - Added explicit stale-embedding refresh and embedding job cleanup controls across CLI, HTTP API, and MCP.
 - Added human-readable CLI re-embedding progress on search and embedding refresh commands while preserving JSON stdout contracts.
+- Added install and upgrade embedding maintenance so bootstrap installs and successful package upgrades prepare the configured model and refresh stale or missing embeddings inline when needed.
 - Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
 
 ### 🐛 Fixes

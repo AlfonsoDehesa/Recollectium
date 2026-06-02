@@ -367,8 +367,8 @@ export PATH
 info "Installing Recollectium from ${ref}..."
 "$UV_BIN" tool install --python 3.12 --force "$package"
 verify_installed_tool
-info "Initializing Recollectium (config, database, model)..."
-"$UV_BIN" tool run --from "$package" recollectium init || true
+info "Maintaining embeddings (config, database, model, stale memories)..."
+"$UV_BIN" tool run --from "$package" recollectium embedding-maintenance
 ensure_path_hint
 configure_shell_completion
 record_install_metadata

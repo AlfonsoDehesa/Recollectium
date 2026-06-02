@@ -69,7 +69,6 @@ from recollectium.dev_eval import (
 from recollectium.dev_seed import ensure_seeded_dev_database, reset_seeded_dev_database
 from recollectium.embeddings import BuiltinFastEmbedProvider
 from recollectium.logging import setup_logging
-from recollectium.model_state import write_model_state
 from recollectium.models import (
     ALL_MEMORY_TYPES,
     SPACE_USER,
@@ -92,6 +91,7 @@ from recollectium.service_manager import (
 )
 from recollectium.storage import SQLiteMemoryStore
 from recollectium.update import (
+    CommandResult,
     GitHubReleaseClient,
     ReleaseInfo,
     ReleaseLookupError,
@@ -544,6 +544,7 @@ def _format_human_output(
     if command in {
         "db-status",
         "embedding-status",
+        "embedding-maintenance",
         "embedding-jobs",
         "embedding-refresh",
         "embedding-jobs-clear",
@@ -1022,15 +1023,14 @@ def _handle_config_command(
     return 0
 
 
-def _handle_init_command(
+def _run_embedding_maintenance(
     config_path: Path,
     *,
     explicit: bool,
     db_path: str | None,
     log_level: str | None,
-    output_format: str,
-) -> int:
-    """Initialize Recollectium config, directories, database, and model cache."""
+) -> dict[str, Any]:
+    """Prepare the configured FastEmbed model and refresh stale DB embeddings."""
     if explicit and not config_path.exists():
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
@@ -1041,32 +1041,74 @@ def _handle_init_command(
         Path(db_path) if db_path is not None else cfg.resolved_database_path
     )
     SQLiteMemoryStore(selected_db_path)
+    core = RecollectiumCore(
+        db_path=selected_db_path,
+        config_path=config_path if explicit else None,
+        log_level=log_level,
+    )
     _log.info(
-        "preparing embedding model (first run may download the configured FastEmbed model)",
-        extra={"event": "init.model_prepare"},
+        "preparing embedding model and refreshing stale embeddings",
+        extra={"event": "embedding_maintenance.start"},
     )
-    provider = _builtin_fastembed_provider_from_config(cfg.effective_config)
-    provider.ensure_ready()
-
-    # Record the prepared model so the readiness gate sees it.
-    model_name = cfg.effective_config["embedding"]["model"]
-    write_model_state(
-        Path(user_state_dir("recollectium")),
-        model=model_name,
-        dimensions=provider.dimensions,
-        profile=provider.profile_name,
-    )
-
-    result = {
-        "status": "initialized",
+    provider_ready = getattr(core.embedding_provider, "ensure_ready", None)
+    if callable(provider_ready):
+        provider_ready()
+    else:
+        core.embedding_provider.embed("healthcheck")
+    core._ensure_model_ready()
+    refresh = core.refresh_stale_embeddings(include_archived=True)
+    profile = core.embedding_provider.embedding_profile
+    return {
+        "status": "embedding_maintenance_completed",
         "config": str(cfg.config_file_path),
         "data": str(cfg.xdg_dirs["data"]),
         "cache": str(cfg.xdg_dirs["cache"]),
         "logs": str(cfg.xdg_dirs["logs"]),
         "runtime": str(cfg.xdg_dirs["runtime"]),
-        "database": str(selected_db_path),
+        "database": str(core.store.db_path),
         "embedding_model": cfg.effective_config["embedding"]["model"],
+        "embedding_profile": profile,
+        "model_prepared": True,
+        "embedding_refresh": refresh,
     }
+
+
+def _run_installed_embedding_maintenance(
+    *,
+    config_path: Path,
+    explicit: bool,
+    db_path: str | None,
+    log_level: str | None,
+    timeout_seconds: int,
+) -> CommandResult:
+    """Run embedding maintenance in a fresh interpreter after package upgrade."""
+    command = [sys.executable, "-m", "recollectium", "--json"]
+    if explicit:
+        command.extend(["--config", str(config_path)])
+    if db_path is not None:
+        command.extend(["--db", db_path])
+    if log_level is not None:
+        command.extend(["--log-level", log_level])
+    command.append("embedding-maintenance")
+    return SubprocessCommandRunner().run(command, timeout_seconds=timeout_seconds)
+
+
+def _handle_init_command(
+    config_path: Path,
+    *,
+    explicit: bool,
+    db_path: str | None,
+    log_level: str | None,
+    output_format: str,
+) -> int:
+    """Initialize Recollectium config, directories, database, and model cache."""
+    result = _run_embedding_maintenance(
+        config_path,
+        explicit=explicit,
+        db_path=db_path,
+        log_level=log_level,
+    )
+    result["status"] = "initialized"
     _emit_success(result, output_format=output_format, command="init")
     return 0
 
@@ -1805,6 +1847,59 @@ def _handle_upgrade_command(
         payload["metadata_warning"] = metadata_warning
 
     payload["status"] = "updated"
+
+    maintenance = _run_installed_embedding_maintenance(
+        config_path=config_path,
+        explicit=args.config_path is not None,
+        db_path=args.db_path,
+        log_level=args.log_level,
+        timeout_seconds=args.timeout,
+    )
+    payload["embedding_maintenance_stdout"] = maintenance.stdout
+    payload["embedding_maintenance_stderr"] = maintenance.stderr
+    if maintenance.returncode != 0:
+        payload["status"] = "embedding_maintenance_failed"
+        payload["returncode"] = maintenance.returncode
+        payload["message"] = (
+            "Recollectium package upgraded, but embedding maintenance failed."
+        )
+        payload["detail"] = maintenance.stderr or maintenance.stdout
+        if cfg is not None:
+            for service_type in services_to_restart:
+                try:
+                    time.sleep(0.5)
+                    start_service(
+                        cfg,
+                        service_type,
+                        db_path=args.db_path,
+                        log_level=args.log_level,
+                    )
+                except (ServiceConflictError, ServiceError, ValueError) as restart_exc:
+                    service_restart_errors.append(
+                        {"type": service_type, "error": str(restart_exc)}
+                    )
+        if service_restart_errors:
+            payload["service_restart_errors"] = service_restart_errors
+        return _emit_cli_failure(
+            status="embedding_maintenance_failed",
+            message="Recollectium package upgraded, but embedding maintenance failed.",
+            detail=maintenance.stderr or maintenance.stdout,
+            hint="Fix the embedding or database error, then run recollectium embedding-maintenance.",
+            returncode=maintenance.returncode,
+            stdout=maintenance.stdout,
+            stderr=maintenance.stderr,
+            service_restart_errors=service_restart_errors or None,
+            exit_code=maintenance.returncode
+            if 1 <= maintenance.returncode <= 125
+            else 1,
+            command="upgrade",
+            event="upgrade.embedding_maintenance_failed",
+        )
+    try:
+        payload["embedding_maintenance"] = json.loads(maintenance.stdout)
+    except json.JSONDecodeError:
+        payload["embedding_maintenance"] = {"raw_stdout": maintenance.stdout}
+
     if cfg is not None:
         for service_type in services_to_restart:
             try:
@@ -3559,6 +3654,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # -- embedding-maintenance ---------------------------------------------
+    subparsers.add_parser(
+        "embedding-maintenance",
+        help="prepare the configured model and refresh stale embeddings",
+        description=(
+            "Create the config/database when needed, download or prepare the configured "
+            "built-in FastEmbed model, and refresh stale or missing embeddings inline. "
+            "Installers and successful upgrades run this command automatically."
+        ),
+    )
+
     # -- embedding-jobs ----------------------------------------------------
     embedding_jobs_parser = subparsers.add_parser(
         "embedding-jobs",
@@ -3812,6 +3918,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         except RecollectiumError as exc:
             return _operation_failed_error(exc, command="init")
+
+    if args.command == "embedding-maintenance":
+        try:
+            result = _run_embedding_maintenance(
+                config_path,
+                explicit=args.config_path is not None,
+                db_path=args.db_path,
+                log_level=args.log_level,
+            )
+            _emit_success(
+                result, output_format=output_format, command="embedding-maintenance"
+            )
+            return 0
+        except FileNotFoundError as exc:
+            return _config_missing_error(exc, command="embedding-maintenance")
+        except ValidationError as exc:
+            return _config_invalid_error(exc, command="embedding-maintenance")
+        except (
+            EmbeddingReadinessTimeoutError,
+            EmbeddingModelUnavailableError,
+            EmbeddingProviderUnavailableError,
+            EmbeddingGenerationError,
+        ) as exc:
+            return _embedding_error(exc, command="embedding-maintenance")
+        except MigrationError as exc:
+            return _emit_cli_failure(
+                status="migration_error",
+                message="Database migration failed.",
+                detail=str(exc),
+                exit_code=1,
+                command="embedding-maintenance",
+                event="database.migration_failed",
+            )
+        except RecollectiumError as exc:
+            return _operation_failed_error(exc, command="embedding-maintenance")
 
     # -- serve command ----------------------------------------------------
     if args.command == "serve":
