@@ -4369,6 +4369,82 @@ def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
 
 
 @pytest.mark.parametrize(
+    ("install_method", "expected_command"),
+    [
+        ("pip", f"{sys.executable} -m pip uninstall -y recollectium"),
+        ("pipx", "pipx uninstall recollectium"),
+        ("uv_tool", "uv tool uninstall recollectium"),
+    ],
+)
+def test_cli_uninstall_dry_run_detects_package_manager_without_install_metadata(
+    install_method: str,
+    expected_command: str,
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("RECOLLECTIUM_INSTALL_METHOD", install_method)
+    run_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda cmd, **kwargs: run_calls.append(cmd),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["uninstall", "--dry-run"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["status"] == "dry_run"
+    assert payload["data"]["preserved"] is True
+    assert payload["package"]["install_method"] == install_method
+    assert payload["package"]["recommended"] == expected_command
+    assert payload["package"]["uninstall"]["status"] == "dry_run"
+    assert payload["package"]["uninstall"]["command"] == expected_command
+    assert run_calls == []
+
+
+@pytest.mark.parametrize(
+    ("install_method", "expected_argv"),
+    [
+        ("pip", [sys.executable, "-m", "pip", "uninstall", "-y", "recollectium"]),
+        ("pipx", ["pipx", "uninstall", "recollectium"]),
+        ("uv_tool", ["uv", "tool", "uninstall", "recollectium"]),
+    ],
+)
+def test_cli_uninstall_detects_package_manager_without_install_metadata_for_removal(
+    install_method: str,
+    expected_argv: list[str],
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("RECOLLECTIUM_INSTALL_METHOD", install_method)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    run_calls: list[list[str]] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        run_calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["status"] == "uninstalled"
+    assert payload["data"]["preserved"] is True
+    assert payload["package"]["install_method"] == install_method
+    assert payload["package"]["uninstall"]["status"] == "removed"
+    assert payload["package"]["uninstall"]["argv"] == expected_argv
+    assert run_calls == [expected_argv]
+
+
+@pytest.mark.parametrize(
     ("install_method", "expected"),
     [
         ("bootstrap", "uv tool uninstall recollectium"),
@@ -4609,7 +4685,7 @@ def test_cli_uninstall_ignores_unreadable_install_metadata(
     assert payload["package"]["uninstall"]["status"] == "unsupported"
 
 
-def test_cli_uninstall_ignores_non_object_install_metadata(
+def test_cli_uninstall_falls_back_to_detection_for_non_object_install_metadata(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
@@ -4623,7 +4699,7 @@ def test_cli_uninstall_ignores_non_object_install_metadata(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["package"]["install_method"] == "unknown"
+    assert payload["package"]["install_method"] == "source"
     assert payload["package"]["uninstall"]["status"] == "unsupported"
 
 

@@ -2283,22 +2283,22 @@ def _load_install_metadata(path: Path) -> dict[str, Any] | None:
     return payload
 
 
+def _detect_install_method_for_uninstall() -> str:
+    try:
+        return detect_install_method(load_install_metadata())
+    except (AttributeError, OSError):
+        return "unknown"
+
+
 def _metadata_with_detected_install_method(
     metadata: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    if metadata is not None and isinstance(metadata.get("install_method"), str):
+    raw_method = metadata.get("install_method") if metadata is not None else None
+    if isinstance(raw_method, str) and raw_method != "unknown":
         return metadata
 
-    if metadata is None:
-        return {"install_method": "unknown"}
-
-    try:
-        detected = detect_install_method(load_install_metadata())
-    except (AttributeError, OSError):
-        detected = "unknown"
-
-    enriched = dict(metadata)
-    enriched["install_method"] = detected
+    enriched = dict(metadata or {})
+    enriched["install_method"] = _detect_install_method_for_uninstall()
     return enriched
 
 
