@@ -112,6 +112,8 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "add a user or workspace memory" in top_level_help
     assert "search memories for one workspace UID" in top_level_help
     assert "embedding-status" in top_level_help
+    assert "embedding-refresh" in top_level_help
+    assert "embedding-jobs-clear" in top_level_help
     assert "embedding-jobs" in top_level_help
     assert "db-status" in top_level_help
     assert "dev" in top_level_help
@@ -190,6 +192,15 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--job-id" in embedding_jobs_help
     assert "--state" in embedding_jobs_help
     assert "--limit" in embedding_jobs_help
+
+    embedding_refresh_help = _run_help(["embedding-refresh", "--help"], capsys)
+    assert "--space" in embedding_refresh_help
+    assert "--workspace-uid" in embedding_refresh_help
+    assert "--include-archived" in embedding_refresh_help
+
+    embedding_jobs_clear_help = _run_help(["embedding-jobs-clear", "--help"], capsys)
+    assert "--state" in embedding_jobs_clear_help
+    assert "--yes" in embedding_jobs_clear_help
 
     db_status_help = _run_help(["db-status", "--help"], capsys)
     assert "migration status" in db_status_help
@@ -2301,6 +2312,7 @@ def test_cli_unknown_command_defensive_branch(monkeypatch: pytest.MonkeyPatch) -
             db_path: object,
             config_path: object = None,
             log_level: object = None,
+            auto_startup_reembedding: bool = True,
         ) -> None:
             assert db_path is None
 
@@ -2413,6 +2425,47 @@ def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
     assert state_err == ""
     state_payload = json.loads(state_out)
     assert isinstance(state_payload, list)
+
+
+def test_cli_embedding_refresh_and_jobs_clear_output_json(tmp_path, capsys) -> None:
+    db_path = tmp_path / "cli-embedding-refresh.db"
+
+    refresh_code, refresh_out, refresh_err = _run_cli(
+        ["--db", str(db_path), "embedding-refresh", "--space", "user"],
+        capsys,
+    )
+    assert refresh_code == 0
+    assert refresh_err == ""
+    refresh_payload = json.loads(refresh_out)
+    assert refresh_payload == {
+        "refreshed": False,
+        "stale_count": 0,
+        "job": None,
+        "status_path": "/v1/embedding/jobs",
+    }
+
+    clear_without_yes_code, clear_without_yes_out, clear_without_yes_err = _run_cli(
+        ["--db", str(db_path), "embedding-jobs-clear", "--state", "pending"],
+        capsys,
+    )
+    assert clear_without_yes_code == 1
+    assert clear_without_yes_out == ""
+    assert json.loads(clear_without_yes_err)["status"] == "confirmation_required"
+
+    clear_code, clear_out, clear_err = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "embedding-jobs-clear",
+            "--state",
+            "pending",
+            "--yes",
+        ],
+        capsys,
+    )
+    assert clear_code == 0
+    assert clear_err == ""
+    assert json.loads(clear_out) == {"deleted_count": 0, "states": ["pending"]}
 
 
 # ---------------------------------------------------------------------------

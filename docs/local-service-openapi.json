@@ -1,200 +1,469 @@
 {
-  "openapi": "3.1.0",
+  "components": {
+    "schemas": {
+      "AddMemoryRequest": {
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "content": {
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "sensitivity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensitivity"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "space": {
+            "minLength": 1,
+            "title": "Space",
+            "type": "string"
+          },
+          "type": {
+            "minLength": 1,
+            "title": "Type",
+            "type": "string"
+          },
+          "workspace_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Uid"
+          }
+        },
+        "required": [
+          "space",
+          "type",
+          "content"
+        ],
+        "title": "AddMemoryRequest",
+        "type": "object"
+      },
+      "AddWorkspaceAliasRequest": {
+        "properties": {
+          "alias_uid": {
+            "minLength": 1,
+            "title": "Alias Uid",
+            "type": "string"
+          },
+          "migrate_existing": {
+            "default": false,
+            "title": "Migrate Existing",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "alias_uid"
+        ],
+        "title": "AddWorkspaceAliasRequest",
+        "type": "object"
+      },
+      "ClearEmbeddingJobsRequest": {
+        "properties": {
+          "states": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "States"
+          }
+        },
+        "title": "ClearEmbeddingJobsRequest",
+        "type": "object"
+      },
+      "EmbeddingRefreshRequest": {
+        "properties": {
+          "include_archived": {
+            "default": false,
+            "title": "Include Archived",
+            "type": "boolean"
+          },
+          "space": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Space"
+          },
+          "workspace_uid": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Uid"
+          }
+        },
+        "title": "EmbeddingRefreshRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "RenameWorkspaceRequest": {
+        "properties": {
+          "new_uid": {
+            "minLength": 1,
+            "title": "New Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "new_uid"
+        ],
+        "title": "RenameWorkspaceRequest",
+        "type": "object"
+      },
+      "SearchUserRequest": {
+        "properties": {
+          "include_archived": {
+            "default": false,
+            "title": "Include Archived",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 10,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchUserRequest",
+        "type": "object"
+      },
+      "SearchWorkspaceRequest": {
+        "properties": {
+          "include_archived": {
+            "default": false,
+            "title": "Include Archived",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 10,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "workspace_uid": {
+            "minLength": 1,
+            "title": "Workspace Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "workspace_uid"
+        ],
+        "title": "SearchWorkspaceRequest",
+        "type": "object"
+      },
+      "UpdateMemoryRequest": {
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "sensitivity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensitivity"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "title": "UpdateMemoryRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
   "info": {
-    "title": "Recollectium Core Local Service API",
     "description": "Local-first HTTP JSON service contract for Recollectium Core. In v1, the service is localhost-first, has no authentication, and is not hardened as a public network service. Do not expose it publicly. Split-machine deployments should use private networking and external access controls.",
+    "title": "Recollectium Core Local Service API",
     "version": "1"
   },
+  "openapi": "3.1.0",
   "paths": {
-    "/v1/health": {
-      "get": {
-        "tags": [
-          "service"
-        ],
-        "summary": "Health",
-        "operationId": "health_v1_health_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Health V1 Health Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/version": {
-      "get": {
-        "tags": [
-          "service"
-        ],
-        "summary": "Version",
-        "operationId": "version_v1_version_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Version V1 Version Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/capabilities": {
       "get": {
-        "tags": [
-          "service"
-        ],
-        "summary": "Capabilities",
         "operationId": "capabilities_v1_capabilities_get",
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Capabilities V1 Capabilities Get"
+                  "title": "Response Capabilities V1 Capabilities Get",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           }
-        }
-      }
-    },
-    "/v1/memories/search_user": {
-      "post": {
-        "tags": [
-          "memories"
-        ],
-        "summary": "Search User",
-        "operationId": "search_user_v1_memories_search_user_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchUserRequest"
-              }
-            }
-          },
-          "required": true
         },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Search User V1 Memories Search User Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/memories/search_workspace": {
-      "post": {
+        "summary": "Capabilities",
         "tags": [
-          "memories"
-        ],
-        "summary": "Search Workspace",
-        "operationId": "search_workspace_v1_memories_search_workspace_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchWorkspaceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Search Workspace V1 Memories Search Workspace Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/embedding/status": {
-      "get": {
-        "tags": [
-          "embedding"
-        ],
-        "summary": "Embedding Status",
-        "operationId": "embedding_status_v1_embedding_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Embedding Status V1 Embedding Status Get"
-                }
-              }
-            }
-          }
-        }
+          "service"
+        ]
       }
     },
     "/v1/embedding/jobs": {
-      "get": {
+      "delete": {
+        "operationId": "clear_embedding_jobs_v1_embedding_jobs_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ClearEmbeddingJobsRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Clear Embedding Jobs V1 Embedding Jobs Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Embedding Jobs",
         "tags": [
           "embedding"
-        ],
-        "summary": "List Embedding Jobs",
+        ]
+      },
+      "get": {
         "operationId": "list_embedding_jobs_v1_embedding_jobs_get",
         "parameters": [
           {
-            "name": "state",
             "in": "query",
+            "name": "state",
             "required": false,
             "schema": {
               "anyOf": [
@@ -209,8 +478,8 @@
             }
           },
           {
-            "name": "limit",
             "in": "query",
+            "name": "limit",
             "required": false,
             "schema": {
               "anyOf": [
@@ -227,126 +496,181 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Embedding Jobs V1 Embedding Jobs Get"
+                  "title": "Response List Embedding Jobs V1 Embedding Jobs Get",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "List Embedding Jobs",
+        "tags": [
+          "embedding"
+        ]
       }
     },
     "/v1/embedding/jobs/{job_id}": {
       "get": {
-        "tags": [
-          "embedding"
-        ],
-        "summary": "Get Embedding Job",
         "operationId": "get_embedding_job_v1_embedding_jobs__job_id__get",
         "parameters": [
           {
-            "name": "job_id",
             "in": "path",
+            "name": "job_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Job Id"
+              "title": "Job Id",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Embedding Job V1 Embedding Jobs  Job Id  Get"
+                  "title": "Response Get Embedding Job V1 Embedding Jobs  Job Id  Get",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "Get Embedding Job",
+        "tags": [
+          "embedding"
+        ]
       }
     },
-    "/v1/memories": {
+    "/v1/embedding/refresh": {
       "post": {
-        "tags": [
-          "memories"
-        ],
-        "summary": "Add Memory",
-        "operationId": "add_memory_v1_memories_post",
+        "operationId": "refresh_embeddings_v1_embedding_refresh_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AddMemoryRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/EmbeddingRefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Add Memory V1 Memories Post"
+                  "title": "Response Refresh Embeddings V1 Embedding Refresh Post",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
-      },
-      "get": {
+        },
+        "summary": "Refresh Embeddings",
         "tags": [
-          "memories"
-        ],
-        "summary": "List Memories",
+          "embedding"
+        ]
+      }
+    },
+    "/v1/embedding/status": {
+      "get": {
+        "operationId": "embedding_status_v1_embedding_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Embedding Status V1 Embedding Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Embedding Status",
+        "tags": [
+          "embedding"
+        ]
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "health_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health V1 Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "service"
+        ]
+      }
+    },
+    "/v1/memories": {
+      "get": {
         "operationId": "list_memories_v1_memories_get",
         "parameters": [
           {
-            "name": "space",
             "in": "query",
+            "name": "space",
             "required": false,
             "schema": {
               "anyOf": [
@@ -361,8 +685,8 @@
             }
           },
           {
-            "name": "type",
             "in": "query",
+            "name": "type",
             "required": false,
             "schema": {
               "anyOf": [
@@ -377,8 +701,8 @@
             }
           },
           {
-            "name": "status",
             "in": "query",
+            "name": "status",
             "required": false,
             "schema": {
               "anyOf": [
@@ -393,8 +717,8 @@
             }
           },
           {
-            "name": "workspace_uid",
             "in": "query",
+            "name": "workspace_uid",
             "required": false,
             "schema": {
               "anyOf": [
@@ -409,8 +733,8 @@
             }
           },
           {
-            "name": "include_archived",
             "in": "query",
+            "name": "include_archived",
             "required": false,
             "schema": {
               "anyOf": [
@@ -425,8 +749,8 @@
             }
           },
           {
-            "name": "limit",
             "in": "query",
+            "name": "limit",
             "required": false,
             "schema": {
               "anyOf": [
@@ -443,181 +767,331 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Memories V1 Memories Get"
+                  "title": "Response List Memories V1 Memories Get",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "List Memories",
+        "tags": [
+          "memories"
+        ]
+      },
+      "post": {
+        "operationId": "add_memory_v1_memories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMemoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Add Memory V1 Memories Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Memory",
+        "tags": [
+          "memories"
+        ]
+      }
+    },
+    "/v1/memories/search_user": {
+      "post": {
+        "operationId": "search_user_v1_memories_search_user_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Search User V1 Memories Search User Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search User",
+        "tags": [
+          "memories"
+        ]
+      }
+    },
+    "/v1/memories/search_workspace": {
+      "post": {
+        "operationId": "search_workspace_v1_memories_search_workspace_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Search Workspace V1 Memories Search Workspace Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Workspace",
+        "tags": [
+          "memories"
+        ]
       }
     },
     "/v1/memories/{memory_id}": {
       "get": {
-        "tags": [
-          "memories"
-        ],
-        "summary": "Get Memory",
         "operationId": "get_memory_v1_memories__memory_id__get",
         "parameters": [
           {
-            "name": "memory_id",
             "in": "path",
+            "name": "memory_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Memory Id"
+              "title": "Memory Id",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Memory V1 Memories  Memory Id  Get"
+                  "title": "Response Get Memory V1 Memories  Memory Id  Get",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
-      },
-      "patch": {
+        },
+        "summary": "Get Memory",
         "tags": [
           "memories"
-        ],
-        "summary": "Update Memory",
+        ]
+      },
+      "patch": {
         "operationId": "update_memory_v1_memories__memory_id__patch",
         "parameters": [
           {
-            "name": "memory_id",
             "in": "path",
+            "name": "memory_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Memory Id"
+              "title": "Memory Id",
+              "type": "string"
             }
           }
         ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateMemoryRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Update Memory V1 Memories  Memory Id  Patch"
+                  "title": "Response Update Memory V1 Memories  Memory Id  Patch",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "Update Memory",
+        "tags": [
+          "memories"
+        ]
       }
     },
     "/v1/memories/{memory_id}/archive": {
       "post": {
-        "tags": [
-          "memories"
-        ],
-        "summary": "Archive Memory",
         "operationId": "archive_memory_v1_memories__memory_id__archive_post",
         "parameters": [
           {
-            "name": "memory_id",
             "in": "path",
+            "name": "memory_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Memory Id"
+              "title": "Memory Id",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Archive Memory V1 Memories  Memory Id  Archive Post"
+                  "title": "Response Archive Memory V1 Memories  Memory Id  Archive Post",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "Archive Memory",
+        "tags": [
+          "memories"
+        ]
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "operationId": "version_v1_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Version V1 Version Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Version",
+        "tags": [
+          "service"
+        ]
       }
     },
     "/v1/workspaces": {
       "get": {
-        "tags": [
-          "workspaces"
-        ],
-        "summary": "List Workspaces",
         "operationId": "list_workspaces_v1_workspaces_get",
         "parameters": [
           {
-            "name": "include_archived",
             "in": "query",
+            "name": "include_archived",
             "required": false,
             "schema": {
               "anyOf": [
@@ -632,8 +1106,8 @@
             }
           },
           {
-            "name": "include_aliases",
             "in": "query",
+            "name": "include_aliases",
             "required": false,
             "schema": {
               "anyOf": [
@@ -650,591 +1124,270 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Workspaces V1 Workspaces Get"
+                  "title": "Response List Workspaces V1 Workspaces Get",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Workspaces",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/v1/workspaces/aliases/{alias_uid}": {
+      "delete": {
+        "operationId": "remove_workspace_alias_v1_workspaces_aliases__alias_uid__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias_uid",
+            "required": true,
+            "schema": {
+              "title": "Alias Uid",
+              "type": "string"
             }
           }
-        }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Remove Workspace Alias V1 Workspaces Aliases  Alias Uid  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Workspace Alias",
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/v1/workspaces/resolve": {
       "get": {
-        "tags": [
-          "workspaces"
-        ],
-        "summary": "Resolve Workspace",
         "operationId": "resolve_workspace_v1_workspaces_resolve_get",
         "parameters": [
           {
-            "name": "uid",
             "in": "query",
+            "name": "uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Uid"
+              "title": "Uid",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Resolve Workspace V1 Workspaces Resolve Get"
+                  "title": "Response Resolve Workspace V1 Workspaces Resolve Get",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "Resolve Workspace",
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/v1/workspaces/{uid}/aliases": {
       "get": {
-        "tags": [
-          "workspaces"
-        ],
-        "summary": "List Workspace Aliases",
         "operationId": "list_workspace_aliases_v1_workspaces__uid__aliases_get",
         "parameters": [
           {
-            "name": "uid",
             "in": "path",
+            "name": "uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Uid"
+              "title": "Uid",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Workspace Aliases V1 Workspaces  Uid  Aliases Get"
+                  "title": "Response List Workspace Aliases V1 Workspaces  Uid  Aliases Get",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
-      },
-      "post": {
+        },
+        "summary": "List Workspace Aliases",
         "tags": [
           "workspaces"
-        ],
-        "summary": "Add Workspace Alias",
+        ]
+      },
+      "post": {
         "operationId": "add_workspace_alias_v1_workspaces__uid__aliases_post",
         "parameters": [
           {
-            "name": "uid",
             "in": "path",
+            "name": "uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Uid"
+              "title": "Uid",
+              "type": "string"
             }
           }
         ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AddWorkspaceAliasRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Add Workspace Alias V1 Workspaces  Uid  Aliases Post"
+                  "title": "Response Add Workspace Alias V1 Workspaces  Uid  Aliases Post",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
-      }
-    },
-    "/v1/workspaces/aliases/{alias_uid}": {
-      "delete": {
+        },
+        "summary": "Add Workspace Alias",
         "tags": [
           "workspaces"
-        ],
-        "summary": "Remove Workspace Alias",
-        "operationId": "remove_workspace_alias_v1_workspaces_aliases__alias_uid__delete",
-        "parameters": [
-          {
-            "name": "alias_uid",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Alias Uid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Remove Workspace Alias V1 Workspaces Aliases  Alias Uid  Delete"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
+        ]
       }
     },
     "/v1/workspaces/{uid}/rename": {
       "post": {
-        "tags": [
-          "workspaces"
-        ],
-        "summary": "Rename Workspace",
         "operationId": "rename_workspace_v1_workspaces__uid__rename_post",
         "parameters": [
           {
-            "name": "uid",
             "in": "path",
+            "name": "uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Uid"
+              "title": "Uid",
+              "type": "string"
             }
           }
         ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RenameWorkspaceRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Rename Workspace V1 Workspaces  Uid  Rename Post"
+                  "title": "Response Rename Workspace V1 Workspaces  Uid  Rename Post",
+                  "type": "object"
                 }
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "AddMemoryRequest": {
-        "properties": {
-          "space": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Space"
-          },
-          "type": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Type"
-          },
-          "content": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Content"
-          },
-          "workspace_uid": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workspace Uid"
-          },
-          "metadata": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Metadata"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
-          },
-          "confidence": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Confidence"
-          },
-          "sensitivity": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sensitivity"
-          }
-        },
-        "type": "object",
-        "required": [
-          "space",
-          "type",
-          "content"
-        ],
-        "title": "AddMemoryRequest"
-      },
-      "AddWorkspaceAliasRequest": {
-        "properties": {
-          "alias_uid": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Alias Uid"
-          },
-          "migrate_existing": {
-            "type": "boolean",
-            "title": "Migrate Existing",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "alias_uid"
-        ],
-        "title": "AddWorkspaceAliasRequest"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
             },
-            "type": "array",
-            "title": "Detail"
+            "description": "Validation Error"
           }
         },
-        "type": "object",
-        "title": "HTTPValidationError"
-      },
-      "RenameWorkspaceRequest": {
-        "properties": {
-          "new_uid": {
-            "type": "string",
-            "minLength": 1,
-            "title": "New Uid"
-          }
-        },
-        "type": "object",
-        "required": [
-          "new_uid"
-        ],
-        "title": "RenameWorkspaceRequest"
-      },
-      "SearchUserRequest": {
-        "properties": {
-          "query": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Query"
-          },
-          "type": {
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Type"
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Limit",
-            "default": 10
-          },
-          "include_archived": {
-            "type": "boolean",
-            "title": "Include Archived",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "query"
-        ],
-        "title": "SearchUserRequest"
-      },
-      "SearchWorkspaceRequest": {
-        "properties": {
-          "query": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Query"
-          },
-          "type": {
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Type"
-          },
-          "workspace_uid": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Workspace Uid"
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Limit",
-            "default": 10
-          },
-          "include_archived": {
-            "type": "boolean",
-            "title": "Include Archived",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "query",
-          "workspace_uid"
-        ],
-        "title": "SearchWorkspaceRequest"
-      },
-      "UpdateMemoryRequest": {
-        "properties": {
-          "type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Type"
-          },
-          "content": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Content"
-          },
-          "metadata": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Metadata"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
-          },
-          "confidence": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Confidence"
-          },
-          "sensitivity": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sensitivity"
-          }
-        },
-        "type": "object",
-        "title": "UpdateMemoryRequest"
-      },
-      "ValidationError": {
-        "properties": {
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Location"
-          },
-          "msg": {
-            "type": "string",
-            "title": "Message"
-          },
-          "type": {
-            "type": "string",
-            "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
-          }
-        },
-        "type": "object",
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError"
+        "summary": "Rename Workspace",
+        "tags": [
+          "workspaces"
+        ]
       }
     }
   }

@@ -65,7 +65,7 @@ Common next steps:
 - Create, search, list, get, update, and archive memory operations.
 - Local FastEmbed embeddings. Default: `BAAI/bge-base-en-v1.5` with 768 dimensions, profile `builtin-fastembed-bge-base-en-v1-5-v1`, 512 max tokens, 384 chunk tokens, and 64 overlap tokens.
 - Legacy FastEmbed support for `jinaai/jina-embeddings-v2-small-en` with 512 dimensions, profile `builtin-fastembed-jina-v2-small-en-v1`, 8192 max tokens, 6144 chunk tokens, and 512 overlap tokens.
-- Background re-embedding jobs and embedding status inspection. Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path.
+- Inline re-embedding jobs, explicit refresh controls, embedding job audit-record cleanup, and embedding status inspection. Switching embedding model or profile refreshes stale memories in the command or request that triggered it instead of relying on a fragile background thread.
 - CLI, Python API, local HTTP API, and MCP surfaces.
 - Configurable CLI output, with Rich-backed TTY color for human-readable text and JSON available for automation.
 - Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB.

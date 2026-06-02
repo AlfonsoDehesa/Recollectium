@@ -34,6 +34,8 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
         "embedding_status",
         "embedding_jobs",
         "get_embedding_job",
+        "refresh_embeddings",
+        "clear_embedding_jobs",
     }
     assert set(tools.keys()) == expected
 
@@ -391,6 +393,31 @@ def test_mcp_get_embedding_job_returns_json(tmp_path: Path) -> None:
     assert result["state"] == "queued"
 
 
+def test_mcp_refresh_and_clear_embedding_jobs_return_json(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    core.store.create_embedding_job(
+        job_id="pending-job",
+        state="pending",
+        total_count=1,
+        processed_count=0,
+        succeeded_count=0,
+        failed_count=0,
+        provider="fake",
+        model="fake-model",
+        embedding_profile=core.embedding_provider.embedding_profile,
+    )
+    mcp = create_mcp_server(core)
+
+    refresh_fn = mcp._tool_manager._tools["refresh_embeddings"].fn
+    refresh_result = json.loads(refresh_fn(space="user"))
+    assert refresh_result["refreshed"] is False
+
+    clear_fn = mcp._tool_manager._tools["clear_embedding_jobs"].fn
+    clear_result = json.loads(clear_fn(states=["pending"]))
+    assert clear_result == {"deleted_count": 1, "states": ["pending"]}
+
+
 def test_mcp_get_embedding_job_missing_returns_error(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)
@@ -410,6 +437,20 @@ class _EmbeddingErrorCore:
     ) -> list[dict[str, object]]:
         raise RecollectiumError("jobs failed")
 
+    def refresh_stale_embeddings(
+        self,
+        *,
+        space: str | None = None,
+        workspace_uid: str | None = None,
+        include_archived: bool = False,
+    ) -> dict[str, object]:
+        raise RecollectiumError("refresh failed")
+
+    def clear_embedding_jobs(
+        self, *, states: list[str] | None = None
+    ) -> dict[str, object]:
+        raise RecollectiumError("clear failed")
+
 
 def test_mcp_embedding_status_error_returns_json() -> None:
     mcp = create_mcp_server(cast(RecollectiumCore, _EmbeddingErrorCore()))
@@ -425,6 +466,16 @@ def test_mcp_embedding_jobs_error_returns_json() -> None:
     fn = mcp._tool_manager._tools["embedding_jobs"].fn
     result = json.loads(fn(state="queued", limit=5))
     assert result == {"error": "jobs failed"}
+
+
+def test_mcp_refresh_and_clear_embedding_jobs_errors_return_json() -> None:
+    mcp = create_mcp_server(cast(RecollectiumCore, _EmbeddingErrorCore()))
+
+    refresh_fn = mcp._tool_manager._tools["refresh_embeddings"].fn
+    assert json.loads(refresh_fn(space="user")) == {"error": "refresh failed"}
+
+    clear_fn = mcp._tool_manager._tools["clear_embedding_jobs"].fn
+    assert json.loads(clear_fn(states=["pending"])) == {"error": "clear failed"}
 
 
 def test_mcp_add_memory_rejects_invalid_metadata_json(tmp_path: Path) -> None:

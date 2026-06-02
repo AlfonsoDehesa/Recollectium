@@ -201,6 +201,8 @@ Response example:
       "embedding.status",
       "embedding.jobs.list",
       "embedding.jobs.get",
+      "embedding.refresh",
+      "embedding.jobs.clear",
       "workspaces.list",
       "workspaces.rename",
       "workspaces.resolve",
@@ -638,7 +640,7 @@ Supported built-in FastEmbed profiles:
 | `BAAI/bge-base-en-v1.5` | default | `builtin-fastembed-bge-base-en-v1-5-v1` | 768 | 512 | 384 | 64 |
 | `jinaai/jina-embeddings-v2-small-en` | legacy supported | `builtin-fastembed-jina-v2-small-en-v1` | 512 | 8192 | 6144 | 512 |
 
-Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path.
+Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path. Refresh jobs run inline in the command, API request, or MCP tool call that triggers them, so callers get a completed or failed job result before the operation returns.
 
 - Method and path: `GET /v1/embedding/status`
 - Purpose: return the active local embedding profile, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.
@@ -727,11 +729,99 @@ Example response:
 }
 ```
 
-### 10) Get embedding job
+### 10) Force embedding refresh
+
+- Method and path: `POST /v1/embedding/refresh`
+- Purpose: force stale memories to be re-embedded for the active profile. The request processes the job inline and returns after the job completes or fails.
+- Side effects: may create an embedding job and update memory embedding fields and chunks. It does not change memory content.
+- Request body: optional JSON object. Omit the body, or send `{}`, to refresh all stale embeddings.
+- Optional request fields:
+  - `space` (`user` or `workspace`)
+  - `workspace_uid` (string, implies workspace scope)
+  - `include_archived` (boolean, default `false`)
+- Successful response: HTTP `200` with refresh status, optional completed job, and job status path.
+
+Example request:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8765/v1/embedding/refresh \
+  -H 'Content-Type: application/json' \
+  -d '{"space":"workspace","workspace_uid":"recollectium"}'
+```
+
+Example response:
+
+```json
+{
+  "data": {
+    "refreshed": true,
+    "stale_count": 12,
+    "job": {
+      "id": "job-123",
+      "state": "completed",
+      "total_count": 12,
+      "processed_count": 12,
+      "succeeded_count": 12,
+      "failed_count": 0,
+      "provider": "builtin-fastembed",
+      "model": "BAAI/bge-base-en-v1.5",
+      "embedding_profile": {
+        "provider": "builtin-fastembed",
+        "model": "BAAI/bge-base-en-v1.5",
+        "dimensions": 768,
+        "version": "1",
+        "profile": "builtin-fastembed-bge-base-en-v1-5-v1",
+        "max_tokens": 512,
+        "chunk_tokens": 384,
+        "chunk_overlap_tokens": 64,
+        "query_prompt_policy": "raw"
+      },
+      "error_message": null,
+      "created_at": "2026-05-19T10:09:55+00:00",
+      "updated_at": "2026-05-19T10:10:05+00:00",
+      "started_at": "2026-05-19T10:10:00+00:00",
+      "completed_at": "2026-05-19T10:10:05+00:00"
+    },
+    "status_path": "/v1/embedding/jobs/job-123"
+  }
+}
+```
+
+If no stale memories match the request, `refreshed` is `false`, `stale_count` is `0`, and `job` is `null`.
+
+### 11) Clear embedding job records
+
+- Method and path: `DELETE /v1/embedding/jobs`
+- Purpose: delete embedding job audit records without deleting memories or embeddings.
+- Side effects: removes matching rows from the embedding job history.
+- Optional request fields:
+  - `states` (array of states to delete). If omitted, Recollectium deletes `completed`, `failed`, and `pending` job records.
+- Successful response: HTTP `200` with deleted count and selected states.
+
+Example request:
+
+```bash
+curl -sS -X DELETE http://127.0.0.1:8765/v1/embedding/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"states":["completed","failed","pending"]}'
+```
+
+Example response:
+
+```json
+{
+  "data": {
+    "deleted_count": 3,
+    "states": ["completed", "failed", "pending"]
+  }
+}
+```
+
+### 12) Get embedding job
 
 - Method and path: `GET /v1/embedding/jobs/{job_id}`
 - Purpose: fetch one embedding job by ID.
-- Job states: deferred work can appear as `pending` briefly before the in-process worker starts it, `in_progress` while memories are being refreshed, `completed` when all stale memories succeeded, or `failed` when one or more memories could not be re-embedded.
+- Job states: inline refresh work may appear as `in_progress` while memories are being refreshed, `completed` when all stale memories succeeded, or `failed` when one or more memories could not be re-embedded. Historical `pending` records may also exist before they are cleared.
 - Path params:
   - `job_id` (string)
 - Side effects: none.

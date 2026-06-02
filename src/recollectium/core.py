@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from platformdirs import user_state_dir
-import threading
 from typing import Any
 from uuid import uuid4
 
@@ -19,9 +17,7 @@ from recollectium.embeddings import (
 from recollectium.errors import (
     EmbeddingDimensionMismatchError,
     EmbeddingGenerationError,
-    NotFoundError,
     ReembeddingFailedError,
-    ReembeddingInProgressError,
     ValidationError,
 )
 from recollectium.logging import setup_logging
@@ -65,6 +61,7 @@ class RecollectiumCore:
         immediate_reembedding_threshold: int = 20,
         config_path: Path | str | None = None,
         log_level: str | None = None,
+        auto_startup_reembedding: bool = False,
     ) -> None:
         self.config = RecollectiumConfig(config_path, log_level=log_level)
         setup_logging(self.config)
@@ -97,12 +94,9 @@ class RecollectiumCore:
             ensure_seeded_dev_database(selected_path, self.embedding_provider)
         self.store = SQLiteMemoryStore(selected_path)
         self.immediate_reembedding_threshold = immediate_reembedding_threshold
-        self._embedding_job_lock = threading.Lock()
-        self._active_deferred_embedding_jobs: dict[
-            tuple[str, str | None, str | None, bool], str
-        ] = {}
-        self._embedding_job_threads: dict[str, threading.Thread] = {}
-        startup_job = self._start_startup_reembedding()
+        startup_job = (
+            self._start_startup_reembedding() if auto_startup_reembedding else None
+        )
         self._startup_reembedding_job_id = startup_job[0] if startup_job else None
 
     def add_memory(
@@ -367,6 +361,87 @@ class RecollectiumCore:
     ) -> list[dict[str, Any]]:
         return self.store.list_embedding_jobs(state=state, limit=validate_limit(limit))
 
+    def refresh_stale_embeddings(
+        self,
+        *,
+        space: str | None = None,
+        workspace_uid: str | None = None,
+        include_archived: bool = False,
+    ) -> dict[str, Any]:
+        """Force an inline refresh of stale embeddings for the active profile."""
+        if space is not None and space not in {SPACE_USER, SPACE_WORKSPACE}:
+            raise ValidationError("space must be user or workspace")
+        workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
+        if workspace_uid is not None:
+            if space is None:
+                space = SPACE_WORKSPACE
+            if space != SPACE_WORKSPACE:
+                raise ValidationError("workspace_uid requires workspace space")
+            workspace_uid = self._resolve_workspace_uid(workspace_uid)
+
+        stale_count = self.store.count_memories_needing_profile_reembedding(
+            embedding_profile=self.embedding_provider.embedding_profile,
+            space=space,
+            workspace_uid=workspace_uid,
+            include_archived=include_archived,
+        )
+        if stale_count == 0:
+            return {
+                "refreshed": False,
+                "stale_count": 0,
+                "job": None,
+                "status_path": "/v1/embedding/jobs",
+            }
+
+        job_result = self._reembed_stale_memories(
+            reason="force-refresh",
+            space=space,
+            workspace_uid=workspace_uid,
+            include_archived=include_archived,
+            fail_on_error=True,
+        )
+        if job_result is None:
+            return {
+                "refreshed": False,
+                "stale_count": 0,
+                "job": None,
+                "status_path": "/v1/embedding/jobs",
+            }
+        job_id, failed = job_result
+        status_path = f"/v1/embedding/jobs/{job_id}"
+        if failed:
+            raise ReembeddingFailedError(
+                "forced re-embedding failed",
+                job_id=job_id,
+                status_path=status_path,
+            )
+        return {
+            "refreshed": True,
+            "stale_count": stale_count,
+            "job": self.store.get_embedding_job(job_id),
+            "status_path": status_path,
+        }
+
+    def clear_embedding_jobs(
+        self, *, states: tuple[str, ...] | list[str] | None = None
+    ) -> dict[str, Any]:
+        """Delete embedding job audit records without deleting memories."""
+        selected_states = (
+            ("completed", "failed", "pending") if states is None else tuple(states)
+        )
+        if not selected_states:
+            raise ValidationError("at least one job state is required")
+        valid_states = {"pending", "in_progress", "completed", "failed"}
+        invalid_states = sorted(set(selected_states) - valid_states)
+        if invalid_states:
+            raise ValidationError(
+                "invalid embedding job state: " + ", ".join(invalid_states)
+            )
+        if "in_progress" in selected_states:
+            raise ValidationError("in_progress embedding jobs cannot be deleted")
+        deleted_count = self.store.delete_embedding_jobs(states=selected_states)
+        return {"deleted_count": deleted_count, "states": list(selected_states)}
+
     def active_embedding_status(self) -> dict[str, Any]:
         startup_status_path = None
         if self._startup_reembedding_job_id is not None:
@@ -549,20 +624,19 @@ class RecollectiumCore:
 
     # -- model-readiness gate --------------------------------------------------
     #
-    # _ensure_model_ready() is the single entry point every embedding-dependent
-    # code path must use. It compares the configured embedding model against a
-    # state file, prepares (downloads/warms) the model when there is a mismatch
-    # or no prior preparation, and triggers re-embedding when the model changed.
-    # Future commands that need embeddings MUST call this method first.
+    # _ensure_model_ready() prepares the configured embedding model and records
+    # state. Re-embedding is handled by the scoped operation that needs it
+    # (search, explicit refresh, API request, or MCP tool call) so refresh work
+    # stays inline with the caller's requested scope.
 
     def _ensure_model_ready(self, *, state_dir: Path | None = None) -> None:
         """Make sure the configured embedding model is downloaded and ready.
 
         Compares the configured ``embedding.model`` against the last-prepared
-        model recorded in the state file.  If they differ (or no state file
+        model recorded in the state file. If they differ (or no state file
         exists) the provider's ``ensure_ready()`` is called and a fresh state
-        file is written.  When the model *changed*, stale memories are
-        re-embedded via ``_start_startup_reembedding()``.
+        file is written. Stale memories are refreshed by the scoped operation
+        that needs them.
         """
         resolved_state_dir = state_dir or Path(user_state_dir("recollectium"))
         model_name = str(self.config.effective_config["embedding"]["model"])
@@ -579,7 +653,6 @@ class RecollectiumCore:
         ):
             return  # already prepared, nothing to do
 
-        was_previously_prepared = existing is not None
         provider_ready = getattr(self.embedding_provider, "ensure_ready", None)
         if callable(provider_ready):
             provider_ready()
@@ -594,10 +667,6 @@ class RecollectiumCore:
             else 0,
             profile=profile_name,
         )
-
-        if was_previously_prepared:
-            # Model changed — re-embed stale memories so they match the new model
-            self._start_startup_reembedding()
 
     def _chunk_embed_pairs(self, text: str) -> list[tuple[ContentChunk, list[float]]]:
         chunks = chunk_text_for_profile(text, self.embedding_provider.embedding_profile)
@@ -620,35 +689,20 @@ class RecollectiumCore:
         if stale_count == 0:
             return
 
-        if stale_count <= self.immediate_reembedding_threshold:
-            job_result = self._reembed_stale_memories(
-                reason="search",
-                space=space,
-                workspace_uid=workspace_uid,
-                include_archived=include_archived,
-                fail_on_error=True,
-            )
-            if job_result is not None and job_result[1]:
-                job_id = job_result[0]
-                raise ReembeddingFailedError(
-                    "runtime re-embedding failed; search results are blocked until refresh succeeds",
-                    job_id=job_id,
-                    status_path=f"{status_path}/{job_id}",
-                )
-            return
-
-        job_id = self._start_deferred_reembedding(
-            reason="search-threshold",
-            stale_count=stale_count,
+        job_result = self._reembed_stale_memories(
+            reason="search",
             space=space,
             workspace_uid=workspace_uid,
             include_archived=include_archived,
+            fail_on_error=True,
         )
-        raise ReembeddingInProgressError(
-            "re-embedding is in progress for the active profile",
-            job_id=job_id,
-            status_path=f"{status_path}/{job_id}",
-        )
+        if job_result is not None and job_result[1]:
+            job_id = job_result[0]
+            raise ReembeddingFailedError(
+                "runtime re-embedding failed; search results are blocked until refresh succeeds",
+                job_id=job_id,
+                status_path=f"{status_path}/{job_id}",
+            )
 
     def _start_startup_reembedding(self) -> tuple[str, bool] | None:
         stale_count = self.store.count_memories_needing_profile_reembedding(
@@ -656,134 +710,15 @@ class RecollectiumCore:
         )
         if stale_count == 0:
             return None
-        if stale_count <= self.immediate_reembedding_threshold:
-            return self._reembed_stale_memories(reason="startup")
-
-        job_id = self._start_deferred_reembedding(
-            reason="startup",
-            stale_count=stale_count,
-        )
-        return (job_id, False)
-
-    def _reembedding_scope_key(
-        self,
-        *,
-        space: str | None,
-        workspace_uid: str | None,
-        include_archived: bool,
-    ) -> tuple[str, str | None, str | None, bool]:
-        profile_json = json.dumps(
-            self.embedding_provider.embedding_profile,
-            sort_keys=True,
-        )
-        return (profile_json, space, workspace_uid, include_archived)
-
-    def _start_deferred_reembedding(
-        self,
-        *,
-        reason: str,
-        stale_count: int,
-        space: str | None = None,
-        workspace_uid: str | None = None,
-        include_archived: bool = False,
-    ) -> str:
-        key = self._reembedding_scope_key(
-            space=space,
-            workspace_uid=workspace_uid,
-            include_archived=include_archived,
-        )
-
-        with self._embedding_job_lock:
-            existing_job_id = self._active_deferred_embedding_jobs.get(key)
-            if existing_job_id is not None:
-                try:
-                    existing_job = self.store.get_embedding_job(existing_job_id)
-                except NotFoundError:
-                    self._active_deferred_embedding_jobs.pop(key, None)
-                    self._embedding_job_threads.pop(existing_job_id, None)
-                else:
-                    if existing_job["state"] in {"pending", "in_progress"}:
-                        return existing_job_id
-                    self._active_deferred_embedding_jobs.pop(key, None)
-                    self._embedding_job_threads.pop(existing_job_id, None)
-
-            job_id = str(uuid4())
-            self.store.create_embedding_job(
+        job_result = self._reembed_stale_memories(reason="startup", fail_on_error=True)
+        if job_result is not None and job_result[1]:
+            job_id = job_result[0]
+            raise ReembeddingFailedError(
+                "startup re-embedding failed",
                 job_id=job_id,
-                state="pending",
-                total_count=stale_count,
-                processed_count=0,
-                succeeded_count=0,
-                failed_count=0,
-                provider=str(self.embedding_provider.embedding_profile["provider"]),
-                model=str(self.embedding_provider.embedding_profile["model"]),
-                embedding_profile=self.embedding_provider.embedding_profile,
-                error_message=(
-                    f"deferred by {reason}: {stale_count} memories exceed immediate threshold"
-                ),
-                started_at=None,
-                completed_at=None,
+                status_path=f"/v1/embedding/jobs/{job_id}",
             )
-
-            thread = threading.Thread(
-                target=self._run_deferred_reembedding_job,
-                kwargs={
-                    "job_id": job_id,
-                    "key": key,
-                    "reason": reason,
-                    "space": space,
-                    "workspace_uid": workspace_uid,
-                    "include_archived": include_archived,
-                },
-                name=f"recollectium-reembedding-{job_id}",
-                daemon=True,
-            )
-            self._active_deferred_embedding_jobs[key] = job_id
-            self._embedding_job_threads[job_id] = thread
-            thread.start()
-            _log.info(
-                f"deferred embedding job started: {job_id}",
-                extra={
-                    "event": "embedding.job_started",
-                    "context": {
-                        "job_id": job_id,
-                        "reason": reason,
-                        "stale_count": stale_count,
-                    },
-                },
-            )
-
-        return job_id
-
-    def _run_deferred_reembedding_job(
-        self,
-        *,
-        job_id: str,
-        key: tuple[str, str | None, str | None, bool],
-        reason: str,
-        space: str | None,
-        workspace_uid: str | None,
-        include_archived: bool,
-    ) -> None:
-        try:
-            self._process_reembedding_job(
-                job_id=job_id,
-                reason=reason,
-                space=space,
-                workspace_uid=workspace_uid,
-                include_archived=include_archived,
-            )
-        finally:
-            with self._embedding_job_lock:
-                if self._active_deferred_embedding_jobs.get(key) == job_id:
-                    self._active_deferred_embedding_jobs.pop(key, None)
-                self._embedding_job_threads.pop(job_id, None)
-
-    def _join_embedding_job(self, job_id: str, *, timeout_seconds: float = 5.0) -> None:
-        with self._embedding_job_lock:
-            thread = self._embedding_job_threads.get(job_id)
-        if thread is not None:
-            thread.join(timeout_seconds)
+        return job_result
 
     def _reembed_stale_memories(
         self,

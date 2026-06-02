@@ -23,6 +23,8 @@ from recollectium.service import (
 )
 from recollectium.service_contract import (
     OPERATION_EMBEDDING_JOBS_GET,
+    OPERATION_EMBEDDING_REFRESH,
+    OPERATION_EMBEDDING_JOBS_CLEAR,
     OPERATION_EMBEDDING_JOBS_LIST,
     OPERATION_EMBEDDING_STATUS,
     OPERATION_CAPABILITIES_READ,
@@ -73,6 +75,8 @@ def test_service_capabilities_cover_required_operations() -> None:
         OPERATION_EMBEDDING_STATUS,
         OPERATION_EMBEDDING_JOBS_LIST,
         OPERATION_EMBEDDING_JOBS_GET,
+        OPERATION_EMBEDDING_REFRESH,
+        OPERATION_EMBEDDING_JOBS_CLEAR,
         OPERATION_WORKSPACES_LIST,
         OPERATION_WORKSPACES_RENAME,
         OPERATION_WORKSPACES_RESOLVE,
@@ -179,6 +183,8 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
         "GET /v1/memories/{memory_id}": {"require_request": True},
         "GET /v1/embedding/status": {"require_request": False},
         "GET /v1/embedding/jobs": {"require_request": False},
+        "POST /v1/embedding/refresh": {"require_request": True},
+        "DELETE /v1/embedding/jobs": {"require_request": True},
         "GET /v1/embedding/jobs/{job_id}": {"require_request": False},
     }
 
@@ -568,6 +574,54 @@ def test_http_get_embedding_job_returns_existing_job(tmp_path: Path) -> None:
 
     assert status == 200
     assert payload["data"]["id"] == "job-1"
+
+
+def test_embedding_refresh_and_clear_jobs_endpoints(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "service-refresh.db")
+    client = _client(core)
+
+    status, refresh_payload = _request_json(client, "POST", "/v1/embedding/refresh")
+    assert status == 200
+    assert refresh_payload["data"] == {
+        "refreshed": False,
+        "stale_count": 0,
+        "job": None,
+        "status_path": "/v1/embedding/jobs",
+    }
+
+    status, refresh_payload = _request_json(
+        client,
+        "POST",
+        "/v1/embedding/refresh",
+        body={"space": "user", "include_archived": False},
+    )
+    assert status == 200
+    assert refresh_payload["data"] == {
+        "refreshed": False,
+        "stale_count": 0,
+        "job": None,
+        "status_path": "/v1/embedding/jobs",
+    }
+
+    core.store.create_embedding_job(
+        job_id="pending-job",
+        state="pending",
+        total_count=1,
+        processed_count=0,
+        succeeded_count=0,
+        failed_count=0,
+        provider="fake",
+        model="fake-model",
+        embedding_profile=core.embedding_provider.embedding_profile,
+    )
+    status, clear_payload = _request_json(
+        client,
+        "DELETE",
+        "/v1/embedding/jobs",
+        body={"states": ["pending"]},
+    )
+    assert status == 200
+    assert clear_payload["data"] == {"deleted_count": 1, "states": ["pending"]}
 
 
 def test_http_invalid_json_returns_invalid_json_error(tmp_path: Path) -> None:
