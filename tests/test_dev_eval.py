@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import cast
 import pytest
 
 from recollectium.dev_eval import (
     ExactMRRTarget,
+    SemanticMRRTarget,
     evaluate_exact_mrr,
     evaluate_exact_mrr_for_core,
+    evaluate_semantic_mrr,
+    evaluate_semantic_mrr_for_core,
     seeded_exact_mrr_targets,
+    seeded_semantic_mrr_targets,
+    semantic_mrr_targets_from_exact_targets,
+)
+from recollectium.dev_eval_semantic_fixtures import (
+    SEMANTIC_MRR_FIXTURE,
+    SemanticMRRFixtureEntry,
+)
+from recollectium.dev_seed import (
+    DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+    DEV_SEED_USER_MEMORY_COUNT,
 )
 from recollectium.models import Memory, SPACE_USER, SPACE_WORKSPACE, SearchResult
 
@@ -296,3 +310,401 @@ def test_evaluate_exact_mrr_rejects_invalid_inputs() -> None:
             search_user=lambda query, limit: [],
             search_workspace=lambda query, workspace_uid, limit: [],
         )
+
+
+def test_evaluate_semantic_mrr_scores_paraphrases_targets_and_breakdowns() -> None:
+    targets = (
+        SemanticMRRTarget("user-target", SPACE_USER, ("u1", "u2", "u3")),
+        SemanticMRRTarget(
+            "workspace-target",
+            SPACE_WORKSPACE,
+            ("w1", "w2", "w3"),
+            "project-a",
+        ),
+    )
+    user_results = {
+        "u1": _search_results(["user-target", "other"]),
+        "u2": _search_results(["other", "user-target"]),
+        "u3": _search_results(["other-a", "other-b"]),
+    }
+    workspace_results = {
+        ("project-a", "w1"): _search_results(
+            ["other", "other-2", "workspace-target"], workspace_uid="project-a"
+        ),
+        ("project-a", "w2"): _search_results(
+            ["workspace-target"], workspace_uid="project-a"
+        ),
+        ("project-a", "w3"): _search_results(
+            ["other", "workspace-target"], workspace_uid="project-a"
+        ),
+    }
+
+    report = evaluate_semantic_mrr(
+        targets,
+        search_user=lambda query, limit: user_results[query][:limit],
+        search_workspace=lambda query, workspace_uid, limit: workspace_results[
+            (workspace_uid, query)
+        ][:limit],
+        cutoff=10,
+    )
+
+    user_average = (1.0 + 0.5 + 0.0) / 3.0
+    workspace_average = ((1.0 / 3.0) + 1.0 + 0.5) / 3.0
+    assert report.targets == 2
+    assert report.queries == 6
+    assert report.paraphrases_per_target == 3
+    assert report.user_targets == 1
+    assert report.workspace_targets == 1
+    assert report.user_value == pytest.approx(user_average)
+    assert report.workspace_value == pytest.approx(workspace_average)
+    assert report.value == pytest.approx((user_average + workspace_average) / 2.0)
+    assert [
+        score.average_reciprocal_rank for score in report.target_scores
+    ] == pytest.approx([user_average, workspace_average])
+    assert [score.rank for score in report.target_scores[0].query_scores] == [
+        1,
+        2,
+        None,
+    ]
+    assert [
+        score.reciprocal_rank for score in report.target_scores[0].query_scores
+    ] == pytest.approx([1.0, 0.5, 0.0])
+
+
+def test_evaluate_semantic_mrr_reports_worst_targets_with_query_details() -> None:
+    targets = (
+        SemanticMRRTarget("missing", SPACE_USER, ("m1", "m2", "m3")),
+        SemanticMRRTarget("ranked", SPACE_USER, ("r1", "r2", "r3")),
+        SemanticMRRTarget("perfect", SPACE_USER, ("p1", "p2", "p3")),
+    )
+    results = {
+        "m1": _search_results(["a", "b"]),
+        "m2": _search_results(["a", "b"]),
+        "m3": _search_results(["a", "b"]),
+        "r1": _search_results(["a", "ranked"]),
+        "r2": _search_results(["ranked"]),
+        "r3": _search_results(["a", "b", "ranked"]),
+        "p1": _search_results(["perfect"]),
+        "p2": _search_results(["perfect"]),
+        "p3": _search_results(["perfect"]),
+    }
+
+    report = evaluate_semantic_mrr(
+        targets,
+        search_user=lambda query, limit: results[query][:limit],
+        search_workspace=lambda query, workspace_uid, limit: [],
+        worst_target_limit=2,
+    )
+
+    assert [target.target_id for target in report.worst_targets] == [
+        "missing",
+        "ranked",
+    ]
+    assert report.worst_targets[0].average_reciprocal_rank == 0.0
+    assert report.worst_targets[0].query_scores[0].query == "m1"
+    assert report.worst_targets[0].query_scores[0].returned_top_ids == ("a", "b")
+
+
+def test_evaluate_semantic_mrr_treats_not_found_beyond_cutoff_as_zero() -> None:
+    targets = (SemanticMRRTarget("target", SPACE_USER, ("q1", "q2", "q3")),)
+    results = {
+        "q1": _search_results(["a", "target"]),
+        "q2": _search_results(["a", "b", "target"]),
+        "q3": _search_results(["target"]),
+    }
+
+    report = evaluate_semantic_mrr(
+        targets,
+        search_user=lambda query, limit: results[query][:limit],
+        search_workspace=lambda query, workspace_uid, limit: [],
+        cutoff=2,
+    )
+
+    assert report.value == pytest.approx((0.5 + 0.0 + 1.0) / 3.0)
+    assert [score.rank for score in report.target_scores[0].query_scores] == [
+        2,
+        None,
+        1,
+    ]
+    assert report.target_scores[0].query_scores[1].returned_top_ids == ("a", "b")
+
+
+def test_semantic_mrr_targets_validate_fixture_shape_and_mismatches() -> None:
+    user = ExactMRRTarget("dev-user", SPACE_USER, "content")
+    workspace = ExactMRRTarget("dev-workspace", SPACE_WORKSPACE, "content", "project-a")
+    fixture: dict[str, SemanticMRRFixtureEntry] = {
+        "dev-user": {
+            "scope": SPACE_USER,
+            "workspace_uid": None,
+            "queries": ("a", "b", "c"),
+        },
+        "dev-workspace": {
+            "scope": SPACE_WORKSPACE,
+            "workspace_uid": "project-a",
+            "queries": ("d", "e", "f"),
+        },
+    }
+
+    targets = semantic_mrr_targets_from_exact_targets(
+        (workspace, user), fixture=fixture
+    )
+
+    assert targets == (
+        SemanticMRRTarget("dev-user", SPACE_USER, ("a", "b", "c")),
+        SemanticMRRTarget(
+            "dev-workspace", SPACE_WORKSPACE, ("d", "e", "f"), "project-a"
+        ),
+    )
+    with pytest.raises(ValueError, match="target mismatch"):
+        semantic_mrr_targets_from_exact_targets((user,), fixture={})
+    with pytest.raises(ValueError, match="target mismatch"):
+        semantic_mrr_targets_from_exact_targets((user,), fixture={**fixture})
+    with pytest.raises(ValueError, match="exactly 3"):
+        semantic_mrr_targets_from_exact_targets(
+            (user,),
+            fixture={
+                "dev-user": {
+                    "scope": SPACE_USER,
+                    "workspace_uid": None,
+                    "queries": cast(tuple[str, str, str], ("a", "b")),
+                }
+            },
+        )
+    with pytest.raises(ValueError, match="empty paraphrase"):
+        semantic_mrr_targets_from_exact_targets(
+            (user,),
+            fixture={
+                "dev-user": {
+                    "scope": SPACE_USER,
+                    "workspace_uid": None,
+                    "queries": ("a", "", "c"),
+                }
+            },
+        )
+    with pytest.raises(ValueError, match="scope mismatch"):
+        semantic_mrr_targets_from_exact_targets(
+            (user,),
+            fixture={
+                "dev-user": {
+                    "scope": SPACE_WORKSPACE,
+                    "workspace_uid": None,
+                    "queries": ("a", "b", "c"),
+                }
+            },
+        )
+    with pytest.raises(ValueError, match="workspace_uid mismatch"):
+        semantic_mrr_targets_from_exact_targets(
+            (workspace,),
+            fixture={
+                "dev-workspace": {
+                    "scope": SPACE_WORKSPACE,
+                    "workspace_uid": "wrong",
+                    "queries": ("a", "b", "c"),
+                }
+            },
+        )
+
+
+def test_seeded_semantic_mrr_targets_uses_fixture_for_seeded_memories() -> None:
+    class FakeLister:
+        def list_memories(
+            self,
+            space: str | None = None,
+            type: str | None = None,
+            status: str | None = None,
+            workspace_uid: str | None = None,
+            include_archived: bool = False,
+            limit: int | None = None,
+        ) -> list[Memory]:
+            del type, status, workspace_uid, limit
+            assert include_archived is True
+            if space == SPACE_USER:
+                return [
+                    _memory(memory_id, content=memory_id)
+                    for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+                    if entry["scope"] == SPACE_USER
+                ]
+            if space == SPACE_WORKSPACE:
+                return [
+                    _memory(
+                        memory_id,
+                        space=SPACE_WORKSPACE,
+                        content=memory_id,
+                        workspace_uid=entry["workspace_uid"],
+                    )
+                    for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+                    if entry["scope"] == SPACE_WORKSPACE
+                ]
+            return []
+
+    targets = seeded_semantic_mrr_targets(FakeLister())
+
+    assert len(targets) == len(SEMANTIC_MRR_FIXTURE)
+    assert targets[0].memory_id == "dev-user-001"
+    assert targets[0].queries == SEMANTIC_MRR_FIXTURE["dev-user-001"]["queries"]
+    cedar_target = next(
+        target for target in targets if target.memory_id == "dev-workspace-01-001"
+    )
+    assert cedar_target.workspace_uid == "proj-fic-cedarledger-01"
+    assert (
+        cedar_target.queries == SEMANTIC_MRR_FIXTURE["dev-workspace-01-001"]["queries"]
+    )
+
+
+def test_evaluate_semantic_mrr_for_core_uses_seeded_targets_and_scope_searches() -> (
+    None
+):
+    query_to_memory_id = {
+        query: memory_id
+        for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+        for query in entry["queries"]
+    }
+
+    class FakeCore:
+        def __init__(self) -> None:
+            self.user_queries: list[tuple[str, int, bool]] = []
+            self.workspace_queries: list[tuple[str, str | None, int, bool]] = []
+
+        def list_memories(
+            self,
+            space: str | None = None,
+            type: str | None = None,
+            status: str | None = None,
+            workspace_uid: str | None = None,
+            include_archived: bool = False,
+            limit: int | None = None,
+        ) -> list[Memory]:
+            del type, status, workspace_uid, limit
+            assert include_archived is True
+            if space == SPACE_USER:
+                return [
+                    _memory(memory_id, content=memory_id)
+                    for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+                    if entry["scope"] == SPACE_USER
+                ]
+            if space == SPACE_WORKSPACE:
+                return [
+                    _memory(
+                        memory_id,
+                        space=SPACE_WORKSPACE,
+                        content=memory_id,
+                        workspace_uid=entry["workspace_uid"],
+                    )
+                    for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+                    if entry["scope"] == SPACE_WORKSPACE
+                ]
+            return []
+
+        def search_user_memories(
+            self,
+            query: str,
+            limit: int = 10,
+            include_archived: bool = False,
+            type: str | None = None,
+        ) -> list[SearchResult]:
+            del type
+            self.user_queries.append((query, limit, include_archived))
+            return _search_results([query_to_memory_id[query]])
+
+        def search_workspace_memories(
+            self,
+            query: str,
+            workspace_uid: str | None,
+            limit: int = 10,
+            include_archived: bool = False,
+            type: str | None = None,
+        ) -> list[SearchResult]:
+            del type
+            self.workspace_queries.append(
+                (query, workspace_uid, limit, include_archived)
+            )
+            return _search_results(
+                [query_to_memory_id[query]], workspace_uid=workspace_uid
+            )
+
+    core = FakeCore()
+
+    report = evaluate_semantic_mrr_for_core(core, cutoff=5)
+
+    assert report.value == 1.0
+    assert report.queries == 570
+    assert core.user_queries[:3] == [
+        (query, 5, True) for query in SEMANTIC_MRR_FIXTURE["dev-user-001"]["queries"]
+    ]
+    assert (
+        SEMANTIC_MRR_FIXTURE["dev-workspace-01-001"]["queries"][0],
+        "proj-fic-cedarledger-01",
+        5,
+        True,
+    ) in core.workspace_queries
+
+
+def test_evaluate_semantic_mrr_rejects_invalid_inputs() -> None:
+    with pytest.raises(ValueError, match="cutoff"):
+        evaluate_semantic_mrr(
+            (),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+            cutoff=0,
+        )
+    with pytest.raises(ValueError, match="worst_target_limit"):
+        evaluate_semantic_mrr(
+            (),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+            worst_target_limit=-1,
+        )
+    with pytest.raises(ValueError, match="exactly 3"):
+        evaluate_semantic_mrr(
+            (
+                SemanticMRRTarget(
+                    "bad", SPACE_USER, cast(tuple[str, str, str], ("a", "b"))
+                ),
+            ),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+    with pytest.raises(ValueError, match="workspace_uid"):
+        evaluate_semantic_mrr(
+            (SemanticMRRTarget("workspace", SPACE_WORKSPACE, ("a", "b", "c")),),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+    with pytest.raises(ValueError, match="unsupported target scope"):
+        evaluate_semantic_mrr(
+            (SemanticMRRTarget("bad", "bad-scope", ("a", "b", "c")),),
+            search_user=lambda query, limit: [],
+            search_workspace=lambda query, workspace_uid, limit: [],
+        )
+
+
+def test_semantic_fixture_covers_every_seeded_memory_with_three_queries() -> None:
+    expected_user_ids = {f"dev-user-{index:03d}" for index in range(1, 101)}
+    expected_workspace_ids = {
+        f"dev-workspace-{workspace:02d}-{index:03d}"
+        for workspace in range(1, 4)
+        for index in range(1, 31)
+    }
+
+    assert len(SEMANTIC_MRR_FIXTURE) == (
+        DEV_SEED_USER_MEMORY_COUNT + DEV_SEED_TOTAL_WORKSPACE_MEMORIES
+    )
+    assert set(SEMANTIC_MRR_FIXTURE) == expected_user_ids | expected_workspace_ids
+    all_queries = [
+        query for entry in SEMANTIC_MRR_FIXTURE.values() for query in entry["queries"]
+    ]
+    banned_fragments = ("seeded item", "original wording", "the person ")
+
+    assert all(
+        len(entry["queries"]) == 3 and all(query.strip() for query in entry["queries"])
+        for entry in SEMANTIC_MRR_FIXTURE.values()
+    )
+    assert len(all_queries) == len(set(all_queries))
+    assert not any(
+        fragment in query.casefold()
+        for query in all_queries
+        for fragment in banned_fragments
+    )
+    assert not any(
+        query.endswith((" with.", " for.", " and.", " to.")) for query in all_queries
+    )
