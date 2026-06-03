@@ -237,8 +237,12 @@ uv run recollectium config --help
 uv run recollectium service --help
 uv run recollectium serve --help
 uv run recollectium db-status --help
+uv run recollectium dev --help
 uv run recollectium embedding-status --help
+uv run recollectium embedding-maintenance --help
 uv run recollectium embedding-jobs --help
+uv run recollectium embedding-refresh --help
+uv run recollectium embedding-jobs-clear --help
 uv run recollectium mcp-stdio --help
 uv run recollectium completion --help
 uv run recollectium upgrade --help

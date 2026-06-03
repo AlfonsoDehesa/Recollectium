@@ -40,13 +40,36 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
     assert set(tools.keys()) == expected
 
 
+def test_mcp_tool_verbosity_schema_is_discoverable(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    for tool in mcp._tool_manager._tools.values():
+        properties = tool.parameters["properties"]
+        verbosity_schema = properties["verbosity"]
+        assert verbosity_schema["default"] is None
+        assert "compact" in verbosity_schema["description"]
+        assert "verbose" in verbosity_schema["description"]
+        assert {"compact", "verbose"} in [
+            set(option["enum"])
+            for option in verbosity_schema["anyOf"]
+            if "enum" in option
+        ]
+
+
 def test_mcp_tool_add_memory_round_trip(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)
     mcp = create_mcp_server(core)
 
     add_fn = mcp._tool_manager._tools["add_memory"].fn
-    result_json = add_fn(space="user", type="preference", content="I prefer dark mode")
+    result_json = add_fn(
+        space="user",
+        type="preference",
+        content="I prefer dark mode",
+        verbosity="verbose",
+    )
     memory = json.loads(result_json)
     assert memory["space"] == "user"
     assert memory["type"] == "preference"
@@ -69,11 +92,82 @@ def test_mcp_tool_search_user_memory(tmp_path: Path) -> None:
     mcp = create_mcp_server(core)
 
     search_fn = mcp._tool_manager._tools["search_user_memory"].fn
-    result_json = search_fn(query="local memory storage", type="fact")
+    result_json = search_fn(
+        query="local memory storage", type="fact", verbosity="verbose"
+    )
     results = json.loads(result_json)
     assert len(results) >= 1
     assert results[0]["memory"]["id"] == added.id
     assert results[0]["memory"]["content"] == "Recollectium stores memories locally"
+
+
+def test_mcp_tool_search_user_memory_compact_and_verbose(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    added = core.add_memory(
+        space="user", type="fact", content="Compact search returns match score"
+    )
+    mcp = create_mcp_server(core)
+
+    search_fn = mcp._tool_manager._tools["search_user_memory"].fn
+    compact = json.loads(
+        search_fn(query="match score", type="fact", verbosity="compact")
+    )
+    assert compact[0]["id"] == added.id
+    assert compact[0]["content"] == "Compact search returns match score"
+    assert "match" in compact[0]
+    assert "memory" not in compact[0]
+
+    verbose = json.loads(
+        search_fn(query="match score", type="fact", verbosity="verbose")
+    )
+    assert verbose[0]["memory"]["id"] == added.id
+    assert verbose[0]["memory"]["content"] == "Compact search returns match score"
+    assert "score" in verbose[0]
+
+
+def test_mcp_tool_mutations_compact(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    add_fn = mcp._tool_manager._tools["add_memory"].fn
+    added = json.loads(add_fn(space="user", type="fact", content="compact mutation"))
+    assert set(added) == {"id", "status"}
+    assert added["status"] == "saved"
+
+    update_fn = mcp._tool_manager._tools["update_memory"].fn
+    updated = json.loads(update_fn(id=added["id"], content="updated"))
+    assert updated == {"id": added["id"], "status": "updated"}
+
+    archive_fn = mcp._tool_manager._tools["archive_memory"].fn
+    archived = json.loads(archive_fn(id=added["id"]))
+    assert archived == {"id": added["id"], "status": "archived"}
+
+
+def test_mcp_tool_invalid_verbosity_returns_error(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    search_fn = mcp._tool_manager._tools["search_user_memory"].fn
+    result = json.loads(search_fn(query="anything", verbosity="full"))
+    assert result == {"error": "verbosity must be one of: compact, verbose"}
+
+
+def test_mcp_tool_default_verbosity_uses_config(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    core.config.effective_config["response_verbosity"] = "verbose"
+    added = core.add_memory(
+        space="user", type="fact", content="Configured verbose default"
+    )
+    mcp = create_mcp_server(core)
+
+    search_fn = mcp._tool_manager._tools["search_user_memory"].fn
+    result = json.loads(search_fn(query="verbose default", type="fact"))
+    assert result[0]["memory"]["id"] == added.id
+    assert result[0]["memory"]["content"] == "Configured verbose default"
 
 
 def test_mcp_tool_get_memory(tmp_path: Path) -> None:
@@ -115,7 +209,9 @@ def test_mcp_tool_update_memory(tmp_path: Path) -> None:
     mcp = create_mcp_server(core)
 
     update_fn = mcp._tool_manager._tools["update_memory"].fn
-    result_json = update_fn(id=added.id, type="note", content="Updated content")
+    result_json = update_fn(
+        id=added.id, type="note", content="Updated content", verbosity="verbose"
+    )
     updated = json.loads(result_json)
     assert updated["id"] == added.id
     assert updated["content"] == "Updated content"
@@ -233,7 +329,9 @@ def test_search_workspace_memory_round_trip(tmp_path: Path) -> None:
     mcp = create_mcp_server(core)
 
     search_fn = mcp._tool_manager._tools["search_workspace_memory"].fn
-    result_json = search_fn(query="SQLite database", workspace_uid="test-ws")
+    result_json = search_fn(
+        query="SQLite database", workspace_uid="test-ws", verbosity="verbose"
+    )
     results = json.loads(result_json)
     assert len(results) >= 1
     assert results[0]["memory"]["id"] == added.id
@@ -549,6 +647,7 @@ def test_mcp_add_memory_with_metadata_source_confidence_sensitivity(
             source="test-harness",
             confidence=0.9,
             sensitivity="internal",
+            verbosity="verbose",
         )
     )
     assert result["space"] == "user"

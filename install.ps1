@@ -4,8 +4,145 @@ $Repo = "AlfonsoDehesa/recollectium"
 $InstallDir = Join-Path $env:LOCALAPPDATA "uv"
 $UvBin = Join-Path $InstallDir "uv.exe"
 $ToolBin = Join-Path $HOME ".local\bin"
+$OriginalPath = $env:Path
 $ManagedPathEdits = @()
 $ManagedCompletionEdits = @()
+
+function Test-GuidanceColorSupported {
+    return ((-not $env:NO_COLOR) -and (-not [Console]::IsOutputRedirected))
+}
+
+function Write-Guidance {
+    param(
+        [string]$Message,
+        [string]$Color
+    )
+    if ((-not (Test-GuidanceColorSupported)) -or [string]::IsNullOrWhiteSpace($Color)) {
+        Write-Host $Message
+    }
+    else {
+        Write-Host $Message -ForegroundColor $Color
+    }
+}
+
+function Get-ExpectedRecollectiumPaths {
+    @(
+        (Join-Path $ToolBin "recollectium.exe"),
+        (Join-Path $ToolBin "recollectium.cmd"),
+        (Join-Path $ToolBin "recollectium")
+    ) | ForEach-Object { [System.IO.Path]::GetFullPath($_) }
+}
+
+function Test-ExpectedRecollectiumSource {
+    param([string]$Source)
+    if ([string]::IsNullOrWhiteSpace($Source)) { return $false }
+    $fullSource = [System.IO.Path]::GetFullPath($Source)
+    foreach ($expected in Get-ExpectedRecollectiumPaths) {
+        if ([string]::Equals($fullSource, $expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-InstalledRecollectium {
+    foreach ($expected in Get-ExpectedRecollectiumPaths) {
+        if (Test-Path $expected) { return $true }
+    }
+    return $false
+}
+
+function Test-CurrentRecollectiumPath {
+    $savedPath = $env:Path
+    try {
+        $env:Path = $OriginalPath
+        $command = Get-Command recollectium -ErrorAction SilentlyContinue | Select-Object -First 1
+        return ($null -ne $command -and (Test-ExpectedRecollectiumSource $command.Source))
+    }
+    finally {
+        $env:Path = $savedPath
+    }
+}
+
+function Test-UserPathContainsToolBin {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if (-not $userPath) { return $false }
+    $parts = $userPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    foreach ($part in $parts) {
+        try {
+            if ([string]::Equals(
+                [System.IO.Path]::GetFullPath($part),
+                [System.IO.Path]::GetFullPath($ToolBin),
+                [System.StringComparison]::OrdinalIgnoreCase
+            )) { return $true }
+        }
+        catch {
+        }
+    }
+    return $false
+}
+
+function Get-PersistedPath {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    return (@($machinePath, $userPath) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ';'
+}
+
+function Test-FutureRecollectiumPath {
+    $shells = @("powershell", "pwsh")
+    foreach ($shell in $shells) {
+        $shellCommand = Get-Command $shell -ErrorAction SilentlyContinue
+        if (-not $shellCommand) { continue }
+        $savedPath = $env:Path
+        try {
+            $env:Path = Get-PersistedPath
+            $resolved = & $shellCommand.Source -NoProfile -Command "`$command = Get-Command recollectium -ErrorAction SilentlyContinue; if (`$command) { `$command.Source }" 2>$null
+            if ($LASTEXITCODE -ne 0) { continue }
+            $first = @($resolved | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
+            if ($first.Count -gt 0 -and (Test-ExpectedRecollectiumSource $first[0])) { return $true }
+        }
+        catch {
+        }
+        finally {
+            $env:Path = $savedPath
+        }
+    }
+    return $false
+}
+
+function Write-FinalGuidance {
+    $tempPathCommand = '  $env:Path = "{0};$env:Path"' -f $ToolBin
+    if (Test-CurrentRecollectiumPath) {
+        Write-Guidance "Recollectium installed." Green
+        Write-Guidance "Verify with: recollectium --version" Green
+        return
+    }
+
+    if (Test-FutureRecollectiumPath) {
+        Write-Guidance "Recollectium installed." Green
+        Write-Guidance "Open a new terminal window before using recollectium, or run this command in the current terminal:" Yellow
+        Write-Guidance $tempPathCommand Yellow
+        Write-Guidance "Then verify with: recollectium --version" Yellow
+        return
+    }
+
+    if (Test-UserPathContainsToolBin) {
+        Write-Guidance "Recollectium installed, but PATH setup could not be verified for a new terminal." Yellow
+        Write-Guidance "Your User Path already includes this directory:" Yellow
+        Write-Guidance "  $ToolBin" Yellow
+        Write-Guidance "Restart your terminal, or run this command in the current terminal:" Yellow
+        Write-Guidance $tempPathCommand Yellow
+        Write-Guidance "Then verify with: recollectium --version" Yellow
+        return
+    }
+
+    Write-Guidance "Recollectium installed, but PATH setup could not be verified." Yellow
+    Write-Guidance "Add this directory to your User Path:" Yellow
+    Write-Guidance "  $ToolBin" Yellow
+    Write-Guidance "Then restart your terminal, or run this command in the current terminal:" Yellow
+    Write-Guidance $tempPathCommand Yellow
+    Write-Guidance "Then verify with: recollectium --version" Yellow
+}
 
 function Get-UvArchiveName {
     $arch = $env:PROCESSOR_ARCHITECTURE
@@ -112,6 +249,7 @@ $package = "git+https://github.com/$Repo.git@$ref"
 Write-Host "Installing Recollectium from $ref..."
 & $uv tool install --python 3.12 --force $package
 if ($LASTEXITCODE -ne 0) { throw "failed to install Recollectium package" }
+if (-not (Test-InstalledRecollectium)) { throw "recollectium executable was not installed in uv tool bin directory: $ToolBin" }
 Write-Host "Maintaining embeddings (config, database, model, stale memories)..."
 & $uv tool run --from $package recollectium embedding-maintenance
 if ($LASTEXITCODE -ne 0) { throw "embedding maintenance failed; retry with: recollectium embedding-maintenance" }
@@ -180,4 +318,4 @@ $metadata = [ordered]@{
     managed_completion_edits = $ManagedCompletionEdits
 }
 $metadata | ConvertTo-Json | Set-Content -Path $metadataPath -Encoding utf8
-Write-Host "Recollectium installed. Restart your terminal if recollectium is not found, then try: recollectium --version"
+Write-FinalGuidance

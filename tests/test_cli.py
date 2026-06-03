@@ -20,14 +20,20 @@ import pytest
 from pytest import CaptureFixture
 
 import recollectium.cli as cli_module
-from recollectium.config import DEFAULTS
+from recollectium.config import (
+    DEFAULTS,
+    RESPONSE_VERBOSITY_COMPACT,
+    RESPONSE_VERBOSITY_VERBOSE,
+)
 from recollectium.cli import (
     _ReembeddingProgressReporter,
+    _builtin_fastembed_provider_from_config,
     _emit_failure_payload,
     _emit_success,
     _extract_cli_output_override,
     _format_human_error,
     _format_human_output,
+    _format_memory,
     _resolve_output_format,
     _set_cli_output_format,
     _supports_color,
@@ -57,8 +63,11 @@ from recollectium.core import RecollectiumCore
 class FakeEmbeddingProvider:
     """Lightweight fake embedding provider for CLI workspace tests."""
 
-    def __init__(self, model_name: str | None = None) -> None:
+    def __init__(
+        self, model_name: str | None = None, *, cache_dir: str | Path | None = None
+    ) -> None:
         self.model_name = model_name
+        self.cache_dir = str(cache_dir) if cache_dir is not None else None
         self.embedding_profile = {
             "provider": "fake",
             "model": "fake-model",
@@ -89,8 +98,14 @@ def _run_cli(
     *,
     json_by_default: bool = True,
 ) -> tuple[int, str, str]:
-    if json_by_default and "--json" not in args and "--human-readable" not in args:
-        args = ["--json", *args]
+    if (
+        json_by_default
+        and "--json" not in args
+        and "--human-readable" not in args
+        and "--compact" not in args
+        and "--verbose" not in args
+    ):
+        args = ["--json", "--verbose", *args]
     exit_code = main(args)
     captured = capsys.readouterr()
     return exit_code, captured.out, captured.err
@@ -125,6 +140,10 @@ def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
 def test_cli_help_documents_commands_and_flags(capsys) -> None:
     top_level_help = _run_help(["--help"], capsys)
     assert "Recollectium Core local memory CLI" in top_level_help
+    assert "Human-readable output is the default" in top_level_help
+    assert "--json for structured JSON" in top_level_help
+    assert "follow the" in top_level_help
+    assert "selected output format" in top_level_help
     assert "--version" in top_level_help
     assert "--json" in top_level_help
     assert "--human-readable" in top_level_help
@@ -2027,6 +2046,32 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     assert "Memory added" in _format_human_output(memory, command="add")
     assert "Memory updated" in _format_human_output(memory, command="update")
     assert "Memory archived" in _format_human_output(memory, command="archive")
+    # Compact archive projection (id + status only, no content) → short output
+    assert (
+        _format_human_output({"id": 456, "status": "archived"}, command="archive")
+        == "Memory archived.\n"
+    )
+    # Compact archive with just status (no id, no content) → short output
+    assert (
+        _format_human_output({"status": "archived"}, command="archive")
+        == "Memory archived.\n"
+    )
+    # Verbose archive (full memory dict with content + archived status) → detailed output
+    archived_memory = {**memory, "status": "archived"}
+    verbose_output = _format_human_output(archived_memory, command="archive")
+    assert "Memory archived" in verbose_output
+    assert "Use SQLite." in verbose_output  # content present
+    assert "decision" in verbose_output  # type present
+    # Compact add projection → short output
+    assert (
+        _format_human_output({"id": 789, "status": "saved"}, command="add")
+        == "Memory saved!\n"
+    )
+    # Compact update projection → short output
+    assert (
+        _format_human_output({"id": 789, "status": "updated"}, command="update")
+        == "Memory updated.\n"
+    )
     assert "cli_output: human_readable" in _format_human_output(
         "human_readable", command="config get", label="cli_output"
     )
@@ -2106,24 +2151,32 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr("sys.argv", ["recollectium", "list", "--human-readable"])
-    cleaned, output_format, conflict = _extract_cli_output_override(None)
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(None)
+    )
     assert cleaned == ["list"]
     assert output_format == "human_readable"
-    assert conflict is False
+    assert response_verbosity is None
+    assert output_conflict is False
+    assert verbosity_conflict is False
 
-    cleaned, output_format, conflict = _extract_cli_output_override(
-        ["--human-readable", "list", "--json"]
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["--human-readable", "list", "--json"])
     )
     assert cleaned == ["list"]
     assert output_format == "json"
-    assert conflict is True
+    assert response_verbosity is None
+    assert output_conflict is True
+    assert verbosity_conflict is False
 
-    cleaned, output_format, conflict = _extract_cli_output_override(
-        ["config", "set", "logging.level", "--", "--json"]
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["config", "set", "logging.level", "--", "--json"])
     )
     assert cleaned == ["config", "set", "logging.level", "--", "--json"]
     assert output_format is None
-    assert conflict is False
+    assert response_verbosity is None
+    assert output_conflict is False
+    assert verbosity_conflict is False
 
     config_path = tmp_path / "config.json"
     config_path.write_text('{"version": 1, "cli_output": "invalid"}', encoding="utf-8")
@@ -2135,6 +2188,240 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
     assert (
         _resolve_output_format(config_path=config_path, explicit=True, override=None)
         == "human_readable"
+    )
+
+
+def test_cli_verbosity_extraction_conflicts_order_and_literals(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", ["recollectium", "list", "--compact"])
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(None)
+    )
+    assert cleaned == ["list"]
+    assert output_format is None
+    assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["--verbose", "list"])
+    )
+    assert cleaned == ["list"]
+    assert output_format is None
+    assert response_verbosity == RESPONSE_VERBOSITY_VERBOSE
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["list", "--compact", "--verbose"])
+    )
+    assert cleaned == ["list"]
+    assert response_verbosity == RESPONSE_VERBOSITY_VERBOSE
+    assert output_conflict is False
+    assert verbosity_conflict is True
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["list", "--verbose", "--compact"])
+    )
+    assert cleaned == ["list"]
+    assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
+    assert output_conflict is False
+    assert verbosity_conflict is True
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(
+            ["config", "set", "response_verbosity", "--", "--verbose"]
+        )
+    )
+    assert cleaned == ["config", "set", "response_verbosity", "--", "--verbose"]
+    assert output_format is None
+    assert response_verbosity is None
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
+
+def test_cli_human_readable_verbosity_conflict_uses_human_error(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "--verbose", "list"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "Choose either --compact or --verbose, not both." in stderr
+    assert not stderr.lstrip().startswith("{")
+
+
+def test_cli_json_verbosity_compact_vs_verbose_memory_shapes(tmp_path, capsys) -> None:
+    db_path = tmp_path / "verbosity.db"
+
+    compact_add_code, compact_add_out, compact_add_err = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            "user",
+            "--type",
+            "fact",
+            "--content",
+            "verbosity shape memory",
+        ],
+        capsys,
+    )
+    assert compact_add_code == 0
+    assert compact_add_err == ""
+    compact_add = json.loads(compact_add_out)
+    assert set(compact_add) == {"id", "status"}
+    assert compact_add["status"] == "saved"
+
+    verbose_search_code, verbose_search_out, verbose_search_err = _run_cli(
+        [
+            "--json",
+            "--verbose",
+            "--db",
+            str(db_path),
+            "search-user",
+            "verbosity",
+        ],
+        capsys,
+    )
+    assert verbose_search_code == 0
+    assert verbose_search_err == ""
+    verbose_search = json.loads(verbose_search_out)
+    assert set(verbose_search[0]) >= {"memory", "score", "rank"}
+    assert verbose_search[0]["memory"]["id"] == compact_add["id"]
+
+    compact_search_code, compact_search_out, compact_search_err = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "search-user",
+            "verbosity",
+        ],
+        capsys,
+    )
+    assert compact_search_code == 0
+    assert compact_search_err == ""
+    compact_search = json.loads(compact_search_out)
+    assert set(compact_search[0]) == {"id", "content", "match"}
+    assert compact_search[0]["id"] == compact_add["id"]
+    assert compact_search[0]["content"] == "verbosity shape memory"
+    assert isinstance(compact_search[0]["match"], float)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("add", "Memory saved!\n"),
+        ("update", "Memory updated.\n"),
+        ("archive", "Memory archived.\n"),
+    ],
+)
+def test_cli_human_compact_projects_mutations_to_short_messages(
+    command: str,
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        {
+            "id": "mem-1",
+            "content": "compact human mutation",
+            "type": "fact",
+            "space": "user",
+            "metadata": {"source": "test"},
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        output_format="human_readable",
+        command=command,
+        response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+    )
+
+    assert stream.getvalue() == expected
+
+
+def test_cli_compact_human_search_output_includes_match_score() -> None:
+    """Compact human search results should display the match score."""
+    payload = {
+        "id": "mem-search-1",
+        "content": "a searchable fact",
+        "match": 0.87,
+    }
+    lines = _format_memory(payload)
+    assert any("score=0.87" in line for line in lines)
+
+
+def test_cli_human_verbose_preserves_detailed_mutation_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        {
+            "id": "mem-1",
+            "content": "verbose human mutation",
+            "type": "fact",
+            "space": "user",
+            "metadata": {"source": "test"},
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        output_format="human_readable",
+        command="add",
+        response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
+    )
+
+    output = stream.getvalue()
+    assert output.startswith("Memory added\n")
+    assert "Memory mem-1 (fact)" in output
+    assert "Content: verbose human mutation" in output
+    assert 'Metadata: {"source": "test"}' in output
+
+
+def test_cli_response_verbosity_flag_overrides_config_without_mutation(
+    tmp_path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {"version": 1, "cli_output": "json", "response_verbosity": "verbose"}
+        ),
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "override.db"
+
+    add_code, add_out, add_err = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--compact",
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            "user",
+            "--type",
+            "fact",
+            "--content",
+            "runtime compact override",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert add_code == 0
+    assert add_err == ""
+    assert set(json.loads(add_out)) == {"id", "status"}
+    assert (
+        json.loads(config_path.read_text(encoding="utf-8"))["response_verbosity"]
+        == "verbose"
     )
 
 
@@ -2813,6 +3100,17 @@ def test_cli_parse_config_value_plain_string(tmp_path, capsys) -> None:
     assert loaded["logging"]["level"] == "debug"
 
 
+def test_builtin_fastembed_provider_from_config_resolves_cache_dir(
+    tmp_path: Path,
+) -> None:
+    config = deepcopy(DEFAULTS)
+    config["directories"] = {"cache": str(tmp_path / "cache")}
+
+    provider = _builtin_fastembed_provider_from_config(config)
+
+    assert provider.cache_dir == str(tmp_path / "cache" / "models")
+
+
 def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
     db_path = tmp_path / "cli-embedding.db"
 
@@ -2842,7 +3140,8 @@ def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
     status_payload = json.loads(status_out)
     assert status_payload["embedding_profile"]["provider"] == "builtin-fastembed"
     assert status_payload["provider_status"] == "configured"
-    assert status_payload["model_status"] == "managed_by_fastembed_cache"
+    assert status_payload["model_status"] == "managed_by_recollectium_cache"
+    assert status_payload["model_cache_path"].endswith("recollectium/models")
     assert status_payload["runtime"] == {
         "name": "fastembed",
         "threads": 1,
@@ -4003,12 +4302,15 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     _set_xdg_home(monkeypatch, tmp_path)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
     db_path = tmp_path / "data" / "recollectium" / "recollectium.db"
+    model_cache_path = tmp_path / "cache" / "recollectium" / "models"
     metadata_path = tmp_path / "state" / "recollectium" / "install.json"
     config_path.parent.mkdir(parents=True)
     db_path.parent.mkdir(parents=True)
+    model_cache_path.mkdir(parents=True)
     metadata_path.parent.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
     db_path.write_text("preserved", encoding="utf-8")
+    (model_cache_path / "model.bin").write_text("derived", encoding="utf-8")
     metadata_path.write_text(
         json.dumps(
             {
@@ -4027,6 +4329,7 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     run_calls: list[list[str]] = []
 
     def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        assert model_cache_path.exists()
         run_calls.append(cmd)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -4039,7 +4342,14 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     assert stderr == ""
     assert payload["status"] == "uninstalled"
     assert payload["data"]["preserved"] is True
+    assert payload["data"]["memories_preserved"] is True
+    assert payload["data"]["config_preserved"] is True
+    assert payload["data"]["derived_artifacts_removed"] is True
     assert payload["data"]["paths"]["database"] == str(db_path)
+    assert payload["data"]["paths"]["model_cache"] == str(model_cache_path)
+    assert payload["data"]["model_cache"]["deleted"] == [
+        {"path": str(model_cache_path), "deleted": True}
+    ]
     assert payload["package"]["install_method"] == "bootstrap"
     assert payload["package"]["source_ref"] == "main"
     assert payload["package"]["recommended"] == "uv tool uninstall recollectium"
@@ -4048,6 +4358,7 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
     assert config_path.exists()
     assert db_path.read_text(encoding="utf-8") == "preserved"
+    assert not model_cache_path.exists()
 
 
 def test_cli_uninstall_uses_bootstrap_legacy_state_metadata_path(
@@ -4744,6 +5055,56 @@ def test_cli_uninstall_purge_deletes_recollectium_owned_paths(
     assert (tmp_path / "data").exists()
 
 
+def test_cli_uninstall_purge_deletes_macos_application_support_install_metadata(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    application_support_dir = (
+        tmp_path / "Library" / "Application Support" / "recollectium"
+    )
+    config_path = application_support_dir / "config.json"
+    logs_dir = application_support_dir / "logs"
+    metadata_path = application_support_dir / "install.json"
+    macos_dirs = {
+        "config": application_support_dir,
+        "data": application_support_dir,
+        "cache": application_support_dir,
+        "logs": logs_dir,
+        "runtime": application_support_dir,
+    }
+    config_path.parent.mkdir(parents=True)
+    logs_dir.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "recollectium.cli._resolve_xdg_dirs", lambda _overrides: macos_dirs
+    )
+    monkeypatch.setattr(
+        "recollectium.cli.user_state_dir",
+        lambda _app_name: str(metadata_path.parent),
+    )
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--purge", "--yes-delete-all-recollectium-data"], capsys
+    )
+
+    payload = json.loads(stdout)
+    skipped = payload["data"]["purge"]["skipped"]
+    assert exit_code == 0
+    assert "permanently deleted" in stderr
+    assert not metadata_path.exists()
+    assert (
+        sum(
+            item["path"] == str(metadata_path)
+            for item in payload["data"]["purge"]["deleted"]
+        )
+        == 1
+    )
+    assert not any(item["path"] == str(metadata_path) for item in skipped)
+
+
 def test_cli_uninstall_purge_reports_delete_errors(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4772,7 +5133,9 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
     shared_cache = tmp_path / "recollectium" / "shared-cache"
-    shared_cache.mkdir(parents=True)
+    model_cache = shared_cache / "models"
+    model_cache.mkdir(parents=True)
+    (model_cache / "model.bin").write_text("derived", encoding="utf-8")
     config_path = tmp_path / "config" / "recollectium" / "config.json"
     config_path.parent.mkdir(parents=True)
     config_data = deepcopy(DEFAULTS)
@@ -4788,11 +5151,16 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     skipped = payload["data"]["purge"]["skipped"]
     assert exit_code == 0
     assert "permanently deleted" in stderr
-    assert str(shared_cache) not in stderr
+    assert f"  {shared_cache}\n" not in stderr
+    assert str(model_cache) in stderr
     assert shared_cache.exists()
+    assert not model_cache.exists()
     assert any(
         item["path"] == str(shared_cache) and item["reason"] == "not_recollectium_owned"
         for item in skipped
+    )
+    assert any(
+        item["path"] == str(model_cache) for item in payload["data"]["purge"]["deleted"]
     )
 
 
@@ -4897,7 +5265,9 @@ def test_cli_uninstall_dry_run_without_purge_prints_instructions(
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
+    model_cache_path = tmp_path / "cache" / "recollectium" / "models"
     config_path.parent.mkdir(parents=True)
+    model_cache_path.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
 
     exit_code, stdout, stderr = _run_cli(["uninstall", "--dry-run"], capsys)
@@ -4907,7 +5277,89 @@ def test_cli_uninstall_dry_run_without_purge_prints_instructions(
     assert stderr == ""
     assert payload["status"] == "dry_run"
     assert payload["data"]["preserved"] is True
+    assert payload["data"]["derived_artifacts_removed"] is False
+    assert payload["data"]["model_cache"]["skipped"] == [
+        {"path": str(model_cache_path), "deleted": False, "reason": "dry_run"}
+    ]
     assert payload["service"]["status"] == "dry_run"
+    assert model_cache_path.exists()
+
+
+def test_cli_uninstall_removes_model_cache_inside_custom_cache_dir(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    custom_cache = tmp_path / "shared-cache"
+    model_cache_path = custom_cache / "models"
+    model_cache_path.mkdir(parents=True)
+    (custom_cache / "keep.txt").write_text("keep", encoding="utf-8")
+    (model_cache_path / "model.bin").write_text("derived", encoding="utf-8")
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_data = deepcopy(DEFAULTS)
+    config_data["directories"] = {"cache": str(custom_cache)}
+    config_path.write_text(json.dumps(config_data), encoding="utf-8")
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["data"]["model_cache"]["deleted"] == [
+        {"path": str(model_cache_path), "deleted": True}
+    ]
+    assert custom_cache.exists()
+    assert (custom_cache / "keep.txt").exists()
+    assert not model_cache_path.exists()
+
+
+def test_cli_uninstall_reports_model_cache_cleanup_failure_after_package_removal(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    model_cache_path = tmp_path / "cache" / "recollectium" / "models"
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    config_path.parent.mkdir(parents=True)
+    model_cache_path.mkdir(parents=True)
+    metadata_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "source_ref": "main"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    run_calls: list[list[str]] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        run_calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def _fail_rmtree(path: Path) -> None:
+        assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
+    monkeypatch.setattr("recollectium.cli.shutil.rmtree", _fail_rmtree)
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 1
+    assert stderr == ""
+    assert payload["status"] == "uninstalled_with_warnings"
+    assert payload["package"]["uninstall"]["status"] == "removed"
+    assert payload["data"]["derived_artifacts_removed"] is False
+    assert payload["data"]["model_cache"]["status"] == "failed"
+    assert payload["data"]["model_cache"]["skipped"] == [
+        {
+            "path": str(model_cache_path),
+            "deleted": False,
+            "reason": "cleanup_error: permission denied",
+        }
+    ]
+    assert model_cache_path.exists()
 
 
 def test_cli_uninstall_dry_run_does_not_stop_service(

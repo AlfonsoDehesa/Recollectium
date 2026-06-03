@@ -1,23 +1,2027 @@
 {
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Recollectium Core Local Service API",
+    "description": "Local-first HTTP JSON service contract for Recollectium Core. In v1, the service is localhost-first, has no authentication, and is not hardened as a public network service. Do not expose it publicly. Split-machine deployments should use private networking and external access controls.",
+    "version": "1"
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "tags": [
+          "service"
+        ],
+        "summary": "Health",
+        "operationId": "health_v1_health_get",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Health V1 Health Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "tags": [
+          "service"
+        ],
+        "summary": "Version",
+        "operationId": "version_v1_version_get",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Version V1 Version Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "tags": [
+          "service"
+        ],
+        "summary": "Capabilities",
+        "operationId": "capabilities_v1_capabilities_get",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Capabilities V1 Capabilities Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/memories/search_user": {
+      "post": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Search User",
+        "operationId": "search_user_v1_memories_search_user_post",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Search User V1 Memories Search User Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/memories/search_workspace": {
+      "post": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Search Workspace",
+        "operationId": "search_workspace_v1_memories_search_workspace_post",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchWorkspaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Search Workspace V1 Memories Search Workspace Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/embedding/status": {
+      "get": {
+        "tags": [
+          "embedding"
+        ],
+        "summary": "Embedding Status",
+        "operationId": "embedding_status_v1_embedding_status_get",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Embedding Status V1 Embedding Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/embedding/jobs": {
+      "get": {
+        "tags": [
+          "embedding"
+        ],
+        "summary": "List Embedding Jobs",
+        "operationId": "list_embedding_jobs_v1_embedding_jobs_get",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Embedding Jobs V1 Embedding Jobs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "embedding"
+        ],
+        "summary": "Clear Embedding Jobs",
+        "operationId": "clear_embedding_jobs_v1_embedding_jobs_delete",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ClearEmbeddingJobsRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Clear Embedding Jobs V1 Embedding Jobs Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/embedding/refresh": {
+      "post": {
+        "tags": [
+          "embedding"
+        ],
+        "summary": "Refresh Embeddings",
+        "operationId": "refresh_embeddings_v1_embedding_refresh_post",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/EmbeddingRefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Refresh Embeddings V1 Embedding Refresh Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/embedding/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "embedding"
+        ],
+        "summary": "Get Embedding Job",
+        "operationId": "get_embedding_job_v1_embedding_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Embedding Job V1 Embedding Jobs  Job Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/memories": {
+      "post": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Add Memory",
+        "operationId": "add_memory_v1_memories_post",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMemoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Add Memory V1 Memories Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "List Memories",
+        "operationId": "list_memories_v1_memories_get",
+        "parameters": [
+          {
+            "name": "space",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Space"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "workspace_uid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace Uid"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Archived"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Memories V1 Memories Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/memories/{memory_id}": {
+      "get": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Get Memory",
+        "operationId": "get_memory_v1_memories__memory_id__get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Memory V1 Memories  Memory Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Update Memory",
+        "operationId": "update_memory_v1_memories__memory_id__patch",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMemoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Memory V1 Memories  Memory Id  Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/memories/{memory_id}/archive": {
+      "post": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Archive Memory",
+        "operationId": "archive_memory_v1_memories__memory_id__archive_post",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Archive Memory V1 Memories  Memory Id  Archive Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "List Workspaces",
+        "operationId": "list_workspaces_v1_workspaces_get",
+        "parameters": [
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Archived"
+            }
+          },
+          {
+            "name": "include_aliases",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Aliases"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Workspaces V1 Workspaces Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/resolve": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Resolve Workspace",
+        "operationId": "resolve_workspace_v1_workspaces_resolve_get",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Resolve Workspace V1 Workspaces Resolve Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{uid}/aliases": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "List Workspace Aliases",
+        "operationId": "list_workspace_aliases_v1_workspaces__uid__aliases_get",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Workspace Aliases V1 Workspaces  Uid  Aliases Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Add Workspace Alias",
+        "operationId": "add_workspace_alias_v1_workspaces__uid__aliases_post",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddWorkspaceAliasRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Add Workspace Alias V1 Workspaces  Uid  Aliases Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/aliases/{alias_uid}": {
+      "delete": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Remove Workspace Alias",
+        "operationId": "remove_workspace_alias_v1_workspaces_aliases__alias_uid__delete",
+        "parameters": [
+          {
+            "name": "alias_uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Alias Uid"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Remove Workspace Alias V1 Workspaces Aliases  Alias Uid  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{uid}/rename": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Rename Workspace",
+        "operationId": "rename_workspace_v1_workspaces__uid__rename_post",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          },
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameWorkspaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Rename Workspace V1 Workspaces  Uid  Rename Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "components": {
     "schemas": {
       "AddMemoryRequest": {
         "properties": {
-          "confidence": {
+          "space": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Space"
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Type"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content"
+          },
+          "workspace_uid": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Confidence"
-          },
-          "content": {
-            "minLength": 1,
-            "title": "Content",
-            "type": "string"
+            "title": "Workspace Uid"
           },
           "metadata": {
             "anyOf": [
@@ -31,17 +2035,6 @@
             ],
             "title": "Metadata"
           },
-          "sensitivity": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sensitivity"
-          },
           "source": {
             "anyOf": [
               {
@@ -53,17 +2046,18 @@
             ],
             "title": "Source"
           },
-          "space": {
-            "minLength": 1,
-            "title": "Space",
-            "type": "string"
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
           },
-          "type": {
-            "minLength": 1,
-            "title": "Type",
-            "type": "string"
-          },
-          "workspace_uid": {
+          "sensitivity": {
             "anyOf": [
               {
                 "type": "string"
@@ -72,35 +2066,35 @@
                 "type": "null"
               }
             ],
-            "title": "Workspace Uid"
+            "title": "Sensitivity"
           }
         },
+        "type": "object",
         "required": [
           "space",
           "type",
           "content"
         ],
-        "title": "AddMemoryRequest",
-        "type": "object"
+        "title": "AddMemoryRequest"
       },
       "AddWorkspaceAliasRequest": {
         "properties": {
           "alias_uid": {
+            "type": "string",
             "minLength": 1,
-            "title": "Alias Uid",
-            "type": "string"
+            "title": "Alias Uid"
           },
           "migrate_existing": {
-            "default": false,
+            "type": "boolean",
             "title": "Migrate Existing",
-            "type": "boolean"
+            "default": false
           }
         },
+        "type": "object",
         "required": [
           "alias_uid"
         ],
-        "title": "AddWorkspaceAliasRequest",
-        "type": "object"
+        "title": "AddWorkspaceAliasRequest"
       },
       "ClearEmbeddingJobsRequest": {
         "properties": {
@@ -119,21 +2113,16 @@
             "title": "States"
           }
         },
-        "title": "ClearEmbeddingJobsRequest",
-        "type": "object"
+        "type": "object",
+        "title": "ClearEmbeddingJobsRequest"
       },
       "EmbeddingRefreshRequest": {
         "properties": {
-          "include_archived": {
-            "default": false,
-            "title": "Include Archived",
-            "type": "boolean"
-          },
           "space": {
             "anyOf": [
               {
-                "minLength": 1,
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -144,18 +2133,23 @@
           "workspace_uid": {
             "anyOf": [
               {
-                "minLength": 1,
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
               }
             ],
             "title": "Workspace Uid"
+          },
+          "include_archived": {
+            "type": "boolean",
+            "title": "Include Archived",
+            "default": false
           }
         },
-        "title": "EmbeddingRefreshRequest",
-        "type": "object"
+        "type": "object",
+        "title": "EmbeddingRefreshRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -163,87 +2157,76 @@
             "items": {
               "$ref": "#/components/schemas/ValidationError"
             },
-            "title": "Detail",
-            "type": "array"
+            "type": "array",
+            "title": "Detail"
           }
         },
-        "title": "HTTPValidationError",
-        "type": "object"
+        "type": "object",
+        "title": "HTTPValidationError"
       },
       "RenameWorkspaceRequest": {
         "properties": {
           "new_uid": {
+            "type": "string",
             "minLength": 1,
-            "title": "New Uid",
-            "type": "string"
+            "title": "New Uid"
           }
         },
+        "type": "object",
         "required": [
           "new_uid"
         ],
-        "title": "RenameWorkspaceRequest",
-        "type": "object"
+        "title": "RenameWorkspaceRequest"
       },
       "SearchUserRequest": {
         "properties": {
-          "include_archived": {
-            "default": false,
-            "title": "Include Archived",
-            "type": "boolean"
-          },
-          "limit": {
-            "default": 10,
-            "minimum": 1.0,
-            "title": "Limit",
-            "type": "integer"
-          },
           "query": {
+            "type": "string",
             "minLength": 1,
-            "title": "Query",
-            "type": "string"
+            "title": "Query"
           },
           "type": {
             "anyOf": [
               {
-                "minLength": 1,
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
               }
             ],
             "title": "Type"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 10
+          },
+          "include_archived": {
+            "type": "boolean",
+            "title": "Include Archived",
+            "default": false
           }
         },
+        "type": "object",
         "required": [
           "query"
         ],
-        "title": "SearchUserRequest",
-        "type": "object"
+        "title": "SearchUserRequest"
       },
       "SearchWorkspaceRequest": {
         "properties": {
-          "include_archived": {
-            "default": false,
-            "title": "Include Archived",
-            "type": "boolean"
-          },
-          "limit": {
-            "default": 10,
-            "minimum": 1.0,
-            "title": "Limit",
-            "type": "integer"
-          },
           "query": {
+            "type": "string",
             "minLength": 1,
-            "title": "Query",
-            "type": "string"
+            "title": "Query"
           },
           "type": {
             "anyOf": [
               {
-                "minLength": 1,
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -252,30 +2235,41 @@
             "title": "Type"
           },
           "workspace_uid": {
+            "type": "string",
             "minLength": 1,
-            "title": "Workspace Uid",
-            "type": "string"
+            "title": "Workspace Uid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 10
+          },
+          "include_archived": {
+            "type": "boolean",
+            "title": "Include Archived",
+            "default": false
           }
         },
+        "type": "object",
         "required": [
           "query",
           "workspace_uid"
         ],
-        "title": "SearchWorkspaceRequest",
-        "type": "object"
+        "title": "SearchWorkspaceRequest"
       },
       "UpdateMemoryRequest": {
         "properties": {
-          "confidence": {
+          "type": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Confidence"
+            "title": "Type"
           },
           "content": {
             "anyOf": [
@@ -300,17 +2294,6 @@
             ],
             "title": "Metadata"
           },
-          "sensitivity": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sensitivity"
-          },
           "source": {
             "anyOf": [
               {
@@ -322,7 +2305,18 @@
             ],
             "title": "Source"
           },
-          "type": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "sensitivity": {
             "anyOf": [
               {
                 "type": "string"
@@ -331,21 +2325,14 @@
                 "type": "null"
               }
             ],
-            "title": "Type"
+            "title": "Sensitivity"
           }
         },
-        "title": "UpdateMemoryRequest",
-        "type": "object"
+        "type": "object",
+        "title": "UpdateMemoryRequest"
       },
       "ValidationError": {
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
           "loc": {
             "items": {
               "anyOf": [
@@ -357,1037 +2344,32 @@
                 }
               ]
             },
-            "title": "Location",
-            "type": "array"
+            "type": "array",
+            "title": "Location"
           },
           "msg": {
-            "title": "Message",
-            "type": "string"
+            "type": "string",
+            "title": "Message"
           },
           "type": {
-            "title": "Error Type",
-            "type": "string"
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
+        "type": "object",
         "required": [
           "loc",
           "msg",
           "type"
         ],
-        "title": "ValidationError",
-        "type": "object"
-      }
-    }
-  },
-  "info": {
-    "description": "Local-first HTTP JSON service contract for Recollectium Core. In v1, the service is localhost-first, has no authentication, and is not hardened as a public network service. Do not expose it publicly. Split-machine deployments should use private networking and external access controls.",
-    "title": "Recollectium Core Local Service API",
-    "version": "1"
-  },
-  "openapi": "3.1.0",
-  "paths": {
-    "/v1/capabilities": {
-      "get": {
-        "operationId": "capabilities_v1_capabilities_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Capabilities V1 Capabilities Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Capabilities",
-        "tags": [
-          "service"
-        ]
-      }
-    },
-    "/v1/embedding/jobs": {
-      "delete": {
-        "operationId": "clear_embedding_jobs_v1_embedding_jobs_delete",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/ClearEmbeddingJobsRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Body"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Clear Embedding Jobs V1 Embedding Jobs Delete",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Clear Embedding Jobs",
-        "tags": [
-          "embedding"
-        ]
-      },
-      "get": {
-        "operationId": "list_embedding_jobs_v1_embedding_jobs_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "state",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "State"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Embedding Jobs V1 Embedding Jobs Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Embedding Jobs",
-        "tags": [
-          "embedding"
-        ]
-      }
-    },
-    "/v1/embedding/jobs/{job_id}": {
-      "get": {
-        "operationId": "get_embedding_job_v1_embedding_jobs__job_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Embedding Job V1 Embedding Jobs  Job Id  Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Embedding Job",
-        "tags": [
-          "embedding"
-        ]
-      }
-    },
-    "/v1/embedding/refresh": {
-      "post": {
-        "operationId": "refresh_embeddings_v1_embedding_refresh_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/EmbeddingRefreshRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Body"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Refresh Embeddings V1 Embedding Refresh Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Refresh Embeddings",
-        "tags": [
-          "embedding"
-        ]
-      }
-    },
-    "/v1/embedding/status": {
-      "get": {
-        "operationId": "embedding_status_v1_embedding_status_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Embedding Status V1 Embedding Status Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Embedding Status",
-        "tags": [
-          "embedding"
-        ]
-      }
-    },
-    "/v1/health": {
-      "get": {
-        "operationId": "health_v1_health_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Health V1 Health Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Health",
-        "tags": [
-          "service"
-        ]
-      }
-    },
-    "/v1/memories": {
-      "get": {
-        "operationId": "list_memories_v1_memories_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "space",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Space"
-            }
-          },
-          {
-            "in": "query",
-            "name": "type",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Type"
-            }
-          },
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "in": "query",
-            "name": "workspace_uid",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Workspace Uid"
-            }
-          },
-          {
-            "in": "query",
-            "name": "include_archived",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Include Archived"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Memories V1 Memories Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Memories",
-        "tags": [
-          "memories"
-        ]
-      },
-      "post": {
-        "operationId": "add_memory_v1_memories_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddMemoryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Add Memory V1 Memories Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Add Memory",
-        "tags": [
-          "memories"
-        ]
-      }
-    },
-    "/v1/memories/search_user": {
-      "post": {
-        "operationId": "search_user_v1_memories_search_user_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchUserRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Search User V1 Memories Search User Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Search User",
-        "tags": [
-          "memories"
-        ]
-      }
-    },
-    "/v1/memories/search_workspace": {
-      "post": {
-        "operationId": "search_workspace_v1_memories_search_workspace_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchWorkspaceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Search Workspace V1 Memories Search Workspace Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Search Workspace",
-        "tags": [
-          "memories"
-        ]
-      }
-    },
-    "/v1/memories/{memory_id}": {
-      "get": {
-        "operationId": "get_memory_v1_memories__memory_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "memory_id",
-            "required": true,
-            "schema": {
-              "title": "Memory Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Memory V1 Memories  Memory Id  Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Memory",
-        "tags": [
-          "memories"
-        ]
-      },
-      "patch": {
-        "operationId": "update_memory_v1_memories__memory_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "memory_id",
-            "required": true,
-            "schema": {
-              "title": "Memory Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateMemoryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Update Memory V1 Memories  Memory Id  Patch",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Memory",
-        "tags": [
-          "memories"
-        ]
-      }
-    },
-    "/v1/memories/{memory_id}/archive": {
-      "post": {
-        "operationId": "archive_memory_v1_memories__memory_id__archive_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "memory_id",
-            "required": true,
-            "schema": {
-              "title": "Memory Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Archive Memory V1 Memories  Memory Id  Archive Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Archive Memory",
-        "tags": [
-          "memories"
-        ]
-      }
-    },
-    "/v1/version": {
-      "get": {
-        "operationId": "version_v1_version_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Version V1 Version Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Version",
-        "tags": [
-          "service"
-        ]
-      }
-    },
-    "/v1/workspaces": {
-      "get": {
-        "operationId": "list_workspaces_v1_workspaces_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "include_archived",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Include Archived"
-            }
-          },
-          {
-            "in": "query",
-            "name": "include_aliases",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Include Aliases"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Workspaces V1 Workspaces Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Workspaces",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/v1/workspaces/aliases/{alias_uid}": {
-      "delete": {
-        "operationId": "remove_workspace_alias_v1_workspaces_aliases__alias_uid__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "alias_uid",
-            "required": true,
-            "schema": {
-              "title": "Alias Uid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Remove Workspace Alias V1 Workspaces Aliases  Alias Uid  Delete",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Remove Workspace Alias",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/v1/workspaces/resolve": {
-      "get": {
-        "operationId": "resolve_workspace_v1_workspaces_resolve_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "uid",
-            "required": true,
-            "schema": {
-              "title": "Uid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Resolve Workspace V1 Workspaces Resolve Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Resolve Workspace",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/v1/workspaces/{uid}/aliases": {
-      "get": {
-        "operationId": "list_workspace_aliases_v1_workspaces__uid__aliases_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "uid",
-            "required": true,
-            "schema": {
-              "title": "Uid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Workspace Aliases V1 Workspaces  Uid  Aliases Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Workspace Aliases",
-        "tags": [
-          "workspaces"
-        ]
-      },
-      "post": {
-        "operationId": "add_workspace_alias_v1_workspaces__uid__aliases_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "uid",
-            "required": true,
-            "schema": {
-              "title": "Uid",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddWorkspaceAliasRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Add Workspace Alias V1 Workspaces  Uid  Aliases Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Add Workspace Alias",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/v1/workspaces/{uid}/rename": {
-      "post": {
-        "operationId": "rename_workspace_v1_workspaces__uid__rename_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "uid",
-            "required": true,
-            "schema": {
-              "title": "Uid",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RenameWorkspaceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Rename Workspace V1 Workspaces  Uid  Rename Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Rename Workspace",
-        "tags": [
-          "workspaces"
-        ]
+        "title": "ValidationError"
       }
     }
   }

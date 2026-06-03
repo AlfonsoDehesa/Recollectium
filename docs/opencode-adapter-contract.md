@@ -44,6 +44,9 @@ A Recollectium adapter should:
   workspace UID normalization at the storage boundary.
 - Expose user-memory and workspace-memory operations as separate tools.
 - Treat Recollectium Core as the source of truth for memory storage and search.
+- Use compact response payloads by default for token efficiency. Request verbose
+  payloads only when the adapter needs full memory records, metadata,
+  timestamps, or job details for inspection.
 
 ## Service discovery contract
 
@@ -115,6 +118,8 @@ The current service contract exposes these core capabilities:
 - `embedding.status`
 - `embedding.jobs.list`
 - `embedding.jobs.get`
+- `embedding.refresh`
+- `embedding.jobs.clear`
 - `workspaces.list`
 - `workspaces.rename`
 - `workspaces.resolve`
@@ -124,6 +129,31 @@ The current service contract exposes these core capabilities:
 
 The adapter should treat capability names as the compatibility check, not the
 transport details.
+
+## Response verbosity contract
+
+Recollectium defaults to compact response payloads. Adapters should keep that
+default for regular memory search, list, get, mutation, workspace, and embedding
+tool calls because compact payloads reduce context and transport overhead.
+
+Use verbose responses for explicit inspection flows, debugging views, migration
+tools, or user-facing details screens that need full metadata, timestamps,
+archive status, full search result objects, or full embedding job records.
+
+Controls by transport:
+
+- Local HTTP API: pass `?verbosity=compact|verbose` or the
+  `X-Recollectium-Verbosity: compact|verbose` header. The query parameter takes
+  precedence over the header.
+- MCP: pass the optional `verbosity` tool argument with `compact` or `verbose`.
+  Omitting it uses Core config and falls back to compact.
+- CLI helpers used by adapters: prefer `--json --compact` for automation, and
+  use `--json --verbose` only for inspection or diagnostics.
+
+Adapters should not assume verbose-only fields are present in compact payloads.
+When compact mode is used, memory search returns `id`, `content`, and `match`;
+memory list and get return `id`, `content`, `type`, `space`, and
+`workspace_uid` when present; memory mutations return `id` and `status`.
 
 ## Workspace UID contract
 
