@@ -79,9 +79,9 @@ def project_search_result(
     """Project a search result payload for the selected verbosity."""
     if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
         return payload
-    memory = (
-        payload.get("memory") if isinstance(payload.get("memory"), dict) else payload
-    )
+    if not isinstance(payload, dict):
+        return payload
+    memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else payload
     if not isinstance(memory, dict):
         return payload
     compact = _compact_dict(memory, ("id", "content"))

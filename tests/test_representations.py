@@ -79,9 +79,7 @@ def test_list_projection_helpers_apply_compact_projection() -> None:
 
 def test_search_projection_preserves_unexpected_non_dict_search_payload() -> None:
     class NonDictSearchPayload:
-        def get(self, key: str, default: object = None) -> object:
-            del key
-            return default
+        pass
 
     payload = NonDictSearchPayload()
 
