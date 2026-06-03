@@ -1697,8 +1697,8 @@ def test_thematic_context_labels_are_explicit_checked_in_data() -> None:
     assert "ADJACENT" not in label_source
     assert "CONFUSER" not in label_source
     assert label_source.count("    ThematicContextLabelCase(") == 57
-    assert "'dev-user-001': 2" in label_source
-    assert "'dev-workspace-01-001': 2" in label_source
+    assert '"dev-user-001": 2' in label_source
+    assert '"dev-workspace-01-001": 2' in label_source
 
 
 def test_ranked_set_fixture_is_curated_and_references_seeded_memories() -> None:
