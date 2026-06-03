@@ -269,6 +269,22 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
     assert "POST /v1/memories/{memory_id}/archive` is body-less." in docs_text
 
 
+def _assert_verbosity_parameter_contract(parameters: list[dict[str, Any]]) -> None:
+    by_name = {parameter["name"]: parameter for parameter in parameters}
+    for name, location in (
+        ("verbosity", "query"),
+        ("X-Recollectium-Verbosity", "header"),
+    ):
+        parameter = by_name[name]
+        assert parameter["in"] == location
+        assert parameter["required"] is False
+        assert set(parameter["schema"]["enum"]) == {"compact", "verbose"}
+        description = parameter["description"].lower()
+        assert "response verbosity" in description
+        assert "compact" in description
+        assert "verbose" in description
+
+
 def test_local_service_openapi_contract_is_valid_and_covers_routes(
     tmp_path: Path,
 ) -> None:
@@ -313,11 +329,10 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
     archive_operation = paths["/v1/memories/{memory_id}/archive"]["post"]
     assert "requestBody" not in archive_operation
 
-    for metadata_path in ("/v1/health", "/v1/version"):
-        parameter_names = {
-            parameter["name"] for parameter in paths[metadata_path]["get"]["parameters"]
-        }
-        assert {"verbosity", "X-Recollectium-Verbosity"} <= parameter_names
+    for path, methods in required_paths.items():
+        for method in methods:
+            parameters = paths[path][method].get("parameters", [])
+            _assert_verbosity_parameter_contract(parameters)
 
     schemas = contract["components"]["schemas"]
     for schema_name in (

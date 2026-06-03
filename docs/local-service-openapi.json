@@ -27,8 +27,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -43,8 +49,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -94,8 +106,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -110,8 +128,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -161,8 +185,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -177,8 +207,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -228,8 +264,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -244,8 +286,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "requestBody": {
@@ -305,8 +353,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -321,8 +375,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "requestBody": {
@@ -382,8 +442,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -398,8 +464,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -481,8 +553,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -497,8 +575,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -546,8 +630,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -562,8 +652,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "requestBody": {
@@ -630,8 +726,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -646,8 +748,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "requestBody": {
@@ -723,8 +831,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -739,8 +853,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -790,8 +910,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -806,8 +932,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "requestBody": {
@@ -961,8 +1093,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -977,8 +1115,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -1037,8 +1181,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1053,8 +1203,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -1111,8 +1267,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1127,8 +1289,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "requestBody": {
@@ -1197,8 +1365,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1213,8 +1387,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -1296,8 +1476,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1312,8 +1498,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -1372,8 +1564,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1388,8 +1586,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -1448,8 +1652,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1464,8 +1674,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -1522,8 +1738,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1538,8 +1760,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "requestBody": {
@@ -1608,8 +1836,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1624,8 +1858,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "responses": {
@@ -1684,8 +1924,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
           },
           {
             "name": "X-Recollectium-Verbosity",
@@ -1700,8 +1946,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
               "title": "X-Recollectium-Verbosity"
-            }
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
           }
         ],
         "requestBody": {

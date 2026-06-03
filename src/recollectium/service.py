@@ -5,7 +5,7 @@ from __future__ import annotations
 from http import HTTPStatus
 import json
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -71,6 +71,34 @@ from recollectium.service_contract import (
 import logging
 
 _log = logging.getLogger(__name__)
+
+_VERBOSITY_ENUM = ["compact", "verbose"]
+_VERBOSITY_QUERY_DESCRIPTION = (
+    "Optional response verbosity override. Use compact for token-sensitive "
+    "minimal payloads or verbose for full detail. Query value takes precedence "
+    "over X-Recollectium-Verbosity."
+)
+_VERBOSITY_HEADER_DESCRIPTION = (
+    "Optional response verbosity override. Use compact for token-sensitive "
+    "minimal payloads or verbose for full detail. Ignored when the verbosity "
+    "query parameter is present."
+)
+
+ResponseVerbosityQuery = Annotated[
+    str | None,
+    Query(
+        description=_VERBOSITY_QUERY_DESCRIPTION,
+        json_schema_extra={"enum": _VERBOSITY_ENUM},
+    ),
+]
+ResponseVerbosityHeader = Annotated[
+    str | None,
+    Header(
+        alias="X-Recollectium-Verbosity",
+        description=_VERBOSITY_HEADER_DESCRIPTION,
+        json_schema_extra={"enum": _VERBOSITY_ENUM},
+    ),
+]
 
 
 _BOUNDARY_ERROR_MAP: tuple[tuple[type[Exception], HTTPStatus, str], ...] = (
@@ -337,8 +365,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/health", tags=["service"])
     def health(
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         _resolve_verbosity(
             verbosity,
@@ -349,8 +377,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/version", tags=["service"])
     def version(
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         _resolve_verbosity(
             verbosity,
@@ -361,8 +389,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/capabilities", tags=["service"])
     def capabilities(
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -377,8 +405,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.post(f"{SERVICE_API_PREFIX}/memories/search_user", tags=["memories"])
     def search_user(
         body: SearchUserRequest,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -413,8 +441,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.post(f"{SERVICE_API_PREFIX}/memories/search_workspace", tags=["memories"])
     def search_workspace(
         body: SearchWorkspaceRequest,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -450,8 +478,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/embedding/status", tags=["embedding"])
     def embedding_status(
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -478,8 +506,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     def list_embedding_jobs(
         state: str | None = None,
         limit: str | None = None,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -508,8 +536,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.post(f"{SERVICE_API_PREFIX}/embedding/refresh", tags=["embedding"])
     def refresh_embeddings(
         body: EmbeddingRefreshRequest | None = None,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -543,8 +571,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.delete(f"{SERVICE_API_PREFIX}/embedding/jobs", tags=["embedding"])
     def clear_embedding_jobs(
         body: ClearEmbeddingJobsRequest | None = None,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -572,8 +600,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/embedding/jobs/{{job_id}}", tags=["embedding"])
     def get_embedding_job(
         job_id: str,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -599,8 +627,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.post(f"{SERVICE_API_PREFIX}/memories", tags=["memories"])
     def add_memory(
         body: AddMemoryRequest,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -645,8 +673,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         workspace_uid: str | None = None,
         include_archived: str | None = None,
         limit: str | None = None,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -691,8 +719,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/memories/{{memory_id}}", tags=["memories"])
     def get_memory(
         memory_id: str,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -723,8 +751,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     def update_memory(
         memory_id: str,
         body: UpdateMemoryRequest,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -761,8 +789,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     )
     def archive_memory(
         memory_id: str,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -791,8 +819,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     def list_workspaces(
         include_archived: str | None = None,
         include_aliases: str | None = None,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -829,8 +857,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/resolve", tags=["workspaces"])
     def resolve_workspace(
         uid: str,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -852,8 +880,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/aliases", tags=["workspaces"])
     def list_workspace_aliases(
         uid: str,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -876,8 +904,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     def add_workspace_alias(
         uid: str,
         body: AddWorkspaceAliasRequest,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -905,8 +933,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     )
     def remove_workspace_alias(
         alias_uid: str,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
@@ -932,8 +960,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     def rename_workspace(
         uid: str,
         body: RenameWorkspaceRequest,
-        verbosity: str | None = Query(default=None),
-        x_recollectium_verbosity: str | None = Header(default=None, alias="X-Recollectium-Verbosity"),
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
         resolved = _resolve_verbosity(
             verbosity,
