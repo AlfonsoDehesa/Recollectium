@@ -77,6 +77,18 @@ def test_list_projection_helpers_apply_compact_projection() -> None:
     ]
 
 
+def test_compact_search_reprojection_preserves_match() -> None:
+    compact_search_result = {
+        "id": "mem-1",
+        "content": "Already compact search projection.",
+        "match": 0.75,
+    }
+
+    assert (
+        project_search_result(compact_search_result, "compact") == compact_search_result
+    )
+
+
 def test_search_projection_preserves_unexpected_non_dict_search_payload() -> None:
     class NonDictSearchPayload:
         pass
