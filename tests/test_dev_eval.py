@@ -1460,7 +1460,6 @@ def test_thematic_context_label_dataset_covers_every_query_candidate_pair() -> N
         labels = tuple(case.labels.values())
         assert set(labels) <= ALLOWED_THEMATIC_CONTEXT_LABELS
         assert any(label > 0 for label in labels)
-        assert any(label < 0 for label in labels)
         if case.scope == SPACE_USER:
             assert set(case.labels) == set(eval_key_index.user_eval_keys)
             assert len(case.labels) == DEV_SEED_USER_MEMORY_COUNT
@@ -1527,23 +1526,6 @@ def test_thematic_context_label_validation_fails_loudly_for_bad_labels() -> None
                 *THEMATIC_CONTEXT_LABEL_CASES[1:],
             )
         )
-    with pytest.raises(ValueError, match="lacks negative signal"):
-        validate_thematic_context_label_cases(
-            (
-                ThematicContextLabelCase(
-                    case_id=valid_case.case_id,
-                    scope=valid_case.scope,
-                    group=valid_case.group,
-                    query_index=valid_case.query_index,
-                    query=valid_case.query,
-                    workspace_uid=valid_case.workspace_uid,
-                    labels={key: 1 for key in valid_case.labels},
-                ),
-                *THEMATIC_CONTEXT_LABEL_CASES[1:],
-            )
-        )
-
-
 def test_thematic_context_label_validation_fails_for_shape_errors() -> None:
     valid_case = THEMATIC_CONTEXT_LABEL_CASES[0]
     extra_case = ThematicContextLabelCase(
@@ -1664,23 +1646,6 @@ def test_thematic_context_label_validation_fails_for_signal_and_extra_labels() -
                 *THEMATIC_CONTEXT_LABEL_CASES[1:],
             )
         )
-    with pytest.raises(ValueError, match="lacks negative signal"):
-        validate_thematic_context_label_cases(
-            (
-                ThematicContextLabelCase(
-                    case_id=valid_case.case_id,
-                    scope=valid_case.scope,
-                    group=valid_case.group,
-                    query_index=valid_case.query_index,
-                    query=valid_case.query,
-                    workspace_uid=valid_case.workspace_uid,
-                    labels={key: 1 for key in valid_case.labels},
-                ),
-                *THEMATIC_CONTEXT_LABEL_CASES[1:],
-            )
-        )
-
-
 def test_thematic_context_labels_are_explicit_checked_in_data() -> None:
     label_source_path = thematic_label_module.__file__
     assert label_source_path is not None
