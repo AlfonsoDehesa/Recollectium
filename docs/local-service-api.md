@@ -224,6 +224,8 @@ Response example:
 
 Purpose: list implemented operation capabilities.
 
+Optional response controls: `verbosity` query parameter or `X-Recollectium-Verbosity` header (`compact` or `verbose`). Verbose responses include response verbosity metadata.
+
 Response example:
 
 ```json

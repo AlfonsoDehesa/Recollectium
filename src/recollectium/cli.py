@@ -3027,8 +3027,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="recollectium",
         description=(
-            "Recollectium Core local memory CLI. Commands print JSON on success and "
-            "structured JSON on stderr for non-argparse failures."
+            "Recollectium Core local memory CLI. Human-readable output is the "
+            "default. Use --json for structured JSON. Recollectium-controlled "
+            "failures follow the selected output format."
         ),
     )
     parser.add_argument(

@@ -136,6 +136,10 @@ def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
 def test_cli_help_documents_commands_and_flags(capsys) -> None:
     top_level_help = _run_help(["--help"], capsys)
     assert "Recollectium Core local memory CLI" in top_level_help
+    assert "Human-readable output is the default" in top_level_help
+    assert "--json for structured JSON" in top_level_help
+    assert "follow the" in top_level_help
+    assert "selected output format" in top_level_help
     assert "--version" in top_level_help
     assert "--json" in top_level_help
     assert "--human-readable" in top_level_help
