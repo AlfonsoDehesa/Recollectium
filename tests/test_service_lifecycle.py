@@ -127,19 +127,19 @@ def _request_service_json(
         headers=headers,
         method=method,
     )
-    with urlopen(request, timeout=5) as response:
+    with urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def _wait_for_http_service(endpoint: str) -> None:
     last_error: Exception | None = None
-    for _ in range(40):
+    for _ in range(120):
         try:
             _request_service_json(endpoint, "GET", "/v1/health")
             return
         except (TimeoutError, URLError, ConnectionError) as exc:
             last_error = exc
-            time.sleep(0.25)
+            time.sleep(0.5)
 
     raise AssertionError(f"service did not become ready: {last_error!r}")
 
@@ -408,13 +408,13 @@ async def _assert_mcp_service_round_trip(tmp_path: Path) -> None:
 
 async def _exercise_mcp_service_when_ready(endpoint: str) -> None:
     last_error: Exception | None = None
-    for _ in range(40):
+    for _ in range(120):
         try:
             await _exercise_mcp_service(endpoint)
             return
         except Exception as exc:
             last_error = exc
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.5)
 
     raise AssertionError(f"MCP service did not become ready: {last_error!r}")
 

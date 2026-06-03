@@ -31,6 +31,7 @@ def test_write_and_read_model_state_round_trips():
         assert result["prepared_model"] == "jinaai/jina-embeddings-v2-small-en"  # type: ignore[reportOptionalSubscript]
         assert result["dimensions"] == 512  # type: ignore[reportOptionalSubscript]
         assert result["profile"] == "builtin-fastembed-jina-v2-small-en-v1"  # type: ignore[reportOptionalSubscript]
+        assert result["model_cache_path"] is None
         assert "prepared_at" in result
 
 

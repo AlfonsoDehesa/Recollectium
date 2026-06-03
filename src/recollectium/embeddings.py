@@ -8,6 +8,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
+from pathlib import Path
 from typing import Any, ClassVar, Protocol, cast
 
 from recollectium.errors import (
@@ -28,9 +29,13 @@ class EmbeddingProvider(Protocol):
     def similarity(self, first: list[float], second: list[float]) -> float: ...
 
 
-def _fastembed_readiness_worker(result_connection: Connection, model_name: str) -> None:
+def _fastembed_readiness_worker(
+    result_connection: Connection, model_name: str, cache_dir: str | None
+) -> None:
     try:
-        BuiltinFastEmbedProvider(model_name)._ensure_ready_unbounded()
+        BuiltinFastEmbedProvider(
+            model_name, cache_dir=cache_dir
+        )._ensure_ready_unbounded()
     except Exception as exc:  # pragma: no cover - exercised through parent process
         result_connection.send(
             {
@@ -149,9 +154,14 @@ class BuiltinFastEmbedProvider:
     provider_name = "builtin-fastembed"
     version = "1"
     runtime_threads = 1
-    _shared_embedders: ClassVar[dict[tuple[str, int], Any]] = {}
+    _shared_embedders: ClassVar[dict[tuple[str, int, str | None], Any]] = {}
 
-    def __init__(self, model_name: str = DEFAULT_BUILTIN_FASTEMBED_MODEL) -> None:
+    def __init__(
+        self,
+        model_name: str = DEFAULT_BUILTIN_FASTEMBED_MODEL,
+        *,
+        cache_dir: str | Path | None = None,
+    ) -> None:
         try:
             spec = BUILTIN_FASTEMBED_MODEL_SPECS[model_name]
         except KeyError as exc:
@@ -166,6 +176,7 @@ class BuiltinFastEmbedProvider:
         self.chunk_tokens = spec.chunk_tokens
         self.chunk_overlap_tokens = spec.chunk_overlap_tokens
         self.query_prompt_policy = spec.query_prompt_policy
+        self.cache_dir = str(cache_dir) if cache_dir is not None else None
         self._embedder: Any | None = None
 
     @property
@@ -213,7 +224,7 @@ class BuiltinFastEmbedProvider:
         parent_connection, child_connection = context.Pipe(duplex=False)
         process = context.Process(
             target=_fastembed_readiness_worker,
-            args=(child_connection, self.model_name),
+            args=(child_connection, self.model_name, self.cache_dir),
         )
         process.start()
         child_connection.close()
@@ -283,7 +294,7 @@ class BuiltinFastEmbedProvider:
         if self._embedder is not None:
             return self._embedder
 
-        cache_key = (self.model_name, self.runtime_threads)
+        cache_key = (self.model_name, self.runtime_threads, self.cache_dir)
         cached_embedder = self._shared_embedders.get(cache_key)
         if cached_embedder is not None:
             self._embedder = cached_embedder
@@ -300,6 +311,7 @@ class BuiltinFastEmbedProvider:
             self._embedder = TextEmbedding(
                 model_name=self.model_name,
                 threads=self.runtime_threads,
+                cache_dir=self.cache_dir,
             )
         except Exception as exc:
             raise EmbeddingModelUnavailableError(

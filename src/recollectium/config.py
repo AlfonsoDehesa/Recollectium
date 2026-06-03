@@ -127,6 +127,11 @@ def _resolve_xdg_dirs(
     }
 
 
+def resolve_model_cache_path(cache_dir: Path) -> Path:
+    """Return the Recollectium-owned FastEmbed model cache path."""
+    return cache_dir / "models"
+
+
 def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
     """Validate a fully-merged config dict.
 
@@ -450,3 +455,8 @@ class RecollectiumConfig:
     def xdg_dirs(self) -> dict[str, Path]:
         """Resolved XDG directory paths (config, data, cache, logs, runtime)."""
         return self._xdg_dirs
+
+    @property
+    def model_cache_path(self) -> Path:
+        """Resolved Recollectium-owned model cache path."""
+        return resolve_model_cache_path(self._xdg_dirs["cache"])

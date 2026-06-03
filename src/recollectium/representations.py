@@ -126,6 +126,7 @@ def project_embedding_status(
             "provider_status",
             "embedding_profile",
             "model_status",
+            "model_cache_path",
             "embedding_jobs_status_path",
         ),
     )

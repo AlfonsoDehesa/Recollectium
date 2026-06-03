@@ -546,7 +546,8 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
         embedding_status["data"]["embedding_profile"]["provider"] == "builtin-fastembed"
     )
     assert embedding_status["data"]["provider_status"] == "configured"
-    assert embedding_status["data"]["model_status"] == "managed_by_fastembed_cache"
+    assert embedding_status["data"]["model_status"] == "managed_by_recollectium_cache"
+    assert embedding_status["data"]["model_cache_path"].endswith("recollectium/models")
     assert embedding_status["data"]["runtime"] == {
         "name": "fastembed",
         "threads": 1,
@@ -1433,6 +1434,7 @@ class TestVerbosityOverride:
             "provider_status",
             "embedding_profile",
             "model_status",
+            "model_cache_path",
             "embedding_jobs_status_path",
         }
 

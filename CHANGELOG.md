@@ -17,6 +17,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Added install and upgrade embedding maintenance so bootstrap installs and successful package upgrades prepare the configured model and refresh stale or missing embeddings inline when needed.
 - Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
 - Added product-wide response verbosity controls. CLI, API, and MCP now default to compact payloads for token efficiency, with `response_verbosity`, `--compact`/`--verbose`, API query/header controls, and MCP `verbosity` tool parameters for full-detail inspection when needed.
+- Added a Recollectium-owned FastEmbed model cache under `directories.cache` so heavy model artifacts can be reported and removed on uninstall while preserving memories by default.
 
 ### 🐛 Fixes
 
@@ -27,6 +28,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Fixed bootstrap PATH repair so malformed or empty managed path blocks are rewritten with the current uv tool bin export.
 - Suppressed uv bootstrap PATH warnings while keeping durable shell PATH edits based on the user's original terminal environment.
 - Clarified bootstrap installer PATH guidance when the current shell cannot see the installed command yet.
+- Fixed model cache status and uninstall cleanup reporting for custom embedding providers and Recollectium-owned FastEmbed cache paths.
 
 ### 🧹 Chores
 

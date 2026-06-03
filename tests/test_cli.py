@@ -27,6 +27,7 @@ from recollectium.config import (
 )
 from recollectium.cli import (
     _ReembeddingProgressReporter,
+    _builtin_fastembed_provider_from_config,
     _emit_failure_payload,
     _emit_success,
     _extract_cli_output_override,
@@ -62,8 +63,11 @@ from recollectium.core import RecollectiumCore
 class FakeEmbeddingProvider:
     """Lightweight fake embedding provider for CLI workspace tests."""
 
-    def __init__(self, model_name: str | None = None) -> None:
+    def __init__(
+        self, model_name: str | None = None, *, cache_dir: str | Path | None = None
+    ) -> None:
         self.model_name = model_name
+        self.cache_dir = str(cache_dir) if cache_dir is not None else None
         self.embedding_profile = {
             "provider": "fake",
             "model": "fake-model",
@@ -3096,6 +3100,17 @@ def test_cli_parse_config_value_plain_string(tmp_path, capsys) -> None:
     assert loaded["logging"]["level"] == "debug"
 
 
+def test_builtin_fastembed_provider_from_config_resolves_cache_dir(
+    tmp_path: Path,
+) -> None:
+    config = deepcopy(DEFAULTS)
+    config["directories"] = {"cache": str(tmp_path / "cache")}
+
+    provider = _builtin_fastembed_provider_from_config(config)
+
+    assert provider.cache_dir == str(tmp_path / "cache" / "models")
+
+
 def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
     db_path = tmp_path / "cli-embedding.db"
 
@@ -3125,7 +3140,8 @@ def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
     status_payload = json.loads(status_out)
     assert status_payload["embedding_profile"]["provider"] == "builtin-fastembed"
     assert status_payload["provider_status"] == "configured"
-    assert status_payload["model_status"] == "managed_by_fastembed_cache"
+    assert status_payload["model_status"] == "managed_by_recollectium_cache"
+    assert status_payload["model_cache_path"].endswith("recollectium/models")
     assert status_payload["runtime"] == {
         "name": "fastembed",
         "threads": 1,
@@ -4286,12 +4302,15 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     _set_xdg_home(monkeypatch, tmp_path)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
     db_path = tmp_path / "data" / "recollectium" / "recollectium.db"
+    model_cache_path = tmp_path / "cache" / "recollectium" / "models"
     metadata_path = tmp_path / "state" / "recollectium" / "install.json"
     config_path.parent.mkdir(parents=True)
     db_path.parent.mkdir(parents=True)
+    model_cache_path.mkdir(parents=True)
     metadata_path.parent.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
     db_path.write_text("preserved", encoding="utf-8")
+    (model_cache_path / "model.bin").write_text("derived", encoding="utf-8")
     metadata_path.write_text(
         json.dumps(
             {
@@ -4310,6 +4329,7 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     run_calls: list[list[str]] = []
 
     def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        assert model_cache_path.exists()
         run_calls.append(cmd)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -4322,7 +4342,14 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     assert stderr == ""
     assert payload["status"] == "uninstalled"
     assert payload["data"]["preserved"] is True
+    assert payload["data"]["memories_preserved"] is True
+    assert payload["data"]["config_preserved"] is True
+    assert payload["data"]["derived_artifacts_removed"] is True
     assert payload["data"]["paths"]["database"] == str(db_path)
+    assert payload["data"]["paths"]["model_cache"] == str(model_cache_path)
+    assert payload["data"]["model_cache"]["deleted"] == [
+        {"path": str(model_cache_path), "deleted": True}
+    ]
     assert payload["package"]["install_method"] == "bootstrap"
     assert payload["package"]["source_ref"] == "main"
     assert payload["package"]["recommended"] == "uv tool uninstall recollectium"
@@ -4331,6 +4358,7 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
     assert config_path.exists()
     assert db_path.read_text(encoding="utf-8") == "preserved"
+    assert not model_cache_path.exists()
 
 
 def test_cli_uninstall_uses_bootstrap_legacy_state_metadata_path(
@@ -5105,7 +5133,9 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
     shared_cache = tmp_path / "recollectium" / "shared-cache"
-    shared_cache.mkdir(parents=True)
+    model_cache = shared_cache / "models"
+    model_cache.mkdir(parents=True)
+    (model_cache / "model.bin").write_text("derived", encoding="utf-8")
     config_path = tmp_path / "config" / "recollectium" / "config.json"
     config_path.parent.mkdir(parents=True)
     config_data = deepcopy(DEFAULTS)
@@ -5121,11 +5151,16 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     skipped = payload["data"]["purge"]["skipped"]
     assert exit_code == 0
     assert "permanently deleted" in stderr
-    assert str(shared_cache) not in stderr
+    assert f"  {shared_cache}\n" not in stderr
+    assert str(model_cache) in stderr
     assert shared_cache.exists()
+    assert not model_cache.exists()
     assert any(
         item["path"] == str(shared_cache) and item["reason"] == "not_recollectium_owned"
         for item in skipped
+    )
+    assert any(
+        item["path"] == str(model_cache) for item in payload["data"]["purge"]["deleted"]
     )
 
 
@@ -5230,7 +5265,9 @@ def test_cli_uninstall_dry_run_without_purge_prints_instructions(
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
+    model_cache_path = tmp_path / "cache" / "recollectium" / "models"
     config_path.parent.mkdir(parents=True)
+    model_cache_path.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
 
     exit_code, stdout, stderr = _run_cli(["uninstall", "--dry-run"], capsys)
@@ -5240,7 +5277,89 @@ def test_cli_uninstall_dry_run_without_purge_prints_instructions(
     assert stderr == ""
     assert payload["status"] == "dry_run"
     assert payload["data"]["preserved"] is True
+    assert payload["data"]["derived_artifacts_removed"] is False
+    assert payload["data"]["model_cache"]["skipped"] == [
+        {"path": str(model_cache_path), "deleted": False, "reason": "dry_run"}
+    ]
     assert payload["service"]["status"] == "dry_run"
+    assert model_cache_path.exists()
+
+
+def test_cli_uninstall_removes_model_cache_inside_custom_cache_dir(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    custom_cache = tmp_path / "shared-cache"
+    model_cache_path = custom_cache / "models"
+    model_cache_path.mkdir(parents=True)
+    (custom_cache / "keep.txt").write_text("keep", encoding="utf-8")
+    (model_cache_path / "model.bin").write_text("derived", encoding="utf-8")
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_data = deepcopy(DEFAULTS)
+    config_data["directories"] = {"cache": str(custom_cache)}
+    config_path.write_text(json.dumps(config_data), encoding="utf-8")
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["data"]["model_cache"]["deleted"] == [
+        {"path": str(model_cache_path), "deleted": True}
+    ]
+    assert custom_cache.exists()
+    assert (custom_cache / "keep.txt").exists()
+    assert not model_cache_path.exists()
+
+
+def test_cli_uninstall_reports_model_cache_cleanup_failure_after_package_removal(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    model_cache_path = tmp_path / "cache" / "recollectium" / "models"
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    config_path.parent.mkdir(parents=True)
+    model_cache_path.mkdir(parents=True)
+    metadata_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "source_ref": "main"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    run_calls: list[list[str]] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        run_calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def _fail_rmtree(path: Path) -> None:
+        assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
+    monkeypatch.setattr("recollectium.cli.shutil.rmtree", _fail_rmtree)
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 1
+    assert stderr == ""
+    assert payload["status"] == "uninstalled_with_warnings"
+    assert payload["package"]["uninstall"]["status"] == "removed"
+    assert payload["data"]["derived_artifacts_removed"] is False
+    assert payload["data"]["model_cache"]["status"] == "failed"
+    assert payload["data"]["model_cache"]["skipped"] == [
+        {
+            "path": str(model_cache_path),
+            "deleted": False,
+            "reason": "cleanup_error: permission denied",
+        }
+    ]
+    assert model_cache_path.exists()
 
 
 def test_cli_uninstall_dry_run_does_not_stop_service(
