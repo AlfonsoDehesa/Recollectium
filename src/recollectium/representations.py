@@ -81,7 +81,9 @@ def project_search_result(
         return payload
     if not isinstance(payload, dict):
         return payload
-    memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else payload
+    memory = (
+        payload.get("memory") if isinstance(payload.get("memory"), dict) else payload
+    )
     if not isinstance(memory, dict):
         return payload
     compact = _compact_dict(memory, ("id", "content"))
