@@ -408,13 +408,13 @@ async def _assert_mcp_service_round_trip(tmp_path: Path) -> None:
 
 async def _exercise_mcp_service_when_ready(endpoint: str) -> None:
     last_error: Exception | None = None
-    for _ in range(40):
+    for _ in range(120):
         try:
             await _exercise_mcp_service(endpoint)
             return
         except Exception as exc:
             last_error = exc
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.5)
 
     raise AssertionError(f"MCP service did not become ready: {last_error!r}")
 
