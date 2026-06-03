@@ -86,7 +86,7 @@ class RecollectiumCore:
             else None
         )
         self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider(
-            str(configured_model)
+            str(configured_model), cache_dir=self.config.model_cache_path
         )
         development = self.config.effective_config.get("development", {})
         if (
@@ -463,7 +463,8 @@ class RecollectiumCore:
         return {
             "embedding_profile": profile,
             "provider_status": "configured",
-            "model_status": "managed_by_fastembed_cache",
+            "model_status": "managed_by_recollectium_cache",
+            "model_cache_path": str(self.config.model_cache_path),
             "runtime": {
                 "name": "fastembed",
                 "threads": runtime_threads,

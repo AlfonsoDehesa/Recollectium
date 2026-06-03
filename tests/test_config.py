@@ -26,6 +26,7 @@ from recollectium.config import (
     set_config_value,
     unset_config_value,
     validate_config_file,
+    resolve_model_cache_path,
 )
 from recollectium.errors import ValidationError
 
@@ -613,6 +614,24 @@ class TestRecollectiumConfig:
         )
         cfg = RecollectiumConfig(config_path)
         assert cfg.xdg_dirs["data"] == custom_data
+
+    def test_model_cache_path_is_under_resolved_cache_dir(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "config.json"
+        custom_cache = tmp_path / "custom-cache"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "directories": {"cache": str(custom_cache)},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = RecollectiumConfig(config_path)
+
+        assert cfg.model_cache_path == custom_cache / "models"
+        assert resolve_model_cache_path(custom_cache) == custom_cache / "models"
 
     def test_invalid_values_in_config_raise(self, tmp_path: Path) -> None:
         config_path = tmp_path / "config.json"

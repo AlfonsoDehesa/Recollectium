@@ -71,7 +71,7 @@ Common next steps:
 - Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB.
 - Managed API and MCP service lifecycle with discovery metadata for adapters.
 - Structured JSON logging with rotation.
-- Bootstrap install, package upgrade with embedding maintenance, safe uninstall, and shell completion.
+- Bootstrap install, package upgrade with embedding maintenance, safe uninstall that removes heavy derived model artifacts while preserving memories by default, and shell completion.
 
 ## Documentation
 

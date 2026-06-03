@@ -242,6 +242,33 @@ def test_default_db_path_uses_xdg_style_data_home(monkeypatch, tmp_path: Path) -
     assert core.store.db_path == tmp_path / "data" / "recollectium" / "recollectium.db"
 
 
+def test_core_default_provider_uses_recollectium_model_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+    class CapturingProvider(FakeEmbeddingProvider):
+        def __init__(
+            self, model_name: str, *, cache_dir: str | Path | None = None
+        ) -> None:
+            super().__init__()
+            self.model_name = model_name
+            self.cache_dir = str(cache_dir) if cache_dir is not None else None
+
+    monkeypatch.setattr("recollectium.core.BuiltinFastEmbedProvider", CapturingProvider)
+
+    core = RecollectiumCore(db_path=tmp_path / "cache.db")
+
+    assert isinstance(core.embedding_provider, CapturingProvider)
+    assert core.embedding_provider.cache_dir == str(
+        tmp_path / "cache" / "recollectium" / "models"
+    )
+
+
 def test_workspace_search_requires_non_empty_workspace_uid(tmp_path: Path) -> None:
     core = RecollectiumCore(
         db_path=tmp_path / "workspace-search.db",
@@ -397,7 +424,8 @@ def test_startup_reembeds_stale_memories_for_active_profile(tmp_path: Path) -> N
 
     status = restarted.active_embedding_status()
     assert status["provider_status"] == "configured"
-    assert status["model_status"] == "managed_by_fastembed_cache"
+    assert status["model_status"] == "managed_by_recollectium_cache"
+    assert status["model_cache_path"].endswith("recollectium/models")
     assert status["runtime"] == {"name": "fastembed", "threads": 1, "parallel": None}
     assert status["startup_reembedding_job_id"] == jobs[0]["id"]
     assert status["startup_reembedding_status_path"].endswith(jobs[0]["id"])

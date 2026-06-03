@@ -291,11 +291,14 @@ def test_builtin_fastembed_get_embedder_import_load_and_cache_failures(
             return [[1.0] + [0.0] * 511 for _text in texts]
 
     setattr(fastembed_module, "TextEmbedding", WorkingTextEmbedding)
-    provider = BuiltinFastEmbedProvider()
+    provider = BuiltinFastEmbedProvider(cache_dir="/tmp/recollectium-models")
     embedder = provider._get_embedder()
+    assert embedder.kwargs["cache_dir"] == "/tmp/recollectium-models"
     assert provider._get_embedder() is embedder
-    other_provider = BuiltinFastEmbedProvider()
+    other_provider = BuiltinFastEmbedProvider(cache_dir="/tmp/recollectium-models")
     assert other_provider._get_embedder() is embedder
+    separate_provider = BuiltinFastEmbedProvider(cache_dir="/tmp/other-models")
+    assert separate_provider._get_embedder() is not embedder
     BuiltinFastEmbedProvider._shared_embedders.clear()
 
 
@@ -340,8 +343,9 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
     class ReadyProvider:
         configured_models: list[str] = []
 
-        def __init__(self, model_name: str) -> None:
+        def __init__(self, model_name: str, *, cache_dir: str | None = None) -> None:
             self.configured_models.append(model_name)
+            self.cache_dir = cache_dir
 
         def _ensure_ready_unbounded(self) -> None:
             pass
@@ -350,14 +354,17 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
         "recollectium.embeddings.BuiltinFastEmbedProvider", ReadyProvider
     )
     success_connection = FakeConnection()
-    _fastembed_readiness_worker(cast(Any, success_connection), "legacy-model")
+    _fastembed_readiness_worker(
+        cast(Any, success_connection), "legacy-model", "/tmp/models"
+    )
     assert ReadyProvider.configured_models == ["legacy-model"]
     assert success_connection.messages == [{"ok": True}]
     assert success_connection.closed is True
 
     class FailingProvider:
-        def __init__(self, model_name: str) -> None:
+        def __init__(self, model_name: str, *, cache_dir: str | None = None) -> None:
             self.model_name = model_name
+            self.cache_dir = cache_dir
 
         def _ensure_ready_unbounded(self) -> None:
             raise EmbeddingModelUnavailableError(f"missing model {self.model_name}")
@@ -366,7 +373,7 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
         "recollectium.embeddings.BuiltinFastEmbedProvider", FailingProvider
     )
     failure_connection = FakeConnection()
-    _fastembed_readiness_worker(cast(Any, failure_connection), "legacy-model")
+    _fastembed_readiness_worker(cast(Any, failure_connection), "legacy-model", None)
     assert failure_connection.messages == [
         {
             "ok": False,
@@ -442,7 +449,7 @@ class FakeSpawnContext:
 
     def Process(self, *, target: object, args: tuple[object, ...]) -> FakeProcess:
         assert target is _fastembed_readiness_worker
-        assert args == (self.child, "BAAI/bge-base-en-v1.5")
+        assert args == (self.child, "BAAI/bge-base-en-v1.5", None)
         return self.process
 
 
