@@ -164,6 +164,24 @@ def test_ensure_model_ready_prepares_when_cache_path_mismatch(tmp_path: Path):
     assert state["model_cache_path"] is None
 
 
+def test_ensure_model_ready_uses_config_cache_for_internally_managed_provider(
+    tmp_path: Path,
+):
+    """Internally managed providers use Recollectium's configured model cache."""
+    state_dir = tmp_path / "state"
+    provider = TrackedEmbeddingProvider()
+    config = _make_config(tmp_path)
+    core = RecollectiumCore(db_path=tmp_path / "test.db", config_path=config)
+    core.embedding_provider = provider
+
+    core._ensure_model_ready(state_dir=state_dir)
+
+    assert len(provider.ensure_ready_calls) == 1
+    state = read_model_state(state_dir)
+    assert state is not None
+    assert state["model_cache_path"] == str(core.config.model_cache_path)
+
+
 def test_ensure_model_ready_uses_provider_cache_dir_in_state(tmp_path: Path):
     """Provider cache_dir participates in model readiness state comparison."""
     state_dir = tmp_path / "state"

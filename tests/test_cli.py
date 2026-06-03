@@ -27,6 +27,7 @@ from recollectium.config import (
 )
 from recollectium.cli import (
     _ReembeddingProgressReporter,
+    _builtin_fastembed_provider_from_config,
     _emit_failure_payload,
     _emit_success,
     _extract_cli_output_override,
@@ -3097,6 +3098,17 @@ def test_cli_parse_config_value_plain_string(tmp_path, capsys) -> None:
     assert exit_code == 0
     loaded = json.loads(config_path.read_text())
     assert loaded["logging"]["level"] == "debug"
+
+
+def test_builtin_fastembed_provider_from_config_resolves_cache_dir(
+    tmp_path: Path,
+) -> None:
+    config = deepcopy(DEFAULTS)
+    config["directories"] = {"cache": str(tmp_path / "cache")}
+
+    provider = _builtin_fastembed_provider_from_config(config)
+
+    assert provider.cache_dir == str(tmp_path / "cache" / "models")
 
 
 def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
