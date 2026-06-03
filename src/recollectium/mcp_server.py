@@ -4,11 +4,44 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from recollectium.config import RESPONSE_VERBOSITY_COMPACT
 from recollectium.core import RecollectiumCore
 from recollectium.errors import RecollectiumError
+from recollectium.representations import (
+    OPERATION_EMBEDDING_JOBS_CLEAR,
+    OPERATION_EMBEDDING_JOBS_GET,
+    OPERATION_EMBEDDING_JOBS_LIST,
+    OPERATION_EMBEDDING_REFRESH,
+    OPERATION_EMBEDDING_STATUS,
+    OPERATION_MEMORIES_ADD,
+    OPERATION_MEMORIES_ARCHIVE,
+    OPERATION_MEMORIES_GET,
+    OPERATION_MEMORIES_LIST,
+    OPERATION_MEMORIES_SEARCH_USER,
+    OPERATION_MEMORIES_SEARCH_WORKSPACE,
+    OPERATION_MEMORIES_UPDATE,
+    OPERATION_WORKSPACES_ALIASES_ADD,
+    OPERATION_WORKSPACES_ALIASES_LIST,
+    OPERATION_WORKSPACES_ALIASES_REMOVE,
+    OPERATION_WORKSPACES_LIST,
+    OPERATION_WORKSPACES_RENAME,
+    OPERATION_WORKSPACES_RESOLVE,
+    project_payload,
+    validate_response_verbosity,
+)
+from recollectium.service_contract import (
+    serialize_embedding_job,
+    serialize_embedding_jobs,
+    serialize_embedding_operation_result,
+    serialize_embedding_status,
+    serialize_memories,
+    serialize_memory,
+    serialize_search_results,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -18,22 +51,49 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     mcp = FastMCP("Recollectium")
 
+    def _json(payload: Any) -> str:
+        return json.dumps(payload, sort_keys=True)
+
+    def _error(message: str) -> str:
+        return _json({"error": message})
+
+    def _resolve_verbosity(verbosity: str | None) -> str:
+        config_default = None
+        config = getattr(core, "config", None)
+        effective_config = getattr(config, "effective_config", None)
+        if isinstance(effective_config, dict):
+            value = effective_config.get("response_verbosity")
+            if isinstance(value, str):
+                config_default = value
+        selected = verbosity if verbosity is not None else config_default
+        if selected is None:
+            selected = RESPONSE_VERBOSITY_COMPACT
+        return validate_response_verbosity(selected).value
+
     @mcp.tool()
     def search_user_memory(
         query: str,
         type: str | None = None,
         limit: int = 10,
         include_archived: bool = False,
+        verbosity: str | None = None,
     ) -> str:
         """Search user-space memories by semantic similarity to the query."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             results = core.search_user_memories(
                 query=query,
                 type=type,
                 limit=limit,
                 include_archived=include_archived,
             )
-            return json.dumps([r.to_dict() for r in results], sort_keys=True)
+            return _json(
+                serialize_search_results(
+                    results,
+                    verbosity=resolved,
+                    operation=OPERATION_MEMORIES_SEARCH_USER,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -43,7 +103,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
     def search_workspace_memory(
@@ -52,9 +112,11 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         type: str | None = None,
         limit: int = 10,
         include_archived: bool = False,
+        verbosity: str | None = None,
     ) -> str:
         """Search workspace memories by semantic similarity to the query."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             results = core.search_workspace_memories(
                 query=query,
                 workspace_uid=workspace_uid,
@@ -62,7 +124,13 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 limit=limit,
                 include_archived=include_archived,
             )
-            return json.dumps([r.to_dict() for r in results], sort_keys=True)
+            return _json(
+                serialize_search_results(
+                    results,
+                    verbosity=resolved,
+                    operation=OPERATION_MEMORIES_SEARCH_WORKSPACE,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -72,7 +140,18 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
+
+    def _parse_metadata(metadata: str | None) -> dict[str, object] | None | str:
+        if metadata is None:
+            return None
+        try:
+            parsed_metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            return "metadata must be valid JSON"
+        if not isinstance(parsed_metadata, dict):
+            return "metadata must be a JSON object"
+        return parsed_metadata
 
     @mcp.tool()
     def add_memory(
@@ -84,21 +163,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         source: str | None = None,
         confidence: float | None = None,
         sensitivity: str | None = None,
+        verbosity: str | None = None,
     ) -> str:
         """Add a new memory. Returns the created memory as JSON."""
         try:
-            parsed_metadata: dict[str, object] | None = None
-            if metadata is not None:
-                try:
-                    parsed_metadata = json.loads(metadata)
-                except json.JSONDecodeError:
-                    return json.dumps(
-                        {"error": "metadata must be valid JSON"}, sort_keys=True
-                    )
-                if not isinstance(parsed_metadata, dict):
-                    return json.dumps(
-                        {"error": "metadata must be a JSON object"}, sort_keys=True
-                    )
+            resolved = _resolve_verbosity(verbosity)
+            parsed_metadata = _parse_metadata(metadata)
+            if isinstance(parsed_metadata, str):
+                return _error(parsed_metadata)
 
             memory = core.add_memory(
                 space=space,
@@ -110,28 +182,41 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 confidence=confidence,
                 sensitivity=sensitivity,
             )
-            return json.dumps(memory.to_dict(), sort_keys=True)
+            return _json(
+                serialize_memory(
+                    memory,
+                    verbosity=resolved,
+                    operation=OPERATION_MEMORIES_ADD,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
                 "add_memory",
                 extra={"event": "mcp.add_memory_failed", "context": {"error": str(e)}},
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def get_memory(id: str) -> str:
+    def get_memory(id: str, verbosity: str | None = None) -> str:
         """Get a single memory by ID. Returns the memory as JSON."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             memory = core.get_memory(id)
-            return json.dumps(memory.to_dict(), sort_keys=True)
+            return _json(
+                serialize_memory(
+                    memory,
+                    verbosity=resolved,
+                    operation=OPERATION_MEMORIES_GET,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
                 "get_memory",
                 extra={"event": "mcp.get_memory_failed", "context": {"error": str(e)}},
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
     def update_memory(
@@ -142,21 +227,14 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         source: str | None = None,
         confidence: float | None = None,
         sensitivity: str | None = None,
+        verbosity: str | None = None,
     ) -> str:
         """Update an existing memory. Returns the updated memory as JSON."""
         try:
-            parsed_metadata: dict[str, object] | None = None
-            if metadata is not None:
-                try:
-                    parsed_metadata = json.loads(metadata)
-                except json.JSONDecodeError:
-                    return json.dumps(
-                        {"error": "metadata must be valid JSON"}, sort_keys=True
-                    )
-                if not isinstance(parsed_metadata, dict):
-                    return json.dumps(
-                        {"error": "metadata must be a JSON object"}, sort_keys=True
-                    )
+            resolved = _resolve_verbosity(verbosity)
+            parsed_metadata = _parse_metadata(metadata)
+            if isinstance(parsed_metadata, str):
+                return _error(parsed_metadata)
 
             memory = core.update_memory(
                 id,
@@ -167,7 +245,13 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 confidence=confidence,
                 sensitivity=sensitivity,
             )
-            return json.dumps(memory.to_dict(), sort_keys=True)
+            return _json(
+                serialize_memory(
+                    memory,
+                    verbosity=resolved,
+                    operation=OPERATION_MEMORIES_UPDATE,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -177,14 +261,21 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def archive_memory(id: str) -> str:
+    def archive_memory(id: str, verbosity: str | None = None) -> str:
         """Archive a memory. Returns the archived memory as JSON."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             memory = core.archive_memory(id)
-            return json.dumps(memory.to_dict(), sort_keys=True)
+            return _json(
+                serialize_memory(
+                    memory,
+                    verbosity=resolved,
+                    operation=OPERATION_MEMORIES_ARCHIVE,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -194,7 +285,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
     def list_memories(
@@ -204,9 +295,11 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         workspace_uid: str | None = None,
         include_archived: bool = False,
         limit: int | None = None,
+        verbosity: str | None = None,
     ) -> str:
         """List memories, optionally filtered by space, type, status, workspace UID, and limit."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             results = core.list_memories(
                 space=space,
                 type=type,
@@ -215,7 +308,13 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 include_archived=include_archived,
                 limit=limit,
             )
-            return json.dumps([r.to_dict() for r in results], sort_keys=True)
+            return _json(
+                serialize_memories(
+                    results,
+                    verbosity=resolved,
+                    operation=OPERATION_MEMORIES_LIST,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -225,18 +324,23 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
     def list_workspaces(
-        include_archived: bool = False, include_aliases: bool = False
+        include_archived: bool = False,
+        include_aliases: bool = False,
+        verbosity: str | None = None,
     ) -> str:
         """List known workspace UIDs, optionally with aliases."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             uids = core.list_workspaces(
                 include_archived=include_archived, include_aliases=include_aliases
             )
-            return json.dumps(uids, sort_keys=True)
+            return _json(
+                project_payload(uids, verbosity=resolved, operation=OPERATION_WORKSPACES_LIST)
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -246,13 +350,20 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def resolve_workspace(uid: str) -> str:
+    def resolve_workspace(uid: str, verbosity: str | None = None) -> str:
         """Resolve a workspace UID candidate to its canonical UID."""
         try:
-            return json.dumps(core.resolve_workspace(uid), sort_keys=True)
+            resolved = _resolve_verbosity(verbosity)
+            return _json(
+                project_payload(
+                    core.resolve_workspace(uid),
+                    verbosity=resolved,
+                    operation=OPERATION_WORKSPACES_RESOLVE,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -262,20 +373,30 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
     def add_workspace_alias(
-        canonical_uid: str, alias_uid: str, migrate_existing: bool = False
+        canonical_uid: str,
+        alias_uid: str,
+        migrate_existing: bool = False,
+        verbosity: str | None = None,
     ) -> str:
         """Create an alias for a canonical workspace UID."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             result = core.add_workspace_alias(
                 canonical_uid=canonical_uid,
                 alias_uid=alias_uid,
                 migrate_existing=migrate_existing,
             )
-            return json.dumps(result, sort_keys=True)
+            return _json(
+                project_payload(
+                    result,
+                    verbosity=resolved,
+                    operation=OPERATION_WORKSPACES_ALIASES_ADD,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -285,14 +406,24 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def list_workspace_aliases(canonical_uid: str | None = None) -> str:
+    def list_workspace_aliases(
+        canonical_uid: str | None = None,
+        verbosity: str | None = None,
+    ) -> str:
         """List workspace alias mappings, optionally filtered by canonical UID."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             aliases = core.list_workspace_aliases(canonical_uid=canonical_uid)
-            return json.dumps(aliases, sort_keys=True)
+            return _json(
+                project_payload(
+                    aliases,
+                    verbosity=resolved,
+                    operation=OPERATION_WORKSPACES_ALIASES_LIST,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -302,14 +433,24 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def remove_workspace_alias(alias_uid: str) -> str:
+    def remove_workspace_alias(
+        alias_uid: str,
+        verbosity: str | None = None,
+    ) -> str:
         """Remove a workspace alias mapping."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             alias = core.remove_workspace_alias(alias_uid)
-            return json.dumps(alias, sort_keys=True)
+            return _json(
+                project_payload(
+                    alias,
+                    verbosity=resolved,
+                    operation=OPERATION_WORKSPACES_ALIASES_REMOVE,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -319,14 +460,25 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def rename_workspace(old_uid: str, new_uid: str) -> str:
+    def rename_workspace(
+        old_uid: str,
+        new_uid: str,
+        verbosity: str | None = None,
+    ) -> str:
         """Rename a workspace. Migrates all workspace memories from old_uid to new_uid."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             result = core.rename_workspace(old_uid=old_uid, new_uid=new_uid)
-            return json.dumps(result, sort_keys=True)
+            return _json(
+                project_payload(
+                    result,
+                    verbosity=resolved,
+                    operation=OPERATION_WORKSPACES_RENAME,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -336,14 +488,21 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def embedding_status() -> str:
+    def embedding_status(verbosity: str | None = None) -> str:
         """Get active local FastEmbed profile and startup job status."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             status = core.active_embedding_status()
-            return json.dumps(status, sort_keys=True)
+            return _json(
+                serialize_embedding_status(
+                    status,
+                    verbosity=resolved,
+                    operation=OPERATION_EMBEDDING_STATUS,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -353,17 +512,25 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
     def embedding_jobs(
         state: str | None = None,
         limit: int | None = None,
+        verbosity: str | None = None,
     ) -> str:
         """List embedding jobs, optionally filtered by state."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             jobs = core.list_embedding_jobs(state=state, limit=limit)
-            return json.dumps(jobs, sort_keys=True)
+            return _json(
+                serialize_embedding_jobs(
+                    jobs,
+                    verbosity=resolved,
+                    operation=OPERATION_EMBEDDING_JOBS_LIST,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -373,22 +540,30 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
     def refresh_embeddings(
         space: str | None = None,
         workspace_uid: str | None = None,
         include_archived: bool = False,
+        verbosity: str | None = None,
     ) -> str:
         """Force stale embedding refresh inline and return the completed job summary."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             result = core.refresh_stale_embeddings(
                 space=space,
                 workspace_uid=workspace_uid,
                 include_archived=include_archived,
             )
-            return json.dumps(result, sort_keys=True)
+            return _json(
+                serialize_embedding_operation_result(
+                    result,
+                    verbosity=resolved,
+                    operation=OPERATION_EMBEDDING_REFRESH,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -398,14 +573,24 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def clear_embedding_jobs(states: list[str] | None = None) -> str:
+    def clear_embedding_jobs(
+        states: list[str] | None = None,
+        verbosity: str | None = None,
+    ) -> str:
         """Delete embedding job audit records without deleting memories."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             result = core.clear_embedding_jobs(states=states)
-            return json.dumps(result, sort_keys=True)
+            return _json(
+                serialize_embedding_operation_result(
+                    result,
+                    verbosity=resolved,
+                    operation=OPERATION_EMBEDDING_JOBS_CLEAR,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -415,14 +600,21 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     @mcp.tool()
-    def get_embedding_job(job_id: str) -> str:
+    def get_embedding_job(job_id: str, verbosity: str | None = None) -> str:
         """Get a single embedding job by ID."""
         try:
+            resolved = _resolve_verbosity(verbosity)
             job = core.get_embedding_job(job_id)
-            return json.dumps(job, sort_keys=True)
+            return _json(
+                serialize_embedding_job(
+                    job,
+                    verbosity=resolved,
+                    operation=OPERATION_EMBEDDING_JOBS_GET,
+                )
+            )
         except RecollectiumError as e:
             _log.error(
                 "MCP tool %s failed",
@@ -432,6 +624,6 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return json.dumps({"error": str(e)}, sort_keys=True)
+            return _error(str(e))
 
     return mcp
