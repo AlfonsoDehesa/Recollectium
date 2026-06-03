@@ -184,11 +184,14 @@ def test_embedding_serializers_project_with_operation_and_verbosity() -> None:
         "model_status": {"ready": True},
         "embedding_jobs_status_path": "/tmp/jobs.json",
     }
-    assert serialize_embedding_status(
-        status,
-        verbosity="verbose",
-        operation=OPERATION_EMBEDDING_STATUS,
-    ) is status
+    assert (
+        serialize_embedding_status(
+            status,
+            verbosity="verbose",
+            operation=OPERATION_EMBEDDING_STATUS,
+        )
+        is status
+    )
 
     job = {
         "id": "job-1",
@@ -207,12 +210,13 @@ def test_embedding_serializers_project_with_operation_and_verbosity() -> None:
         "succeeded": 2,
         "failed": 0,
     }
-    assert serialize_embedding_job(
-        job, operation=OPERATION_EMBEDDING_JOBS_GET
-    ) == compact_job
-    assert serialize_embedding_jobs(
-        [job], operation=OPERATION_EMBEDDING_JOBS_LIST
-    ) == [compact_job]
+    assert (
+        serialize_embedding_job(job, operation=OPERATION_EMBEDDING_JOBS_GET)
+        == compact_job
+    )
+    assert serialize_embedding_jobs([job], operation=OPERATION_EMBEDDING_JOBS_LIST) == [
+        compact_job
+    ]
 
 
 def test_success_payload_wraps_data_without_mutation() -> None:
@@ -1210,7 +1214,11 @@ def _request_verbosity(
 ) -> tuple[int, dict[str, Any]]:
     """Make a request with optional verbosity query param and header."""
     if query_verbosity is not None:
-        path = f"{path}?verbosity={query_verbosity}" if "?" not in path else f"{path}&verbosity={query_verbosity}"
+        path = (
+            f"{path}?verbosity={query_verbosity}"
+            if "?" not in path
+            else f"{path}&verbosity={query_verbosity}"
+        )
     headers: dict[str, str] = {}
     if header_verbosity is not None:
         headers["X-Recollectium-Verbosity"] = header_verbosity
@@ -1221,9 +1229,7 @@ def _request_verbosity(
 class TestVerbosityOverride:
     """Grouped verbosity override tests for discoverability."""
 
-    def test_invalid_verbosity_returns_validation_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_invalid_verbosity_returns_validation_error(self, tmp_path: Path) -> None:
         """Invalid verbosity values return validation_error JSON."""
         core = RecollectiumCore(db_path=tmp_path / "verbosity-invalid.db")
         client = _client(core)
@@ -1279,31 +1285,32 @@ class TestVerbosityOverride:
         """Without verbosity override, memory endpoints return compact payloads."""
         core = RecollectiumCore(db_path=tmp_path / "verbosity-default.db")
         core.add_memory(
-            space="user", type="fact", content="Default verbosity test",
-            metadata={"source": "test"}, confidence=0.95,
+            space="user",
+            type="fact",
+            content="Default verbosity test",
+            metadata={"source": "test"},
+            confidence=0.95,
         )
         client = _client(core)
 
         # List memories defaults to compact
-        status, payload = _request_verbosity(
-            client, "GET", "/v1/memories"
-        )
+        status, payload = _request_verbosity(client, "GET", "/v1/memories")
         assert status == 200
         mem = payload["data"][0]
         assert set(mem.keys()) == {"id", "content", "type", "space"}
 
         # Get single memory defaults to compact
         mem_id = mem["id"]
-        status, payload = _request_verbosity(
-            client, "GET", f"/v1/memories/{mem_id}"
-        )
+        status, payload = _request_verbosity(client, "GET", f"/v1/memories/{mem_id}")
         assert status == 200
         assert set(payload["data"].keys()) == {"id", "content", "type", "space"}
 
         # Search defaults to compact
         status, payload = _request_verbosity(
-            client, "POST", "/v1/memories/search_user",
-            body={"query": "Default verbosity test"}
+            client,
+            "POST",
+            "/v1/memories/search_user",
+            body={"query": "Default verbosity test"},
         )
         assert status == 200
         sr = payload["data"][0]
@@ -1313,8 +1320,11 @@ class TestVerbosityOverride:
         """Verbose query param returns full memory and search payloads."""
         core = RecollectiumCore(db_path=tmp_path / "verbosity-verbose.db")
         core.add_memory(
-            space="user", type="fact", content="Full payload test",
-            metadata={"source": "verbose-test"}, confidence=0.85,
+            space="user",
+            type="fact",
+            content="Full payload test",
+            metadata={"source": "verbose-test"},
+            confidence=0.85,
         )
         client = _client(core)
 
@@ -1340,8 +1350,11 @@ class TestVerbosityOverride:
 
         # Search verbose
         status, payload = _request_verbosity(
-            client, "POST", "/v1/memories/search_user",
-            body={"query": "Full payload test"}, query_verbosity="verbose"
+            client,
+            "POST",
+            "/v1/memories/search_user",
+            body={"query": "Full payload test"},
+            query_verbosity="verbose",
         )
         assert status == 200
         sr = payload["data"][0]
@@ -1352,9 +1365,7 @@ class TestVerbosityOverride:
     def test_header_verbosity_override(self, tmp_path: Path) -> None:
         """Header X-Recollectium-Verbosity overrides config default."""
         core = RecollectiumCore(db_path=tmp_path / "verbosity-header.db")
-        core.add_memory(
-            space="user", type="fact", content="Header override test"
-        )
+        core.add_memory(space="user", type="fact", content="Header override test")
         client = _client(core)
 
         # Header verbose
@@ -1378,15 +1389,20 @@ class TestVerbosityOverride:
         """Query verbosity takes precedence over header."""
         core = RecollectiumCore(db_path=tmp_path / "verbosity-precedence.db")
         core.add_memory(
-            space="user", type="fact", content="Precedence test",
+            space="user",
+            type="fact",
+            content="Precedence test",
             metadata={"key": "val"},
         )
         client = _client(core)
 
         # Query says verbose, header says compact → verbose wins
         status, payload = _request_verbosity(
-            client, "GET", "/v1/memories",
-            query_verbosity="verbose", header_verbosity="compact"
+            client,
+            "GET",
+            "/v1/memories",
+            query_verbosity="verbose",
+            header_verbosity="compact",
         )
         assert status == 200
         mem = payload["data"][0]
@@ -1394,8 +1410,11 @@ class TestVerbosityOverride:
 
         # Query says compact, header says verbose → compact wins
         status, payload = _request_verbosity(
-            client, "GET", "/v1/memories",
-            query_verbosity="compact", header_verbosity="verbose"
+            client,
+            "GET",
+            "/v1/memories",
+            query_verbosity="compact",
+            header_verbosity="verbose",
         )
         assert status == 200
         mem = payload["data"][0]
@@ -1407,14 +1426,14 @@ class TestVerbosityOverride:
         client = _client(core)
 
         # Default compact
-        status, payload = _request_verbosity(
-            client, "GET", "/v1/embedding/status"
-        )
+        status, payload = _request_verbosity(client, "GET", "/v1/embedding/status")
         assert status == 200
         data = payload["data"]
         assert set(data.keys()) == {
-            "provider_status", "embedding_profile",
-            "model_status", "embedding_jobs_status_path",
+            "provider_status",
+            "embedding_profile",
+            "model_status",
+            "embedding_jobs_status_path",
         }
 
         # Verbose
@@ -1430,15 +1449,12 @@ class TestVerbosityOverride:
         """Workspace endpoints accept verbosity override."""
         core = RecollectiumCore(db_path=tmp_path / "verbosity-ws.db")
         core.add_memory(
-            space="workspace", type="fact", content="ws-test",
-            workspace_uid="project-z"
+            space="workspace", type="fact", content="ws-test", workspace_uid="project-z"
         )
         client = _client(core)
 
         # List workspaces - compact (default)
-        status, payload = _request_verbosity(
-            client, "GET", "/v1/workspaces"
-        )
+        status, payload = _request_verbosity(client, "GET", "/v1/workspaces")
         assert status == 200
         assert payload["data"] == ["project-z"]
 
@@ -1451,8 +1467,10 @@ class TestVerbosityOverride:
 
         # Resolve workspace - verbose
         status, payload = _request_verbosity(
-            client, "GET", "/v1/workspaces/resolve?uid=project-z",
-            query_verbosity="verbose"
+            client,
+            "GET",
+            "/v1/workspaces/resolve?uid=project-z",
+            query_verbosity="verbose",
         )
         assert status == 200
         assert payload["data"]["canonical_uid"] == "project-z"
@@ -1465,9 +1483,7 @@ class TestVerbosityOverride:
         client = _client(core)
 
         # Default (compact) does not include verbosity metadata
-        status, payload = _request_verbosity(
-            client, "GET", "/v1/capabilities"
-        )
+        status, payload = _request_verbosity(client, "GET", "/v1/capabilities")
         assert status == 200
         assert "response_verbosity" not in payload["data"]
 
@@ -1485,8 +1501,10 @@ class TestVerbosityOverride:
 
         # Default compact mutation
         status, payload = _request_verbosity(
-            client, "POST", "/v1/memories",
-            body={"space": "user", "type": "fact", "content": "Mutation test"}
+            client,
+            "POST",
+            "/v1/memories",
+            body={"space": "user", "type": "fact", "content": "Mutation test"},
         )
         assert status == 200
         data = payload["data"]
@@ -1495,9 +1513,11 @@ class TestVerbosityOverride:
 
         # Verbose mutation
         status, payload = _request_verbosity(
-            client, "POST", "/v1/memories",
+            client,
+            "POST",
+            "/v1/memories",
             body={"space": "user", "type": "fact", "content": "Mutation verbose"},
-            query_verbosity="verbose"
+            query_verbosity="verbose",
         )
         assert status == 200
         data = payload["data"]
@@ -1507,9 +1527,7 @@ class TestVerbosityOverride:
     def test_archive_memory_compact_projection(self, tmp_path: Path) -> None:
         """Archive memory returns compact mutation shape by default."""
         core = RecollectiumCore(db_path=tmp_path / "verbosity-archive.db")
-        mem = core.add_memory(
-            space="user", type="fact", content="Archive me"
-        )
+        mem = core.add_memory(space="user", type="fact", content="Archive me")
         client = _client(core)
 
         status, payload = _request_verbosity(

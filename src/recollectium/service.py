@@ -851,7 +851,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(
-            project_payload(uids, verbosity=resolved, operation=OPERATION_WORKSPACES_LIST)
+            project_payload(
+                uids, verbosity=resolved, operation=OPERATION_WORKSPACES_LIST
+            )
         )
 
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/resolve", tags=["workspaces"])
@@ -874,7 +876,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(
-            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_RESOLVE)
+            project_payload(
+                result, verbosity=resolved, operation=OPERATION_WORKSPACES_RESOLVE
+            )
         )
 
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/aliases", tags=["workspaces"])
@@ -897,7 +901,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(
-            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_LIST)
+            project_payload(
+                result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_LIST
+            )
         )
 
     @app.post(f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/aliases", tags=["workspaces"])
@@ -925,7 +931,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(
-            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_ADD)
+            project_payload(
+                result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_ADD
+            )
         )
 
     @app.delete(
@@ -950,7 +958,11 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(
-            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_REMOVE)
+            project_payload(
+                result,
+                verbosity=resolved,
+                operation=OPERATION_WORKSPACES_ALIASES_REMOVE,
+            )
         )
 
     @app.post(
@@ -981,7 +993,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             },
         )
         return success_payload(
-            project_payload(result, verbosity=resolved, operation=OPERATION_WORKSPACES_RENAME)
+            project_payload(
+                result, verbosity=resolved, operation=OPERATION_WORKSPACES_RENAME
+            )
         )
 
     return app

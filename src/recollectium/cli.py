@@ -655,7 +655,10 @@ def _emit_success(
 ) -> None:
     payload = _to_payload(payload)
     verbosity = response_verbosity or _CURRENT_RESPONSE_VERBOSITY
-    if output_format != CLI_OUTPUT_HUMAN_READABLE or verbosity == RESPONSE_VERBOSITY_COMPACT:
+    if (
+        output_format != CLI_OUTPUT_HUMAN_READABLE
+        or verbosity == RESPONSE_VERBOSITY_COMPACT
+    ):
         payload = project_payload(
             payload,
             verbosity=verbosity,

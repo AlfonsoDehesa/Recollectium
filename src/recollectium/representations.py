@@ -198,10 +198,10 @@ def project_payload(
         OPERATION_MEMORIES_SEARCH_WORKSPACE,
     }:
         return project_search_result(data, selected)
-    if (
-        operation in {OPERATION_MEMORIES_LIST, OPERATION_MEMORIES_GET}
-        or _is_memory_payload(data)
-    ):
+    if operation in {
+        OPERATION_MEMORIES_LIST,
+        OPERATION_MEMORIES_GET,
+    } or _is_memory_payload(data):
         return project_memory(data, selected)
     if operation == OPERATION_EMBEDDING_STATUS:
         return project_embedding_status(data, selected)

@@ -132,9 +132,7 @@ def test_mcp_tool_mutations_compact(tmp_path: Path) -> None:
     mcp = create_mcp_server(core)
 
     add_fn = mcp._tool_manager._tools["add_memory"].fn
-    added = json.loads(
-        add_fn(space="user", type="fact", content="compact mutation")
-    )
+    added = json.loads(add_fn(space="user", type="fact", content="compact mutation"))
     assert set(added) == {"id", "status"}
     assert added["status"] == "saved"
 

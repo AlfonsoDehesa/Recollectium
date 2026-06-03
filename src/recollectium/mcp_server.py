@@ -350,7 +350,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 include_archived=include_archived, include_aliases=include_aliases
             )
             return _json(
-                project_payload(uids, verbosity=resolved, operation=OPERATION_WORKSPACES_LIST)
+                project_payload(
+                    uids, verbosity=resolved, operation=OPERATION_WORKSPACES_LIST
+                )
             )
         except RecollectiumError as e:
             _log.error(

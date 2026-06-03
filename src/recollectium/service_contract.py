@@ -112,7 +112,10 @@ def serialize_search_results(
 
 
 def serialize_embedding_status(
-    status: dict[str, Any], *, verbosity: str | None = None, operation: str | None = None
+    status: dict[str, Any],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
 ) -> dict[str, Any]:
     if verbosity is None and operation is None:
         return status
@@ -120,7 +123,10 @@ def serialize_embedding_status(
 
 
 def serialize_embedding_operation_result(
-    result: dict[str, Any], *, verbosity: str | None = None, operation: str | None = None
+    result: dict[str, Any],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
 ) -> dict[str, Any]:
     """Serialize an embedding operation result such as status, refresh, or clear."""
     if verbosity is None and operation is None:
