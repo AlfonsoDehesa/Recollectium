@@ -40,6 +40,24 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
     assert set(tools.keys()) == expected
 
 
+def test_mcp_tool_verbosity_schema_is_discoverable(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    for tool in mcp._tool_manager._tools.values():
+        properties = tool.parameters["properties"]
+        verbosity_schema = properties["verbosity"]
+        assert verbosity_schema["default"] is None
+        assert "compact" in verbosity_schema["description"]
+        assert "verbose" in verbosity_schema["description"]
+        assert {"compact", "verbose"} in [
+            set(option["enum"])
+            for option in verbosity_schema["anyOf"]
+            if "enum" in option
+        ]
+
+
 def test_mcp_tool_add_memory_round_trip(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)

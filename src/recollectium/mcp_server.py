@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT
 from recollectium.core import RecollectiumCore
@@ -45,6 +46,16 @@ from recollectium.service_contract import (
 
 _log = logging.getLogger(__name__)
 
+ResponseVerbosityArg = Annotated[
+    Literal["compact", "verbose"] | None,
+    Field(
+        description=(
+            "Optional response verbosity. Use 'compact' for token-sensitive, "
+            "minimal JSON payloads or 'verbose' for full detail."
+        ),
+    ),
+]
+
 
 def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     """Create a FastMCP server with Recollectium memory tools."""
@@ -76,7 +87,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         type: str | None = None,
         limit: int = 10,
         include_archived: bool = False,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Search user-space memories by semantic similarity to the query."""
         try:
@@ -112,7 +123,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         type: str | None = None,
         limit: int = 10,
         include_archived: bool = False,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Search workspace memories by semantic similarity to the query."""
         try:
@@ -163,7 +174,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         source: str | None = None,
         confidence: float | None = None,
         sensitivity: str | None = None,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Add a new memory. Returns the created memory as JSON."""
         try:
@@ -198,7 +209,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def get_memory(id: str, verbosity: str | None = None) -> str:
+    def get_memory(id: str, verbosity: ResponseVerbosityArg = None) -> str:
         """Get a single memory by ID. Returns the memory as JSON."""
         try:
             resolved = _resolve_verbosity(verbosity)
@@ -227,7 +238,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         source: str | None = None,
         confidence: float | None = None,
         sensitivity: str | None = None,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Update an existing memory. Returns the updated memory as JSON."""
         try:
@@ -264,7 +275,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def archive_memory(id: str, verbosity: str | None = None) -> str:
+    def archive_memory(id: str, verbosity: ResponseVerbosityArg = None) -> str:
         """Archive a memory. Returns the archived memory as JSON."""
         try:
             resolved = _resolve_verbosity(verbosity)
@@ -295,7 +306,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         workspace_uid: str | None = None,
         include_archived: bool = False,
         limit: int | None = None,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List memories, optionally filtered by space, type, status, workspace UID, and limit."""
         try:
@@ -330,7 +341,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def list_workspaces(
         include_archived: bool = False,
         include_aliases: bool = False,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List known workspace UIDs, optionally with aliases."""
         try:
@@ -353,7 +364,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def resolve_workspace(uid: str, verbosity: str | None = None) -> str:
+    def resolve_workspace(uid: str, verbosity: ResponseVerbosityArg = None) -> str:
         """Resolve a workspace UID candidate to its canonical UID."""
         try:
             resolved = _resolve_verbosity(verbosity)
@@ -380,7 +391,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         canonical_uid: str,
         alias_uid: str,
         migrate_existing: bool = False,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Create an alias for a canonical workspace UID."""
         try:
@@ -411,7 +422,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def list_workspace_aliases(
         canonical_uid: str | None = None,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List workspace alias mappings, optionally filtered by canonical UID."""
         try:
@@ -438,7 +449,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def remove_workspace_alias(
         alias_uid: str,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Remove a workspace alias mapping."""
         try:
@@ -466,7 +477,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def rename_workspace(
         old_uid: str,
         new_uid: str,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Rename a workspace. Migrates all workspace memories from old_uid to new_uid."""
         try:
@@ -491,7 +502,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def embedding_status(verbosity: str | None = None) -> str:
+    def embedding_status(verbosity: ResponseVerbosityArg = None) -> str:
         """Get active local FastEmbed profile and startup job status."""
         try:
             resolved = _resolve_verbosity(verbosity)
@@ -518,7 +529,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def embedding_jobs(
         state: str | None = None,
         limit: int | None = None,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List embedding jobs, optionally filtered by state."""
         try:
@@ -547,7 +558,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         space: str | None = None,
         workspace_uid: str | None = None,
         include_archived: bool = False,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Force stale embedding refresh inline and return the completed job summary."""
         try:
@@ -578,7 +589,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def clear_embedding_jobs(
         states: list[str] | None = None,
-        verbosity: str | None = None,
+        verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Delete embedding job audit records without deleting memories."""
         try:
@@ -603,7 +614,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def get_embedding_job(job_id: str, verbosity: str | None = None) -> str:
+    def get_embedding_job(job_id: str, verbosity: ResponseVerbosityArg = None) -> str:
         """Get a single embedding job by ID."""
         try:
             resolved = _resolve_verbosity(verbosity)
