@@ -85,6 +85,7 @@ class RecollectiumCore:
             if isinstance(configured_embedding, dict)
             else None
         )
+        self._embedding_provider_managed_by_recollectium = embedding_provider is None
         self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider(
             str(configured_model), cache_dir=self.config.model_cache_path
         )
@@ -459,10 +460,11 @@ class RecollectiumCore:
             )
         profile = self.embedding_provider.embedding_profile
         runtime_threads = getattr(self.embedding_provider, "runtime_threads", None)
-        is_builtin_fastembed = isinstance(
-            self.embedding_provider, BuiltinFastEmbedProvider
+        is_recollectium_managed_builtin = (
+            self._embedding_provider_managed_by_recollectium
+            and isinstance(self.embedding_provider, BuiltinFastEmbedProvider)
         )
-        if is_builtin_fastembed:
+        if is_recollectium_managed_builtin:
             model_status = "managed_by_recollectium_cache"
             model_cache_path = str(self.config.model_cache_path)
             runtime: dict[str, Any] | None = {
@@ -665,11 +667,12 @@ class RecollectiumCore:
         dimensions = profile.get("dimensions")
         profile_name = str(profile.get("profile", ""))
         provider_cache_dir = getattr(self.embedding_provider, "cache_dir", None)
-        model_cache_path = (
-            str(provider_cache_dir)
-            if provider_cache_dir is not None
-            else str(self.config.model_cache_path)
-        )
+        if provider_cache_dir is not None:
+            model_cache_path = str(provider_cache_dir)
+        elif self._embedding_provider_managed_by_recollectium:
+            model_cache_path = str(self.config.model_cache_path)
+        else:
+            model_cache_path = None
 
         existing = read_model_state(resolved_state_dir)
         if (

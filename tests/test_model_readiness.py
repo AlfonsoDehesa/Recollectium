@@ -82,7 +82,7 @@ def test_ensure_model_ready_noop_when_model_matches(tmp_path: Path):
         model=_SUPPORTED_MODEL,
         dimensions=3,
         profile="fake-profile-v1",
-        model_cache_path=str(core.config.model_cache_path),
+        model_cache_path=None,
     )
     core._ensure_model_ready(state_dir=state_dir)
     assert provider.ensure_ready_calls == []
@@ -104,7 +104,7 @@ def test_ensure_model_ready_prepares_when_state_missing(tmp_path: Path):
     assert state is not None
     assert state["prepared_model"] == _SUPPORTED_MODEL  # type: ignore[reportOptionalSubscript]
     assert state["dimensions"] == 3
-    assert state["model_cache_path"] == str(core.config.model_cache_path)
+    assert state["model_cache_path"] is None
 
 
 def test_ensure_model_ready_prepares_when_legacy_state_lacks_cache_path(
@@ -135,7 +135,7 @@ def test_ensure_model_ready_prepares_when_legacy_state_lacks_cache_path(
     assert len(provider.ensure_ready_calls) == 1
     state = read_model_state(state_dir)
     assert state is not None
-    assert state["model_cache_path"] == str(core.config.model_cache_path)
+    assert state["model_cache_path"] is None
 
 
 def test_ensure_model_ready_prepares_when_cache_path_mismatch(tmp_path: Path):
@@ -161,7 +161,7 @@ def test_ensure_model_ready_prepares_when_cache_path_mismatch(tmp_path: Path):
     assert len(provider.ensure_ready_calls) == 1
     state = read_model_state(state_dir)
     assert state is not None
-    assert state["model_cache_path"] == str(core.config.model_cache_path)
+    assert state["model_cache_path"] is None
 
 
 def test_ensure_model_ready_uses_provider_cache_dir_in_state(tmp_path: Path):
