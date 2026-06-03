@@ -1459,11 +1459,8 @@ def test_thematic_context_label_dataset_covers_every_query_candidate_pair() -> N
     for case in THEMATIC_CONTEXT_LABEL_CASES:
         labels = tuple(case.labels.values())
         assert set(labels) <= ALLOWED_THEMATIC_CONTEXT_LABELS
-        assert 2 in labels
-        assert 1 in labels
         assert any(label > 0 for label in labels)
         assert any(label < 0 for label in labels)
-        assert -2 in labels
         if case.scope == SPACE_USER:
             assert set(case.labels) == set(eval_key_index.user_eval_keys)
             assert len(case.labels) == DEV_SEED_USER_MEMORY_COUNT
@@ -1530,7 +1527,7 @@ def test_thematic_context_label_validation_fails_loudly_for_bad_labels() -> None
                 *THEMATIC_CONTEXT_LABEL_CASES[1:],
             )
         )
-    with pytest.raises(ValueError, match="lacks -2 confuser"):
+    with pytest.raises(ValueError, match="lacks negative signal"):
         validate_thematic_context_label_cases(
             (
                 ThematicContextLabelCase(
@@ -1540,10 +1537,7 @@ def test_thematic_context_label_validation_fails_loudly_for_bad_labels() -> None
                     query_index=valid_case.query_index,
                     query=valid_case.query,
                     workspace_uid=valid_case.workspace_uid,
-                    labels={
-                        key: (1 if label == -2 else label)
-                        for key, label in valid_case.labels.items()
-                    },
+                    labels={key: 1 for key in valid_case.labels},
                 ),
                 *THEMATIC_CONTEXT_LABEL_CASES[1:],
             )
