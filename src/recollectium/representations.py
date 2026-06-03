@@ -81,11 +81,8 @@ def project_search_result(
         return payload
     if not isinstance(payload, dict):
         return payload
-    memory = (
-        payload.get("memory") if isinstance(payload.get("memory"), dict) else payload
-    )
-    if not isinstance(memory, dict):
-        return payload
+    nested_memory = payload.get("memory")
+    memory = nested_memory if isinstance(nested_memory, dict) else payload
     compact = _compact_dict(memory, ("id", "content"))
     compact["match"] = float(payload.get("score", 0.0))
     return compact
