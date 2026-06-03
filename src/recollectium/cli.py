@@ -2931,6 +2931,9 @@ def _handle_uninstall_command(
 
     data_payload: dict[str, Any] = {
         "preserved": not args.purge,
+        "memories_preserved": not args.purge,
+        "config_preserved": not args.purge,
+        "derived_artifacts_removed": not args.dry_run,
         "paths": {
             "config": str(plan.config_path),
             "data": str(plan.config.xdg_dirs["data"]),
@@ -2942,13 +2945,12 @@ def _handle_uninstall_command(
         },
     }
     completion_payload = _remove_completion_blocks(metadata, dry_run=args.dry_run)
+    model_cache_cleanup_failed = False
     if args.purge:
         data_payload["model_cache"] = {
             "path": str(plan.model_cache_path),
             "handled_by": "purge",
         }
-    else:
-        data_payload["model_cache"] = _remove_model_cache(plan, dry_run=args.dry_run)
 
     if args.purge:
         if args.dry_run:
@@ -2970,9 +2972,44 @@ def _handle_uninstall_command(
 
     package_payload = _remove_installed_package(metadata, dry_run=args.dry_run)
     package_status = package_payload["uninstall"]["status"]
+    if not args.purge:
+        try:
+            data_payload["model_cache"] = _remove_model_cache(
+                plan, dry_run=args.dry_run
+            )
+        except OSError as exc:
+            model_cache_cleanup_failed = True
+            skipped_target = {
+                "path": str(plan.model_cache_path),
+                "deleted": False,
+                "reason": f"cleanup_error: {exc}",
+            }
+            data_payload["model_cache"] = {
+                "dry_run": args.dry_run,
+                "path": str(plan.model_cache_path),
+                "status": "failed",
+                "targets": [skipped_target],
+                "deleted": [],
+                "skipped": [skipped_target],
+            }
+            data_payload["derived_artifacts_removed"] = False
+            _log.info(
+                "Uninstall model cache cleanup failed",
+                extra={
+                    "event": "uninstall.model_cache_cleanup_failed",
+                    "context": {"path": str(plan.model_cache_path)},
+                },
+            )
     result = {
         "status": (
-            "uninstalled"
+            "uninstalled_with_warnings"
+            if model_cache_cleanup_failed
+            and package_status in {"removed", "scheduled", "not_installed"}
+            else "dry_run_with_warnings"
+            if model_cache_cleanup_failed and package_status == "dry_run"
+            else "model_cache_cleanup_failed"
+            if model_cache_cleanup_failed
+            else "uninstalled"
             if package_status in {"removed", "scheduled", "not_installed"}
             else "dry_run"
             if package_status == "dry_run"
@@ -2991,7 +3028,7 @@ def _handle_uninstall_command(
             extra={"event": "uninstall.completed"},
         )
     _emit_success(result, output_format=output_format, command="uninstall")
-    return 1 if package_status == "failed" else 0
+    return 1 if package_status == "failed" or model_cache_cleanup_failed else 0
 
 
 def _handle_workspace_command(

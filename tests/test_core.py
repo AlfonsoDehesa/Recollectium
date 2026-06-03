@@ -433,6 +433,24 @@ def test_startup_reembeds_stale_memories_for_active_profile(tmp_path: Path) -> N
     assert status["recent_embedding_jobs"]
 
 
+def test_active_embedding_status_for_custom_provider_is_not_recollectium_managed(
+    tmp_path: Path,
+) -> None:
+    provider = FakeEmbeddingProvider()
+    core = RecollectiumCore(
+        db_path=tmp_path / "custom-status.db", embedding_provider=provider
+    )
+
+    status = core.active_embedding_status()
+
+    assert status["provider_status"] == "configured"
+    assert status["embedding_profile"] == provider.embedding_profile
+    assert status["model_status"] == "managed_externally"
+    assert status["model_cache_path"] is None
+    assert status["runtime"] is None
+    assert status["embedding_jobs_status_path"] == "/v1/embedding/jobs"
+
+
 def test_search_reembeds_missing_profile_chunks_below_threshold(tmp_path: Path) -> None:
     db_path = tmp_path / "search-reembed.db"
     core = RecollectiumCore(db_path=db_path)

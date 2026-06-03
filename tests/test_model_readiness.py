@@ -20,6 +20,7 @@ class TrackedEmbeddingProvider:
     def __init__(self) -> None:
         self.ensure_ready_calls: list[tuple] = []
         self.should_fail: str | None = None
+        self.cache_dir: str | None = None
         self.embedding_profile: dict[str, object] = {
             "provider": "fake",
             "model": _SUPPORTED_MODEL,
@@ -69,18 +70,19 @@ def _make_config(tmp_path: Path) -> Path:
 def test_ensure_model_ready_noop_when_model_matches(tmp_path: Path):
     """If model state matches config, ensure_ready is NOT called."""
     state_dir = tmp_path / "state"
-    write_model_state(
-        state_dir,
-        model=_SUPPORTED_MODEL,
-        dimensions=3,
-        profile="fake-profile-v1",
-    )
     provider = TrackedEmbeddingProvider()
     config = _make_config(tmp_path)
     core = RecollectiumCore(
         db_path=tmp_path / "test.db",
         config_path=config,
         embedding_provider=provider,
+    )
+    write_model_state(
+        state_dir,
+        model=_SUPPORTED_MODEL,
+        dimensions=3,
+        profile="fake-profile-v1",
+        model_cache_path=str(core.config.model_cache_path),
     )
     core._ensure_model_ready(state_dir=state_dir)
     assert provider.ensure_ready_calls == []
@@ -102,6 +104,85 @@ def test_ensure_model_ready_prepares_when_state_missing(tmp_path: Path):
     assert state is not None
     assert state["prepared_model"] == _SUPPORTED_MODEL  # type: ignore[reportOptionalSubscript]
     assert state["dimensions"] == 3
+    assert state["model_cache_path"] == str(core.config.model_cache_path)
+
+
+def test_ensure_model_ready_prepares_when_legacy_state_lacks_cache_path(
+    tmp_path: Path,
+):
+    """Legacy state without a cache path is stale for the owned cache."""
+    state_dir = tmp_path / "state"
+    write_model_state(
+        state_dir,
+        model=_SUPPORTED_MODEL,
+        dimensions=3,
+        profile="fake-profile-v1",
+    )
+    state_path = state_dir / "model-state.json"
+    legacy_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    legacy_payload.pop("model_cache_path")
+    state_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
+    provider = TrackedEmbeddingProvider()
+    config = _make_config(tmp_path)
+    core = RecollectiumCore(
+        db_path=tmp_path / "test.db",
+        config_path=config,
+        embedding_provider=provider,
+    )
+
+    core._ensure_model_ready(state_dir=state_dir)
+
+    assert len(provider.ensure_ready_calls) == 1
+    state = read_model_state(state_dir)
+    assert state is not None
+    assert state["model_cache_path"] == str(core.config.model_cache_path)
+
+
+def test_ensure_model_ready_prepares_when_cache_path_mismatch(tmp_path: Path):
+    """If model cache path changed, the provider is prepared again."""
+    state_dir = tmp_path / "state"
+    write_model_state(
+        state_dir,
+        model=_SUPPORTED_MODEL,
+        dimensions=3,
+        profile="fake-profile-v1",
+        model_cache_path=str(tmp_path / "old-cache" / "models"),
+    )
+    provider = TrackedEmbeddingProvider()
+    config = _make_config(tmp_path)
+    core = RecollectiumCore(
+        db_path=tmp_path / "test.db",
+        config_path=config,
+        embedding_provider=provider,
+    )
+
+    core._ensure_model_ready(state_dir=state_dir)
+
+    assert len(provider.ensure_ready_calls) == 1
+    state = read_model_state(state_dir)
+    assert state is not None
+    assert state["model_cache_path"] == str(core.config.model_cache_path)
+
+
+def test_ensure_model_ready_uses_provider_cache_dir_in_state(tmp_path: Path):
+    """Provider cache_dir participates in model readiness state comparison."""
+    state_dir = tmp_path / "state"
+    provider = TrackedEmbeddingProvider()
+    provider.cache_dir = str(tmp_path / "provider-cache")
+    config = _make_config(tmp_path)
+    core = RecollectiumCore(
+        db_path=tmp_path / "test.db",
+        config_path=config,
+        embedding_provider=provider,
+    )
+
+    core._ensure_model_ready(state_dir=state_dir)
+    core._ensure_model_ready(state_dir=state_dir)
+
+    assert len(provider.ensure_ready_calls) == 1
+    state = read_model_state(state_dir)
+    assert state is not None
+    assert state["model_cache_path"] == provider.cache_dir
 
 
 def test_ensure_model_ready_prepares_when_model_mismatch(tmp_path: Path):

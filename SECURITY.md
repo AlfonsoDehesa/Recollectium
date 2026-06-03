@@ -73,7 +73,7 @@ Protect these paths like other sensitive local application data:
 - The Recollectium config directory.
 - The Recollectium data directory.
 - The SQLite database file.
-- The model cache directory.
+- The Recollectium-owned built-in FastEmbed cache at `${directories.cache}/models`. This is derived data and plain uninstall can remove it even when `directories.cache` is a custom directory.
 - The logs directory.
 - The runtime directory and service discovery files.
 - Any backups that include Recollectium data.

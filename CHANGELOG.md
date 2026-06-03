@@ -28,6 +28,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Fixed bootstrap PATH repair so malformed or empty managed path blocks are rewritten with the current uv tool bin export.
 - Suppressed uv bootstrap PATH warnings while keeping durable shell PATH edits based on the user's original terminal environment.
 - Clarified bootstrap installer PATH guidance when the current shell cannot see the installed command yet.
+- Fixed model cache status and uninstall cleanup reporting for custom embedding providers and Recollectium-owned FastEmbed cache paths.
 
 ### 🧹 Chores
 

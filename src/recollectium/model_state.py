@@ -32,6 +32,7 @@ def write_model_state(
     model: str,
     dimensions: int,
     profile: str,
+    model_cache_path: str | None = None,
 ) -> None:
     """Write the prepared model state atomically."""
     state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -40,6 +41,7 @@ def write_model_state(
         "prepared_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "dimensions": dimensions,
         "profile": profile,
+        "model_cache_path": model_cache_path,
     }
     tmp_fd, tmp_path = tempfile.mkstemp(
         suffix=".json", prefix=".model-state-", dir=str(state_dir)

@@ -4317,6 +4317,7 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     run_calls: list[list[str]] = []
 
     def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        assert model_cache_path.exists()
         run_calls.append(cmd)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -4329,6 +4330,9 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     assert stderr == ""
     assert payload["status"] == "uninstalled"
     assert payload["data"]["preserved"] is True
+    assert payload["data"]["memories_preserved"] is True
+    assert payload["data"]["config_preserved"] is True
+    assert payload["data"]["derived_artifacts_removed"] is True
     assert payload["data"]["paths"]["database"] == str(db_path)
     assert payload["data"]["paths"]["model_cache"] == str(model_cache_path)
     assert payload["data"]["model_cache"]["deleted"] == [
@@ -5261,6 +5265,7 @@ def test_cli_uninstall_dry_run_without_purge_prints_instructions(
     assert stderr == ""
     assert payload["status"] == "dry_run"
     assert payload["data"]["preserved"] is True
+    assert payload["data"]["derived_artifacts_removed"] is False
     assert payload["data"]["model_cache"]["skipped"] == [
         {"path": str(model_cache_path), "deleted": False, "reason": "dry_run"}
     ]
@@ -5295,6 +5300,54 @@ def test_cli_uninstall_removes_model_cache_inside_custom_cache_dir(
     assert custom_cache.exists()
     assert (custom_cache / "keep.txt").exists()
     assert not model_cache_path.exists()
+
+
+def test_cli_uninstall_reports_model_cache_cleanup_failure_after_package_removal(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    model_cache_path = tmp_path / "cache" / "recollectium" / "models"
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    config_path.parent.mkdir(parents=True)
+    model_cache_path.mkdir(parents=True)
+    metadata_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "source_ref": "main"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    run_calls: list[list[str]] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        run_calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def _fail_rmtree(path: Path) -> None:
+        assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
+    monkeypatch.setattr("recollectium.cli.shutil.rmtree", _fail_rmtree)
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 1
+    assert stderr == ""
+    assert payload["status"] == "uninstalled_with_warnings"
+    assert payload["package"]["uninstall"]["status"] == "removed"
+    assert payload["data"]["derived_artifacts_removed"] is False
+    assert payload["data"]["model_cache"]["status"] == "failed"
+    assert payload["data"]["model_cache"]["skipped"] == [
+        {
+            "path": str(model_cache_path),
+            "deleted": False,
+            "reason": "cleanup_error: permission denied",
+        }
+    ]
+    assert model_cache_path.exists()
 
 
 def test_cli_uninstall_dry_run_does_not_stop_service(

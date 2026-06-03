@@ -629,9 +629,9 @@ Supported built-in FastEmbed profiles:
 Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path. Refresh jobs run inline in the command, API request, or MCP tool call that triggers them, so callers get a completed or failed job result before the operation returns.
 
 - Method and path: `GET /v1/embedding/status`
-- Purpose: return the active local embedding profile, model cache path, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.
+- Purpose: return the active local embedding profile, built-in FastEmbed model cache path when Recollectium manages it, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.
 - Side effects: none.
-- Successful response: HTTP `200` with compact embedding status by default. Use `?verbosity=verbose` or the verbosity header for runtime details, startup job fields, and recent jobs.
+- Successful response: HTTP `200` with compact embedding status by default. Use `?verbosity=verbose` or the verbosity header for runtime details, startup job fields, and recent jobs. Custom or injected embedding providers report `model_status: "managed_externally"` and do not include a Recollectium model cache path or FastEmbed runtime.
 
 Example request: compact default
 
@@ -669,7 +669,7 @@ Example request: verbose
 curl -sS 'http://127.0.0.1:8765/v1/embedding/status?verbosity=verbose'
 ```
 
-Verbose response includes runtime fields, startup re-embedding paths, the same model cache path, and recent embedding jobs.
+Verbose response includes runtime fields, startup re-embedding paths, the same model cache path for the built-in provider, and recent embedding jobs. The built-in FastEmbed cache at `${directories.cache}/models` is Recollectium-owned derived data and can be removed by plain uninstall even when `directories.cache` is customized.
 
 ### 9) List embedding jobs
 
