@@ -150,6 +150,8 @@ Error responses use:
 
 Most endpoints accept an optional `verbosity` query parameter or `X-Recollectium-Verbosity` header. Supported values are `compact` and `verbose`.
 
+The same response projection is used by the CLI and MCP surfaces. CLI callers use `--compact` or `--verbose`; MCP callers pass the optional `verbosity` tool argument. The config key for the default is `response_verbosity`.
+
 Precedence is:
 
 1. `?verbosity=...` query parameter
@@ -168,6 +170,7 @@ Compact projections by operation:
 - Embedding job list and get: `id`, `state`, `reason`, `total`, `succeeded`, and `failed` when present.
 - Embedding refresh: `refreshed`, `stale_count`, `status_path`, and `job_id` when a job exists.
 - Embedding job clear: `deleted_count` and `states`.
+- Workspace operations: unchanged workspace payloads unless a payload contains memory objects.
 
 Request verbose data with a query parameter:
 

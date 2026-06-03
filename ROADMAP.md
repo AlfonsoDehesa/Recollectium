@@ -31,6 +31,7 @@ Completed in v1.0.0:
 - [x] Public docs and wiki release pass for README, CONTRIBUTING, SECURITY, ROADMAP, API docs, adapter docs, and GitHub Wiki pages.
 - [x] Configurable CLI output with human-readable terminal output by default and JSON mode for automation.
 - [x] TTY-aware CLI color for human-readable output while pipes, captured output, and JSON mode stay uncolored.
+- [x] Product-wide response verbosity with compact defaults and verbose overrides across CLI, API, and MCP.
 
 ## Phase 1.5 (post-1.0.0 follow-up): Post-release polish
 
