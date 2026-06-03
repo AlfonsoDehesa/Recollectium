@@ -249,19 +249,128 @@ verify_installed_tool() {
   fi
 }
 
-print_final_guidance() {
-  guidance_shell="${COMPLETION_SHELL:-${SHELL##*/}}"
-  info "Recollectium installed."
-  info "Restart your terminal session before using recollectium, or run these commands for the current terminal:"
-  if [ "$guidance_shell" = "fish" ]; then
-    info "  set -gx PATH \"${TOOL_BIN_DIR}\" \$PATH"
+recollectium_stdout_is_tty() {
+  [ -t 1 ]
+}
+
+guidance_supports_color() {
+  [ -z "${NO_COLOR:-}" ] && recollectium_stdout_is_tty
+}
+
+guidance_info() {
+  message="$1"
+  if guidance_supports_color; then
+    printf '\033[32m%s\033[0m\n' "$message"
   else
-    info "  export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
+    printf '%s\n' "$message"
   fi
-  if [ -n "$COMPLETION_RC" ]; then
-    info "  source \"${COMPLETION_RC}\""
+}
+
+guidance_warning() {
+  message="$1"
+  if guidance_supports_color; then
+    printf '\033[33m%s\033[0m\n' "$message"
+  else
+    printf '%s\n' "$message"
   fi
-  info "Then verify with: recollectium --version"
+}
+
+expected_recollectium_path() {
+  printf '%s/recollectium' "$TOOL_BIN_DIR"
+}
+
+current_path_resolves_installed_tool() {
+  expected=$(expected_recollectium_path)
+  resolved=$(PATH="$ORIGINAL_PATH" command -v recollectium 2>/dev/null || true)
+  [ "$resolved" = "$expected" ]
+}
+
+future_shell_resolves_installed_tool() {
+  expected=$(expected_recollectium_path)
+  sentinel="__recollectium_path_check_$$__"
+  check_command="printf '%s\n' '${sentinel}'; command -v recollectium; printf '%s\n' '${sentinel}'"
+  for shell_name in zsh bash fish; do
+    shell_path=$(PATH="$ORIGINAL_PATH" command -v "$shell_name" 2>/dev/null || true)
+    [ -n "$shell_path" ] || continue
+    if [ "$shell_name" = "fish" ]; then
+      output=$(PATH="$ORIGINAL_PATH" "$shell_path" -lc "$check_command" 2>/dev/null || true)
+    else
+      output=$(PATH="$ORIGINAL_PATH" "$shell_path" -lic "$check_command" 2>/dev/null || true)
+    fi
+    resolved=""
+    seen_sentinel=0
+    while IFS= read -r output_line; do
+      if [ "$output_line" = "$sentinel" ]; then
+        if [ "$seen_sentinel" -eq 0 ]; then
+          seen_sentinel=1
+          continue
+        fi
+        break
+      fi
+      if [ "$seen_sentinel" -eq 1 ] && [ -z "$resolved" ] && [ -n "$output_line" ]; then
+        resolved="$output_line"
+      fi
+    done <<EOF
+$output
+EOF
+    [ "$resolved" = "$expected" ] && return 0
+  done
+  return 1
+}
+
+current_terminal_path_command() {
+  guidance_shell="${COMPLETION_SHELL:-${SHELL##*/}}"
+  if [ "$guidance_shell" = "fish" ]; then
+    printf 'set -gx PATH "%s" $PATH' "$TOOL_BIN_DIR"
+  else
+    printf 'export PATH="%s:$PATH"' "$TOOL_BIN_DIR"
+  fi
+}
+
+print_managed_path_edits() {
+  [ -n "$MANAGED_PATH_EDITS" ] || return 0
+  summary=""
+  while IFS= read -r path_edit; do
+    [ -n "$path_edit" ] || continue
+    if [ -n "$summary" ]; then
+      summary="${summary}, ${path_edit}"
+    else
+      summary="$path_edit"
+    fi
+  done <<EOF
+$MANAGED_PATH_EDITS
+EOF
+  [ -n "$summary" ] && guidance_warning "Managed PATH files updated: ${summary}"
+}
+
+print_final_guidance() {
+  if current_path_resolves_installed_tool; then
+    guidance_info "Recollectium installed."
+    guidance_info "Verify with: recollectium --version"
+    return
+  fi
+
+  path_command=$(current_terminal_path_command)
+  if future_shell_resolves_installed_tool; then
+    guidance_info "Recollectium installed."
+    guidance_warning "Open a new terminal window before using recollectium, or run this command in the current terminal:"
+    guidance_warning "  ${path_command}"
+    guidance_warning "Then verify with: recollectium --version"
+    return
+  fi
+
+  if [ -n "$MANAGED_PATH_EDITS" ]; then
+    guidance_warning "Recollectium installed. PATH files were updated, but PATH setup could not be verified for a future shell."
+    print_managed_path_edits
+    guidance_warning "Restart your terminal, or run this command in the current terminal:"
+    guidance_warning "  ${path_command}"
+  else
+    guidance_warning "Recollectium installed, but PATH setup could not be verified."
+    guidance_warning "Add Recollectium to your shell startup file:"
+    guidance_warning "  ${path_command}"
+    guidance_warning "Then restart your terminal, or run the command above in the current terminal."
+  fi
+  guidance_warning "Then verify with: recollectium --version"
 }
 
 resolve_install_state_dir() {

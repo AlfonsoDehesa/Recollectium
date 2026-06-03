@@ -66,12 +66,13 @@ Common next steps:
 - Local FastEmbed embeddings. Default: `BAAI/bge-base-en-v1.5` with 768 dimensions, profile `builtin-fastembed-bge-base-en-v1-5-v1`, 512 max tokens, 384 chunk tokens, and 64 overlap tokens.
 - Legacy FastEmbed support for `jinaai/jina-embeddings-v2-small-en` with 512 dimensions, profile `builtin-fastembed-jina-v2-small-en-v1`, 8192 max tokens, 6144 chunk tokens, and 512 overlap tokens.
 - Inline re-embedding jobs, explicit refresh controls, embedding job audit-record cleanup, and embedding status inspection. Switching embedding model or profile refreshes stale memories in the command or request that triggered it instead of relying on a fragile background thread.
-- CLI, Python API, local HTTP API, and MCP surfaces.
-- Configurable CLI output, with Rich-backed TTY color for human-readable text and JSON available for automation.
+- CLI, Python API, local HTTP API, and MCP surfaces with matching compact and verbose response controls.
+- Configurable CLI output, with Rich-backed TTY color for human-readable text, JSON available for automation, and compact response payloads by default.
 - Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB.
 - Managed API and MCP service lifecycle with discovery metadata for adapters.
 - Structured JSON logging with rotation.
-- Bootstrap install, package upgrade with embedding maintenance, safe uninstall, and shell completion.
+- Bootstrap install, package upgrade with embedding maintenance, safe uninstall that removes heavy derived model artifacts while preserving memories by default, and shell completion.
+- The built-in FastEmbed cache at `${directories.cache}/models` is Recollectium-owned derived data. Plain uninstall preserves memories and config but removes that model cache, including when `directories.cache` points at a custom cache directory.
 
 ## Documentation
 
@@ -101,6 +102,35 @@ Repo docs that act as canonical contracts:
 - [Security policy](SECURITY.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [Roadmap](ROADMAP.md)
+
+## Response verbosity
+
+Recollectium returns compact response payloads by default. Compact mode keeps common CLI, API, and MCP results small for terminals, adapters, and token-sensitive agents. Verbose mode returns full stored objects and operational details for inspection or debugging.
+
+Set the default in config:
+
+```bash
+recollectium config set response_verbosity compact
+recollectium config set response_verbosity verbose
+```
+
+Built-in default: `response_verbosity=compact`.
+
+Surface controls:
+
+- CLI: use `--compact` or `--verbose` on any command to override `response_verbosity` for that invocation.
+- CLI JSON: `--json` controls rendering only. It can be combined with `--compact` or `--verbose`, for example `recollectium --json --verbose search-user "sqlite"`.
+- API: use `?verbosity=compact|verbose` or the `X-Recollectium-Verbosity: compact|verbose` header. Query parameter wins over the header, then config, then the compact default.
+- MCP: every Recollectium MCP tool accepts an optional `verbosity` argument with `compact` or `verbose`. Omit it to use `response_verbosity`, falling back to compact.
+
+Compact projections:
+
+- Search results: `id`, `content`, and `match`.
+- Memory list and get: `id`, `content`, `type`, `space`, plus `workspace_uid` when present.
+- Add, update, and archive: `id` and `status`.
+- Embedding status, jobs, and refresh: status fields needed to continue or inspect the operation without full job records.
+
+Use verbose mode when an adapter or developer tool needs metadata, timestamps, archive status, full search result records, or full embedding job details.
 
 ## Local-first security model
 
