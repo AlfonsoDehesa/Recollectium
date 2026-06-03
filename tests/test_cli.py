@@ -2216,6 +2216,14 @@ def test_cli_verbosity_extraction_conflicts_order_and_literals(monkeypatch) -> N
     assert verbosity_conflict is True
 
     cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["list", "--verbose", "--compact"])
+    )
+    assert cleaned == ["list"]
+    assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
+    assert output_conflict is False
+    assert verbosity_conflict is True
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
         _extract_cli_output_override(
             ["config", "set", "response_verbosity", "--", "--verbose"]
         )
