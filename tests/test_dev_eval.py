@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from math import log2
+from pathlib import Path
 from typing import cast
 import re
 
@@ -1686,30 +1687,18 @@ def test_thematic_context_label_validation_fails_for_signal_and_extra_labels() -
         )
 
 
-def test_thematic_context_label_generation_rejects_bad_thematic_fixture(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_without_uid = {
-        "scope": SPACE_WORKSPACE,
-        "group": "permissions",
-        "workspace_uid": None,
-        "queries": ("a", "b", "c"),
-    }
-    monkeypatch.setattr(
-        thematic_label_module,
-        "THEMATIC_PRECISION_FIXTURE",
-        (workspace_without_uid,),
-    )
-    with pytest.raises(ValueError, match="requires workspace_uid"):
-        thematic_label_module.thematic_context_label_cases()
+def test_thematic_context_labels_are_explicit_checked_in_data() -> None:
+    label_source_path = thematic_label_module.__file__
+    assert label_source_path is not None
+    label_source = Path(label_source_path).read_text()
 
-    monkeypatch.setattr(
-        thematic_label_module,
-        "THEMATIC_PRECISION_FIXTURE",
-        ({**workspace_without_uid, "scope": "bad-scope"},),
-    )
-    with pytest.raises(ValueError, match="unsupported thematic label scope"):
-        thematic_label_module.thematic_context_label_cases()
+    assert "def thematic_context_label_cases" not in label_source
+    assert "_labels_for_" not in label_source
+    assert "ADJACENT" not in label_source
+    assert "CONFUSER" not in label_source
+    assert label_source.count("    ThematicContextLabelCase(") == 57
+    assert "'dev-user-001': 2" in label_source
+    assert "'dev-workspace-01-001': 2" in label_source
 
 
 def test_ranked_set_fixture_is_curated_and_references_seeded_memories() -> None:
