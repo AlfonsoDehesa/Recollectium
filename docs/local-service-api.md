@@ -146,11 +146,52 @@ Error responses use:
 
 `details` is currently always an object and defaults to `{}`.
 
+## Response verbosity
+
+Most endpoints accept an optional `verbosity` query parameter or `X-Recollectium-Verbosity` header. Supported values are `compact` and `verbose`.
+
+The same response projection is used by the CLI and MCP surfaces. CLI callers use `--compact` or `--verbose`; MCP callers pass the optional `verbosity` tool argument. The config key for the default is `response_verbosity`.
+
+Precedence is:
+
+1. `?verbosity=...` query parameter
+2. `X-Recollectium-Verbosity` header
+3. configured `response_verbosity`
+4. built-in default `compact`
+
+`compact` is the default response shape. It is optimized for adapters and common UI use. `verbose` returns the full stored objects and operational details. Empty or unknown verbosity values are invalid and return `validation_error`. If the query parameter is present, it wins over the header even when invalid.
+
+Compact projections by operation:
+
+- Memory list and get: `{id, content, type, space}` plus `workspace_uid` when present.
+- Memory search: `{id, content, match}` where `match` is the search score.
+- Memory add, update, and archive: `{id, status}` with status values `saved`, `updated`, or `archived`.
+- Embedding status: `provider_status`, `embedding_profile`, `model_status`, and `embedding_jobs_status_path`.
+- Embedding job list and get: `id`, `state`, `reason`, `total`, `succeeded`, and `failed` when present.
+- Embedding refresh: `refreshed`, `stale_count`, `status_path`, and `job_id` when a job exists.
+- Embedding job clear: `deleted_count` and `states`.
+- Workspace operations: unchanged workspace payloads unless a payload contains memory objects.
+
+Request verbose data with a query parameter:
+
+```bash
+curl -sS 'http://127.0.0.1:8765/v1/memories?verbosity=verbose'
+```
+
+Or with a header:
+
+```bash
+curl -sS http://127.0.0.1:8765/v1/memories \
+  -H 'X-Recollectium-Verbosity: verbose'
+```
+
 ## Version and capability discovery
 
 ### `GET /v1/health`
 
 Purpose: service liveness check.
+
+Optional response controls: `verbosity` query parameter or `X-Recollectium-Verbosity` header (`compact` or `verbose`). The response shape is unchanged.
 
 Response example:
 
@@ -166,6 +207,8 @@ Response example:
 
 Purpose: report service API and package version.
 
+Optional response controls: `verbosity` query parameter or `X-Recollectium-Verbosity` header (`compact` or `verbose`). The response shape is unchanged.
+
 Response example:
 
 ```json
@@ -180,6 +223,8 @@ Response example:
 ### `GET /v1/capabilities`
 
 Purpose: list implemented operation capabilities.
+
+Optional response controls: `verbosity` query parameter or `X-Recollectium-Verbosity` header (`compact` or `verbose`). Verbose responses include response verbosity metadata.
 
 Response example:
 
@@ -271,9 +316,9 @@ All successful endpoint responses currently return HTTP `200` with a `{"data": .
   - `limit` (positive integer, default `10`)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
-- Successful response: HTTP `200` with `data` list of search results (`memory`, `score`, `rank`, `matched_text`, `snippet`, `chunk_index`).
+- Successful response: HTTP `200` with compact `data` list of search results (`id`, `content`, `match`) by default. Use `?verbosity=verbose` or the verbosity header for full search result objects (`memory`, `score`, `rank`, `matched_text`, `snippet`, `chunk_index`).
 
-Example request:
+Example request: compact default
 
 ```bash
 curl -sS http://127.0.0.1:8765/v1/memories/search_user \
@@ -281,7 +326,25 @@ curl -sS http://127.0.0.1:8765/v1/memories/search_user \
   -d '{"query":"likes tea","type":"fact","limit":5}'
 ```
 
-Example response:
+Example response: compact default
+
+```json
+{
+  "data": [
+    {"id": "8f6d...", "content": "Alfonso likes tea", "match": 0.91}
+  ]
+}
+```
+
+Example request: verbose
+
+```bash
+curl -sS 'http://127.0.0.1:8765/v1/memories/search_user?verbosity=verbose' \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"likes tea","type":"fact","limit":5}'
+```
+
+Verbose response includes full search result fields:
 
 ```json
 {
@@ -324,9 +387,9 @@ Example response:
   - `limit` (positive integer, default `10`)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
-- Successful response: HTTP `200` with `data` list of search results (`memory`, `score`, `rank`, `matched_text`, `snippet`, `chunk_index`).
+- Successful response: HTTP `200` with compact `data` list of search results (`id`, `content`, `match`) by default. Use `?verbosity=verbose` or the verbosity header for full search result objects.
 
-Example request:
+Example request: compact default
 
 ```bash
 curl -sS http://127.0.0.1:8765/v1/memories/search_workspace \
@@ -334,36 +397,17 @@ curl -sS http://127.0.0.1:8765/v1/memories/search_workspace \
   -d '{"query":"sqlite","workspace_uid":"ws-1","type":"decision"}'
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
   "data": [
-    {
-      "memory": {
-        "id": "d22a...",
-        "space": "workspace",
-        "workspace_uid": "ws-1",
-        "type": "decision",
-        "content": "Use sqlite for local db",
-        "metadata": {},
-        "status": "active",
-        "source": null,
-        "confidence": null,
-        "sensitivity": null,
-        "created_at": "2026-05-18T12:34:56+00:00",
-        "updated_at": "2026-05-18T12:34:56+00:00",
-        "last_accessed_at": null
-      },
-      "score": 0.88,
-      "rank": 1,
-      "matched_text": "Use sqlite for local db",
-      "snippet": "Use sqlite for local db",
-      "chunk_index": 0
-    }
+    {"id": "d22a...", "content": "Use sqlite for local db", "match": 0.88}
   ]
 }
 ```
+
+Verbose requests use `POST /v1/memories/search_workspace?verbosity=verbose` or `X-Recollectium-Verbosity: verbose` and return the same full search result shape shown in the user search verbose example.
 
 ### 3) Add memory
 
@@ -384,9 +428,9 @@ Example response:
 - Side effects:
   - Inserts memory into SQLite store.
   - Generates and stores embedding for `content`.
-- Successful response: HTTP `200` with `data` set to the created memory object.
+- Successful response: HTTP `200` with compact mutation data (`id`, `status`) by default, where `status` is `saved`. Use `?verbosity=verbose` or the verbosity header for the created memory object.
 
-Example request:
+Example request: compact default
 
 ```bash
 curl -sS http://127.0.0.1:8765/v1/memories \
@@ -394,27 +438,23 @@ curl -sS http://127.0.0.1:8765/v1/memories \
   -d '{"space":"workspace","type":"decision","content":"Use sqlite","workspace_uid":"ws-1"}'
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
-  "data": {
-    "id": "d22a...",
-    "space": "workspace",
-    "workspace_uid": "ws-1",
-    "type": "decision",
-    "content": "Use sqlite",
-    "metadata": {},
-    "status": "active",
-    "source": null,
-    "confidence": null,
-    "sensitivity": null,
-    "created_at": "2026-05-18T12:34:56+00:00",
-    "updated_at": "2026-05-18T12:34:56+00:00",
-    "last_accessed_at": null
-  }
+  "data": {"id": "d22a...", "status": "saved"}
 }
 ```
+
+Example request: verbose
+
+```bash
+curl -sS 'http://127.0.0.1:8765/v1/memories?verbosity=verbose' \
+  -H 'Content-Type: application/json' \
+  -d '{"space":"workspace","type":"decision","content":"Use sqlite","workspace_uid":"ws-1"}'
+```
+
+Verbose response contains the full created memory object.
 
 ### 4) Update memory
 
@@ -432,9 +472,9 @@ Example response:
 - Side effects:
   - Updates memory fields.
   - If `content` changes, embedding is regenerated.
-- Successful response: HTTP `200` with `data` set to the updated memory object.
+- Successful response: HTTP `200` with compact mutation data (`id`, `status`) by default, where `status` is `updated`. Use `?verbosity=verbose` or the verbosity header for the updated memory object.
 
-Example request:
+Example request: compact default
 
 ```bash
 curl -sS -X PATCH http://127.0.0.1:8765/v1/memories/8f6d... \
@@ -442,27 +482,15 @@ curl -sS -X PATCH http://127.0.0.1:8765/v1/memories/8f6d... \
   -d '{"content":"Alfonso likes green tea"}'
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
-  "data": {
-    "id": "8f6d...",
-    "space": "user",
-    "workspace_uid": null,
-    "type": "fact",
-    "content": "Alfonso likes green tea",
-    "metadata": {},
-    "status": "active",
-    "source": null,
-    "confidence": null,
-    "sensitivity": null,
-    "created_at": "2026-05-18T12:34:56+00:00",
-    "updated_at": "2026-05-18T12:35:20+00:00",
-    "last_accessed_at": null
-  }
+  "data": {"id": "8f6d...", "status": "updated"}
 }
 ```
+
+Example request: verbose `PATCH /v1/memories/8f6d...?verbosity=verbose`. Verbose response contains the full updated memory object.
 
 ### 5) Archive memory
 
@@ -473,35 +501,23 @@ Example response:
 - Side effects:
   - Sets memory status to archived.
   - Archived memories are excluded from default search and list results.
-- Successful response: HTTP `200` with `data` set to the archived memory object.
+- Successful response: HTTP `200` with compact mutation data (`id`, `status`) by default, where `status` is `archived`. Use `?verbosity=verbose` or the verbosity header for the archived memory object.
 
-Example request:
+Example request: compact default
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8765/v1/memories/8f6d.../archive
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
-  "data": {
-    "id": "8f6d...",
-    "space": "user",
-    "workspace_uid": null,
-    "type": "fact",
-    "content": "Alfonso likes green tea",
-    "metadata": {},
-    "status": "archived",
-    "source": null,
-    "confidence": null,
-    "sensitivity": null,
-    "created_at": "2026-05-18T12:34:56+00:00",
-    "updated_at": "2026-05-18T12:35:45+00:00",
-    "last_accessed_at": null
-  }
+  "data": {"id": "8f6d...", "status": "archived"}
 }
 ```
+
+Example request: verbose `POST /v1/memories/8f6d.../archive?verbosity=verbose`. Verbose response contains the full archived memory object.
 
 ### 6) List memories
 
@@ -515,20 +531,20 @@ Example response:
   - `include_archived` (`true` or `false`, default `false`)
   - `limit` (positive integer)
 - Side effects: none.
-- Successful response: HTTP `200` with `data` list of memory objects.
+- Successful response: HTTP `200` with compact memory objects by default (`id`, `content`, `type`, `space`, and `workspace_uid` when present). Use `?verbosity=verbose` or the verbosity header for full memory objects.
 
 Archived behavior:
 
 - By default (`include_archived` omitted), archived memories are excluded.
 - Set `include_archived=true` to include archived memories.
 
-Example request:
+Example request: compact default
 
 ```bash
 curl -sS 'http://127.0.0.1:8765/v1/memories?space=workspace&workspace_uid=ws-1&include_archived=true&limit=20'
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
@@ -538,19 +554,13 @@ Example response:
       "space": "workspace",
       "workspace_uid": "ws-1",
       "type": "decision",
-      "content": "Use sqlite",
-      "metadata": {},
-      "status": "active",
-      "source": null,
-      "confidence": null,
-      "sensitivity": null,
-      "created_at": "2026-05-18T12:34:56+00:00",
-      "updated_at": "2026-05-18T12:34:56+00:00",
-      "last_accessed_at": null
+      "content": "Use sqlite"
     }
   ]
 }
 ```
+
+Example request: verbose `GET /v1/memories?space=workspace&workspace_uid=ws-1&verbosity=verbose`. Verbose response contains full memory objects.
 
 ### 7) Get memory by ID
 
@@ -560,39 +570,32 @@ Example response:
   - `memory_id` (string)
 - Side effects:
   - Updates `last_accessed_at` when possible.
-- Successful response: HTTP `200` with `data` set to one memory object.
+- Successful response: HTTP `200` with a compact memory object by default (`id`, `content`, `type`, `space`, and `workspace_uid` when present). Use `?verbosity=verbose` or the verbosity header for the full memory object.
 
-Example request:
+Example request: compact default
 
 ```bash
 curl -sS http://127.0.0.1:8765/v1/memories/8f6d...
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
   "data": {
     "id": "8f6d...",
     "space": "user",
-    "workspace_uid": null,
     "type": "fact",
-    "content": "Alfonso likes tea",
-    "metadata": {},
-    "status": "active",
-    "source": null,
-    "confidence": null,
-    "sensitivity": null,
-    "created_at": "2026-05-18T12:34:56+00:00",
-    "updated_at": "2026-05-18T12:34:56+00:00",
-    "last_accessed_at": "2026-05-18T12:36:10+00:00"
+    "content": "Alfonso likes tea"
   }
 }
 ```
 
+Example request: verbose `GET /v1/memories/8f6d...?verbosity=verbose`. Verbose response contains the full memory object including metadata, timestamps, and status.
+
 ## Memory object shape
 
-Memory responses use this JSON object shape:
+Verbose memory responses use this JSON object shape:
 
 ```json
 {
@@ -612,24 +615,7 @@ Memory responses use this JSON object shape:
 }
 ```
 
-Search responses return a list of search-result objects. The inner `memory` field holds the full memory object (see Memory object shape above). The search-specific fields are:
-
-- `score` (number): similarity score, higher is better.
-- `rank` (integer): 1-based rank position.
-- `matched_text` (string): the chunk or passage of the memory content that matched the query. Omitted when no chunk data is available.
-- `snippet` (string): a shorter excerpt of the match for display. Omitted when no chunk data is available.
-- `chunk_index` (integer): zero-based index of which chunk within the memory content matched. Omitted when no chunk data is available.
-
-```json
-{
-  "memory": {"id": "..."},
-  "score": 0.91,
-  "rank": 1,
-  "matched_text": "Alfonso likes tea",
-  "snippet": "Alfonso likes tea",
-  "chunk_index": 0
-}
-```
+Verbose search responses return a list of search-result objects. The inner `memory` field holds the full memory object. Compact search responses return only `id`, `content`, and `match`.
 
 ### 8) Embedding status
 
@@ -645,9 +631,15 @@ Switching embedding model or profile can require existing memories to be refresh
 - Method and path: `GET /v1/embedding/status`
 - Purpose: return the active local embedding profile, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.
 - Side effects: none.
-- Successful response: HTTP `200` with current embedding profile and optional startup job ID.
+- Successful response: HTTP `200` with compact embedding status by default. Use `?verbosity=verbose` or the verbosity header for runtime details, startup job fields, and recent jobs.
 
-Example response:
+Example request: compact default
+
+```bash
+curl -sS http://127.0.0.1:8765/v1/embedding/status
+```
+
+Example response: compact default
 
 ```json
 {
@@ -665,18 +657,18 @@ Example response:
     },
     "provider_status": "configured",
     "model_status": "managed_by_fastembed_cache",
-    "runtime": {
-      "name": "fastembed",
-      "threads": 1,
-      "parallel": null
-    },
-    "startup_reembedding_job_id": "job-123",
-    "startup_reembedding_status_path": "/v1/embedding/jobs/job-123",
-    "embedding_jobs_status_path": "/v1/embedding/jobs",
-    "recent_embedding_jobs": []
+    "embedding_jobs_status_path": "/v1/embedding/jobs"
   }
 }
 ```
+
+Example request: verbose
+
+```bash
+curl -sS 'http://127.0.0.1:8765/v1/embedding/status?verbosity=verbose'
+```
+
+Verbose response includes runtime fields, startup re-embedding paths, and recent embedding jobs.
 
 ### 9) List embedding jobs
 
@@ -686,15 +678,15 @@ Example response:
   - `state` (string, commonly `pending`, `in_progress`, `completed`, or `failed`)
   - `limit` (positive integer)
 - Side effects: none.
-- Successful response: HTTP `200` with a `data` list ordered by most recent first.
+- Successful response: HTTP `200` with a compact `data` list ordered by most recent first. Use `?verbosity=verbose` or the verbosity header for full job objects.
 
-Example request:
+Example request: verbose
 
 ```bash
-curl -sS "http://127.0.0.1:8765/v1/embedding/jobs?state=failed&limit=5"
+curl -sS "http://127.0.0.1:8765/v1/embedding/jobs?state=failed&limit=5&verbosity=verbose"
 ```
 
-Example response:
+Example response: verbose
 
 ```json
 {
@@ -739,17 +731,17 @@ Example response:
   - `space` (`user` or `workspace`)
   - `workspace_uid` (string, implies workspace scope)
   - `include_archived` (boolean, default `false`)
-- Successful response: HTTP `200` with refresh status, optional completed job, and job status path.
+- Successful response: HTTP `200` with compact refresh status by default. Use `?verbosity=verbose` or the verbosity header for the full completed job object.
 
-Example request:
+Example request: verbose
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8765/v1/embedding/refresh \
+curl -sS -X POST 'http://127.0.0.1:8765/v1/embedding/refresh?verbosity=verbose' \
   -H 'Content-Type: application/json' \
   -d '{"space":"workspace","workspace_uid":"recollectium"}'
 ```
 
-Example response:
+Example response: verbose
 
 ```json
 {
@@ -787,7 +779,20 @@ Example response:
 }
 ```
 
-If no stale memories match the request, `refreshed` is `false`, `stale_count` is `0`, and `job` is `null`.
+Compact default response omits the nested job object and returns `job_id` when a job exists:
+
+```json
+{
+  "data": {
+    "refreshed": true,
+    "stale_count": 12,
+    "status_path": "/v1/embedding/jobs/job-123",
+    "job_id": "job-123"
+  }
+}
+```
+
+If no stale memories match the request, `refreshed` is `false`, `stale_count` is `0`, and no `job_id` is returned.
 
 ### 11) Clear embedding job records
 
@@ -796,7 +801,7 @@ If no stale memories match the request, `refreshed` is `false`, `stale_count` is
 - Side effects: removes matching rows from the embedding job history.
 - Optional request fields:
   - `states` (array of states to delete). If omitted, Recollectium deletes `completed`, `failed`, and `pending` job records.
-- Successful response: HTTP `200` with deleted count and selected states.
+- Successful response: HTTP `200` with deleted count and selected states. This shape is the same for compact and verbose.
 
 Example request:
 
@@ -825,9 +830,11 @@ Example response:
 - Path params:
   - `job_id` (string)
 - Side effects: none.
-- Successful response: HTTP `200` with one job object in `data`.
+- Successful response: HTTP `200` with one compact job object in `data` by default. Use `?verbosity=verbose` or the verbosity header for the full job object.
 
-Example response:
+Example request: verbose `GET /v1/embedding/jobs/job-123?verbosity=verbose`.
+
+Example response: verbose
 
 ```json
 {

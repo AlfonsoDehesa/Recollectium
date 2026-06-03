@@ -12,33 +12,35 @@ from recollectium.models import (
     Memory,
     SearchResult,
 )
+from recollectium.representations import (
+    OPERATION_CAPABILITIES_READ,
+    OPERATION_EMBEDDING_JOBS_CLEAR,
+    OPERATION_EMBEDDING_JOBS_GET,
+    OPERATION_EMBEDDING_JOBS_LIST,
+    OPERATION_EMBEDDING_REFRESH,
+    OPERATION_EMBEDDING_STATUS,
+    OPERATION_HEALTH_READ,
+    OPERATION_MEMORIES_ADD,
+    OPERATION_MEMORIES_ARCHIVE,
+    OPERATION_MEMORIES_GET,
+    OPERATION_MEMORIES_LIST,
+    OPERATION_MEMORIES_SEARCH_USER,
+    OPERATION_MEMORIES_SEARCH_WORKSPACE,
+    OPERATION_MEMORIES_UPDATE,
+    OPERATION_VERSION_READ,
+    OPERATION_WORKSPACES_ALIASES_ADD,
+    OPERATION_WORKSPACES_ALIASES_LIST,
+    OPERATION_WORKSPACES_ALIASES_REMOVE,
+    OPERATION_WORKSPACES_LIST,
+    OPERATION_WORKSPACES_RENAME,
+    OPERATION_WORKSPACES_RESOLVE,
+    project_payload,
+)
 
 SERVICE_API_VERSION = "1"
 SERVICE_API_PREFIX = f"/v{SERVICE_API_VERSION}"
 SERVICE_DEFAULT_HOST = "127.0.0.1"
 SERVICE_DEFAULT_PORT = 8765
-
-OPERATION_HEALTH_READ = "health.read"
-OPERATION_VERSION_READ = "version.read"
-OPERATION_CAPABILITIES_READ = "capabilities.read"
-OPERATION_MEMORIES_SEARCH_USER = "memories.search_user"
-OPERATION_MEMORIES_SEARCH_WORKSPACE = "memories.search_workspace"
-OPERATION_MEMORIES_ADD = "memories.add"
-OPERATION_MEMORIES_UPDATE = "memories.update"
-OPERATION_MEMORIES_ARCHIVE = "memories.archive"
-OPERATION_MEMORIES_LIST = "memories.list"
-OPERATION_MEMORIES_GET = "memories.get"
-OPERATION_EMBEDDING_STATUS = "embedding.status"
-OPERATION_EMBEDDING_JOBS_LIST = "embedding.jobs.list"
-OPERATION_EMBEDDING_JOBS_GET = "embedding.jobs.get"
-OPERATION_EMBEDDING_REFRESH = "embedding.refresh"
-OPERATION_EMBEDDING_JOBS_CLEAR = "embedding.jobs.clear"
-OPERATION_WORKSPACES_LIST = "workspaces.list"
-OPERATION_WORKSPACES_RENAME = "workspaces.rename"
-OPERATION_WORKSPACES_RESOLVE = "workspaces.resolve"
-OPERATION_WORKSPACES_ALIASES_LIST = "workspaces.aliases.list"
-OPERATION_WORKSPACES_ALIASES_ADD = "workspaces.aliases.add"
-OPERATION_WORKSPACES_ALIASES_REMOVE = "workspaces.aliases.remove"
 
 SERVICE_CAPABILITIES = (
     OPERATION_HEALTH_READ,
@@ -65,32 +67,91 @@ SERVICE_CAPABILITIES = (
 )
 
 
-def serialize_memory(memory: Memory) -> dict[str, Any]:
-    return memory.to_dict()
+def serialize_memory(
+    memory: Memory, *, verbosity: str | None = None, operation: str | None = None
+) -> dict[str, Any]:
+    payload = memory.to_dict()
+    if verbosity is None and operation is None:
+        return payload
+    return project_payload(payload, verbosity=verbosity, operation=operation)
 
 
-def serialize_search_result(result: SearchResult) -> dict[str, Any]:
-    return result.to_dict()
+def serialize_search_result(
+    result: SearchResult, *, verbosity: str | None = None, operation: str | None = None
+) -> dict[str, Any]:
+    payload = result.to_dict()
+    if verbosity is None and operation is None:
+        return payload
+    if operation is None:
+        operation = OPERATION_MEMORIES_SEARCH_USER
+    return project_payload(payload, verbosity=verbosity, operation=operation)
 
 
-def serialize_memories(memories: list[Memory]) -> list[dict[str, Any]]:
-    return [serialize_memory(memory) for memory in memories]
+def serialize_memories(
+    memories: list[Memory],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        serialize_memory(memory, verbosity=verbosity, operation=operation)
+        for memory in memories
+    ]
 
 
-def serialize_search_results(results: list[SearchResult]) -> list[dict[str, Any]]:
-    return [serialize_search_result(result) for result in results]
+def serialize_search_results(
+    results: list[SearchResult],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        serialize_search_result(result, verbosity=verbosity, operation=operation)
+        for result in results
+    ]
 
 
-def serialize_embedding_status(status: dict[str, Any]) -> dict[str, Any]:
-    return status
+def serialize_embedding_status(
+    status: dict[str, Any],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
+) -> dict[str, Any]:
+    if verbosity is None and operation is None:
+        return status
+    return project_payload(status, verbosity=verbosity, operation=operation)
 
 
-def serialize_embedding_job(job: dict[str, Any]) -> dict[str, Any]:
-    return job
+def serialize_embedding_operation_result(
+    result: dict[str, Any],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
+) -> dict[str, Any]:
+    """Serialize an embedding operation result such as status, refresh, or clear."""
+    if verbosity is None and operation is None:
+        return result
+    return project_payload(result, verbosity=verbosity, operation=operation)
 
 
-def serialize_embedding_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [serialize_embedding_job(job) for job in jobs]
+def serialize_embedding_job(
+    job: dict[str, Any], *, verbosity: str | None = None, operation: str | None = None
+) -> dict[str, Any]:
+    if verbosity is None and operation is None:
+        return job
+    return project_payload(job, verbosity=verbosity, operation=operation)
+
+
+def serialize_embedding_jobs(
+    jobs: list[dict[str, Any]],
+    *,
+    verbosity: str | None = None,
+    operation: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        serialize_embedding_job(job, verbosity=verbosity, operation=operation)
+        for job in jobs
+    ]
 
 
 def success_payload(data: Any) -> dict[str, Any]:

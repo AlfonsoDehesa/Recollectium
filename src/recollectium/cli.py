@@ -45,6 +45,8 @@ from recollectium.config import (
     CLI_OUTPUT_HUMAN_READABLE,
     CLI_OUTPUT_JSON,
     DEFAULTS,
+    RESPONSE_VERBOSITY_COMPACT,
+    RESPONSE_VERBOSITY_VERBOSE,
     RecollectiumConfig,
     SUPPORTED_EMBEDDING_MODELS,
     _deep_merge,
@@ -79,7 +81,26 @@ from recollectium.models import (
 )
 from recollectium.mcp_server import create_mcp_server
 from recollectium.service import run_service
-from recollectium.service_contract import SERVICE_DEFAULT_HOST, SERVICE_DEFAULT_PORT
+from recollectium.service_contract import (
+    SERVICE_DEFAULT_HOST,
+    SERVICE_DEFAULT_PORT,
+)
+from recollectium.representations import (
+    OPERATION_EMBEDDING_JOBS_CLEAR,
+    OPERATION_EMBEDDING_JOBS_GET,
+    OPERATION_EMBEDDING_JOBS_LIST,
+    OPERATION_EMBEDDING_REFRESH,
+    OPERATION_EMBEDDING_STATUS,
+    OPERATION_MEMORIES_ADD,
+    OPERATION_MEMORIES_ARCHIVE,
+    OPERATION_MEMORIES_GET,
+    OPERATION_MEMORIES_LIST,
+    OPERATION_MEMORIES_SEARCH_USER,
+    OPERATION_MEMORIES_SEARCH_WORKSPACE,
+    OPERATION_MEMORIES_UPDATE,
+    project_payload,
+    validate_response_verbosity,
+)
 from recollectium.errors import ServiceConflictError, ServiceError
 from recollectium.service_manager import (
     check_running_service,
@@ -116,6 +137,7 @@ _PURGE_CONFIRMATION = "delete all recollectium data"
 _COMPLETABLE_CONFIG_KEYS = [
     "version",
     "cli_output",
+    "response_verbosity",
     "database.path",
     "embedding.provider",
     "embedding.model",
@@ -237,6 +259,7 @@ def _json_scalar(value: Any) -> str:
 
 _RICH_BOLD = "bold"
 _RICH_HEADING = "bold cyan"
+_RICH_SUCCESS = "bold green"
 _RICH_ERROR = "bold red"
 _RICH_HINT = "yellow"
 
@@ -318,7 +341,7 @@ def _format_memory(
     memory_id = memory.get("id", "unknown")
     type_value = memory.get("type")
     status = memory.get("status")
-    score = payload.get("score", memory.get("score"))
+    score = payload.get("score", payload.get("match", memory.get("score")))
     headline = f"{title_prefix}Memory {memory_id}"
     details = [str(item) for item in (type_value, status) if item]
     if details:
@@ -357,6 +380,27 @@ def _format_human_output(
     color: bool = False,
 ) -> str:
     payload = _to_payload(payload)
+    if (
+        command == "add"
+        and isinstance(payload, dict)
+        and payload.get("status") == "saved"
+        and "content" not in payload
+    ):
+        return _style("Memory saved!", _RICH_SUCCESS, enabled=color) + "\n"
+    if (
+        command == "update"
+        and isinstance(payload, dict)
+        and payload.get("status") == "updated"
+        and "content" not in payload
+    ):
+        return _style("Memory updated.", _RICH_SUCCESS, enabled=color) + "\n"
+    if (
+        command == "archive"
+        and isinstance(payload, dict)
+        and payload.get("status") == "archived"
+        and "content" not in payload
+    ):
+        return _style("Memory archived.", _RICH_SUCCESS, enabled=color) + "\n"
     if payload is None:
         return "Done\n"
     if isinstance(payload, list):
@@ -562,6 +606,44 @@ def _format_human_output(
     return "\n".join(lines) + "\n"
 
 
+def _operation_for_command(command: str | None, payload: Any = None) -> str | None:
+    if command == "add":
+        return OPERATION_MEMORIES_ADD
+    if command == "update":
+        return OPERATION_MEMORIES_UPDATE
+    if command == "archive":
+        return OPERATION_MEMORIES_ARCHIVE
+    if command == "search-user":
+        return OPERATION_MEMORIES_SEARCH_USER
+    if command == "search-workspace":
+        return OPERATION_MEMORIES_SEARCH_WORKSPACE
+    if command == "list":
+        return OPERATION_MEMORIES_LIST
+    if command == "get":
+        return OPERATION_MEMORIES_GET
+    if command == "embedding-status":
+        return OPERATION_EMBEDDING_STATUS
+    if command == "embedding-refresh":
+        return OPERATION_EMBEDDING_REFRESH
+    if command == "embedding-jobs-clear":
+        return OPERATION_EMBEDDING_JOBS_CLEAR
+    if command == "embedding-jobs":
+        return (
+            OPERATION_EMBEDDING_JOBS_GET
+            if isinstance(payload, dict)
+            else OPERATION_EMBEDDING_JOBS_LIST
+        )
+    return None
+
+
+_CURRENT_RESPONSE_VERBOSITY = RESPONSE_VERBOSITY_COMPACT
+
+
+def _set_response_verbosity(verbosity: str) -> None:
+    global _CURRENT_RESPONSE_VERBOSITY
+    _CURRENT_RESPONSE_VERBOSITY = verbosity
+
+
 def _emit_success(
     payload: Any,
     *,
@@ -569,8 +651,19 @@ def _emit_success(
     command: str | None = None,
     label: str | None = None,
     json_indent: int | None = None,
+    response_verbosity: str | None = None,
 ) -> None:
     payload = _to_payload(payload)
+    verbosity = response_verbosity or _CURRENT_RESPONSE_VERBOSITY
+    if (
+        output_format != CLI_OUTPUT_HUMAN_READABLE
+        or verbosity == RESPONSE_VERBOSITY_COMPACT
+    ):
+        payload = project_payload(
+            payload,
+            verbosity=verbosity,
+            operation=_operation_for_command(command, payload),
+        )
     if output_format == CLI_OUTPUT_HUMAN_READABLE:
         sys.stdout.write(
             _format_human_output(
@@ -694,12 +787,14 @@ def _core_config_path(explicit_path: str | None) -> Path | None:
 
 def _extract_cli_output_override(
     argv: Sequence[str] | None,
-) -> tuple[list[str] | None, str | None, bool]:
-    """Remove output override flags so they work before or after subcommands."""
+) -> tuple[list[str] | None, str | None, str | None, bool, bool]:
+    """Remove global output and verbosity flags so they work around subcommands."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
     output_format: str | None = None
+    response_verbosity: str | None = None
     cleaned: list[str] = []
-    conflict = False
+    output_conflict = False
+    verbosity_conflict = False
     literal_args = False
     for item in raw_args:
         if literal_args:
@@ -711,18 +806,41 @@ def _extract_cli_output_override(
             continue
         if item == "--json":
             if output_format == CLI_OUTPUT_HUMAN_READABLE:
-                conflict = True
+                output_conflict = True
             output_format = CLI_OUTPUT_JSON
             continue
         if item == "--human-readable":
             if output_format == CLI_OUTPUT_JSON:
-                conflict = True
+                output_conflict = True
             output_format = CLI_OUTPUT_HUMAN_READABLE
+            continue
+        if item == "--compact":
+            if response_verbosity == RESPONSE_VERBOSITY_VERBOSE:
+                verbosity_conflict = True
+            response_verbosity = RESPONSE_VERBOSITY_COMPACT
+            continue
+        if item == "--verbose":
+            if response_verbosity == RESPONSE_VERBOSITY_COMPACT:
+                verbosity_conflict = True
+            response_verbosity = RESPONSE_VERBOSITY_VERBOSE
             continue
         cleaned.append(item)
     if argv is None:
-        return None if cleaned == raw_args else cleaned, output_format, conflict
-    return cleaned, output_format, conflict
+        cleaned_arg: list[str] | None = None if cleaned == raw_args else cleaned
+        return (
+            cleaned_arg,
+            output_format,
+            response_verbosity,
+            output_conflict,
+            verbosity_conflict,
+        )
+    return (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+    )
 
 
 def _resolve_output_format(
@@ -748,6 +866,28 @@ def _resolve_output_format(
     except (FileNotFoundError, ValidationError, OSError):
         return CLI_OUTPUT_HUMAN_READABLE
     return str(merged.get("cli_output", CLI_OUTPUT_HUMAN_READABLE))
+
+
+def _resolve_response_verbosity(
+    *,
+    config_path: Path,
+    override: str | None,
+) -> str:
+    if override is not None:
+        return str(validate_response_verbosity(override))
+    if not config_path.exists():
+        return RESPONSE_VERBOSITY_COMPACT
+    try:
+        raw = load_config_file(config_path)
+        merged = _deep_merge(deepcopy(DEFAULTS), raw)
+        _validate_config_value(merged)
+    except (FileNotFoundError, ValidationError, OSError):
+        return RESPONSE_VERBOSITY_COMPACT
+    return str(
+        validate_response_verbosity(
+            str(merged.get("response_verbosity", RESPONSE_VERBOSITY_COMPACT))
+        )
+    )
 
 
 def _load_effective_config(config_path: Path, *, explicit: bool) -> RecollectiumConfig:
@@ -2890,8 +3030,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="recollectium",
         description=(
-            "Recollectium Core local memory CLI. Commands print JSON on success and "
-            "structured JSON on stderr for non-argparse failures."
+            "Recollectium Core local memory CLI. Human-readable output is the "
+            "default. Use --json for structured JSON. Recollectium-controlled "
+            "failures follow the selected output format."
         ),
     )
     parser.add_argument(
@@ -2930,6 +3071,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--human-readable",
         action="store_true",
         help="Print human-readable output for this invocation, overriding cli_output.",
+    )
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument(
+        "--compact",
+        action="store_true",
+        help="Print compact response payloads for this invocation, overriding response_verbosity.",
+    )
+    verbosity_group.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print full response payloads for this invocation, overriding response_verbosity.",
     )
     parser.add_argument(
         "--version",
@@ -3831,7 +3983,14 @@ def _rewrite_upgrade_version_selector(argv: list[str]) -> list[str]:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the Recollectium CLI."""
     _set_cli_output_format(CLI_OUTPUT_JSON)
-    argv, output_override, output_conflict = _extract_cli_output_override(argv)
+    _set_response_verbosity(RESPONSE_VERBOSITY_COMPACT)
+    (
+        argv,
+        output_override,
+        verbosity_override,
+        output_conflict,
+        verbosity_conflict,
+    ) = _extract_cli_output_override(argv)
     parser = _build_parser()
     argcomplete.autocomplete(parser)
     effective_argv = sys.argv[1:] if argv is None else list(argv)
@@ -3846,6 +4005,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             message="Choose either --json or --human-readable, not both.",
             exit_code=2,
             command="output",
+        )
+    if verbosity_conflict:
+        _set_cli_output_format(output_override or CLI_OUTPUT_JSON)
+        return _emit_cli_failure(
+            status="validation_error",
+            message="Choose either --compact or --verbose, not both.",
+            exit_code=2,
+            command="verbosity",
         )
     args = parser.parse_args(effective_argv)
 
@@ -3872,7 +4039,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         explicit=args.config_path is not None,
         override=output_override,
     )
+    response_verbosity = _resolve_response_verbosity(
+        config_path=config_path,
+        override=verbosity_override,
+    )
     _set_cli_output_format(output_format)
+    _set_response_verbosity(response_verbosity)
     if not (args.command == "upgrade" and (args.check or args.dry_run)):
         _setup_cli_logging(config_path, log_level=args.log_level)
     _log.info(

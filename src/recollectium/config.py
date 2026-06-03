@@ -39,6 +39,12 @@ SUPPORTED_LOGGING_FORMATS = {"json"}
 CLI_OUTPUT_JSON = "json"
 CLI_OUTPUT_HUMAN_READABLE = "human_readable"
 SUPPORTED_CLI_OUTPUT_FORMATS = {CLI_OUTPUT_JSON, CLI_OUTPUT_HUMAN_READABLE}
+RESPONSE_VERBOSITY_COMPACT = "compact"
+RESPONSE_VERBOSITY_VERBOSE = "verbose"
+SUPPORTED_RESPONSE_VERBOSITIES = {
+    RESPONSE_VERBOSITY_COMPACT,
+    RESPONSE_VERBOSITY_VERBOSE,
+}
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -47,6 +53,7 @@ SUPPORTED_CLI_OUTPUT_FORMATS = {CLI_OUTPUT_JSON, CLI_OUTPUT_HUMAN_READABLE}
 DEFAULTS: dict[str, Any] = {
     "version": CONFIG_VERSION,
     "cli_output": CLI_OUTPUT_HUMAN_READABLE,
+    "response_verbosity": RESPONSE_VERBOSITY_COMPACT,
     "database": {"path": "recollectium.db"},
     "embedding": {
         "provider": SUPPORTED_EMBEDDING_PROVIDER,
@@ -128,6 +135,7 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
     """
     _check_type(data, "version", int, path)
     _check_type(data, "cli_output", str, path)
+    _check_type(data, "response_verbosity", str, path)
     if isinstance(data.get("cli_output"), str):
         cli_output = data["cli_output"].lower()
         if cli_output not in SUPPORTED_CLI_OUTPUT_FORMATS:
@@ -136,6 +144,15 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
                 f"cli_output must be one of: {allowed} (got {data['cli_output']!r})"
             )
         data["cli_output"] = cli_output
+    if isinstance(data.get("response_verbosity"), str):
+        response_verbosity = data["response_verbosity"].lower()
+        if response_verbosity not in SUPPORTED_RESPONSE_VERBOSITIES:
+            allowed = ", ".join(sorted(SUPPORTED_RESPONSE_VERBOSITIES))
+            raise ValidationError(
+                "response_verbosity must be one of: "
+                f"{allowed} (got {data['response_verbosity']!r})"
+            )
+        data["response_verbosity"] = response_verbosity
     if data["version"] < 1:
         raise ValidationError(f"version must be >= 1 (got {data['version']})")
 
@@ -353,6 +370,7 @@ class RecollectiumConfig:
         *,
         log_level: str | None = None,
         cli_output: str | None = None,
+        response_verbosity: str | None = None,
     ) -> None:
         # 1. Resolve config path
         if config_path is not None:
@@ -383,6 +401,8 @@ class RecollectiumConfig:
             merged["logging"]["level"] = log_level.lower()
         if cli_output is not None:
             merged["cli_output"] = cli_output.lower()
+        if response_verbosity is not None:
+            merged["response_verbosity"] = response_verbosity.lower()
 
         # 7. Validate
         _validate_config_value(merged)

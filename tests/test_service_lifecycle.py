@@ -354,7 +354,18 @@ def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> N
         )
         memory = added["data"]
         assert isinstance(memory, dict)
-        assert memory["content"] == "api daemon memory"
+        # compact mutation: {id, status}
+        assert memory["status"] == "saved"
+        assert isinstance(memory["id"], str)
+        memory_id = memory["id"]
+
+        # fetch in verbose to verify content
+        fetched = _request_service_json(
+            endpoint, "GET", f"/v1/memories/{memory_id}?verbosity=verbose"
+        )
+        fetched_memory = fetched["data"]
+        assert isinstance(fetched_memory, dict)
+        assert fetched_memory["content"] == "api daemon memory"
 
         search = _request_service_json(
             endpoint,
@@ -364,7 +375,8 @@ def test_api_service_real_process_handles_memory_round_trip(tmp_path: Path) -> N
         )
         results = search["data"]
         assert isinstance(results, list)
-        assert results[0]["memory"]["id"] == memory["id"]
+        # compact search: {id, content, match}
+        assert results[0]["id"] == memory_id
     finally:
         _stop_real_service(config_path, pid)
 
@@ -436,21 +448,25 @@ async def _exercise_mcp_service(endpoint: str) -> None:
             added_content = added.content[0]
             assert isinstance(added_content, TextContent)
             added_memory = json.loads(added_content.text)
-            assert added_memory["content"] == "mcp daemon memory"
+            assert added_memory == {
+                "id": added_memory["id"],
+                "status": "saved",
+            }
 
             search = await session.call_tool(
                 "search_user_memory",
-                {"query": "mcp daemon"},
+                {"query": "mcp daemon", "verbosity": "verbose"},
             )
             assert not search.isError
             search_content = search.content[0]
             assert isinstance(search_content, TextContent)
             results = json.loads(search_content.text)
             assert results[0]["memory"]["id"] == added_memory["id"]
+            assert results[0]["memory"]["content"] == "mcp daemon memory"
 
             got = await session.call_tool(
                 "get_memory",
-                {"id": added_memory["id"]},
+                {"id": added_memory["id"], "verbosity": "verbose"},
             )
             assert not got.isError
             got_content = got.content[0]

@@ -12,6 +12,8 @@ import pytest
 from recollectium.config import (
     CONFIG_VERSION,
     DEFAULTS,
+    RESPONSE_VERBOSITY_COMPACT,
+    RESPONSE_VERBOSITY_VERBOSE,
     RecollectiumConfig,
     _check_type,
     _deep_merge,
@@ -133,6 +135,31 @@ class TestValidateConfigValue:
 
     def test_default_cli_output_is_human_readable(self) -> None:
         assert DEFAULTS["cli_output"] == "human_readable"
+
+    def test_default_response_verbosity_is_compact(self) -> None:
+        assert DEFAULTS["response_verbosity"] == RESPONSE_VERBOSITY_COMPACT
+
+    def test_response_verbosity_is_normalized(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["response_verbosity"] = "VERBOSE"
+
+        _validate_config_value(data)
+
+        assert data["response_verbosity"] == RESPONSE_VERBOSITY_VERBOSE
+
+    def test_invalid_response_verbosity_type_raises(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["response_verbosity"] = 42
+
+        with pytest.raises(ValidationError, match="response_verbosity must be str"):
+            _validate_config_value(data)
+
+    def test_unsupported_response_verbosity_raises(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["response_verbosity"] = "full"
+
+        with pytest.raises(ValidationError, match="response_verbosity must be one of"):
+            _validate_config_value(data)
 
     def test_default_development_seeded_database_is_disabled(self) -> None:
         assert DEFAULTS["development"]["use_seeded_database"] is False
@@ -550,6 +577,26 @@ class TestRecollectiumConfig:
         cfg = RecollectiumConfig(config_path, cli_output="human_readable")
 
         assert cfg.effective_config["cli_output"] == "human_readable"
+
+    def test_response_verbosity_runtime_override_does_not_mutate_config(
+        self, tmp_path: Path
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {"version": 1, "response_verbosity": RESPONSE_VERBOSITY_COMPACT}
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = RecollectiumConfig(
+            config_path, response_verbosity=RESPONSE_VERBOSITY_VERBOSE
+        )
+
+        assert cfg.effective_config["response_verbosity"] == RESPONSE_VERBOSITY_VERBOSE
+        assert json.loads(config_path.read_text(encoding="utf-8"))[
+            "response_verbosity"
+        ] == (RESPONSE_VERBOSITY_COMPACT)
 
     def test_xdg_dirs_respects_overrides(self, tmp_path: Path) -> None:
         config_path = tmp_path / "config.json"

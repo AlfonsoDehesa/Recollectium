@@ -20,7 +20,11 @@ import pytest
 from pytest import CaptureFixture
 
 import recollectium.cli as cli_module
-from recollectium.config import DEFAULTS
+from recollectium.config import (
+    DEFAULTS,
+    RESPONSE_VERBOSITY_COMPACT,
+    RESPONSE_VERBOSITY_VERBOSE,
+)
 from recollectium.cli import (
     _ReembeddingProgressReporter,
     _emit_failure_payload,
@@ -28,6 +32,7 @@ from recollectium.cli import (
     _extract_cli_output_override,
     _format_human_error,
     _format_human_output,
+    _format_memory,
     _resolve_output_format,
     _set_cli_output_format,
     _supports_color,
@@ -89,8 +94,14 @@ def _run_cli(
     *,
     json_by_default: bool = True,
 ) -> tuple[int, str, str]:
-    if json_by_default and "--json" not in args and "--human-readable" not in args:
-        args = ["--json", *args]
+    if (
+        json_by_default
+        and "--json" not in args
+        and "--human-readable" not in args
+        and "--compact" not in args
+        and "--verbose" not in args
+    ):
+        args = ["--json", "--verbose", *args]
     exit_code = main(args)
     captured = capsys.readouterr()
     return exit_code, captured.out, captured.err
@@ -125,6 +136,10 @@ def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
 def test_cli_help_documents_commands_and_flags(capsys) -> None:
     top_level_help = _run_help(["--help"], capsys)
     assert "Recollectium Core local memory CLI" in top_level_help
+    assert "Human-readable output is the default" in top_level_help
+    assert "--json for structured JSON" in top_level_help
+    assert "follow the" in top_level_help
+    assert "selected output format" in top_level_help
     assert "--version" in top_level_help
     assert "--json" in top_level_help
     assert "--human-readable" in top_level_help
@@ -2027,6 +2042,32 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     assert "Memory added" in _format_human_output(memory, command="add")
     assert "Memory updated" in _format_human_output(memory, command="update")
     assert "Memory archived" in _format_human_output(memory, command="archive")
+    # Compact archive projection (id + status only, no content) → short output
+    assert (
+        _format_human_output({"id": 456, "status": "archived"}, command="archive")
+        == "Memory archived.\n"
+    )
+    # Compact archive with just status (no id, no content) → short output
+    assert (
+        _format_human_output({"status": "archived"}, command="archive")
+        == "Memory archived.\n"
+    )
+    # Verbose archive (full memory dict with content + archived status) → detailed output
+    archived_memory = {**memory, "status": "archived"}
+    verbose_output = _format_human_output(archived_memory, command="archive")
+    assert "Memory archived" in verbose_output
+    assert "Use SQLite." in verbose_output  # content present
+    assert "decision" in verbose_output  # type present
+    # Compact add projection → short output
+    assert (
+        _format_human_output({"id": 789, "status": "saved"}, command="add")
+        == "Memory saved!\n"
+    )
+    # Compact update projection → short output
+    assert (
+        _format_human_output({"id": 789, "status": "updated"}, command="update")
+        == "Memory updated.\n"
+    )
     assert "cli_output: human_readable" in _format_human_output(
         "human_readable", command="config get", label="cli_output"
     )
@@ -2106,24 +2147,32 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr("sys.argv", ["recollectium", "list", "--human-readable"])
-    cleaned, output_format, conflict = _extract_cli_output_override(None)
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(None)
+    )
     assert cleaned == ["list"]
     assert output_format == "human_readable"
-    assert conflict is False
+    assert response_verbosity is None
+    assert output_conflict is False
+    assert verbosity_conflict is False
 
-    cleaned, output_format, conflict = _extract_cli_output_override(
-        ["--human-readable", "list", "--json"]
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["--human-readable", "list", "--json"])
     )
     assert cleaned == ["list"]
     assert output_format == "json"
-    assert conflict is True
+    assert response_verbosity is None
+    assert output_conflict is True
+    assert verbosity_conflict is False
 
-    cleaned, output_format, conflict = _extract_cli_output_override(
-        ["config", "set", "logging.level", "--", "--json"]
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["config", "set", "logging.level", "--", "--json"])
     )
     assert cleaned == ["config", "set", "logging.level", "--", "--json"]
     assert output_format is None
-    assert conflict is False
+    assert response_verbosity is None
+    assert output_conflict is False
+    assert verbosity_conflict is False
 
     config_path = tmp_path / "config.json"
     config_path.write_text('{"version": 1, "cli_output": "invalid"}', encoding="utf-8")
@@ -2135,6 +2184,240 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
     assert (
         _resolve_output_format(config_path=config_path, explicit=True, override=None)
         == "human_readable"
+    )
+
+
+def test_cli_verbosity_extraction_conflicts_order_and_literals(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", ["recollectium", "list", "--compact"])
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(None)
+    )
+    assert cleaned == ["list"]
+    assert output_format is None
+    assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["--verbose", "list"])
+    )
+    assert cleaned == ["list"]
+    assert output_format is None
+    assert response_verbosity == RESPONSE_VERBOSITY_VERBOSE
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["list", "--compact", "--verbose"])
+    )
+    assert cleaned == ["list"]
+    assert response_verbosity == RESPONSE_VERBOSITY_VERBOSE
+    assert output_conflict is False
+    assert verbosity_conflict is True
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(["list", "--verbose", "--compact"])
+    )
+    assert cleaned == ["list"]
+    assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
+    assert output_conflict is False
+    assert verbosity_conflict is True
+
+    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
+        _extract_cli_output_override(
+            ["config", "set", "response_verbosity", "--", "--verbose"]
+        )
+    )
+    assert cleaned == ["config", "set", "response_verbosity", "--", "--verbose"]
+    assert output_format is None
+    assert response_verbosity is None
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
+
+def test_cli_human_readable_verbosity_conflict_uses_human_error(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "--verbose", "list"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "Choose either --compact or --verbose, not both." in stderr
+    assert not stderr.lstrip().startswith("{")
+
+
+def test_cli_json_verbosity_compact_vs_verbose_memory_shapes(tmp_path, capsys) -> None:
+    db_path = tmp_path / "verbosity.db"
+
+    compact_add_code, compact_add_out, compact_add_err = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            "user",
+            "--type",
+            "fact",
+            "--content",
+            "verbosity shape memory",
+        ],
+        capsys,
+    )
+    assert compact_add_code == 0
+    assert compact_add_err == ""
+    compact_add = json.loads(compact_add_out)
+    assert set(compact_add) == {"id", "status"}
+    assert compact_add["status"] == "saved"
+
+    verbose_search_code, verbose_search_out, verbose_search_err = _run_cli(
+        [
+            "--json",
+            "--verbose",
+            "--db",
+            str(db_path),
+            "search-user",
+            "verbosity",
+        ],
+        capsys,
+    )
+    assert verbose_search_code == 0
+    assert verbose_search_err == ""
+    verbose_search = json.loads(verbose_search_out)
+    assert set(verbose_search[0]) >= {"memory", "score", "rank"}
+    assert verbose_search[0]["memory"]["id"] == compact_add["id"]
+
+    compact_search_code, compact_search_out, compact_search_err = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "search-user",
+            "verbosity",
+        ],
+        capsys,
+    )
+    assert compact_search_code == 0
+    assert compact_search_err == ""
+    compact_search = json.loads(compact_search_out)
+    assert set(compact_search[0]) == {"id", "content", "match"}
+    assert compact_search[0]["id"] == compact_add["id"]
+    assert compact_search[0]["content"] == "verbosity shape memory"
+    assert isinstance(compact_search[0]["match"], float)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("add", "Memory saved!\n"),
+        ("update", "Memory updated.\n"),
+        ("archive", "Memory archived.\n"),
+    ],
+)
+def test_cli_human_compact_projects_mutations_to_short_messages(
+    command: str,
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        {
+            "id": "mem-1",
+            "content": "compact human mutation",
+            "type": "fact",
+            "space": "user",
+            "metadata": {"source": "test"},
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        output_format="human_readable",
+        command=command,
+        response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+    )
+
+    assert stream.getvalue() == expected
+
+
+def test_cli_compact_human_search_output_includes_match_score() -> None:
+    """Compact human search results should display the match score."""
+    payload = {
+        "id": "mem-search-1",
+        "content": "a searchable fact",
+        "match": 0.87,
+    }
+    lines = _format_memory(payload)
+    assert any("score=0.87" in line for line in lines)
+
+
+def test_cli_human_verbose_preserves_detailed_mutation_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        {
+            "id": "mem-1",
+            "content": "verbose human mutation",
+            "type": "fact",
+            "space": "user",
+            "metadata": {"source": "test"},
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        output_format="human_readable",
+        command="add",
+        response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
+    )
+
+    output = stream.getvalue()
+    assert output.startswith("Memory added\n")
+    assert "Memory mem-1 (fact)" in output
+    assert "Content: verbose human mutation" in output
+    assert 'Metadata: {"source": "test"}' in output
+
+
+def test_cli_response_verbosity_flag_overrides_config_without_mutation(
+    tmp_path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {"version": 1, "cli_output": "json", "response_verbosity": "verbose"}
+        ),
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "override.db"
+
+    add_code, add_out, add_err = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--compact",
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            "user",
+            "--type",
+            "fact",
+            "--content",
+            "runtime compact override",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert add_code == 0
+    assert add_err == ""
+    assert set(json.loads(add_out)) == {"id", "status"}
+    assert (
+        json.loads(config_path.read_text(encoding="utf-8"))["response_verbosity"]
+        == "verbose"
     )
 
 
