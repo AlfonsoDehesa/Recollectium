@@ -5,7 +5,7 @@ from __future__ import annotations
 from http import HTTPStatus
 import json
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -150,9 +150,11 @@ class SearchUserRequest(BaseModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int | None = Field(default_factory=lambda: UNSET, ge=0)
+    protected_minimum: int | None = Field(default_factory=lambda: cast(int | None, UNSET), ge=0)
     match_threshold: float | Literal["model_recommended_default"] | None = Field(
-        default_factory=lambda: UNSET
+        default_factory=lambda: cast(
+            float | Literal["model_recommended_default"] | None, UNSET
+        )
     )
     include_archived: bool = False
 
@@ -164,9 +166,11 @@ class SearchWorkspaceRequest(BaseModel):
     type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int | None = Field(default_factory=lambda: UNSET, ge=0)
+    protected_minimum: int | None = Field(default_factory=lambda: cast(int | None, UNSET), ge=0)
     match_threshold: float | Literal["model_recommended_default"] | None = Field(
-        default_factory=lambda: UNSET
+        default_factory=lambda: cast(
+            float | Literal["model_recommended_default"] | None, UNSET
+        )
     )
     include_archived: bool = False
 

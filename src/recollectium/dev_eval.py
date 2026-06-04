@@ -7,7 +7,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from math import log2
 from typing import Any, Protocol
-
 from recollectium.dev_eval_ranked_set_fixtures import (
     RANKED_SET_NDCG_CUTOFF,
     RANKED_SET_NDCG_FIXTURE,

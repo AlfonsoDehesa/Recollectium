@@ -19,7 +19,7 @@ import time
 from io import StringIO
 from pathlib import Path
 from collections.abc import Callable
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
@@ -1734,22 +1734,22 @@ def _run_seeded_dev_eval(
     if progress is not None:
         progress("Running exact MRR")
     exact_report = evaluate_exact_mrr_for_core(
-        core, progress_callback=reembedding_progress
+        cast(Any, core), progress_callback=reembedding_progress
     )
     if progress is not None:
         progress("Running semantic MRR")
     semantic_report = evaluate_semantic_mrr_for_core(
-        core, progress_callback=reembedding_progress
+        cast(Any, core), progress_callback=reembedding_progress
     )
     if progress is not None:
         progress("Running thematic Precision@10")
     thematic_report = evaluate_thematic_precision_for_core(
-        core, progress_callback=reembedding_progress
+        cast(Any, core), progress_callback=reembedding_progress
     )
     if progress is not None:
         progress("Running ranked-set NDCG@5")
     ranked_set_report = evaluate_ranked_set_ndcg_for_core(
-        core, progress_callback=reembedding_progress
+        cast(Any, core), progress_callback=reembedding_progress
     )
     return {
         "status": "ok",
