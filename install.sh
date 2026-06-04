@@ -14,6 +14,15 @@ info() {
   printf '%s\n' "$1"
 }
 
+show_banner() {
+  [ -t 1 ] || return 0
+
+  printf '%s\n' '+------------------------+'
+  printf '%s\n' '|      Recollectium      |'
+  printf '%s\n' '|       installer        |'
+  printf '%s\n' '+------------------------+'
+}
+
 fail() {
   printf 'error: %s\n' "$1" >&2
   exit 1
@@ -465,6 +474,8 @@ configure_shell_completion() {
   COMPLETION_SHELL="$shell"
   info "Shell completion configured in ${rc}."
 }
+
+show_banner
 
 install_uv
 resolve_ref
