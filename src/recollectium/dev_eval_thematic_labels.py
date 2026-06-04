@@ -17,6 +17,12 @@ ThematicContextLabel: TypeAlias = Literal[2, 1, -1, -2]
 ALLOWED_THEMATIC_CONTEXT_LABELS: frozenset[ThematicContextLabel] = frozenset(
     {2, 1, -1, -2}
 )
+# PR1 final adjudication found this one HarborPilot scheduling query has every
+# in-scope workspace memory at least weakly relevant. Keep the exception
+# explicit so future accidental all-positive label cases fail validation.
+ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS: frozenset[str] = frozenset(
+    {"workspace|proj-fic-harborpilot-01|scheduling|q2"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -4510,6 +4516,11 @@ def validate_thematic_context_label_cases(
             )
         if not any(label > 0 for label in labels_tuple):
             raise ValueError(f"case {case.case_id!r} lacks positive signal")
+        if (
+            not any(label < 0 for label in labels_tuple)
+            and case.case_id not in ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS
+        ):
+            raise ValueError(f"case {case.case_id!r} lacks negative signal")
 
     # verify candidate coverage matches expected
     idx = seeded_eval_key_index()

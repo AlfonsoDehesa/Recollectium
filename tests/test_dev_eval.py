@@ -44,6 +44,7 @@ from recollectium.dev_eval_thematic_fixtures import (
     ThematicPrecisionFixtureEntry,
 )
 from recollectium.dev_eval_thematic_labels import (
+    ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS,
     ALLOWED_THEMATIC_CONTEXT_LABELS,
     THEMATIC_CONTEXT_LABEL_CASES,
     ThematicContextLabelCase,
@@ -1460,6 +1461,11 @@ def test_thematic_context_label_dataset_covers_every_query_candidate_pair() -> N
         labels = tuple(case.labels.values())
         assert set(labels) <= ALLOWED_THEMATIC_CONTEXT_LABELS
         assert any(label > 0 for label in labels)
+        if case.case_id in ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS:
+            assert case.case_id == "workspace|proj-fic-harborpilot-01|scheduling|q2"
+            assert all(label > 0 for label in labels)
+        else:
+            assert any(label < 0 for label in labels)
         if case.scope == SPACE_USER:
             assert set(case.labels) == set(eval_key_index.user_eval_keys)
             assert len(case.labels) == DEV_SEED_USER_MEMORY_COUNT
@@ -1646,6 +1652,42 @@ def test_thematic_context_label_validation_fails_for_signal_and_extra_labels() -
                 *THEMATIC_CONTEXT_LABEL_CASES[1:],
             )
         )
+    with pytest.raises(ValueError, match="lacks negative signal"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=valid_case.case_id,
+                    scope=valid_case.scope,
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid=valid_case.workspace_uid,
+                    labels={key: 1 for key in valid_case.labels},
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+
+
+def test_thematic_context_label_allowlisted_all_positive_case_is_intentional() -> None:
+    assert ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS == frozenset(
+        {"workspace|proj-fic-harborpilot-01|scheduling|q2"}
+    )
+
+    allowlisted_case = next(
+        case
+        for case in THEMATIC_CONTEXT_LABEL_CASES
+        if case.case_id in ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS
+    )
+
+    assert allowlisted_case.scope == SPACE_WORKSPACE
+    assert allowlisted_case.workspace_uid == "proj-fic-harborpilot-01"
+    assert allowlisted_case.group == "scheduling"
+    assert allowlisted_case.query_index == 2
+    assert all(label > 0 for label in allowlisted_case.labels.values())
+    validate_thematic_context_label_cases(THEMATIC_CONTEXT_LABEL_CASES)
+
+
 def test_thematic_context_labels_are_explicit_checked_in_data() -> None:
     label_source_path = thematic_label_module.__file__
     assert label_source_path is not None
