@@ -25,6 +25,15 @@ function Write-Guidance {
     }
 }
 
+function Show-Banner {
+    if ([Console]::IsOutputRedirected) { return }
+
+    Write-Host "+------------------------+"
+    Write-Host "|      Recollectium      |"
+    Write-Host "|       installer        |"
+    Write-Host "+------------------------+"
+}
+
 function Get-ExpectedRecollectiumPaths {
     @(
         (Join-Path $ToolBin "recollectium.exe"),
@@ -242,6 +251,8 @@ function Get-RecollectiumInstallRef {
         throw "failed to resolve latest GitHub release; set RECOLLECTIUM_INSTALL_MAIN=1 to install main"
     }
 }
+
+Show-Banner
 
 $uv = Install-Uv
 $ref = Get-RecollectiumInstallRef
