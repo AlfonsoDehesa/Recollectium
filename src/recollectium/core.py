@@ -37,7 +37,12 @@ from recollectium.models import (
 )
 from recollectium.config import RecollectiumConfig
 from recollectium.dev_seed import ensure_seeded_dev_database
-from recollectium.retrieval import UNSET, UnsetType, apply_match_threshold, resolve_retrieval_policy
+from recollectium.retrieval import (
+    UNSET,
+    UnsetType,
+    apply_match_threshold,
+    resolve_retrieval_policy,
+)
 from recollectium.search import rank_memory_candidates
 from recollectium.storage import SQLiteMemoryStore, utc_now_iso
 
@@ -167,7 +172,10 @@ class RecollectiumCore:
         include_archived: bool = False,
         type: str | None = None,
         protected_minimum: int | None | UnsetType = UNSET,
-        match_threshold: float | None | Literal["model_recommended_default"] | UnsetType = UNSET,
+        match_threshold: float
+        | None
+        | Literal["model_recommended_default"]
+        | UnsetType = UNSET,
         progress_callback: ReembeddingProgressCallback | None = None,
     ) -> list[SearchResult]:
         validated_type = validate_memory_type_filter(type) if type is not None else None
@@ -188,13 +196,15 @@ class RecollectiumCore:
         policy = resolve_retrieval_policy(
             request_protected_minimum=protected_minimum,
             request_match_threshold=match_threshold,
-            config_protected_minimum=self.config.effective_config.get("retrieval", {}).get(
-                "protected_minimum", 3
+            config_protected_minimum=self.config.effective_config.get(
+                "retrieval", {}
+            ).get("protected_minimum", 3),
+            config_match_threshold=self.config.effective_config.get(
+                "retrieval", {}
+            ).get("match_threshold", "model_recommended_default"),
+            embedding_model=str(
+                self.embedding_provider.embedding_profile.get("model", "")
             ),
-            config_match_threshold=self.config.effective_config.get("retrieval", {}).get(
-                "match_threshold", "model_recommended_default"
-            ),
-            embedding_model=str(self.embedding_provider.embedding_profile.get("model", "")),
         )
         result = rank_memory_candidates(
             query=query,
@@ -225,7 +235,10 @@ class RecollectiumCore:
         include_archived: bool = False,
         type: str | None = None,
         protected_minimum: int | None | UnsetType = UNSET,
-        match_threshold: float | None | Literal["model_recommended_default"] | UnsetType = UNSET,
+        match_threshold: float
+        | None
+        | Literal["model_recommended_default"]
+        | UnsetType = UNSET,
         progress_callback: ReembeddingProgressCallback | None = None,
     ) -> list[SearchResult]:
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
@@ -254,13 +267,15 @@ class RecollectiumCore:
         policy = resolve_retrieval_policy(
             request_protected_minimum=protected_minimum,
             request_match_threshold=match_threshold,
-            config_protected_minimum=self.config.effective_config.get("retrieval", {}).get(
-                "protected_minimum", 3
+            config_protected_minimum=self.config.effective_config.get(
+                "retrieval", {}
+            ).get("protected_minimum", 3),
+            config_match_threshold=self.config.effective_config.get(
+                "retrieval", {}
+            ).get("match_threshold", "model_recommended_default"),
+            embedding_model=str(
+                self.embedding_provider.embedding_profile.get("model", "")
             ),
-            config_match_threshold=self.config.effective_config.get("retrieval", {}).get(
-                "match_threshold", "model_recommended_default"
-            ),
-            embedding_model=str(self.embedding_provider.embedding_profile.get("model", "")),
         )
         result = rank_memory_candidates(
             query=query,

@@ -192,9 +192,7 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
         )
     protected_minimum = retrieval.get("protected_minimum")
     if not isinstance(protected_minimum, int) or isinstance(protected_minimum, bool):
-        raise ValidationError(
-            "retrieval.protected_minimum must be an integer >= 0"
-        )
+        raise ValidationError("retrieval.protected_minimum must be an integer >= 0")
     if protected_minimum < 0:
         raise ValidationError("retrieval.protected_minimum must be >= 0")
     if protected_minimum > 1000:
@@ -205,12 +203,17 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
     if not (
         match_threshold is None
         or match_threshold == "model_recommended_default"
-        or (isinstance(match_threshold, (int, float)) and not isinstance(match_threshold, bool))
+        or (
+            isinstance(match_threshold, (int, float))
+            and not isinstance(match_threshold, bool)
+        )
     ):
         raise ValidationError(
             "retrieval.match_threshold must be null, 'model_recommended_default', or a number between 0.0 and 1.0"
         )
-    if isinstance(match_threshold, (int, float)) and not isinstance(match_threshold, bool):
+    if isinstance(match_threshold, (int, float)) and not isinstance(
+        match_threshold, bool
+    ):
         normalized = float(match_threshold)
         if normalized < 0.0 or normalized > 1.0:
             raise ValidationError(

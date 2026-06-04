@@ -88,7 +88,10 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         type: str | None = None,
         limit: int = 20,
         protected_minimum: int | None | UnsetType = UNSET,
-        match_threshold: float | Literal["model_recommended_default"] | None | UnsetType = UNSET,
+        match_threshold: float
+        | Literal["model_recommended_default"]
+        | None
+        | UnsetType = UNSET,
         include_archived: bool = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
@@ -128,7 +131,10 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         type: str | None = None,
         limit: int = 20,
         protected_minimum: int | None | UnsetType = UNSET,
-        match_threshold: float | Literal["model_recommended_default"] | None | UnsetType = UNSET,
+        match_threshold: float
+        | Literal["model_recommended_default"]
+        | None
+        | UnsetType = UNSET,
         include_archived: bool = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:

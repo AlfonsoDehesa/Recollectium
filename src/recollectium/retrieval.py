@@ -126,9 +126,7 @@ def resolve_retrieval_policy(
         source: MatchThresholdSource = "request"
     elif config_match_threshold == "model_recommended_default":
         source = (
-            "model_recommended_default"
-            if match_threshold is not None
-            else "disabled"
+            "model_recommended_default" if match_threshold is not None else "disabled"
         )
     elif config_match_threshold is None:
         source = "disabled"
