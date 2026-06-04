@@ -482,7 +482,7 @@ Every item in this gate must be confirmed before the release-prep PR is merged.
 
 - [ ] Every CLI command, subcommand, flag, and positional argument has help text.
 - [ ] Every CLI command supports both human-readable and JSON output shapes.
-- [ ] Every CLI command supports both concise and verbose output modes.
+- [ ] CLI, API, and MCP data-returning operations support both compact and verbose response modes.
 - [ ] Argcomplete reaches every CLI command and flag.
 - [ ] `recollectium config get/set/unset <TAB>` completes config keys.
 - [ ] PowerShell dynamic completion works through `Register-ArgumentCompleter`.
