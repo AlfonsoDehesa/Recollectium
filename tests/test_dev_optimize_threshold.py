@@ -192,8 +192,19 @@ def test_score_threshold_rows_and_tie_break_choose_lower_threshold() -> None:
     )
 
     rows = score_threshold_rows((bundle,), (0.0, 0.9), beta=1.0)
+    progress_events: list[tuple[int, float]] = []
+    rows_with_progress = score_threshold_rows(
+        (bundle,),
+        (0.0, 0.9),
+        beta=1.0,
+        progress_callback=lambda completed, threshold: progress_events.append(
+            (completed, threshold)
+        ),
+    )
     recommended = select_recommended_row(rows)
 
+    assert progress_events == [(1, 0.0), (2, 0.9)]
+    assert rows_with_progress == rows
     assert len(rows) == 2
     assert rows[0].weighted_f_score == pytest.approx(rows[1].weighted_f_score)
     assert recommended.threshold == 0.0
@@ -436,6 +447,17 @@ def test_report_csv_png_and_summary_helpers_write_artifacts(tmp_path: Path) -> N
     assert png_path.stat().st_size > 0
     assert report.to_dict()["recommended_threshold"] == report.recommended_threshold
     assert any(row.recommended for row in report.rows)
+    assert (
+        "Objective: maximize weighted F1, balancing precision and recall"
+        in disabled_summary
+    )
+    assert any(
+        line.startswith("Recommended metrics: precision=") for line in disabled_summary
+    )
+    assert any(
+        line.startswith("Exposure at recommendation: confusers=")
+        for line in disabled_summary
+    )
     assert "Current config: disabled (disabled)" in disabled_summary
     assert "Current config: 0.42 (explicit)" in enabled_summary
 

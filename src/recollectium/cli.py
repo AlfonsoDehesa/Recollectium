@@ -22,7 +22,15 @@ from collections.abc import Callable
 from typing import Any, Sequence, cast
 
 from rich.console import Console
-from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.text import Text
 
 from platformdirs import user_state_dir
@@ -72,6 +80,7 @@ from recollectium.dev_eval import (
 from recollectium.dev_optimize_threshold import (
     build_threshold_optimization_report,
     build_threshold_search_bundles,
+    generate_threshold_values,
     report_summary_lines,
     score_runtime_row,
     threshold_cases_from_fixture,
@@ -806,6 +815,96 @@ def _human_reembedding_progress_reporter(
     if output_format != CLI_OUTPUT_HUMAN_READABLE:
         return None
     return _ReembeddingProgressReporter(sys.stderr)
+
+
+class _ThresholdOptimizationProgressReporter:
+    """Render threshold optimizer phases and scoring progress for humans."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        isatty = getattr(stream, "isatty", None)
+        self._isatty = False
+        if callable(isatty):
+            try:
+                self._isatty = bool(isatty())
+            except OSError:
+                self._isatty = False
+        self._progress: Progress | None = None
+        self._phase_task_id: TaskID | None = None
+        self._scoring_task_id: TaskID | None = None
+        self._scoring_total = 0
+        self._last_plain_scoring_update = 0
+
+    def __enter__(self) -> _ThresholdOptimizationProgressReporter:
+        self._ensure_progress()
+        return self
+
+    def _ensure_progress(self) -> None:
+        if not self._isatty or self._progress is not None:
+            return
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold cyan]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeRemainingColumn(),
+            TimeElapsedColumn(),
+            console=Console(file=self._stream),
+            transient=False,
+        )
+        progress.start()
+        self._progress = progress
+
+    def __exit__(self, *_: object) -> None:
+        self.finish()
+
+    def finish(self) -> None:
+        if self._progress is not None:
+            self._progress.stop()
+            self._progress = None
+            self._phase_task_id = None
+            self._scoring_task_id = None
+
+    def phase(self, message: str) -> None:
+        self._ensure_progress()
+        if self._progress is not None:
+            if self._phase_task_id is None:
+                self._phase_task_id = self._progress.add_task(message, total=None)
+            else:
+                self._progress.update(self._phase_task_id, description=message)
+            return
+        self._stream.write(f"Status: {message}\n")
+        self._stream.flush()
+
+    def start_scoring(self, total: int) -> None:
+        self._ensure_progress()
+        self._scoring_total = total
+        if self._progress is not None:
+            if self._phase_task_id is not None:
+                self._progress.update(self._phase_task_id, visible=False)
+            self._scoring_task_id = self._progress.add_task(
+                "Scoring thresholds", total=total
+            )
+            return
+        self._stream.write(f"Status: Scoring thresholds: 0/{total} (ETA calculating)\n")
+        self._stream.flush()
+
+    def advance_scoring(self, completed: int, threshold: float) -> None:
+        if self._progress is not None:
+            if self._scoring_task_id is not None:
+                self._progress.update(
+                    self._scoring_task_id,
+                    completed=completed,
+                    description=f"Scoring thresholds (threshold {threshold:.2f})",
+                )
+            return
+        if completed == self._scoring_total or completed == 1:
+            self._stream.write(
+                "Status: Scoring thresholds: "
+                f"{completed}/{self._scoring_total} (threshold {threshold:.2f})\n"
+            )
+            self._stream.flush()
+            self._last_plain_scoring_update = completed
 
 
 def _parse_config_value(raw: str) -> Any:
@@ -1816,26 +1915,19 @@ def _run_seeded_dev_optimize_threshold(
 ) -> int:
     """Run the seeded threshold optimizer against the PR1 thematic fixtures."""
 
-    def _progress(message: str) -> None:
-        stream = (
-            sys.stderr if args.format == "csv" and args.output is None else sys.stdout
-        )
-        stream.write(f"Status: {message}\n")
-        stream.flush()
-
     progress = (
-        _progress
+        _ThresholdOptimizationProgressReporter(sys.stderr)
         if output_format == CLI_OUTPUT_HUMAN_READABLE
-        or (args.format == "csv" and args.output is None)
         else None
     )
 
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
     if progress is not None:
-        progress(f"Preparing seeded development database: {dev_db_path}")
+        progress.phase(f"Preparing seeded development database: {dev_db_path}")
     seed_result = ensure_seeded_dev_database(dev_db_path, provider)
     if progress is not None:
-        progress("Loading optimizer fixtures")
+        progress.phase("Loading fixtures")
+    cases = threshold_cases_from_fixture()
     core = RecollectiumCore(
         db_path=dev_db_path,
         config_path=config_path,
@@ -1843,9 +1935,9 @@ def _run_seeded_dev_optimize_threshold(
         log_level=cfg.effective_config["logging"]["level"],
     )
     if progress is not None:
-        progress("Loading full candidate pools")
+        progress.phase("Loading candidate pools")
     bundles = build_threshold_search_bundles(
-        threshold_cases_from_fixture(),
+        cases,
         search_user=lambda query, limit: core.search_user_memories(
             query=query,
             limit=limit,
@@ -1864,8 +1956,6 @@ def _run_seeded_dev_optimize_threshold(
             )
         ),
     )
-    if progress is not None:
-        progress("Scoring threshold sweep")
     output_path = (
         Path(args.output).expanduser()
         if args.output is not None
@@ -1875,6 +1965,10 @@ def _run_seeded_dev_optimize_threshold(
             else None
         )
     )
+    if progress is not None:
+        progress.start_scoring(
+            len(generate_threshold_values(args.start, args.end, args.step))
+        )
     report = build_threshold_optimization_report(
         model=str(provider.embedding_profile.get("model", "unknown model")),
         provider=str(provider.embedding_profile.get("provider", "unknown provider")),
@@ -1886,6 +1980,7 @@ def _run_seeded_dev_optimize_threshold(
         output_path=str(output_path) if output_path is not None else None,
         wrote_config=args.write_config,
         bundles=bundles,
+        scoring_progress=progress.advance_scoring if progress is not None else None,
     )
     policy = resolve_retrieval_policy(
         config_protected_minimum=cfg.effective_config.get("retrieval", {}).get(
@@ -1971,7 +2066,8 @@ def _run_seeded_dev_optimize_threshold(
 
     if args.format == "csv" and args.output is None:
         if progress is not None:
-            progress("Writing CSV sweep to stdout")
+            progress.phase("Writing CSV sweep to stdout")
+            progress.finish()
         sys.stdout.write(threshold_rows_to_csv(report.rows))
         summary_lines = report_summary_lines(
             report,
@@ -1984,9 +2080,11 @@ def _run_seeded_dev_optimize_threshold(
         return 0
 
     if progress is not None:
-        progress(f"Writing {args.format.upper()} artifact: {artifact_path}")
+        progress.phase(f"Writing {args.format.upper()} artifact: {artifact_path}")
 
     if output_format == CLI_OUTPUT_HUMAN_READABLE:
+        if progress is not None:
+            progress.finish()
         assert artifact_path is not None
         summary_lines = report_summary_lines(
             report,

@@ -419,6 +419,7 @@ def score_threshold_rows(
     thresholds: Sequence[float],
     *,
     beta: float,
+    progress_callback: Callable[[int, float], None] | None = None,
 ) -> tuple[ThresholdSweepRow, ...]:
     """Aggregate sweep rows for the provided threshold values."""
 
@@ -427,9 +428,11 @@ def score_threshold_rows(
             "threshold optimization requires at least one bundle"
         )
     rows: list[ThresholdSweepRow] = []
-    for threshold in thresholds:
+    for index, threshold in enumerate(thresholds, start=1):
         metrics = [score_threshold_bundle(bundle, threshold) for bundle in bundles]
         rows.append(_aggregate_case_metrics(metrics, threshold=threshold, beta=beta))
+        if progress_callback is not None:
+            progress_callback(index, threshold)
     return tuple(rows)
 
 
@@ -490,12 +493,15 @@ def build_threshold_optimization_report(
     output_path: str | None,
     wrote_config: bool,
     bundles: Sequence[ThresholdSearchBundle],
+    scoring_progress: Callable[[int, float], None] | None = None,
 ) -> ThresholdOptimizationReport:
     """Build the sweep report for the provided bundles and sweep parameters."""
 
     validate_threshold_sweep_parameters(start=start, end=end, step=step, beta=beta)
     thresholds = generate_threshold_values(start, end, step)
-    rows = score_threshold_rows(bundles, thresholds, beta=beta)
+    rows = score_threshold_rows(
+        bundles, thresholds, beta=beta, progress_callback=scoring_progress
+    )
     recommended_row = select_recommended_row(rows)
     annotated_rows = tuple(
         ThresholdSweepRow(
@@ -657,13 +663,36 @@ def report_summary_lines(
 ) -> list[str]:
     """Return human-readable summary lines for stderr or terminal output."""
 
+    recommended_row = next((row for row in report.rows if row.recommended), None)
+    objective = f"maximize weighted F{report.beta:g}"
+    if report.beta < 1.0:
+        objective += ", favoring precision over recall"
+    elif report.beta > 1.0:
+        objective += ", favoring recall over precision"
+    else:
+        objective += ", balancing precision and recall"
+
     lines = [
         "Recollectium dev optimize-threshold",
         f"Model: {report.model}",
         f"Thresholds: {report.start:.2f} to {report.end:.2f} by {report.step:.2f}",
         f"Output: {output_path}",
+        f"Objective: {objective}",
         f"Recommendation: {report.recommended_threshold:.2f}",
     ]
+    if recommended_row is not None:
+        lines.extend(
+            [
+                "Recommended metrics: "
+                f"precision={recommended_row.weighted_precision:.3f}, "
+                f"recall={recommended_row.weighted_recall:.3f}, "
+                f"F{report.beta:g}={recommended_row.weighted_f_score:.3f}",
+                "Exposure at recommendation: "
+                f"confusers={recommended_row.confuser_exposure:.3f}, "
+                f"unrelated={recommended_row.unrelated_exposure:.3f}, "
+                f"avg_returned={recommended_row.average_returned_count:.2f}",
+            ]
+        )
     if current_threshold is None:
         current_line = f"Current config: disabled ({current_source})"
     else:

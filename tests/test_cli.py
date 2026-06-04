@@ -1576,6 +1576,12 @@ def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     assert exit_code == 0
     assert stdout.startswith("threshold,weighted_precision")
     assert "Status:" not in stdout
+    assert "Preparing seeded development database" in stderr
+    assert "Loading fixtures" in stderr
+    assert "Loading candidate pools" in stderr
+    assert "Scoring thresholds: 0/2 (ETA calculating)" in stderr
+    assert "Scoring thresholds: 2/2" in stderr
+    assert "Writing CSV sweep to stdout" in stderr
     assert "Recommendation:" in stderr
     assert "Apply: recollectium config set retrieval.match_threshold" in stderr
     assert dev_db.exists()
