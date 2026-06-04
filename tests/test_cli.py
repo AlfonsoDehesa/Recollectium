@@ -217,7 +217,14 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--host" in serve_help
     assert "--port" in serve_help
 
-    # --config and --db are global flags
+    dev_help = _run_help(["dev", "--help"], capsys)
+    assert "optimize-threshold" in dev_help
+
+    optimize_help = _run_help(["dev", "optimize-threshold", "--help"], capsys)
+    assert "advisory by default" in optimize_help
+    assert "--write-config" in optimize_help
+    assert "--format" in optimize_help
+    assert "--beta" in optimize_help
     top_level_help_2 = _run_help(["--help"], capsys)
     assert "--config" in top_level_help_2
     assert "--db" in top_level_help_2
@@ -1526,6 +1533,157 @@ def test_cli_dev_eval_refuses_relative_regular_database_overlap(
     assert payload["status"] == "unsafe_seeded_database_path"
     assert payload["seeded_database"] == str(shared_db)
     assert payload["regular_database"] == str(shared_db)
+    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
+
+
+def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "csv",
+            "--start",
+            "0",
+            "--end",
+            "0.1",
+            "--step",
+            "0.1",
+            "--human-readable",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout.startswith("threshold,weighted_precision")
+    assert "Status:" not in stdout
+    assert "Recommendation:" in stderr
+    assert "Apply: recollectium config set retrieval.match_threshold" in stderr
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_optimize_threshold_write_config_persists_numeric_threshold(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    output_csv = tmp_path / "thresholds.csv"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "csv",
+            "--output",
+            str(output_csv),
+            "--write-config",
+            "--start",
+            "0",
+            "--end",
+            "0.1",
+            "--step",
+            "0.1",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(stdout)
+    assert stderr == ""
+    assert payload["status"] == "ok"
+    assert payload["optimization"]["wrote_config"] is True
+    assert payload["artifact"]["format"] == "csv"
+    assert output_csv.exists()
+    updated = json.loads(config_path.read_text(encoding="utf-8"))
+    assert isinstance(updated["retrieval"]["match_threshold"], float)
+    assert updated["retrieval"]["match_threshold"] != "model_recommended_default"
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+@pytest.mark.parametrize("output_mode", ["--json", "--human-readable"])
+def test_cli_dev_optimize_threshold_refuses_when_seeded_database_matches_regular_database(
+    tmp_path, capsys, monkeypatch, output_mode
+) -> None:
+    config_path = tmp_path / "config.json"
+    shared_db = tmp_path / "shared.db"
+    shared_db.write_text("regular database marker", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(shared_db)},
+                "development": {"seeded_database_path": str(shared_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            output_mode,
+            "--config",
+            str(config_path),
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "csv",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    if output_mode == "--json":
+        payload = json.loads(stderr)
+        assert payload["status"] == "unsafe_seeded_database_path"
+        assert payload["seeded_database"] == str(shared_db)
+        assert payload["regular_database"] == str(shared_db)
+    else:
+        assert "Seeded dev database path matches the regular database path." in stderr
+        assert "Status: unsafe_seeded_database_path" in stderr
+        assert str(shared_db) in stderr
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
 
 

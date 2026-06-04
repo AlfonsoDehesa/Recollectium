@@ -1817,13 +1817,16 @@ def _run_seeded_dev_optimize_threshold(
     """Run the seeded threshold optimizer against the PR1 thematic fixtures."""
 
     def _progress(message: str) -> None:
-        stream = sys.stderr if args.format == "csv" and args.output is None else sys.stdout
+        stream = (
+            sys.stderr if args.format == "csv" and args.output is None else sys.stdout
+        )
         stream.write(f"Status: {message}\n")
         stream.flush()
 
     progress = (
         _progress
-        if output_format == CLI_OUTPUT_HUMAN_READABLE or (args.format == "csv" and args.output is None)
+        if output_format == CLI_OUTPUT_HUMAN_READABLE
+        or (args.format == "csv" and args.output is None)
         else None
     )
 
@@ -1850,13 +1853,15 @@ def _run_seeded_dev_optimize_threshold(
             protected_minimum=0,
             match_threshold=None,
         ),
-        search_workspace=lambda query, workspace_uid, limit: core.search_workspace_memories(
-            query=query,
-            workspace_uid=workspace_uid,
-            limit=limit,
-            include_archived=False,
-            protected_minimum=0,
-            match_threshold=None,
+        search_workspace=lambda query, workspace_uid, limit: (
+            core.search_workspace_memories(
+                query=query,
+                workspace_uid=workspace_uid,
+                limit=limit,
+                include_archived=False,
+                protected_minimum=0,
+                match_threshold=None,
+            )
         ),
     )
     if progress is not None:
@@ -1864,7 +1869,11 @@ def _run_seeded_dev_optimize_threshold(
     output_path = (
         Path(args.output).expanduser()
         if args.output is not None
-        else (Path.cwd() / "recollectium-threshold-sweep.png" if args.format == "png" else None)
+        else (
+            Path.cwd() / "recollectium-threshold-sweep.png"
+            if args.format == "png"
+            else None
+        )
     )
     report = build_threshold_optimization_report(
         model=str(provider.embedding_profile.get("model", "unknown model")),
@@ -1902,20 +1911,28 @@ def _run_seeded_dev_optimize_threshold(
 
     if args.write_config:
         raw_config = (
-            load_config_file(config_path) if config_path.exists() else deepcopy(DEFAULTS)
+            load_config_file(config_path)
+            if config_path.exists()
+            else deepcopy(DEFAULTS)
         )
-        set_config_value(raw_config, "retrieval.match_threshold", report.recommended_threshold)
+        set_config_value(
+            raw_config, "retrieval.match_threshold", report.recommended_threshold
+        )
         merged = _deep_merge(deepcopy(DEFAULTS), raw_config)
         _validate_config_value(merged)
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(raw_config, indent=2) + "\n", encoding="utf-8")
+        config_path.write_text(
+            json.dumps(raw_config, indent=2) + "\n", encoding="utf-8"
+        )
         config_path.chmod(0o600)
 
     if args.format == "png":
         assert output_path is not None
         artifact_path = write_threshold_png(report, output_path)
     else:
-        csv_output_path = Path(args.output).expanduser() if args.output is not None else None
+        csv_output_path = (
+            Path(args.output).expanduser() if args.output is not None else None
+        )
         artifact_path = write_threshold_csv(report.rows, csv_output_path) or output_path
 
     artifact_display_path = (
@@ -4383,7 +4400,6 @@ def _rewrite_upgrade_version_selector(argv: list[str]) -> list[str]:
     return rewritten
 
 
-
 def _handle_dev_command(
     args: argparse.Namespace,
     *,
@@ -4425,9 +4441,7 @@ def _handle_dev_command(
                 cfg.effective_config, model_cache_path=cfg.model_cache_path
             )
             provider.ensure_ready()
-            reembedding_progress = _human_reembedding_progress_reporter(
-                output_format
-            )
+            reembedding_progress = _human_reembedding_progress_reporter(output_format)
             if reembedding_progress is None:
                 result = _run_seeded_dev_eval(
                     cfg,
@@ -4474,6 +4488,7 @@ def _handle_dev_command(
             ):
                 progress = _emit_human_progress
             elif args.format == "csv" and args.output is None:
+
                 def _emit_csv_status(message: str) -> None:
                     sys.stderr.write(f"Status: {message}\n")
                     sys.stderr.flush()
@@ -4520,9 +4535,7 @@ def _handle_dev_command(
             if use_seeded_database:
                 provider = _builtin_fastembed_provider_from_config(
                     merged,
-                    model_cache_path=resolve_model_cache_path(
-                        cfg.xdg_dirs["cache"]
-                    ),
+                    model_cache_path=resolve_model_cache_path(cfg.xdg_dirs["cache"]),
                 )
                 provider.ensure_ready()
                 seed_result = ensure_seeded_dev_database(
@@ -4535,9 +4548,7 @@ def _handle_dev_command(
                 json.dumps(raw_config, indent=2) + "\n", encoding="utf-8"
             )
             config_path.chmod(0o600)
-            updated_cfg = RecollectiumConfig(
-                core_config_path, log_level=args.log_level
-            )
+            updated_cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             result = {
                 "status": "enabled" if use_seeded_database else "disabled",
                 "use_seeded_database": use_seeded_database,
