@@ -462,6 +462,7 @@ Every item in this gate must be confirmed before the release-prep PR is merged.
 #### Product and surface readiness
 
 - [ ] Every functionality reachable through the CLI is also reachable through the API and the MCP server, unless a documented exception exists.
+- [ ] CLI, API, and MCP data-returning operations support both compact and verbose response modes.
 - [ ] `recollectium config` get/set/unset covers every configurable key in `config.json`.
 - [ ] CLI failure contracts are still valid: non-argparse failures emit structured JSON on stderr, stdout JSON contracts stay unpolluted, and changed failure paths emit structured logs without sensitive payloads.
 - [ ] Structured logging remains useful across changed major features, endpoints, code paths, and failure paths.
@@ -482,7 +483,6 @@ Every item in this gate must be confirmed before the release-prep PR is merged.
 
 - [ ] Every CLI command, subcommand, flag, and positional argument has help text.
 - [ ] Every CLI command supports both human-readable and JSON output shapes.
-- [ ] CLI, API, and MCP data-returning operations support both compact and verbose response modes.
 - [ ] Argcomplete reaches every CLI command and flag.
 - [ ] `recollectium config get/set/unset <TAB>` completes config keys.
 - [ ] PowerShell dynamic completion works through `Register-ArgumentCompleter`.
