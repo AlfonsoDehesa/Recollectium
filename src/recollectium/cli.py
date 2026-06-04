@@ -69,6 +69,16 @@ from recollectium.dev_eval import (
     evaluate_semantic_mrr_for_core,
     evaluate_thematic_precision_for_core,
 )
+from recollectium.dev_optimize_threshold import (
+    build_threshold_optimization_report,
+    build_threshold_search_bundles,
+    report_summary_lines,
+    score_runtime_row,
+    threshold_cases_from_fixture,
+    threshold_rows_to_csv,
+    write_threshold_csv,
+    write_threshold_png,
+)
 from recollectium.dev_seed import ensure_seeded_dev_database, reset_seeded_dev_database
 from recollectium.embeddings import BuiltinFastEmbedProvider
 from recollectium.logging import setup_logging
@@ -80,6 +90,7 @@ from recollectium.models import (
     USER_MEMORY_TYPES,
     WORKSPACE_MEMORY_TYPES,
 )
+from recollectium.retrieval import resolve_retrieval_policy
 from recollectium.mcp_server import create_mcp_server
 from recollectium.retrieval import UNSET
 from recollectium.service import run_service
@@ -1792,6 +1803,189 @@ def _run_seeded_dev_eval(
             ranked_set_report,
         ),
     }
+
+
+def _run_seeded_dev_optimize_threshold(
+    cfg: RecollectiumConfig,
+    *,
+    provider: Any,
+    config_path: Path,
+    regular_db_path: Path,
+    args: argparse.Namespace,
+    output_format: str,
+) -> int:
+    """Run the seeded threshold optimizer against the PR1 thematic fixtures."""
+
+    def _progress(message: str) -> None:
+        stream = sys.stderr if args.format == "csv" and args.output is None else sys.stdout
+        stream.write(f"Status: {message}\n")
+        stream.flush()
+
+    progress = (
+        _progress
+        if output_format == CLI_OUTPUT_HUMAN_READABLE or (args.format == "csv" and args.output is None)
+        else None
+    )
+
+    dev_db_path = _resolve_seeded_dev_database_path(cfg)
+    if progress is not None:
+        progress(f"Preparing seeded development database: {dev_db_path}")
+    seed_result = ensure_seeded_dev_database(dev_db_path, provider)
+    if progress is not None:
+        progress("Loading optimizer fixtures")
+    core = RecollectiumCore(
+        db_path=dev_db_path,
+        config_path=config_path,
+        embedding_provider=provider,
+        log_level=cfg.effective_config["logging"]["level"],
+    )
+    if progress is not None:
+        progress("Loading full candidate pools")
+    bundles = build_threshold_search_bundles(
+        threshold_cases_from_fixture(),
+        search_user=lambda query, limit: core.search_user_memories(
+            query=query,
+            limit=limit,
+            include_archived=False,
+            protected_minimum=0,
+            match_threshold=None,
+        ),
+        search_workspace=lambda query, workspace_uid, limit: core.search_workspace_memories(
+            query=query,
+            workspace_uid=workspace_uid,
+            limit=limit,
+            include_archived=False,
+            protected_minimum=0,
+            match_threshold=None,
+        ),
+    )
+    if progress is not None:
+        progress("Scoring threshold sweep")
+    output_path = (
+        Path(args.output).expanduser()
+        if args.output is not None
+        else (Path.cwd() / "recollectium-threshold-sweep.png" if args.format == "png" else None)
+    )
+    report = build_threshold_optimization_report(
+        model=str(provider.embedding_profile.get("model", "unknown model")),
+        provider=str(provider.embedding_profile.get("provider", "unknown provider")),
+        start=args.start,
+        end=args.end,
+        step=args.step,
+        beta=args.beta,
+        output_format=args.format,
+        output_path=str(output_path) if output_path is not None else None,
+        wrote_config=args.write_config,
+        bundles=bundles,
+    )
+    policy = resolve_retrieval_policy(
+        config_protected_minimum=cfg.effective_config.get("retrieval", {}).get(
+            "protected_minimum", 3
+        ),
+        config_match_threshold=cfg.effective_config.get("retrieval", {}).get(
+            "match_threshold", "model_recommended_default"
+        ),
+        embedding_model=str(provider.embedding_profile.get("model", "")),
+    )
+    disabled_row = score_runtime_row(
+        bundles,
+        protected_minimum=0,
+        match_threshold=None,
+        beta=args.beta,
+    )
+    current_row = score_runtime_row(
+        bundles,
+        protected_minimum=policy.protected_minimum,
+        match_threshold=policy.match_threshold,
+        beta=args.beta,
+    )
+
+    if args.write_config:
+        raw_config = (
+            load_config_file(config_path) if config_path.exists() else deepcopy(DEFAULTS)
+        )
+        set_config_value(raw_config, "retrieval.match_threshold", report.recommended_threshold)
+        merged = _deep_merge(deepcopy(DEFAULTS), raw_config)
+        _validate_config_value(merged)
+        config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(raw_config, indent=2) + "\n", encoding="utf-8")
+        config_path.chmod(0o600)
+
+    if args.format == "png":
+        assert output_path is not None
+        artifact_path = write_threshold_png(report, output_path)
+    else:
+        csv_output_path = Path(args.output).expanduser() if args.output is not None else None
+        artifact_path = write_threshold_csv(report.rows, csv_output_path) or output_path
+
+    artifact_display_path = (
+        "stdout" if args.format == "csv" and args.output is None else str(artifact_path)
+    )
+
+    payload: dict[str, object] = {
+        "status": "ok",
+        "database": str(dev_db_path),
+        "regular_database": str(regular_db_path),
+        "regular_database_not_touched": True,
+        "preparation": {
+            "seeded_database": "ready"
+            if seed_result is None
+            else seed_result["status"],
+            "fixtures": "loaded",
+        },
+        "optimization": report.to_dict(),
+        "baselines": {
+            "disabled": {
+                **disabled_row.to_dict(),
+                "mode": "disabled",
+            },
+            "current_config": {
+                **current_row.to_dict(),
+                "mode": policy.match_threshold_source,
+                "protected_minimum": policy.protected_minimum,
+                "match_threshold": policy.match_threshold,
+            },
+        },
+        "artifact": {
+            "format": args.format,
+            "path": artifact_display_path,
+        },
+    }
+
+    if args.format == "csv" and args.output is None:
+        if progress is not None:
+            progress("Writing CSV sweep to stdout")
+        sys.stdout.write(threshold_rows_to_csv(report.rows))
+        summary_lines = report_summary_lines(
+            report,
+            output_path=Path("stdout"),
+            current_threshold=policy.match_threshold,
+            current_source=policy.match_threshold_source,
+        )
+        sys.stderr.write("\n".join(summary_lines) + "\n")
+        sys.stderr.flush()
+        return 0
+
+    if progress is not None:
+        progress(f"Writing {args.format.upper()} artifact: {artifact_path}")
+
+    if output_format == CLI_OUTPUT_HUMAN_READABLE:
+        assert artifact_path is not None
+        summary_lines = report_summary_lines(
+            report,
+            output_path=artifact_path,
+            current_threshold=policy.match_threshold,
+            current_source=policy.match_threshold_source,
+        )
+        sys.stdout.write("\n".join(summary_lines) + "\n")
+        return 0
+
+    _emit_success(
+        payload,
+        output_format=output_format,
+        command="dev optimize-threshold",
+    )
+    return 0
 
 
 def _handle_upgrade_command(
@@ -3858,6 +4052,61 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     dev_eval_parser.set_defaults(state="eval")
+    dev_eval_parser.set_defaults(dev_action="eval")
+    dev_optimize_parser = dev_subparsers.add_parser(
+        "optimize-threshold",
+        help="optimize a retrieval match threshold from seeded thematic labels",
+        description=(
+            "Load the seeded development database if needed, evaluate the full labeled "
+            "candidate pool for each thematic PR1 query, and recommend a match threshold. "
+            "This command is advisory by default and only writes config when explicitly "
+            "asked to do so."
+        ),
+    )
+    dev_optimize_parser.add_argument(
+        "--start",
+        type=float,
+        default=0.0,
+        help="First threshold to test. Default: 0.00.",
+    )
+    dev_optimize_parser.add_argument(
+        "--end",
+        type=float,
+        default=1.0,
+        help="Last threshold to test. Default: 1.00.",
+    )
+    dev_optimize_parser.add_argument(
+        "--step",
+        type=float,
+        default=0.01,
+        help="Threshold step size. Default: 0.01.",
+    )
+    dev_optimize_parser.add_argument(
+        "--format",
+        choices=["png", "csv"],
+        default="png",
+        help="Output artifact format. Default: png.",
+    )
+    dev_optimize_parser.add_argument(
+        "--output",
+        help=(
+            "Output path for the PNG or CSV artifact. PNG defaults to a safe path in "
+            "the current directory when omitted."
+        ),
+    )
+    dev_optimize_parser.add_argument(
+        "--beta",
+        type=float,
+        default=1.0,
+        help="F-beta beta value. Must be > 0. Default: 1.0.",
+    )
+    dev_optimize_parser.add_argument(
+        "--write-config",
+        action="store_true",
+        help="Persist the recommended threshold into retrieval.match_threshold.",
+    )
+    dev_optimize_parser.set_defaults(state="optimize-threshold")
+    dev_optimize_parser.set_defaults(dev_action="optimize-threshold")
 
     # -- workspace ---------------------------------------------------------
     workspace_parser = subparsers.add_parser(
@@ -4132,6 +4381,203 @@ def _rewrite_upgrade_version_selector(argv: list[str]) -> list[str]:
             rewritten[index] = "--target-version=" + token.split("=", 1)[1]
             break
     return rewritten
+
+
+
+def _handle_dev_command(
+    args: argparse.Namespace,
+    *,
+    config_path: Path,
+    core_config_path: Path | None,
+    output_format: str,
+) -> int:
+    dev_action = getattr(args, "dev_action", getattr(args, "state", None))
+    try:
+        cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
+        if dev_action == "eval":
+            dev_db_path = _resolve_seeded_dev_database_path(cfg)
+            regular_db_path = _resolve_regular_database_path(cfg, args.db_path)
+            if _paths_equal(dev_db_path, regular_db_path):
+                return _emit_cli_failure(
+                    status="unsafe_seeded_database_path",
+                    message="Seeded dev database path matches the regular database path.",
+                    detail=(
+                        "dev eval can reset the seeded database, so it will not run "
+                        "when both paths resolve to the same file."
+                    ),
+                    hint=(
+                        "Set development.seeded_database_path to a separate development "
+                        "database before running recollectium dev eval."
+                    ),
+                    exit_code=1,
+                    command="dev eval",
+                    seeded_database=str(dev_db_path),
+                    regular_database=str(regular_db_path),
+                )
+            progress = (
+                _emit_human_progress
+                if output_format == CLI_OUTPUT_HUMAN_READABLE
+                else None
+            )
+            if progress is not None:
+                progress("Checking embedding provider readiness")
+            provider = _builtin_fastembed_provider_from_config(
+                cfg.effective_config, model_cache_path=cfg.model_cache_path
+            )
+            provider.ensure_ready()
+            reembedding_progress = _human_reembedding_progress_reporter(
+                output_format
+            )
+            if reembedding_progress is None:
+                result = _run_seeded_dev_eval(
+                    cfg,
+                    provider=provider,
+                    config_path=core_config_path,
+                    progress=progress,
+                    regular_db_path=regular_db_path,
+                )
+            else:
+                with reembedding_progress:
+                    result = _run_seeded_dev_eval(
+                        cfg,
+                        provider=provider,
+                        config_path=core_config_path,
+                        progress=progress,
+                        reembedding_progress=reembedding_progress,
+                        regular_db_path=regular_db_path,
+                    )
+            _emit_success(result, output_format=output_format, command="dev eval")
+            return 0
+
+        if dev_action == "optimize-threshold":
+            dev_db_path = _resolve_seeded_dev_database_path(cfg)
+            regular_db_path = _resolve_regular_database_path(cfg, args.db_path)
+            if _paths_equal(dev_db_path, regular_db_path):
+                return _emit_cli_failure(
+                    status="unsafe_seeded_database_path",
+                    message="Seeded dev database path matches the regular database path.",
+                    detail=(
+                        "dev optimize-threshold can reset the seeded database, so it "
+                        "will not run when both paths resolve to the same file."
+                    ),
+                    hint=(
+                        "Set development.seeded_database_path to a separate development "
+                        "database before running recollectium dev optimize-threshold."
+                    ),
+                    exit_code=1,
+                    command="dev optimize-threshold",
+                    seeded_database=str(dev_db_path),
+                    regular_database=str(regular_db_path),
+                )
+            if output_format == CLI_OUTPUT_HUMAN_READABLE and not (
+                args.format == "csv" and args.output is None
+            ):
+                progress = _emit_human_progress
+            elif args.format == "csv" and args.output is None:
+                def _emit_csv_status(message: str) -> None:
+                    sys.stderr.write(f"Status: {message}\n")
+                    sys.stderr.flush()
+
+                progress = _emit_csv_status
+            else:
+                progress = None
+            if progress is not None:
+                progress("Checking embedding provider readiness")
+            provider = _builtin_fastembed_provider_from_config(
+                cfg.effective_config, model_cache_path=cfg.model_cache_path
+            )
+            provider.ensure_ready()
+            return _run_seeded_dev_optimize_threshold(
+                cfg,
+                provider=provider,
+                config_path=config_path,
+                regular_db_path=regular_db_path,
+                args=args,
+                output_format=output_format,
+            )
+
+        raw_config = load_config_file(config_path)
+        running = check_running_service(cfg)
+        if running is not None:
+            return _emit_cli_failure(
+                status="service_running",
+                message="A Recollectium service is running.",
+                detail=f"{running['type']} service PID {running['pid']} is using the current configuration.",
+                hint="Stop or restart the service, then run recollectium dev again so future API/MCP activity uses the selected database.",
+                exit_code=1,
+                command="dev",
+                event="dev.service_running",
+            )
+        if dev_action in {"true", "false"}:
+            use_seeded_database = dev_action == "true"
+            set_config_value(
+                raw_config,
+                "development.use_seeded_database",
+                use_seeded_database,
+            )
+            merged = _deep_merge(deepcopy(DEFAULTS), raw_config)
+            _validate_config_value(merged)
+            if use_seeded_database:
+                provider = _builtin_fastembed_provider_from_config(
+                    merged,
+                    model_cache_path=resolve_model_cache_path(
+                        cfg.xdg_dirs["cache"]
+                    ),
+                )
+                provider.ensure_ready()
+                seed_result = ensure_seeded_dev_database(
+                    _resolve_seeded_dev_database_path(cfg), provider
+                )
+            else:
+                seed_result = None
+            config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            config_path.write_text(
+                json.dumps(raw_config, indent=2) + "\n", encoding="utf-8"
+            )
+            config_path.chmod(0o600)
+            updated_cfg = RecollectiumConfig(
+                core_config_path, log_level=args.log_level
+            )
+            result = {
+                "status": "enabled" if use_seeded_database else "disabled",
+                "use_seeded_database": use_seeded_database,
+                "database": str(updated_cfg.resolved_database_path),
+            }
+            if use_seeded_database:
+                result.update(
+                    {
+                        "seed_status": "ready"
+                        if seed_result is None
+                        else seed_result["status"],
+                        "user_memories": 100,
+                        "workspace_memories": 90,
+                        "workspaces": 3,
+                        "topics": 10,
+                    }
+                )
+        else:
+            provider = _builtin_fastembed_provider_from_config(
+                cfg.effective_config, model_cache_path=cfg.model_cache_path
+            )
+            provider.ensure_ready()
+            result = reset_seeded_dev_database(
+                _resolve_seeded_dev_database_path(cfg), provider
+            )
+    except FileNotFoundError as exc:
+        return _config_missing_error(exc, command="dev")
+    except ValidationError as exc:
+        return _validation_error(exc, command="dev")
+    except ServiceError as exc:
+        return _service_error(exc, command="dev")
+    except (
+        EmbeddingReadinessTimeoutError,
+        EmbeddingModelUnavailableError,
+        EmbeddingProviderUnavailableError,
+        EmbeddingGenerationError,
+    ) as exc:
+        return _embedding_error(exc, command="dev")
+    _emit_success(result, output_format=output_format, command="dev")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -4609,145 +5055,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _handle_upgrade_command(args, config_path, output_format=output_format)
 
     if args.command == "dev":
-        try:
-            cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
-            if args.state == "eval":
-                dev_db_path = _resolve_seeded_dev_database_path(cfg)
-                regular_db_path = _resolve_regular_database_path(cfg, args.db_path)
-                if _paths_equal(dev_db_path, regular_db_path):
-                    return _emit_cli_failure(
-                        status="unsafe_seeded_database_path",
-                        message="Seeded dev database path matches the regular database path.",
-                        detail=(
-                            "dev eval can reset the seeded database, so it will not run "
-                            "when both paths resolve to the same file."
-                        ),
-                        hint=(
-                            "Set development.seeded_database_path to a separate development "
-                            "database before running recollectium dev eval."
-                        ),
-                        exit_code=1,
-                        command="dev eval",
-                        seeded_database=str(dev_db_path),
-                        regular_database=str(regular_db_path),
-                    )
-                progress = (
-                    _emit_human_progress
-                    if output_format == CLI_OUTPUT_HUMAN_READABLE
-                    else None
-                )
-                if progress is not None:
-                    progress("Checking embedding provider readiness")
-                provider = _builtin_fastembed_provider_from_config(
-                    cfg.effective_config, model_cache_path=cfg.model_cache_path
-                )
-                provider.ensure_ready()
-                reembedding_progress = _human_reembedding_progress_reporter(
-                    output_format
-                )
-                if reembedding_progress is None:
-                    result = _run_seeded_dev_eval(
-                        cfg,
-                        provider=provider,
-                        config_path=core_config_path,
-                        progress=progress,
-                        regular_db_path=regular_db_path,
-                    )
-                else:
-                    with reembedding_progress:
-                        result = _run_seeded_dev_eval(
-                            cfg,
-                            provider=provider,
-                            config_path=core_config_path,
-                            progress=progress,
-                            reembedding_progress=reembedding_progress,
-                            regular_db_path=regular_db_path,
-                        )
-                _emit_success(result, output_format=output_format, command="dev eval")
-                return 0
-
-            raw_config = load_config_file(config_path)
-            running = check_running_service(cfg)
-            if running is not None:
-                return _emit_cli_failure(
-                    status="service_running",
-                    message="A Recollectium service is running.",
-                    detail=f"{running['type']} service PID {running['pid']} is using the current configuration.",
-                    hint="Stop or restart the service, then run recollectium dev again so future API/MCP activity uses the selected database.",
-                    exit_code=1,
-                    command="dev",
-                    event="dev.service_running",
-                )
-            if args.state in {"true", "false"}:
-                use_seeded_database = args.state == "true"
-                set_config_value(
-                    raw_config,
-                    "development.use_seeded_database",
-                    use_seeded_database,
-                )
-                merged = _deep_merge(deepcopy(DEFAULTS), raw_config)
-                _validate_config_value(merged)
-                if use_seeded_database:
-                    provider = _builtin_fastembed_provider_from_config(
-                        merged,
-                        model_cache_path=resolve_model_cache_path(
-                            cfg.xdg_dirs["cache"]
-                        ),
-                    )
-                    provider.ensure_ready()
-                    seed_result = ensure_seeded_dev_database(
-                        _resolve_seeded_dev_database_path(cfg), provider
-                    )
-                else:
-                    seed_result = None
-                config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                config_path.write_text(
-                    json.dumps(raw_config, indent=2) + "\n", encoding="utf-8"
-                )
-                config_path.chmod(0o600)
-                updated_cfg = RecollectiumConfig(
-                    core_config_path, log_level=args.log_level
-                )
-                result = {
-                    "status": "enabled" if use_seeded_database else "disabled",
-                    "use_seeded_database": use_seeded_database,
-                    "database": str(updated_cfg.resolved_database_path),
-                }
-                if use_seeded_database:
-                    result.update(
-                        {
-                            "seed_status": "ready"
-                            if seed_result is None
-                            else seed_result["status"],
-                            "user_memories": 100,
-                            "workspace_memories": 90,
-                            "workspaces": 3,
-                            "topics": 10,
-                        }
-                    )
-            else:
-                provider = _builtin_fastembed_provider_from_config(
-                    cfg.effective_config, model_cache_path=cfg.model_cache_path
-                )
-                provider.ensure_ready()
-                result = reset_seeded_dev_database(
-                    _resolve_seeded_dev_database_path(cfg), provider
-                )
-        except FileNotFoundError as exc:
-            return _config_missing_error(exc, command="dev")
-        except ValidationError as exc:
-            return _validation_error(exc, command="dev")
-        except ServiceError as exc:
-            return _service_error(exc, command="dev")
-        except (
-            EmbeddingReadinessTimeoutError,
-            EmbeddingModelUnavailableError,
-            EmbeddingProviderUnavailableError,
-            EmbeddingGenerationError,
-        ) as exc:
-            return _embedding_error(exc, command="dev")
-        _emit_success(result, output_format=output_format, command="dev")
-        return 0
+        return _handle_dev_command(
+            args,
+            config_path=config_path,
+            core_config_path=core_config_path,
+            output_format=output_format,
+        )
 
     if args.command == "uninstall":
         try:
