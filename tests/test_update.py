@@ -380,7 +380,10 @@ def test_find_source_checkout_root_handles_valid_and_unreadable_pyproject(
 
     monkeypatch.setattr(Path, "read_text", _raise_for_bad)
     assert find_source_checkout_root(child) is None
-    assert _raise_for_bad(good / "pyproject.toml", encoding="utf-8") == 'name = "recollectium"'
+    assert (
+        _raise_for_bad(good / "pyproject.toml", encoding="utf-8")
+        == 'name = "recollectium"'
+    )
 
 
 def test_build_update_plan_handles_invalid_current_version() -> None:

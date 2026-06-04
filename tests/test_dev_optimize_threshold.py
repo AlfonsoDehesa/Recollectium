@@ -483,7 +483,9 @@ def test_write_threshold_png_rejects_empty_reports(tmp_path: Path) -> None:
         write_threshold_png(report, tmp_path / "empty.png")
 
 
-def test_generate_threshold_values_raises_when_sweep_would_exceed_max_points(monkeypatch) -> None:
+def test_generate_threshold_values_raises_when_sweep_would_exceed_max_points(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(opt, "_MAX_THRESHOLD_POINTS", 2)
 
     with pytest.raises(ThresholdOptimizationError, match="too many values"):

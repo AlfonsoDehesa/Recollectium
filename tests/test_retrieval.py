@@ -63,35 +63,50 @@ def test_validate_threshold_number_rejects_invalid_values(
 
 
 def test_resolve_match_threshold_accepts_all_sources() -> None:
-    assert resolve_match_threshold(
-        request_override=0.25,
-        config_value=UNSET,  # type: ignore[arg-type]
-        embedding_model="BAAI/bge-base-en-v1.5",
-    ) == 0.25
+    assert (
+        resolve_match_threshold(
+            request_override=0.25,
+            config_value=UNSET,  # type: ignore[arg-type]
+            embedding_model="BAAI/bge-base-en-v1.5",
+        )
+        == 0.25
+    )
 
-    assert resolve_match_threshold(
-        request_override=None,
-        config_value=0.6,
-        embedding_model="BAAI/bge-base-en-v1.5",
-    ) is None
+    assert (
+        resolve_match_threshold(
+            request_override=None,
+            config_value=0.6,
+            embedding_model="BAAI/bge-base-en-v1.5",
+        )
+        is None
+    )
 
-    assert resolve_match_threshold(
-        request_override="model_recommended_default",
-        config_value=0.6,
-        embedding_model="BAAI/bge-base-en-v1.5",
-    ) is None
+    assert (
+        resolve_match_threshold(
+            request_override="model_recommended_default",
+            config_value=0.6,
+            embedding_model="BAAI/bge-base-en-v1.5",
+        )
+        is None
+    )
 
-    assert resolve_match_threshold(
-        request_override=UNSET,
-        config_value=None,
-        embedding_model="BAAI/bge-base-en-v1.5",
-    ) is None
+    assert (
+        resolve_match_threshold(
+            request_override=UNSET,
+            config_value=None,
+            embedding_model="BAAI/bge-base-en-v1.5",
+        )
+        is None
+    )
 
-    assert resolve_match_threshold(
-        request_override=UNSET,
-        config_value="model_recommended_default",
-        embedding_model="BAAI/bge-base-en-v1.5",
-    ) is None
+    assert (
+        resolve_match_threshold(
+            request_override=UNSET,
+            config_value="model_recommended_default",
+            embedding_model="BAAI/bge-base-en-v1.5",
+        )
+        is None
+    )
 
 
 def test_resolve_retrieval_policy_reports_source_precedence() -> None:
@@ -170,4 +185,8 @@ def test_apply_match_threshold_keeps_protected_prefix_and_filters_rest() -> None
         protected_minimum=1,
         match_threshold=0.5,
     )
-    assert [result.memory.id for result in unprotected_filtered] == ["one", "two", "three"]
+    assert [result.memory.id for result in unprotected_filtered] == [
+        "one",
+        "two",
+        "three",
+    ]

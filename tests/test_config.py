@@ -787,7 +787,10 @@ def test_apply_explicit_null_overrides_restores_retrieval_null() -> None:
     ("retrieval", "message"),
     [
         ("not-an-object", "retrieval must be an object"),
-        ({"protected_minimum": True}, "retrieval.protected_minimum must be an integer >= 0"),
+        (
+            {"protected_minimum": True},
+            "retrieval.protected_minimum must be an integer >= 0",
+        ),
         ({"protected_minimum": -1}, "retrieval.protected_minimum must be >= 0"),
         (
             {"protected_minimum": 1001},
