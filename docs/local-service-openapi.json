@@ -2213,8 +2213,7 @@
                 "type": "null"
               }
             ],
-            "title": "Protected Minimum",
-            "default": 3
+            "title": "Protected Minimum"
           },
           "match_threshold": {
             "anyOf": [
@@ -2229,8 +2228,7 @@
                 "type": "null"
               }
             ],
-            "title": "Match Threshold",
-            "default": "model_recommended_default"
+            "title": "Match Threshold"
           },
           "include_archived": {
             "type": "boolean",
@@ -2284,8 +2282,7 @@
                 "type": "null"
               }
             ],
-            "title": "Protected Minimum",
-            "default": 3
+            "title": "Protected Minimum"
           },
           "match_threshold": {
             "anyOf": [
@@ -2300,8 +2297,7 @@
                 "type": "null"
               }
             ],
-            "title": "Match Threshold",
-            "default": "model_recommended_default"
+            "title": "Match Threshold"
           },
           "include_archived": {
             "type": "boolean",

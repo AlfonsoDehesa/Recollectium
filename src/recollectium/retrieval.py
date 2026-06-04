@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Literal
 
 from recollectium.embeddings import BUILTIN_FASTEMBED_MODEL_SPECS
@@ -10,14 +11,17 @@ from recollectium.errors import ValidationError
 from recollectium.models import SearchResult
 
 
-class _UnsetType:
-    __slots__ = ()
+class _UnsetType(Enum):
+    UNSET = "UNSET"
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return "UNSET"
 
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return "UNSET"
 
-UNSET = _UnsetType()
+
+UNSET = _UnsetType.UNSET
 UnsetType = _UnsetType
 
 MatchThresholdConfigValue = float | None | Literal["model_recommended_default"]

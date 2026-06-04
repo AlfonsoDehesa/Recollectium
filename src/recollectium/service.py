@@ -150,9 +150,9 @@ class SearchUserRequest(BaseModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int | None = Field(default=3, ge=0)
+    protected_minimum: int | None = Field(default_factory=lambda: UNSET, ge=0)
     match_threshold: float | Literal["model_recommended_default"] | None = Field(
-        default="model_recommended_default"
+        default_factory=lambda: UNSET
     )
     include_archived: bool = False
 
@@ -164,9 +164,9 @@ class SearchWorkspaceRequest(BaseModel):
     type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int | None = Field(default=3, ge=0)
+    protected_minimum: int | None = Field(default_factory=lambda: UNSET, ge=0)
     match_threshold: float | Literal["model_recommended_default"] | None = Field(
-        default="model_recommended_default"
+        default_factory=lambda: UNSET
     )
     include_archived: bool = False
 
