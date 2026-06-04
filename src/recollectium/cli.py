@@ -73,11 +73,13 @@ from recollectium.dev_eval import (
     ExactMRRReport,
     RankedSetNDCGReport,
     SemanticMRRReport,
-    ThematicPrecisionReport,
     evaluate_exact_mrr_for_core,
     evaluate_ranked_set_ndcg_for_core,
     evaluate_semantic_mrr_for_core,
-    evaluate_thematic_precision_for_core,
+)
+from recollectium.dev_eval_thematic_weighted import (
+    ThematicWeightedReport,
+    evaluate_thematic_weighted_metrics_for_core,
 )
 from recollectium.dev_optimize_threshold import (
     build_threshold_optimization_report,
@@ -538,7 +540,7 @@ def _format_human_output(
         phases = payload["phases"]
         exact_phase = phases["exact_mrr"]
         semantic_phase = phases["semantic_mrr"]
-        thematic_phase = phases["thematic_precision_at_10"]
+        thematic_phase = phases["thematic_weighted_at_10"]
         ranked_phase = phases["ranked_set_ndcg_at_5"]
         lines = [_style("Recollectium dev eval", _RICH_HEADING, enabled=color), ""]
         lines.append(f"Seeded dev DB: {payload['database']}")
@@ -558,7 +560,7 @@ def _format_human_output(
                 "Running semantic MRR",
                 f"  paraphrases         {semantic_phase['paraphrases']}/{semantic_phase['paraphrases']}",
                 "",
-                "Running thematic Precision@10",
+                "Running thematic weighted metrics",
                 f"  user topics         {thematic_phase['user_topics']}/{thematic_phase['user_topics']}",
                 f"  workspace themes    {thematic_phase['workspace_themes']}/{thematic_phase['workspace_themes']}",
                 "",
@@ -568,7 +570,8 @@ def _format_human_output(
                 "Results",
                 f"  Exact MRR              {metrics['exact_mrr']['value']:.3f}",
                 f"  Semantic MRR           {metrics['semantic_mrr']['value']:.3f}",
-                f"  Thematic Precision@10  {metrics['thematic_precision_at_10']['value']:.3f}",
+                f"  Thematic Weighted Precision@10  {metrics['thematic_weighted_precision_at_10']['value']:.3f}",
+                f"  Thematic Weighted Recall@10     {metrics['thematic_weighted_recall_at_10']['value']:.3f}",
                 f"  Ranked-set NDCG@5      {metrics['ranked_set_ndcg_at_5']['value']:.3f}",
                 "",
                 "Diagnostics",
@@ -590,24 +593,12 @@ def _format_human_output(
             )
         else:
             lines.append("  Worst semantic target: none")
-        if diagnostics["confusers"]:
-            confuser = diagnostics["confusers"][0]
-            lines.append(
-                "  Most confused group: "
-                f"{confuser['expected_group']} returned {confuser['confuser_group']} in {confuser['count']} slots"
-            )
-        else:
-            lines.append("  Most confused group: none")
         if diagnostics["worst_thematic"]:
             worst_thematic = diagnostics["worst_thematic"][0]
-            distribution = ", ".join(
-                f"{entry['group']}={entry['count']}"
-                for entry in worst_thematic["group_distribution"][:3]
-            )
             lines.append(
                 "  Worst thematic query: "
-                f"{worst_thematic['expected_group']}, precision {worst_thematic['precision']:.3f}, "
-                f"matches {worst_thematic['matching_results']}, returned {distribution or 'none'}"
+                f"{worst_thematic['expected_group']}, weighted precision {worst_thematic['weighted_precision']:.3f}, "
+                f"weighted recall {worst_thematic['weighted_recall']:.3f}, returned {worst_thematic['returned_count']}"
             )
         else:
             lines.append("  Worst thematic query: none")
@@ -1740,17 +1731,30 @@ def _semantic_mrr_payload(report: SemanticMRRReport) -> dict[str, object]:
     }
 
 
-def _thematic_precision_payload(report: ThematicPrecisionReport) -> dict[str, object]:
+def _thematic_weighted_payload(
+    report: ThematicWeightedReport,
+    *,
+    value: float,
+) -> dict[str, object]:
     return {
-        "value": _metric_value(report.value),
-        "cutoff": report.cutoff,
+        "value": _metric_value(value),
+        "weighted_precision": _metric_value(report.weighted_precision),
+        "weighted_recall": _metric_value(report.weighted_recall),
+        "weighted_f1": _metric_value(report.weighted_f1),
+        "limit": report.limit,
+        "protected_minimum": report.protected_minimum,
+        "match_threshold": _metric_value(report.match_threshold),
         "groups": report.groups,
         "queries": report.queries,
         "queries_per_group": report.queries_per_group,
         "user_groups": report.user_groups,
         "workspace_groups": report.workspace_groups,
-        "user_value": _metric_value(report.user_value),
-        "workspace_value": _metric_value(report.workspace_value),
+        "user_weighted_precision": _metric_value(report.user_weighted_precision),
+        "user_weighted_recall": _metric_value(report.user_weighted_recall),
+        "workspace_weighted_precision": _metric_value(
+            report.workspace_weighted_precision
+        ),
+        "workspace_weighted_recall": _metric_value(report.workspace_weighted_recall),
     }
 
 
@@ -1769,7 +1773,7 @@ def _ranked_set_ndcg_payload(report: RankedSetNDCGReport) -> dict[str, object]:
 def _dev_eval_diagnostics_payload(
     exact_report: ExactMRRReport,
     semantic_report: SemanticMRRReport,
-    thematic_report: ThematicPrecisionReport,
+    thematic_report: ThematicWeightedReport,
     ranked_set_report: RankedSetNDCGReport,
 ) -> dict[str, object]:
     return {
@@ -1807,19 +1811,28 @@ def _dev_eval_diagnostics_payload(
         ],
         "worst_thematic": [
             {
-                "scope": failure.scope,
-                "expected_group": failure.expected_group,
-                "workspace_uid": failure.workspace_uid,
-                "query_index": failure.query_index,
-                "precision": _metric_value(failure.precision),
-                "matching_results": failure.matching_results,
-                "group_distribution": [
-                    {"group": group, "count": count}
-                    for group, count in failure.group_distribution
-                ],
-                "returned_top_ids": list(failure.returned_top_ids),
+                "scope": worst.scope,
+                "expected_group": worst.expected_group,
+                "workspace_uid": worst.workspace_uid,
+                "query_index": worst.query_index,
+                "query": worst.query,
+                "weighted_precision": _metric_value(worst.weighted_precision),
+                "weighted_recall": _metric_value(worst.weighted_recall),
+                "weighted_f1": _metric_value(worst.weighted_f1),
+                "returned_count": worst.returned_count,
+                "useful_value_retrieved": _metric_value(worst.useful_value_retrieved),
+                "useful_value_total": _metric_value(worst.useful_value_total),
+                "retrieved_cost_total": _metric_value(worst.retrieved_cost_total),
+                "direct_count": worst.direct_count,
+                "adjacent_count": worst.adjacent_count,
+                "unrelated_count": worst.unrelated_count,
+                "confuser_count": worst.confuser_count,
+                "confuser_exposure": _metric_value(worst.confuser_exposure),
+                "returned_top_ids": list(worst.returned_top_ids),
+                "returned_eval_keys": list(worst.returned_eval_keys),
+                "returned_labels": list(worst.returned_labels),
             }
-            for failure in thematic_report.failures
+            for worst in thematic_report.worst_queries
         ],
         "worst_ranked_sets": [
             {
@@ -1846,16 +1859,7 @@ def _dev_eval_diagnostics_payload(
             }
             for case in ranked_set_report.lowest_cases
         ],
-        "confusers": [
-            {
-                "scope": confuser.scope,
-                "expected_group": confuser.expected_group,
-                "confuser_group": confuser.confuser_group,
-                "count": confuser.count,
-                "workspace_uid": confuser.workspace_uid,
-            }
-            for confuser in thematic_report.confusers
-        ],
+        "confusers": [],
     }
 
 
@@ -1891,8 +1895,8 @@ def _run_seeded_dev_eval(
         cast(Any, core), progress_callback=reembedding_progress
     )
     if progress is not None:
-        progress("Running thematic Precision@10")
-    thematic_report = evaluate_thematic_precision_for_core(
+        progress("Running thematic weighted metrics")
+    thematic_report = evaluate_thematic_weighted_metrics_for_core(
         cast(Any, core), progress_callback=reembedding_progress
     )
     if progress is not None:
@@ -1921,7 +1925,7 @@ def _run_seeded_dev_eval(
                 "paraphrases": semantic_report.queries,
                 "targets": semantic_report.targets,
             },
-            "thematic_precision_at_10": {
+            "thematic_weighted_at_10": {
                 "user_topics": thematic_report.user_groups,
                 "workspace_themes": thematic_report.workspace_groups,
                 "queries": thematic_report.queries,
@@ -1931,7 +1935,12 @@ def _run_seeded_dev_eval(
         "metrics": {
             "exact_mrr": _exact_mrr_payload(exact_report),
             "semantic_mrr": _semantic_mrr_payload(semantic_report),
-            "thematic_precision_at_10": _thematic_precision_payload(thematic_report),
+            "thematic_weighted_precision_at_10": _thematic_weighted_payload(
+                thematic_report, value=thematic_report.weighted_precision
+            ),
+            "thematic_weighted_recall_at_10": _thematic_weighted_payload(
+                thematic_report, value=thematic_report.weighted_recall
+            ),
             "ranked_set_ndcg_at_5": _ranked_set_ndcg_payload(ranked_set_report),
         },
         "diagnostics": _dev_eval_diagnostics_payload(
@@ -4201,10 +4210,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="run seeded development retrieval regression metrics",
         description=(
             "Initialize or refresh the seeded development database if needed, then "
-            "run Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set "
-            "NDCG@5 against that database only. This is a seeded development "
-            "regression check, not a benchmark leaderboard or user-facing quality "
-            "guarantee. No combined score is reported."
+            "run Exact MRR, Semantic MRR, Thematic Weighted Precision@10, "
+            "Thematic Weighted Recall@10, and Ranked-set NDCG@5 against that database only. "
+            "This is a seeded development regression check, not a benchmark leaderboard or "
+            "user-facing quality guarantee. No combined score is reported."
         ),
     )
     dev_eval_parser.set_defaults(state="eval")
@@ -4214,7 +4223,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="optimize a retrieval match threshold from seeded thematic labels",
         description=(
             "Load the seeded development database if needed, evaluate the full labeled "
-            "candidate pool for each thematic PR1 query, and recommend a match threshold. "
+            "candidate pool for each seeded thematic query, and recommend a match threshold. "
             "This command is advisory by default and only writes config when explicitly "
             "asked to do so."
         ),

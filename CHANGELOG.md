@@ -11,7 +11,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Changed the default built-in FastEmbed model to `BAAI/bge-base-en-v1.5`.
   - Default profile: `builtin-fastembed-bge-base-en-v1-5-v1`, 768 dimensions, 512 max tokens, 384 chunk tokens, 64 overlap tokens.
   - Legacy supported profile: `jinaai/jina-embeddings-v2-small-en`, `builtin-fastembed-jina-v2-small-en-v1`, 512 dimensions, 8192 max tokens, 6144 chunk tokens, 512 overlap tokens.
-- Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Precision@10, and Ranked-set NDCG@5 separately without a combined score.
+- Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Weighted Precision@10, Thematic Weighted Recall@10, and Ranked-set NDCG@5 separately without a combined score.
 - Added `recollectium dev optimize-threshold`, a seeded threshold optimizer that writes CSV or PNG sweep reports, marks a recommended `retrieval.match_threshold`, supports configurable F-beta precision/recall tradeoffs, shows human-readable progress with scoring ETA, and can optionally persist the recommendation with `--write-config`.
 - Added explicit stale-embedding refresh and embedding job cleanup controls across CLI, HTTP API, and MCP.
 - Added human-readable CLI re-embedding progress on search and embedding refresh commands while preserving JSON stdout contracts.
