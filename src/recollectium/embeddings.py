@@ -68,6 +68,7 @@ class FastEmbedModelSpec:
     chunk_tokens: int
     chunk_overlap_tokens: int
     query_prompt_policy: str = "raw"
+    recommended_match_threshold: float | None = None
 
 
 BGE_BASE_EN_V15_MODEL = "BAAI/bge-base-en-v1.5"
