@@ -2201,7 +2201,36 @@
             "type": "integer",
             "minimum": 1.0,
             "title": "Limit",
-            "default": 10
+            "default": 20
+          },
+          "protected_minimum": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protected Minimum",
+            "default": 3
+          },
+          "match_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "const": "model_recommended_default"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Threshold",
+            "default": "model_recommended_default"
           },
           "include_archived": {
             "type": "boolean",
@@ -2243,7 +2272,36 @@
             "type": "integer",
             "minimum": 1.0,
             "title": "Limit",
-            "default": 10
+            "default": 20
+          },
+          "protected_minimum": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protected Minimum",
+            "default": 3
+          },
+          "match_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "const": "model_recommended_default"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Threshold",
+            "default": "model_recommended_default"
           },
           "include_archived": {
             "type": "boolean",

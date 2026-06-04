@@ -11,6 +11,7 @@ from pydantic import Field
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT
 from recollectium.core import RecollectiumCore
+from recollectium.retrieval import UNSET, UnsetType
 from recollectium.errors import RecollectiumError
 from recollectium.representations import (
     OPERATION_EMBEDDING_JOBS_CLEAR,
@@ -85,7 +86,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def search_user_memory(
         query: str,
         type: str | None = None,
-        limit: int = 10,
+        limit: int = 20,
+        protected_minimum: int | None | UnsetType = UNSET,
+        match_threshold: float | Literal["model_recommended_default"] | None | UnsetType = UNSET,
         include_archived: bool = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
@@ -96,6 +99,8 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 query=query,
                 type=type,
                 limit=limit,
+                protected_minimum=protected_minimum,
+                match_threshold=match_threshold,
                 include_archived=include_archived,
             )
             return _json(
@@ -121,7 +126,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         query: str,
         workspace_uid: str,
         type: str | None = None,
-        limit: int = 10,
+        limit: int = 20,
+        protected_minimum: int | None | UnsetType = UNSET,
+        match_threshold: float | Literal["model_recommended_default"] | None | UnsetType = UNSET,
         include_archived: bool = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
@@ -133,6 +140,8 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 workspace_uid=workspace_uid,
                 type=type,
                 limit=limit,
+                protected_minimum=protected_minimum,
+                match_threshold=match_threshold,
                 include_archived=include_archived,
             )
             return _json(

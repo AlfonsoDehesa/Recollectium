@@ -191,7 +191,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     search_help = _run_help(["search-workspace", "--help"], capsys)
     assert "Stable workspace UID" in search_help
     assert "searched" in search_help
-    assert "Defaults to 10" in search_help
+    assert "Defaults to 20" in search_help
 
     update_help = _run_help(["update", "--help"], capsys)
     assert "regenerates" in update_help

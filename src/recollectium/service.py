@@ -5,7 +5,7 @@ from __future__ import annotations
 from http import HTTPStatus
 import json
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT
 from recollectium.core import RecollectiumCore
+from recollectium.retrieval import UNSET
 from recollectium.errors import (
     EmbeddingDimensionMismatchError,
     EmbeddingGenerationError,
@@ -148,7 +149,11 @@ class SearchUserRequest(BaseModel):
 
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
-    limit: int = Field(default=10, ge=1)
+    limit: int = Field(default=20, ge=1)
+    protected_minimum: int | None = Field(default=3, ge=0)
+    match_threshold: float | Literal["model_recommended_default"] | None = Field(
+        default="model_recommended_default"
+    )
     include_archived: bool = False
 
 
@@ -158,7 +163,11 @@ class SearchWorkspaceRequest(BaseModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
-    limit: int = Field(default=10, ge=1)
+    limit: int = Field(default=20, ge=1)
+    protected_minimum: int | None = Field(default=3, ge=0)
+    match_threshold: float | Literal["model_recommended_default"] | None = Field(
+        default="model_recommended_default"
+    )
     include_archived: bool = False
 
 
@@ -262,6 +271,12 @@ def _parse_optional_positive_int(raw: str | None, *, field_name: str) -> int | N
     if value < 1:
         raise ValidationError(f"{field_name} must be a positive integer")
     return value
+
+
+def _request_override_from_model(model: BaseModel, field_name: str) -> Any:
+    if field_name in model.model_fields_set:
+        return getattr(model, field_name)
+    return UNSET
 
 
 def _resolve_verbosity(
@@ -418,6 +433,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             limit=body.limit,
             include_archived=body.include_archived,
             type=body.type,
+            protected_minimum=_request_override_from_model(body, "protected_minimum"),
+            match_threshold=_request_override_from_model(body, "match_threshold"),
         )
         _log.info(
             "search_user_memories completed",
@@ -455,6 +472,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             limit=body.limit,
             include_archived=body.include_archived,
             type=body.type,
+            protected_minimum=_request_override_from_model(body, "protected_minimum"),
+            match_threshold=_request_override_from_model(body, "match_threshold"),
         )
         _log.info(
             "search_workspace_memories completed",

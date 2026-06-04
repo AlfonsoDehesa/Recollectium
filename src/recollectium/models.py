@@ -320,6 +320,10 @@ class SearchResult:
             payload["chunk_index"] = self.chunk_index
         return payload
 
+    @property
+    def match_amount(self) -> float:
+        return self.score
+
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True)
 

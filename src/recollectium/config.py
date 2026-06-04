@@ -54,6 +54,10 @@ DEFAULTS: dict[str, Any] = {
     "version": CONFIG_VERSION,
     "cli_output": CLI_OUTPUT_HUMAN_READABLE,
     "response_verbosity": RESPONSE_VERBOSITY_COMPACT,
+    "retrieval": {
+        "protected_minimum": 3,
+        "match_threshold": "model_recommended_default",
+    },
     "database": {"path": "recollectium.db"},
     "embedding": {
         "provider": SUPPORTED_EMBEDDING_PROVIDER,
@@ -96,6 +100,26 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         else:
             result[key] = value
     return result
+
+
+def _apply_explicit_null_overrides(
+    target: dict[str, Any],
+    source: dict[str, Any],
+    *,
+    path: str = "",
+) -> None:
+    """Re-apply explicit null config values for keys that treat null as data."""
+
+    for key, value in source.items():
+        full_key = f"{path}.{key}" if path else key
+        if value is None and full_key == "retrieval.match_threshold":
+            target[key] = None
+            continue
+        if not isinstance(value, dict):
+            continue
+        nested_target = target.get(key)
+        if isinstance(nested_target, dict):
+            _apply_explicit_null_overrides(nested_target, value, path=full_key)
 
 
 def _resolve_xdg_dirs(
@@ -160,6 +184,39 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
         data["response_verbosity"] = response_verbosity
     if data["version"] < 1:
         raise ValidationError(f"version must be >= 1 (got {data['version']})")
+
+    retrieval = data.get("retrieval", {})
+    if not isinstance(retrieval, dict):
+        raise ValidationError(
+            f"retrieval must be an object (got {type(retrieval).__name__})"
+        )
+    protected_minimum = retrieval.get("protected_minimum")
+    if not isinstance(protected_minimum, int) or isinstance(protected_minimum, bool):
+        raise ValidationError(
+            "retrieval.protected_minimum must be an integer >= 0"
+        )
+    if protected_minimum < 0:
+        raise ValidationError("retrieval.protected_minimum must be >= 0")
+    if protected_minimum > 1000:
+        raise ValidationError(
+            "retrieval.protected_minimum must be <= 1000 to avoid pathological configs"
+        )
+    match_threshold = retrieval.get("match_threshold")
+    if not (
+        match_threshold is None
+        or match_threshold == "model_recommended_default"
+        or (isinstance(match_threshold, (int, float)) and not isinstance(match_threshold, bool))
+    ):
+        raise ValidationError(
+            "retrieval.match_threshold must be null, 'model_recommended_default', or a number between 0.0 and 1.0"
+        )
+    if isinstance(match_threshold, (int, float)) and not isinstance(match_threshold, bool):
+        normalized = float(match_threshold)
+        if normalized < 0.0 or normalized > 1.0:
+            raise ValidationError(
+                "retrieval.match_threshold must be between 0.0 and 1.0"
+            )
+        retrieval["match_threshold"] = normalized
 
     _validate_section(data, "database", {"path": str})
     _validate_section(data, "embedding", {"provider": str, "model": str})
@@ -358,6 +415,7 @@ def validate_config_file(path: Path) -> None:
     """
     raw = load_config_file(path)
     merged = _deep_merge(dict(DEFAULTS), raw)
+    _apply_explicit_null_overrides(merged, raw)
     _validate_config_value(merged)
 
 
@@ -400,6 +458,7 @@ class RecollectiumConfig:
 
         # 5. Deep-merge loaded overrides onto defaults
         merged = _deep_merge(deepcopy(DEFAULTS), raw)
+        _apply_explicit_null_overrides(merged, raw)
 
         # 6. Apply runtime overrides
         if log_level is not None:

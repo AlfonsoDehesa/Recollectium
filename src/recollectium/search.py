@@ -23,7 +23,7 @@ def rank_memory_candidates(
     query: str,
     candidates: list[tuple[Memory, list[float]]] | list[ChunkCandidate],
     embedding_provider: EmbeddingProvider,
-    limit: int = 10,
+    limit: int = 20,
 ) -> list[SearchResult]:
     normalized_query = query.strip()
     if not normalized_query:

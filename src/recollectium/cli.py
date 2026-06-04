@@ -81,6 +81,7 @@ from recollectium.models import (
     WORKSPACE_MEMORY_TYPES,
 )
 from recollectium.mcp_server import create_mcp_server
+from recollectium.retrieval import UNSET
 from recollectium.service import run_service
 from recollectium.service_contract import (
     SERVICE_DEFAULT_HOST,
@@ -139,6 +140,8 @@ _COMPLETABLE_CONFIG_KEYS = [
     "version",
     "cli_output",
     "response_verbosity",
+    "retrieval.protected_minimum",
+    "retrieval.match_threshold",
     "database.path",
     "embedding.provider",
     "embedding.model",
@@ -230,6 +233,36 @@ def _parse_metadata(raw_metadata: str | None) -> dict[str, object] | None:
 
     if not isinstance(parsed, dict):
         raise _MetadataInvalidError("metadata must be a JSON object")
+    return parsed
+
+
+def _parse_non_negative_int(raw_value: str) -> int:
+    try:
+        parsed = int(raw_value)
+    except ValueError as exc:  # pragma: no cover - argparse error path
+        raise argparse.ArgumentTypeError("must be an integer >= 0") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be an integer >= 0")
+    return parsed
+
+
+def _parse_match_threshold(raw_value: str) -> float | str | None:
+    normalized = raw_value.strip()
+    lowered = normalized.lower()
+    if lowered in {"none", "null"}:
+        return None
+    if lowered == "model_recommended_default":
+        return "model_recommended_default"
+    try:
+        parsed = float(normalized)
+    except ValueError as exc:  # pragma: no cover - argparse error path
+        raise argparse.ArgumentTypeError(
+            "must be model_recommended_default, none, or a number between 0.0 and 1.0"
+        ) from exc
+    if parsed < 0.0 or parsed > 1.0:
+        raise argparse.ArgumentTypeError(
+            "must be model_recommended_default, none, or a number between 0.0 and 1.0"
+        )
     return parsed
 
 
@@ -3371,8 +3404,27 @@ def _build_parser() -> argparse.ArgumentParser:
     search_user_parser.add_argument(
         "--limit",
         type=int,
-        default=10,
-        help="Maximum number of ranked results to return. Must be positive. Defaults to 10.",
+        default=20,
+        help="Maximum number of ranked results to return. Must be positive. Defaults to 20.",
+    )
+    search_user_parser.add_argument(
+        "--protected-minimum",
+        type=_parse_non_negative_int,
+        default=UNSET,
+        help=(
+            "Keep this many top-ranked results before threshold filtering. "
+            "Must be an integer >= 0. Omit to use the configured protected minimum."
+        ),
+    )
+    search_user_parser.add_argument(
+        "--match-threshold",
+        type=_parse_match_threshold,
+        default=UNSET,
+        help=(
+            "Threshold for retaining results after the protected minimum. "
+            "Accepts model_recommended_default, none, or a number from 0.0 to 1.0. "
+            "Omit to use the configured threshold."
+        ),
     )
     search_user_parser.add_argument(
         "--include-archived",
@@ -3404,8 +3456,27 @@ def _build_parser() -> argparse.ArgumentParser:
     search_workspace_parser.add_argument(
         "--limit",
         type=int,
-        default=10,
-        help="Maximum number of ranked results to return. Must be positive. Defaults to 10.",
+        default=20,
+        help="Maximum number of ranked results to return. Must be positive. Defaults to 20.",
+    )
+    search_workspace_parser.add_argument(
+        "--protected-minimum",
+        type=_parse_non_negative_int,
+        default=UNSET,
+        help=(
+            "Keep this many top-ranked results before threshold filtering. "
+            "Must be an integer >= 0. Omit to use the configured protected minimum."
+        ),
+    )
+    search_workspace_parser.add_argument(
+        "--match-threshold",
+        type=_parse_match_threshold,
+        default=UNSET,
+        help=(
+            "Threshold for retaining results after the protected minimum. "
+            "Accepts model_recommended_default, none, or a number from 0.0 to 1.0. "
+            "Omit to use the configured threshold."
+        ),
     )
     search_workspace_parser.add_argument(
         "--include-archived",
@@ -4743,6 +4814,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     limit=args.limit,
                     include_archived=args.include_archived,
                     type=args.type,
+                    protected_minimum=args.protected_minimum,
+                    match_threshold=args.match_threshold,
                 )
             else:
                 with progress_reporter:
@@ -4751,6 +4824,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         limit=args.limit,
                         include_archived=args.include_archived,
                         type=args.type,
+                        protected_minimum=args.protected_minimum,
+                        match_threshold=args.match_threshold,
                         progress_callback=progress_reporter,
                     )
         elif args.command == "search-workspace":
@@ -4762,6 +4837,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     limit=args.limit,
                     include_archived=args.include_archived,
                     type=args.type,
+                    protected_minimum=args.protected_minimum,
+                    match_threshold=args.match_threshold,
                 )
             else:
                 with progress_reporter:
@@ -4771,6 +4848,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         limit=args.limit,
                         include_archived=args.include_archived,
                         type=args.type,
+                        protected_minimum=args.protected_minimum,
+                        match_threshold=args.match_threshold,
                         progress_callback=progress_reporter,
                     )
         elif args.command == "list":
