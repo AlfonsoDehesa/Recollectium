@@ -250,6 +250,8 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
 
     optimize_help = _run_help(["dev", "optimize-threshold", "--help"], capsys)
     assert "advisory by default" in optimize_help
+    assert "seeded thematic query" in optimize_help
+    assert "PR1 query" not in optimize_help
     assert "--write-config" in optimize_help
     assert "--format" in optimize_help
     assert "--beta" in optimize_help

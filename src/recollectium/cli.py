@@ -4223,7 +4223,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="optimize a retrieval match threshold from seeded thematic labels",
         description=(
             "Load the seeded development database if needed, evaluate the full labeled "
-            "candidate pool for each thematic PR1 query, and recommend a match threshold. "
+            "candidate pool for each seeded thematic query, and recommend a match threshold. "
             "This command is advisory by default and only writes config when explicitly "
             "asked to do so."
         ),
