@@ -378,6 +378,10 @@ def test_migration_runner_rejects_invalid_versions(tmp_path: Path) -> None:
     def noop(_connection: sqlite3.Connection) -> None:
         return None
 
+    connection = sqlite3.connect(":memory:")
+    noop(connection)
+    connection.close()
+
     with pytest.raises(MigrationError):
         MigrationRunner(
             db_path,

@@ -291,6 +291,7 @@ def test_builtin_fastembed_get_embedder_import_load_and_cache_failures(
             return [[1.0] + [0.0] * 511 for _text in texts]
 
     setattr(fastembed_module, "TextEmbedding", WorkingTextEmbedding)
+    assert WorkingTextEmbedding().embed(["hello"], batch_size=1)[0][0] == 1.0
     provider = BuiltinFastEmbedProvider(cache_dir="/tmp/recollectium-models")
     embedder = provider._get_embedder()
     assert embedder.kwargs["cache_dir"] == "/tmp/recollectium-models"
@@ -382,6 +383,7 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
         }
     ]
     assert failure_connection.closed is True
+    assert FakeProcess([]).is_alive() is False
 
 
 class FakeProcess:

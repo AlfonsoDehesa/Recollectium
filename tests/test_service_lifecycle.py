@@ -151,6 +151,47 @@ def _stop_real_service(config_path: Path, pid: int | None) -> None:
         assert not is_pid_alive(pid)
 
 
+def test_wait_for_http_service_raises_after_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[float] = []
+
+    def always_fail(*args: object, **kwargs: object) -> None:
+        raise TimeoutError("not ready")
+
+    monkeypatch.setattr(
+        "tests.test_service_lifecycle._request_service_json", always_fail
+    )
+    monkeypatch.setattr(time, "sleep", lambda seconds: calls.append(seconds))
+
+    with pytest.raises(AssertionError, match="service did not become ready"):
+        _wait_for_http_service("http://127.0.0.1:8765")
+
+    assert len(calls) == 120
+
+
+def test_exercise_mcp_service_when_ready_raises_after_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[float] = []
+
+    async def always_fail(endpoint: str) -> None:
+        raise RuntimeError("not ready")
+
+    async def sleep_noop(seconds: float) -> None:
+        attempts.append(seconds)
+
+    monkeypatch.setattr(
+        "tests.test_service_lifecycle._exercise_mcp_service", always_fail
+    )
+    monkeypatch.setattr(asyncio, "sleep", sleep_noop)
+
+    with pytest.raises(AssertionError, match="MCP service did not become ready"):
+        asyncio.run(_exercise_mcp_service_when_ready("http://127.0.0.1:8765"))
+
+    assert len(attempts) == 120
+
+
 # ---------------------------------------------------------------------------
 # help text
 # ---------------------------------------------------------------------------
@@ -1039,6 +1080,9 @@ def test_restart_running_stop_fails_with_conflict(
                     "restart",
                 ]
             )
+
+    assert _mock_start(config_path, "api") == 12346
+    assert start_calls == ["api"]
 
 
 def test_status_corrupt_pid_file(tmp_path: Path, capsys: CaptureFixture[str]) -> None:

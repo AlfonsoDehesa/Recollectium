@@ -268,6 +268,8 @@ def test_seeded_exact_mrr_targets_filters_and_sorts_seeded_memories() -> None:
 
     targets = seeded_exact_mrr_targets(FakeLister())
 
+    assert FakeLister().list_memories(space="other", include_archived=True) == []
+
     assert targets == (
         ExactMRRTarget("dev-user-001", SPACE_USER, "first"),
         ExactMRRTarget("dev-user-002", SPACE_USER, "second"),
@@ -338,6 +340,10 @@ def test_evaluate_exact_mrr_for_core_uses_seeded_targets_and_scope_searches() ->
             return _search_results(["dev-workspace"], workspace_uid="project-a")
 
     core = FakeCore()
+
+    assert core.list_memories(space="other", include_archived=True) == []
+    assert core.list_memories(space=SPACE_USER, include_archived=True)
+    assert core.list_memories(space=SPACE_WORKSPACE, include_archived=True)
 
     report = evaluate_exact_mrr_for_core(core, cutoff=5)
 
@@ -604,6 +610,8 @@ def test_seeded_semantic_mrr_targets_uses_fixture_for_seeded_memories() -> None:
 
     targets = seeded_semantic_mrr_targets(FakeLister())
 
+    assert FakeLister().list_memories(space="other", include_archived=True) == []
+
     assert len(targets) == len(SEMANTIC_MRR_FIXTURE)
     assert targets[0].memory_id == "dev-user-001"
     assert targets[0].queries == SEMANTIC_MRR_FIXTURE["dev-user-001"]["queries"]
@@ -690,6 +698,10 @@ def test_evaluate_semantic_mrr_for_core_uses_seeded_targets_and_scope_searches()
             )
 
     core = FakeCore()
+
+    assert core.list_memories(space="other", include_archived=True) == []
+    assert core.list_memories(space=SPACE_USER, include_archived=True)
+    assert core.list_memories(space=SPACE_WORKSPACE, include_archived=True)
 
     report = evaluate_semantic_mrr_for_core(core, cutoff=5)
 
@@ -956,7 +968,25 @@ def test_evaluate_thematic_precision_for_core_uses_fixture_and_scope_searches() 
             include_archived: bool = False,
             limit: int | None = None,
         ) -> list[Memory]:
-            del space, type, status, workspace_uid, include_archived, limit
+            del type, status, workspace_uid, limit
+            assert include_archived is True
+            if space == SPACE_USER:
+                return [
+                    _memory(memory_id, content=memory_id)
+                    for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+                    if entry["scope"] == SPACE_USER
+                ]
+            if space == SPACE_WORKSPACE:
+                return [
+                    _memory(
+                        memory_id,
+                        space=SPACE_WORKSPACE,
+                        content=memory_id,
+                        workspace_uid=entry["workspace_uid"],
+                    )
+                    for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+                    if entry["scope"] == SPACE_WORKSPACE
+                ]
             return []
 
         def __init__(self) -> None:
@@ -997,6 +1027,10 @@ def test_evaluate_thematic_precision_for_core_uses_fixture_and_scope_searches() 
             )
 
     core = FakeCore()
+
+    assert core.list_memories(space="other", include_archived=True) == []
+    assert core.list_memories(space=SPACE_USER, include_archived=True)
+    assert core.list_memories(space=SPACE_WORKSPACE, include_archived=True)
 
     report = evaluate_thematic_precision_for_core(core, cutoff=5)
 
@@ -1282,7 +1316,25 @@ def test_evaluate_ranked_set_ndcg_for_core_uses_fixture_and_scope_searches() -> 
             include_archived: bool = False,
             limit: int | None = None,
         ) -> list[Memory]:
-            del space, type, status, workspace_uid, include_archived, limit
+            del type, status, workspace_uid, limit
+            assert include_archived is True
+            if space == SPACE_USER:
+                return [
+                    _memory(memory_id, content=memory_id)
+                    for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+                    if entry["scope"] == SPACE_USER
+                ]
+            if space == SPACE_WORKSPACE:
+                return [
+                    _memory(
+                        memory_id,
+                        space=SPACE_WORKSPACE,
+                        content=memory_id,
+                        workspace_uid=entry["workspace_uid"],
+                    )
+                    for memory_id, entry in SEMANTIC_MRR_FIXTURE.items()
+                    if entry["scope"] == SPACE_WORKSPACE
+                ]
             return []
 
         def __init__(self) -> None:
@@ -1330,6 +1382,10 @@ def test_evaluate_ranked_set_ndcg_for_core_uses_fixture_and_scope_searches() -> 
             )
 
     core = FakeCore()
+
+    assert core.list_memories(space="other", include_archived=True) == []
+    assert core.list_memories(space=SPACE_USER, include_archived=True)
+    assert core.list_memories(space=SPACE_WORKSPACE, include_archived=True)
 
     report = evaluate_ranked_set_ndcg_for_core(core, cutoff=5)
 

@@ -971,6 +971,19 @@ def test_reembedding_preserves_updated_at_for_startup_and_runtime(
     assert runtime_after.updated_at == runtime_memory.updated_at
 
 
+def test_blocking_fake_embedding_provider_times_out_quickly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BlockingFakeEmbeddingProvider()
+    provider.block_texts.add("slow")
+    monkeypatch.setattr(provider.release, "wait", lambda timeout: False)
+
+    with pytest.raises(
+        RuntimeError, match="timed out waiting to unblock fake embedding"
+    ):
+        provider.embed("slow")
+
+
 def test_runtime_reembedding_failure_blocks_partial_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -998,6 +1011,8 @@ def test_runtime_reembedding_failure_blocks_partial_results(
         return original_chunk_embed_pairs(text)
 
     monkeypatch.setattr(core, "_chunk_embed_pairs", fail_on_second)
+
+    assert fail_on_second(first.content) == original_chunk_embed_pairs(first.content)
 
     with pytest.raises(ReembeddingFailedError) as exc_info:
         core.search_user_memories("memory")

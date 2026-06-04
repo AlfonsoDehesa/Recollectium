@@ -15,6 +15,7 @@ from recollectium.config import (
     RESPONSE_VERBOSITY_COMPACT,
     RESPONSE_VERBOSITY_VERBOSE,
     RecollectiumConfig,
+    _apply_explicit_null_overrides,
     _check_type,
     _deep_merge,
     _ensure_config_directories,
@@ -765,3 +766,51 @@ def test_completable_config_keys_includes_workspace_uid_normalization() -> None:
     from recollectium.cli import _COMPLETABLE_CONFIG_KEYS
 
     assert "workspace.uid_normalization" in _COMPLETABLE_CONFIG_KEYS
+
+
+def test_apply_explicit_null_overrides_restores_retrieval_null() -> None:
+    target = {
+        "retrieval": {
+            "protected_minimum": 3,
+            "match_threshold": "model_recommended_default",
+        },
+        "embedding": {},
+    }
+    source = {"retrieval": {"match_threshold": None}}
+
+    _apply_explicit_null_overrides(target, source)
+
+    assert target["retrieval"]["match_threshold"] is None
+
+
+@pytest.mark.parametrize(
+    ("retrieval", "message"),
+    [
+        ("not-an-object", "retrieval must be an object"),
+        (
+            {"protected_minimum": True},
+            "retrieval.protected_minimum must be an integer >= 0",
+        ),
+        ({"protected_minimum": -1}, "retrieval.protected_minimum must be >= 0"),
+        (
+            {"protected_minimum": 1001},
+            "retrieval.protected_minimum must be <= 1000",
+        ),
+        (
+            {"protected_minimum": 0, "match_threshold": {"bad": True}},
+            "retrieval.match_threshold must be null",
+        ),
+        (
+            {"protected_minimum": 0, "match_threshold": 1.5},
+            "retrieval.match_threshold must be between 0.0 and 1.0",
+        ),
+    ],
+)
+def test_validate_config_value_rejects_invalid_retrieval_settings(
+    retrieval: object, message: str
+) -> None:
+    config = deepcopy(DEFAULTS)
+    config["retrieval"] = retrieval  # type: ignore[assignment]
+
+    with pytest.raises(ValidationError, match=message):
+        _validate_config_value(config)

@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 import pytest
 
 from recollectium.core import RecollectiumCore
@@ -15,12 +16,14 @@ from recollectium.models import (
 from recollectium.errors import ValidationError
 from recollectium.service import (
     _map_boundary_error,
+    _request_override_from_model,
     _parse_optional_bool,
     _parse_optional_positive_int,
     create_app,
     create_mcp_app,
     run_service,
 )
+from recollectium.retrieval import UNSET
 from recollectium.service_contract import (
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_REFRESH,
@@ -360,6 +363,15 @@ def _service_docs_section_for_route(docs_text: str, route: str) -> str:
     return docs_text[route_index:next_heading_index]
 
 
+def test_service_docs_section_without_following_heading_returns_tail() -> None:
+    docs_text = "### GET /v1/health\nPurpose: health\nExample response: ok"
+
+    assert (
+        _service_docs_section_for_route(docs_text, "GET /v1/health")
+        == docs_text[docs_text.index("GET /v1/health") :]
+    )
+
+
 def _client(core: RecollectiumCore) -> TestClient:
     return TestClient(create_app(core), raise_server_exceptions=False)
 
@@ -553,6 +565,18 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
         "threads": 1,
         "parallel": None,
     }
+
+    core.store.create_embedding_job(
+        job_id="job-1",
+        state="completed",
+        total_count=1,
+        processed_count=1,
+        succeeded_count=1,
+        failed_count=0,
+        provider="builtin-fastembed",
+        model="fake-model",
+        embedding_profile=core.embedding_provider.embedding_profile,
+    )
 
     status, jobs_payload = _request_json(client, "GET", "/v1/embedding/jobs")
     assert status == 200
@@ -1539,3 +1563,14 @@ class TestVerbosityOverride:
         data = payload["data"]
         assert set(data.keys()) == {"id", "status"}
         assert data["status"] == "archived"
+
+
+def test_request_override_from_model_respects_model_fields_set() -> None:
+    class DemoRequest(BaseModel):
+        value: int | None = None
+
+    set_model = DemoRequest(value=7)
+    unset_model = DemoRequest()
+
+    assert _request_override_from_model(set_model, "value") == 7
+    assert _request_override_from_model(unset_model, "value") is UNSET
