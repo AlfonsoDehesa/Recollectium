@@ -887,6 +887,57 @@ def test_reembedding_progress_reporter_uses_rich_for_tty() -> None:
     assert "Re-embedding memories" in stream.getvalue()
 
 
+def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
+    stream = _OSErrorIsattyStream()
+    reporter = cli_module._DevEvalProgressReporter(stream)
+
+    reporter.phase("Checking embedding provider readiness")
+    reporter(
+        {
+            "phase": "semantic_mrr",
+            "bucket": "paraphrases",
+            "label": "Semantic MRR paraphrases",
+            "completed": 1,
+            "total": 2,
+        }
+    )
+
+    output = stream.getvalue()
+    assert "Status: Checking embedding provider readiness" in output
+    assert "Status: Semantic MRR paraphrases: 1/2" in output
+
+
+def test_dev_eval_progress_reporter_uses_rich_for_tty() -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    reporter = cli_module._DevEvalProgressReporter(stream)
+
+    with reporter:
+        reporter.phase("Checking embedding provider readiness")
+        reporter(
+            {
+                "phase": "exact_mrr",
+                "bucket": "user_memories",
+                "label": "Exact MRR user memories",
+                "completed": 1,
+                "total": 2,
+            }
+        )
+        reporter(
+            {
+                "phase": "exact_mrr",
+                "bucket": "user_memories",
+                "label": "Exact MRR user memories",
+                "completed": 2,
+                "total": 2,
+            }
+        )
+
+    output = stream.getvalue()
+    assert "Checking embedding provider readiness" in output
+    assert "Exact MRR user memories" in output
+
+
 def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:
     monkeypatch.setattr(
         "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
@@ -1220,7 +1271,7 @@ def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
     assert not regular_db.exists()
 
 
-def test_cli_dev_eval_human_output_contains_progress_and_separate_metrics(
+def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     tmp_path, capsys, monkeypatch
 ) -> None:
     config_path = tmp_path / "config.json"
@@ -1248,32 +1299,26 @@ def test_cli_dev_eval_human_output_contains_progress_and_separate_metrics(
     assert stdout.index("Status: Checking embedding provider readiness") < stdout.index(
         "Recollectium dev eval"
     )
-    assert f"Status: Preparing seeded development database: {dev_db}" in stdout
-    assert "Recollectium dev eval" in stdout
-    assert f"Seeded dev DB: {dev_db}" in stdout
-    assert f"Regular DB: {regular_db}" in stdout
-    assert "Regular DB not touched: yes" in stdout
-    assert "Preparing seeded development database... reset" in stdout
-    assert "Loading eval fixtures... loaded" in stdout
-    assert "Running exact MRR" in stdout
-    assert "user memories       100/100" in stdout
-    assert "workspace memories  90/90" in stdout
-    assert "Running semantic MRR" in stdout
-    assert "paraphrases         570/570" in stdout
-    assert "Running thematic weighted metrics" in stdout
-    assert "Running ranked-set NDCG@5" in stdout
-    assert "Results" in stdout
-    assert "Exact MRR" in stdout
-    assert "Semantic MRR" in stdout
-    assert "Thematic Weighted Precision@10" in stdout
-    assert "Ranked-set NDCG@5" in stdout
-    assert "Diagnostics" in stdout
-    assert "combined" not in stdout.casefold()
+    assert "Status: Exact MRR user memories: 1/100" in stdout
+    assert "Status: Exact MRR workspace memories: 90/90" in stdout
+    assert "Status: Semantic MRR paraphrases: 570/570" in stdout
+    assert "Status: Thematic weighted user topics: 1/30" in stdout
+    assert "Status: Thematic weighted workspace themes: 1/27" in stdout
+    assert "Status: Ranked-set NDCG@5 cases: 15/15" in stdout
+    assert "Seeded dev DB:" not in stdout
+    assert "Regular DB:" not in stdout
+    assert "Diagnostics" not in stdout
+    assert "Results" not in stdout
+    assert "Exact MRR: 0.063" in stdout
+    assert "Semantic MRR: 0.061" in stdout
+    assert "Thematic Weighted Precision@10: 0.281" in stdout
+    assert "Thematic Weighted Recall@10: 0.211" in stdout
+    assert "Ranked-set NDCG@5: 0.103" in stdout
     assert dev_db.exists()
     assert not regular_db.exists()
 
 
-def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
+def test_cli_dev_eval_human_output_compact_hides_verbose_sections() -> None:
     output = _format_human_output(
         {
             "status": "ok",
@@ -1321,15 +1366,25 @@ def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
             },
         },
         command="dev eval",
+        response_verbosity=RESPONSE_VERBOSITY_COMPACT,
     )
 
-    assert "Worst exact target: none" in output
-    assert "Worst semantic target: none" in output
-    assert "Worst thematic query: none" in output
-    assert "Worst ranked-set case: none" in output
+    assert "Recollectium dev eval" in output
+    assert "Exact MRR" in output
+    assert "Semantic MRR" in output
+    assert "Thematic Weighted Precision@10" in output
+    assert "Thematic Weighted Recall@10" in output
+    assert "Ranked-set NDCG@5" in output
+    assert "Seeded dev DB" not in output
+    assert "Regular DB" not in output
+    assert "Preparing seeded development database" not in output
+    assert "Loading eval fixtures" not in output
+    assert "Results" not in output
+    assert "Diagnostics" not in output
+    assert "Worst exact target" not in output
 
 
-def test_cli_dev_eval_human_output_includes_compact_diagnostics() -> None:
+def test_cli_dev_eval_human_output_verbose_preserves_details() -> None:
     output = _format_human_output(
         {
             "status": "ok",
@@ -1395,13 +1450,22 @@ def test_cli_dev_eval_human_output_includes_compact_diagnostics() -> None:
             },
         },
         command="dev eval",
+        response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
     )
 
+    assert "Seeded dev DB: /tmp/dev.db" in output
+    assert "Regular DB: /tmp/regular.db" in output
+    assert "Regular DB not touched: yes" in output
+    assert "Preparing seeded development database... ready" in output
+    assert "Loading eval fixtures... loaded" in output
+    assert "Results" in output
+    assert "Diagnostics" in output
     assert "Worst thematic query: project_planning, weighted precision 0.200" in output
-    assert "weighted recall" in output
     assert "Worst ranked-set case: ranked-case, NDCG 0.250" in output
-    assert "expected top grades: expected-a:3, expected-b:2" in output
-    assert "returned top grades: actual-x:0, expected-b:2" in output
+    assert "Running exact MRR" not in output
+    assert "Running semantic MRR" not in output
+    assert "Running thematic weighted metrics" not in output
+    assert "Running ranked-set NDCG@5" not in output
 
 
 @pytest.mark.parametrize("output_mode", ["--json", "--human-readable"])
@@ -1421,12 +1485,12 @@ def test_cli_dev_eval_refuses_when_seeded_database_matches_regular_database(
         encoding="utf-8",
     )
 
-    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+    class ProviderMustNotBeConstructedShared(FakeEmbeddingProvider):
         def __init__(self) -> None:
             raise AssertionError("provider should not be constructed")
 
     monkeypatch.setattr(
-        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructedShared
     )
 
     exit_code, stdout, stderr = _run_cli(
@@ -1449,7 +1513,7 @@ def test_cli_dev_eval_refuses_when_seeded_database_matches_regular_database(
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
 
     with pytest.raises(AssertionError, match="provider should not be constructed"):
-        ProviderMustNotBeConstructed()
+        ProviderMustNotBeConstructedShared()
 
 
 def test_cli_dev_eval_refuses_db_override_matching_seeded_database(
@@ -1469,12 +1533,12 @@ def test_cli_dev_eval_refuses_db_override_matching_seeded_database(
         encoding="utf-8",
     )
 
-    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+    class ProviderMustNotBeConstructedDbOverride(FakeEmbeddingProvider):
         def __init__(self) -> None:
             raise AssertionError("provider should not be constructed")
 
     monkeypatch.setattr(
-        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructedDbOverride
     )
 
     exit_code, stdout, stderr = _run_cli(
@@ -1492,7 +1556,7 @@ def test_cli_dev_eval_refuses_db_override_matching_seeded_database(
     assert not configured_regular_db.exists()
 
     with pytest.raises(AssertionError, match="provider should not be constructed"):
-        ProviderMustNotBeConstructed()
+        ProviderMustNotBeConstructedDbOverride()
 
 
 def test_cli_dev_eval_refuses_tilde_db_override_matching_seeded_database(

@@ -18,7 +18,6 @@ import tempfile
 import time
 from io import StringIO
 from pathlib import Path
-from collections.abc import Callable
 from typing import Any, Sequence, cast
 
 from rich.console import Console, RenderableType
@@ -434,14 +433,99 @@ def _format_memory(
     return lines
 
 
+def _format_dev_eval_metric_lines(
+    metrics: dict[str, Any], *, color: bool = False
+) -> list[str]:
+    return [
+        f"  {_format_label('Exact MRR', color=color)} {metrics['exact_mrr']['value']:.3f}",
+        f"  {_format_label('Semantic MRR', color=color)} {metrics['semantic_mrr']['value']:.3f}",
+        f"  {_format_label('Thematic Weighted Precision@10', color=color)} {metrics['thematic_weighted_precision_at_10']['value']:.3f}",
+        f"  {_format_label('Thematic Weighted Recall@10', color=color)} {metrics['thematic_weighted_recall_at_10']['value']:.3f}",
+        f"  {_format_label('Ranked-set NDCG@5', color=color)} {metrics['ranked_set_ndcg_at_5']['value']:.3f}",
+    ]
+
+
+def _format_dev_eval_output(
+    payload: dict[str, Any],
+    *,
+    color: bool = False,
+    verbose: bool = False,
+) -> str:
+    lines = [_style("Recollectium dev eval", _RICH_HEADING, enabled=color)]
+    if not verbose:
+        lines.extend([""])
+        lines.extend(_format_dev_eval_metric_lines(payload["metrics"], color=color))
+        return "\n".join(lines) + "\n"
+
+    lines.extend(
+        [
+            "",
+            f"Seeded dev DB: {payload['database']}",
+            f"Regular DB: {payload['regular_database']}",
+            "Regular DB not touched: yes",
+            f"Preparing seeded development database... {payload['preparation']['seeded_database']}",
+            f"Loading eval fixtures... {payload['preparation']['fixtures']}",
+            "",
+            "Results",
+        ]
+    )
+    lines.extend(_format_dev_eval_metric_lines(payload["metrics"], color=color))
+    lines.append("")
+    lines.append("Diagnostics")
+    diagnostics = payload["diagnostics"]
+    if diagnostics["worst_exact"]:
+        worst_exact = diagnostics["worst_exact"][0]
+        rank = worst_exact["rank"] if worst_exact["rank"] is not None else "miss"
+        lines.append(f"  Worst exact target: {worst_exact['target_id']}, rank {rank}")
+    else:
+        lines.append("  Worst exact target: none")
+    if diagnostics["worst_semantic"]:
+        worst_semantic = diagnostics["worst_semantic"][0]
+        lines.append(
+            "  Worst semantic target: "
+            f"{worst_semantic['target_id']}, average {worst_semantic['average_reciprocal_rank']:.3f}"
+        )
+    else:
+        lines.append("  Worst semantic target: none")
+    if diagnostics["worst_thematic"]:
+        worst_thematic = diagnostics["worst_thematic"][0]
+        lines.append(
+            "  Worst thematic query: "
+            f"{worst_thematic['expected_group']}, weighted precision {worst_thematic['weighted_precision']:.3f}, "
+            f"weighted recall {worst_thematic['weighted_recall']:.3f}, returned {worst_thematic['returned_count']}"
+        )
+    else:
+        lines.append("  Worst thematic query: none")
+    if diagnostics["worst_ranked_sets"]:
+        worst_ranked = diagnostics["worst_ranked_sets"][0]
+        expected = ", ".join(
+            f"{memory['memory_id']}:{memory['grade']}"
+            for memory in worst_ranked["expected_memories"][:3]
+        )
+        returned = ", ".join(
+            f"{memory['memory_id']}:{memory['grade']}"
+            for memory in worst_ranked["returned_top"][:5]
+        )
+        lines.append(
+            f"  Worst ranked-set case: {worst_ranked['case_id']}, NDCG {worst_ranked['ndcg']:.3f}"
+        )
+        lines.append(f"    expected top grades: {expected or 'none'}")
+        lines.append(f"    returned top grades: {returned or 'none'}")
+    else:
+        lines.append("  Worst ranked-set case: none")
+    return "\n".join(lines) + "\n"
+
+
 def _format_human_output(
     payload: Any,
     *,
     command: str | None = None,
     label: str | None = None,
     color: bool = False,
+    response_verbosity: str | None = None,
 ) -> str:
     payload = _to_payload(payload)
+    verbosity = response_verbosity or _CURRENT_RESPONSE_VERBOSITY
     if (
         command == "add"
         and isinstance(payload, dict)
@@ -535,91 +619,9 @@ def _format_human_output(
         )
 
     if command == "dev eval":
-        metrics = payload["metrics"]
-        diagnostics = payload["diagnostics"]
-        phases = payload["phases"]
-        exact_phase = phases["exact_mrr"]
-        semantic_phase = phases["semantic_mrr"]
-        thematic_phase = phases["thematic_weighted_at_10"]
-        ranked_phase = phases["ranked_set_ndcg_at_5"]
-        lines = [_style("Recollectium dev eval", _RICH_HEADING, enabled=color), ""]
-        lines.append(f"Seeded dev DB: {payload['database']}")
-        lines.append(f"Regular DB: {payload['regular_database']}")
-        lines.append("Regular DB not touched: yes")
-        lines.append(
-            f"Preparing seeded development database... {payload['preparation']['seeded_database']}"
-        )
-        lines.append(f"Loading eval fixtures... {payload['preparation']['fixtures']}")
-        lines.extend(
-            [
-                "",
-                "Running exact MRR",
-                f"  user memories       {exact_phase['user_memories']}/{exact_phase['user_memories']}",
-                f"  workspace memories  {exact_phase['workspace_memories']}/{exact_phase['workspace_memories']}",
-                "",
-                "Running semantic MRR",
-                f"  paraphrases         {semantic_phase['paraphrases']}/{semantic_phase['paraphrases']}",
-                "",
-                "Running thematic weighted metrics",
-                f"  user topics         {thematic_phase['user_topics']}/{thematic_phase['user_topics']}",
-                f"  workspace themes    {thematic_phase['workspace_themes']}/{thematic_phase['workspace_themes']}",
-                "",
-                "Running ranked-set NDCG@5",
-                f"  cases               {ranked_phase['cases']}/{ranked_phase['cases']}",
-                "",
-                "Results",
-                f"  Exact MRR              {metrics['exact_mrr']['value']:.3f}",
-                f"  Semantic MRR           {metrics['semantic_mrr']['value']:.3f}",
-                f"  Thematic Weighted Precision@10  {metrics['thematic_weighted_precision_at_10']['value']:.3f}",
-                f"  Thematic Weighted Recall@10     {metrics['thematic_weighted_recall_at_10']['value']:.3f}",
-                f"  Ranked-set NDCG@5      {metrics['ranked_set_ndcg_at_5']['value']:.3f}",
-                "",
-                "Diagnostics",
-            ]
-        )
-        if diagnostics["worst_exact"]:
-            worst_exact = diagnostics["worst_exact"][0]
-            rank = worst_exact["rank"] if worst_exact["rank"] is not None else "miss"
-            lines.append(
-                f"  Worst exact target: {worst_exact['target_id']}, rank {rank}"
-            )
-        else:
-            lines.append("  Worst exact target: none")
-        if diagnostics["worst_semantic"]:
-            worst_semantic = diagnostics["worst_semantic"][0]
-            lines.append(
-                "  Worst semantic target: "
-                f"{worst_semantic['target_id']}, average {worst_semantic['average_reciprocal_rank']:.3f}"
-            )
-        else:
-            lines.append("  Worst semantic target: none")
-        if diagnostics["worst_thematic"]:
-            worst_thematic = diagnostics["worst_thematic"][0]
-            lines.append(
-                "  Worst thematic query: "
-                f"{worst_thematic['expected_group']}, weighted precision {worst_thematic['weighted_precision']:.3f}, "
-                f"weighted recall {worst_thematic['weighted_recall']:.3f}, returned {worst_thematic['returned_count']}"
-            )
-        else:
-            lines.append("  Worst thematic query: none")
-        if diagnostics["worst_ranked_sets"]:
-            worst_ranked = diagnostics["worst_ranked_sets"][0]
-            expected = ", ".join(
-                f"{memory['memory_id']}:{memory['grade']}"
-                for memory in worst_ranked["expected_memories"][:3]
-            )
-            returned = ", ".join(
-                f"{memory['memory_id']}:{memory['grade']}"
-                for memory in worst_ranked["returned_top"][:5]
-            )
-            lines.append(
-                f"  Worst ranked-set case: {worst_ranked['case_id']}, NDCG {worst_ranked['ndcg']:.3f}"
-            )
-            lines.append(f"    expected top grades: {expected or 'none'}")
-            lines.append(f"    returned top grades: {returned or 'none'}")
-        else:
-            lines.append("  Worst ranked-set case: none")
-        return "\n".join(lines) + "\n"
+        if verbosity == RESPONSE_VERBOSITY_VERBOSE:
+            return _format_dev_eval_output(payload, color=color, verbose=True)
+        return _format_dev_eval_output(payload, color=color, verbose=False)
 
     if command == "init":
         lines = [_style("Recollectium initialized", _RICH_HEADING, enabled=color)]
@@ -722,6 +724,7 @@ def _emit_success(
                 command=command,
                 label=label,
                 color=_supports_color(sys.stdout),
+                response_verbosity=verbosity,
             )
         )
         return
@@ -935,6 +938,95 @@ class _ThresholdOptimizationProgressReporter:
                 f"{completed}/{self._scoring_total} (threshold {threshold:.2f})\n"
             )
             self._stream.flush()
+
+
+class _DevEvalProgressReporter:
+    """Render seeded dev eval phases and counted progress for humans."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        isatty = getattr(stream, "isatty", None)
+        self._isatty = False
+        if callable(isatty):
+            try:
+                self._isatty = bool(isatty())
+            except OSError:
+                self._isatty = False
+        self._progress: Progress | None = None
+        self._phase_task_id: TaskID | None = None
+        self._count_task_id: TaskID | None = None
+        self._count_label: str | None = None
+
+    def __enter__(self) -> _DevEvalProgressReporter:
+        self._ensure_progress()
+        return self
+
+    def _ensure_progress(self) -> None:
+        if not self._isatty or self._progress is not None:
+            return
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold cyan]{task.description}"),
+            _DeterminateBarColumn(),
+            _DeterminateCountColumn(),
+            _DeterminateTimeRemainingColumn(),
+            TimeElapsedColumn(),
+            console=Console(file=self._stream),
+            transient=False,
+        )
+        progress.start()
+        self._progress = progress
+
+    def __exit__(self, *_: object) -> None:
+        self.finish()
+
+    def finish(self) -> None:
+        if self._progress is not None:
+            self._progress.stop()
+            self._progress = None
+            self._phase_task_id = None
+            self._count_task_id = None
+            self._count_label = None
+
+    def phase(self, message: str) -> None:
+        self._ensure_progress()
+        if self._progress is not None:
+            if self._count_task_id is not None:
+                self._progress.update(self._count_task_id, visible=False)
+                self._count_task_id = None
+                self._count_label = None
+            if self._phase_task_id is None:
+                self._phase_task_id = self._progress.add_task(message, total=None)
+            else:
+                self._progress.update(
+                    self._phase_task_id, description=message, visible=True
+                )
+            return
+        self._stream.write(f"Status: {message}\n")
+        self._stream.flush()
+
+    def __call__(self, event: dict[str, Any]) -> None:
+        label = str(event.get("label") or event.get("phase") or "dev eval")
+        total = int(event.get("total") or 0)
+        completed = int(event.get("completed") or 0)
+        self._ensure_progress()
+        if self._progress is not None:
+            if self._phase_task_id is not None:
+                self._progress.update(self._phase_task_id, visible=False)
+            if self._count_task_id is None or self._count_label != label:
+                if self._count_task_id is not None:
+                    self._progress.update(self._count_task_id, visible=False)
+                self._count_task_id = self._progress.add_task(label, total=total)
+                self._count_label = label
+            self._progress.update(
+                self._count_task_id,
+                completed=completed,
+                total=total,
+                description=label,
+            )
+            return
+        self._stream.write(f"Status: {label}: {completed}/{total}\n")
+        self._stream.flush()
 
 
 def _parse_config_value(raw: str) -> Any:
@@ -1869,15 +1961,15 @@ def _run_seeded_dev_eval(
     provider: Any,
     config_path: Path | None,
     regular_db_path: Path,
-    progress: Callable[[str], None] | None = None,
+    progress: _DevEvalProgressReporter | None = None,
     reembedding_progress: _ReembeddingProgressReporter | None = None,
 ) -> dict[str, object]:
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
     if progress is not None:
-        progress(f"Preparing seeded development database: {dev_db_path}")
+        progress.phase(f"Preparing seeded development database: {dev_db_path}")
     seed_result = ensure_seeded_dev_database(dev_db_path, provider)
     if progress is not None:
-        progress("Loading eval fixtures")
+        progress.phase("Loading eval fixtures")
     core = RecollectiumCore(
         db_path=dev_db_path,
         config_path=config_path,
@@ -1885,24 +1977,32 @@ def _run_seeded_dev_eval(
         log_level=cfg.effective_config["logging"]["level"],
     )
     if progress is not None:
-        progress("Running exact MRR")
+        progress.phase("Running exact MRR")
     exact_report = evaluate_exact_mrr_for_core(
-        cast(Any, core), progress_callback=reembedding_progress
+        cast(Any, core),
+        progress_callback=reembedding_progress,
+        eval_progress_callback=progress,
     )
     if progress is not None:
-        progress("Running semantic MRR")
+        progress.phase("Running semantic MRR")
     semantic_report = evaluate_semantic_mrr_for_core(
-        cast(Any, core), progress_callback=reembedding_progress
+        cast(Any, core),
+        progress_callback=reembedding_progress,
+        eval_progress_callback=progress,
     )
     if progress is not None:
-        progress("Running thematic weighted metrics")
+        progress.phase("Running thematic weighted metrics")
     thematic_report = evaluate_thematic_weighted_metrics_for_core(
-        cast(Any, core), progress_callback=reembedding_progress
+        cast(Any, core),
+        progress_callback=reembedding_progress,
+        eval_progress_callback=progress,
     )
     if progress is not None:
-        progress("Running ranked-set NDCG@5")
+        progress.phase("Running ranked-set NDCG@5")
     ranked_set_report = evaluate_ranked_set_ndcg_for_core(
-        cast(Any, core), progress_callback=reembedding_progress
+        cast(Any, core),
+        progress_callback=reembedding_progress,
+        eval_progress_callback=progress,
     )
     return {
         "status": "ok",
@@ -4578,36 +4678,63 @@ def _handle_dev_command(
                     seeded_database=str(dev_db_path),
                     regular_database=str(regular_db_path),
                 )
-            progress = (
-                _emit_human_progress
+            progress_reporter = (
+                _DevEvalProgressReporter(sys.stdout)
                 if output_format == CLI_OUTPUT_HUMAN_READABLE
                 else None
             )
-            if progress is not None:
-                progress("Checking embedding provider readiness")
-            provider = _builtin_fastembed_provider_from_config(
-                cfg.effective_config, model_cache_path=cfg.model_cache_path
-            )
-            provider.ensure_ready()
-            reembedding_progress = _human_reembedding_progress_reporter(output_format)
-            if reembedding_progress is None:
-                result = _run_seeded_dev_eval(
-                    cfg,
-                    provider=provider,
-                    config_path=core_config_path,
-                    progress=progress,
-                    regular_db_path=regular_db_path,
-                )
+            if progress_reporter is not None:
+                with progress_reporter:
+                    progress_reporter.phase("Checking embedding provider readiness")
+                    provider = _builtin_fastembed_provider_from_config(
+                        cfg.effective_config, model_cache_path=cfg.model_cache_path
+                    )
+                    provider.ensure_ready()
+                    reembedding_progress = _human_reembedding_progress_reporter(
+                        output_format
+                    )
+                    if reembedding_progress is None:
+                        result = _run_seeded_dev_eval(
+                            cfg,
+                            provider=provider,
+                            config_path=core_config_path,
+                            progress=progress_reporter,
+                            regular_db_path=regular_db_path,
+                        )
+                    else:
+                        with reembedding_progress:
+                            result = _run_seeded_dev_eval(
+                                cfg,
+                                provider=provider,
+                                config_path=core_config_path,
+                                progress=progress_reporter,
+                                reembedding_progress=reembedding_progress,
+                                regular_db_path=regular_db_path,
+                            )
             else:
-                with reembedding_progress:
+                provider = _builtin_fastembed_provider_from_config(
+                    cfg.effective_config, model_cache_path=cfg.model_cache_path
+                )
+                provider.ensure_ready()
+                reembedding_progress = _human_reembedding_progress_reporter(
+                    output_format
+                )
+                if reembedding_progress is None:
                     result = _run_seeded_dev_eval(
                         cfg,
                         provider=provider,
                         config_path=core_config_path,
-                        progress=progress,
-                        reembedding_progress=reembedding_progress,
                         regular_db_path=regular_db_path,
                     )
+                else:
+                    with reembedding_progress:
+                        result = _run_seeded_dev_eval(
+                            cfg,
+                            provider=provider,
+                            config_path=core_config_path,
+                            reembedding_progress=reembedding_progress,
+                            regular_db_path=regular_db_path,
+                        )
             _emit_success(result, output_format=output_format, command="dev eval")
             return 0
 

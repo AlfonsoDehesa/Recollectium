@@ -29,6 +29,15 @@ SEMANTIC_MRR_PARAPHRASES_PER_TARGET = 3
 THEMATIC_PRECISION_CUTOFF = 10
 DEFAULT_WORST_MISS_LIMIT = 10
 QUERY_SNIPPET_LENGTH = 120
+DevEvalProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _emit_dev_eval_progress(
+    progress_callback: DevEvalProgressCallback | None,
+    event: dict[str, Any],
+) -> None:
+    if progress_callback is not None:
+        progress_callback(event)
 
 
 @dataclass(frozen=True, slots=True)
@@ -741,6 +750,7 @@ def evaluate_ranked_set_ndcg(
     search_workspace: WorkspaceSearch,
     cutoff: int = RANKED_SET_NDCG_CUTOFF,
     lowest_case_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    progress_callback: DevEvalProgressCallback | None = None,
 ) -> RankedSetNDCGReport:
     """Evaluate curated ranked-set NDCG@5 cases.
 
@@ -754,6 +764,8 @@ def evaluate_ranked_set_ndcg(
         raise ValueError("lowest_case_limit must be non-negative")
 
     case_scores: list[RankedSetNDCGCaseScore] = []
+    case_completed = 0
+    case_total = len(targets)
     for target in targets:
         if target.scope == SPACE_WORKSPACE and target.workspace_uid is None:
             raise ValueError(
@@ -771,6 +783,17 @@ def evaluate_ranked_set_ndcg(
             assert target.workspace_uid is not None
             results = search_workspace(target.query, target.workspace_uid, cutoff)
         case_scores.append(_ranked_set_case_score(target, results, cutoff))
+        case_completed += 1
+        _emit_dev_eval_progress(
+            progress_callback,
+            {
+                "phase": "ranked_set_ndcg",
+                "bucket": "cases",
+                "label": "Ranked-set NDCG@5 cases",
+                "completed": case_completed,
+                "total": case_total,
+            },
+        )
 
     user_scores = [score.ndcg for score in case_scores if score.scope == SPACE_USER]
     workspace_scores = [
@@ -818,6 +841,7 @@ def evaluate_exact_mrr(
     search_workspace: WorkspaceSearch,
     cutoff: int = EXACT_MRR_CUTOFF,
     worst_miss_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    progress_callback: DevEvalProgressCallback | None = None,
 ) -> ExactMRRReport:
     """Evaluate exact-text MRR for seeded memory targets.
 
@@ -832,6 +856,10 @@ def evaluate_exact_mrr(
         raise ValueError("worst_miss_limit must be non-negative")
 
     target_scores: list[ExactMRRTargetScore] = []
+    user_completed = 0
+    workspace_completed = 0
+    user_total = sum(1 for target in targets if target.scope == SPACE_USER)
+    workspace_total = sum(1 for target in targets if target.scope == SPACE_WORKSPACE)
     for target in targets:
         if target.scope == SPACE_USER:
             results = search_user(target.content, cutoff)
@@ -857,6 +885,32 @@ def evaluate_exact_mrr(
                 returned_top_ids=returned_ids,
             )
         )
+        if target.scope == SPACE_USER:
+            user_completed += 1
+            _emit_dev_eval_progress(
+                progress_callback,
+                {
+                    "phase": "exact_mrr",
+                    "bucket": "user_memories",
+                    "label": "Exact MRR user memories",
+                    "scope": SPACE_USER,
+                    "completed": user_completed,
+                    "total": user_total,
+                },
+            )
+        else:
+            workspace_completed += 1
+            _emit_dev_eval_progress(
+                progress_callback,
+                {
+                    "phase": "exact_mrr",
+                    "bucket": "workspace_memories",
+                    "label": "Exact MRR workspace memories",
+                    "scope": SPACE_WORKSPACE,
+                    "completed": workspace_completed,
+                    "total": workspace_total,
+                },
+            )
 
     user_scores = [
         score.reciprocal_rank for score in target_scores if score.scope == SPACE_USER
@@ -936,6 +990,7 @@ def evaluate_semantic_mrr(
     search_workspace: WorkspaceSearch,
     cutoff: int = SEMANTIC_MRR_CUTOFF,
     worst_target_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    progress_callback: DevEvalProgressCallback | None = None,
 ) -> SemanticMRRReport:
     """Evaluate semantic MRR for seeded targets using fixture paraphrases.
 
@@ -951,6 +1006,8 @@ def evaluate_semantic_mrr(
         raise ValueError("worst_target_limit must be non-negative")
 
     target_scores: list[SemanticMRRTargetScore] = []
+    query_completed = 0
+    query_total = len(targets) * SEMANTIC_MRR_PARAPHRASES_PER_TARGET
     for target in targets:
         if len(target.queries) != SEMANTIC_MRR_PARAPHRASES_PER_TARGET:
             raise ValueError(
@@ -973,6 +1030,17 @@ def evaluate_semantic_mrr(
                 results = search_workspace(query, target.workspace_uid, cutoff)
             query_scores.append(
                 _semantic_query_score(target.memory_id, index, query, results, cutoff)
+            )
+            query_completed += 1
+            _emit_dev_eval_progress(
+                progress_callback,
+                {
+                    "phase": "semantic_mrr",
+                    "bucket": "paraphrases",
+                    "label": "Semantic MRR paraphrases",
+                    "completed": query_completed,
+                    "total": query_total,
+                },
             )
 
         score_triple = (query_scores[0], query_scores[1], query_scores[2])
@@ -1021,7 +1089,7 @@ def evaluate_semantic_mrr(
         workspace_value=_mean(workspace_scores),
         cutoff=cutoff,
         targets=len(target_scores),
-        queries=len(target_scores) * SEMANTIC_MRR_PARAPHRASES_PER_TARGET,
+        queries=query_total,
         paraphrases_per_target=SEMANTIC_MRR_PARAPHRASES_PER_TARGET,
         user_targets=len(user_scores),
         workspace_targets=len(workspace_scores),
@@ -1098,6 +1166,7 @@ def evaluate_thematic_precision(
     cutoff: int = THEMATIC_PRECISION_CUTOFF,
     failure_limit: int = DEFAULT_WORST_MISS_LIMIT,
     confuser_limit: int = DEFAULT_WORST_MISS_LIMIT,
+    progress_callback: DevEvalProgressCallback | None = None,
 ) -> ThematicPrecisionReport:
     """Evaluate thematic Precision@10 for seeded topic and theme groups."""
 
@@ -1110,6 +1179,10 @@ def evaluate_thematic_precision(
 
     group_scores: list[ThematicPrecisionGroupScore] = []
     confuser_counts: Counter[tuple[str, str | None, str, str]] = Counter()
+    user_completed = 0
+    workspace_completed = 0
+    user_total = sum(1 for target in targets if target.scope == SPACE_USER)
+    workspace_total = sum(1 for target in targets if target.scope == SPACE_WORKSPACE)
     for target in targets:
         if len(target.queries) != THEMATIC_PRECISION_QUERIES_PER_GROUP:
             raise ValueError(
@@ -1158,6 +1231,32 @@ def evaluate_thematic_precision(
                 query_scores=score_triple,
             )
         )
+        if target.scope == SPACE_USER:
+            user_completed += 1
+            _emit_dev_eval_progress(
+                progress_callback,
+                {
+                    "phase": "thematic_precision",
+                    "bucket": "user_topics",
+                    "label": "Thematic Precision user topics",
+                    "scope": SPACE_USER,
+                    "completed": user_completed,
+                    "total": user_total,
+                },
+            )
+        else:
+            workspace_completed += 1
+            _emit_dev_eval_progress(
+                progress_callback,
+                {
+                    "phase": "thematic_precision",
+                    "bucket": "workspace_themes",
+                    "label": "Thematic Precision workspace themes",
+                    "scope": SPACE_WORKSPACE,
+                    "completed": workspace_completed,
+                    "total": workspace_total,
+                },
+            )
 
     user_scores = [
         score.average_precision for score in group_scores if score.scope == SPACE_USER
@@ -1228,13 +1327,13 @@ def evaluate_thematic_precision(
         confusers=confusers,
     )
 
-
 def evaluate_exact_mrr_for_core(
     core: ExactMRRCore,
     *,
     cutoff: int = EXACT_MRR_CUTOFF,
     worst_miss_limit: int = DEFAULT_WORST_MISS_LIMIT,
     progress_callback: ReembeddingProgressCallback | None = None,
+    eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> ExactMRRReport:
     """Evaluate exact MRR against a seeded development database via core methods."""
 
@@ -1258,6 +1357,7 @@ def evaluate_exact_mrr_for_core(
         ),
         cutoff=cutoff,
         worst_miss_limit=worst_miss_limit,
+        progress_callback=eval_progress_callback,
     )
 
 
@@ -1267,6 +1367,7 @@ def evaluate_semantic_mrr_for_core(
     cutoff: int = SEMANTIC_MRR_CUTOFF,
     worst_target_limit: int = DEFAULT_WORST_MISS_LIMIT,
     progress_callback: ReembeddingProgressCallback | None = None,
+    eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> SemanticMRRReport:
     """Evaluate semantic MRR against a seeded development database via core methods."""
 
@@ -1290,6 +1391,7 @@ def evaluate_semantic_mrr_for_core(
         ),
         cutoff=cutoff,
         worst_target_limit=worst_target_limit,
+        progress_callback=eval_progress_callback,
     )
 
 
@@ -1300,6 +1402,7 @@ def evaluate_thematic_precision_for_core(
     failure_limit: int = DEFAULT_WORST_MISS_LIMIT,
     confuser_limit: int = DEFAULT_WORST_MISS_LIMIT,
     progress_callback: ReembeddingProgressCallback | None = None,
+    eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> ThematicPrecisionReport:
     """Evaluate thematic Precision@10 against a seeded development database."""
 
@@ -1324,6 +1427,7 @@ def evaluate_thematic_precision_for_core(
         cutoff=cutoff,
         failure_limit=failure_limit,
         confuser_limit=confuser_limit,
+        progress_callback=eval_progress_callback,
     )
 
 
@@ -1333,6 +1437,7 @@ def evaluate_ranked_set_ndcg_for_core(
     cutoff: int = RANKED_SET_NDCG_CUTOFF,
     lowest_case_limit: int = DEFAULT_WORST_MISS_LIMIT,
     progress_callback: ReembeddingProgressCallback | None = None,
+    eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> RankedSetNDCGReport:
     """Evaluate ranked-set NDCG@5 against a seeded development database."""
 
@@ -1356,4 +1461,5 @@ def evaluate_ranked_set_ndcg_for_core(
         ),
         cutoff=cutoff,
         lowest_case_limit=lowest_case_limit,
+        progress_callback=eval_progress_callback,
     )
