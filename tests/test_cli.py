@@ -1536,6 +1536,63 @@ def test_cli_dev_eval_refuses_relative_regular_database_overlap(
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
 
 
+def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
+    monkeypatch,
+) -> None:
+    class FakeTTYStream(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    class FakeProgress:
+        instances: list[FakeProgress] = []
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.started = False
+            self.stopped = False
+            self.added_tasks: list[tuple[str, object]] = []
+            self.updates: list[tuple[object, dict[str, object]]] = []
+            FakeProgress.instances.append(self)
+
+        def start(self) -> None:
+            self.started = True
+
+        def stop(self) -> None:
+            self.stopped = True
+
+        def add_task(self, description: str, *, total: object = None) -> int:
+            task_id = len(self.added_tasks) + 1
+            self.added_tasks.append((description, total))
+            return task_id
+
+        def update(self, task_id: object, **kwargs: object) -> None:
+            self.updates.append((task_id, kwargs))
+
+    monkeypatch.setattr(cli_module, "Progress", FakeProgress)
+
+    stream = FakeTTYStream()
+    reporter = cli_module._ThresholdOptimizationProgressReporter(stream)
+    with pytest.raises(RuntimeError):
+        with reporter:
+            reporter.phase("Checking embedding provider readiness")
+            reporter.start_scoring(2)
+            reporter.advance_scoring(1, 0.5)
+            raise RuntimeError("boom")
+
+    assert stream.getvalue() == ""
+    assert len(FakeProgress.instances) == 1
+    progress = FakeProgress.instances[0]
+    assert progress.started is True
+    assert progress.stopped is True
+    assert progress.added_tasks == [
+        ("Checking embedding provider readiness", None),
+        ("Scoring thresholds", 2),
+    ]
+    assert progress.updates == [
+        (1, {"visible": False}),
+        (2, {"completed": 1, "description": "Scoring thresholds (threshold 0.50)"}),
+    ]
+
+
 def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -1638,6 +1695,53 @@ def test_cli_dev_optimize_threshold_write_config_persists_numeric_threshold(
     assert isinstance(updated["retrieval"]["match_threshold"], float)
     assert updated["retrieval"]["match_threshold"] != "model_recommended_default"
     assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_optimize_threshold_validates_sweep_before_provider_setup(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            raise AssertionError("provider should not be constructed")
+
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "csv",
+            "--beta",
+            "0",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert "beta must be > 0.0" in payload["detail"]
+    assert not dev_db.exists()
     assert not regular_db.exists()
 
 

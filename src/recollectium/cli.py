@@ -83,8 +83,10 @@ from recollectium.dev_optimize_threshold import (
     generate_threshold_values,
     report_summary_lines,
     score_runtime_row,
+    ThresholdOptimizationError,
     threshold_cases_from_fixture,
     threshold_rows_to_csv,
+    validate_threshold_sweep_parameters,
     write_threshold_csv,
     write_threshold_png,
 )
@@ -833,7 +835,6 @@ class _ThresholdOptimizationProgressReporter:
         self._phase_task_id: TaskID | None = None
         self._scoring_task_id: TaskID | None = None
         self._scoring_total = 0
-        self._last_plain_scoring_update = 0
 
     def __enter__(self) -> _ThresholdOptimizationProgressReporter:
         self._ensure_progress()
@@ -904,7 +905,6 @@ class _ThresholdOptimizationProgressReporter:
                 f"{completed}/{self._scoring_total} (threshold {threshold:.2f})\n"
             )
             self._stream.flush()
-            self._last_plain_scoring_update = completed
 
 
 def _parse_config_value(raw: str) -> Any:
@@ -1912,14 +1912,9 @@ def _run_seeded_dev_optimize_threshold(
     regular_db_path: Path,
     args: argparse.Namespace,
     output_format: str,
+    progress: _ThresholdOptimizationProgressReporter | None = None,
 ) -> int:
     """Run the seeded threshold optimizer against the PR1 thematic fixtures."""
-
-    progress = (
-        _ThresholdOptimizationProgressReporter(sys.stderr)
-        if output_format == CLI_OUTPUT_HUMAN_READABLE
-        else None
-    )
 
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
     if progress is not None:
@@ -2023,11 +2018,15 @@ def _run_seeded_dev_optimize_threshold(
 
     if args.format == "png":
         assert output_path is not None
+        if progress is not None:
+            progress.phase(f"Writing PNG artifact: {output_path}")
         artifact_path = write_threshold_png(report, output_path)
+    elif args.output is None:
+        artifact_path = output_path
     else:
-        csv_output_path = (
-            Path(args.output).expanduser() if args.output is not None else None
-        )
+        csv_output_path = Path(args.output).expanduser()
+        if progress is not None:
+            progress.phase(f"Writing CSV artifact: {csv_output_path}")
         artifact_path = write_threshold_csv(report.rows, csv_output_path) or output_path
 
     artifact_display_path = (
@@ -2078,9 +2077,6 @@ def _run_seeded_dev_optimize_threshold(
         sys.stderr.write("\n".join(summary_lines) + "\n")
         sys.stderr.flush()
         return 0
-
-    if progress is not None:
-        progress.phase(f"Writing {args.format.upper()} artifact: {artifact_path}")
 
     if output_format == CLI_OUTPUT_HUMAN_READABLE:
         if progress is not None:
@@ -4581,21 +4577,26 @@ def _handle_dev_command(
                     seeded_database=str(dev_db_path),
                     regular_database=str(regular_db_path),
                 )
-            if output_format == CLI_OUTPUT_HUMAN_READABLE and not (
-                args.format == "csv" and args.output is None
-            ):
-                progress = _emit_human_progress
-            elif args.format == "csv" and args.output is None:
-
-                def _emit_csv_status(message: str) -> None:
-                    sys.stderr.write(f"Status: {message}\n")
-                    sys.stderr.flush()
-
-                progress = _emit_csv_status
-            else:
-                progress = None
-            if progress is not None:
-                progress("Checking embedding provider readiness")
+            validate_threshold_sweep_parameters(
+                start=args.start, end=args.end, step=args.step, beta=args.beta
+            )
+            if output_format == CLI_OUTPUT_HUMAN_READABLE:
+                progress_reporter = _ThresholdOptimizationProgressReporter(sys.stderr)
+                with progress_reporter:
+                    progress_reporter.phase("Checking embedding provider readiness")
+                    provider = _builtin_fastembed_provider_from_config(
+                        cfg.effective_config, model_cache_path=cfg.model_cache_path
+                    )
+                    provider.ensure_ready()
+                    return _run_seeded_dev_optimize_threshold(
+                        cfg,
+                        provider=provider,
+                        config_path=config_path,
+                        regular_db_path=regular_db_path,
+                        args=args,
+                        output_format=output_format,
+                        progress=progress_reporter,
+                    )
             provider = _builtin_fastembed_provider_from_config(
                 cfg.effective_config, model_cache_path=cfg.model_cache_path
             )
@@ -4676,6 +4677,15 @@ def _handle_dev_command(
         return _config_missing_error(exc, command="dev")
     except ValidationError as exc:
         return _validation_error(exc, command="dev")
+    except ThresholdOptimizationError as exc:
+        return _emit_cli_failure(
+            status="validation_error",
+            message="Threshold optimization parameters are invalid.",
+            detail=f"ThresholdOptimizationError: {exc}",
+            exit_code=2,
+            command="dev optimize-threshold",
+            event="dev.optimize_threshold.invalid",
+        )
     except ServiceError as exc:
         return _service_error(exc, command="dev")
     except (
