@@ -1576,6 +1576,7 @@ def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
             reporter.phase("Checking embedding provider readiness")
             reporter.start_scoring(2)
             reporter.advance_scoring(1, 0.5)
+            reporter.phase("Writing CSV artifact: thresholds.csv")
             raise RuntimeError("boom")
 
     assert stream.getvalue() == ""
@@ -1590,6 +1591,7 @@ def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
     assert progress.updates == [
         (1, {"visible": False}),
         (2, {"completed": 1, "description": "Scoring thresholds (threshold 0.50)"}),
+        (1, {"description": "Writing CSV artifact: thresholds.csv", "visible": True}),
     ]
 
 
@@ -1641,6 +1643,54 @@ def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     assert "Writing CSV sweep to stdout" in stderr
     assert "Recommendation:" in stderr
     assert "Apply: recollectium config set retrieval.match_threshold" in stderr
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_optimize_threshold_json_csv_stdout_emits_json_payload_only(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "csv",
+            "--start",
+            "0",
+            "--end",
+            "0.1",
+            "--step",
+            "0.1",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert not stdout.startswith("threshold,weighted_precision")
+    payload = json.loads(stdout)
+    assert payload["status"] == "ok"
+    assert payload["artifact"] == {"format": "csv", "path": "stdout"}
+    assert len(payload["optimization"]["rows"]) == 2
+    assert payload["optimization"]["rows"][0]["threshold"] == 0.0
     assert dev_db.exists()
     assert not regular_db.exists()
 

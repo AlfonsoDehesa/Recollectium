@@ -872,7 +872,9 @@ class _ThresholdOptimizationProgressReporter:
             if self._phase_task_id is None:
                 self._phase_task_id = self._progress.add_task(message, total=None)
             else:
-                self._progress.update(self._phase_task_id, description=message)
+                self._progress.update(
+                    self._phase_task_id, description=message, visible=True
+                )
             return
         self._stream.write(f"Status: {message}\n")
         self._stream.flush()
@@ -2000,6 +2002,8 @@ def _run_seeded_dev_optimize_threshold(
     )
 
     if args.write_config:
+        if progress is not None:
+            progress.phase(f"Writing config: {config_path}")
         raw_config = (
             load_config_file(config_path)
             if config_path.exists()
@@ -2063,7 +2067,11 @@ def _run_seeded_dev_optimize_threshold(
         },
     }
 
-    if args.format == "csv" and args.output is None:
+    if (
+        output_format == CLI_OUTPUT_HUMAN_READABLE
+        and args.format == "csv"
+        and args.output is None
+    ):
         if progress is not None:
             progress.phase("Writing CSV sweep to stdout")
             progress.finish()
