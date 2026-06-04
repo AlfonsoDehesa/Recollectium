@@ -166,7 +166,7 @@ Compact projections by operation:
 - Memory list and get: `{id, content, type, space}` plus `workspace_uid` when present.
 - Memory search: `{id, content, match}` where `match` is the search score.
 - Memory add, update, and archive: `{id, status}` with status values `saved`, `updated`, or `archived`.
-- Embedding status: `provider_status`, `embedding_profile`, `model_status`, and `embedding_jobs_status_path`.
+- Embedding status: `provider_status`, `embedding_profile`, `model_status`, `model_cache_path`, and `embedding_jobs_status_path`.
 - Embedding job list and get: `id`, `state`, `reason`, `total`, `succeeded`, and `failed` when present.
 - Embedding refresh: `refreshed`, `stale_count`, `status_path`, and `job_id` when a job exists.
 - Embedding job clear: `deleted_count` and `states`.
@@ -629,9 +629,9 @@ Supported built-in FastEmbed profiles:
 Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path. Refresh jobs run inline in the command, API request, or MCP tool call that triggers them, so callers get a completed or failed job result before the operation returns.
 
 - Method and path: `GET /v1/embedding/status`
-- Purpose: return the active local embedding profile, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.
+- Purpose: return the active local embedding profile, built-in FastEmbed model cache path when Recollectium manages it, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.
 - Side effects: none.
-- Successful response: HTTP `200` with compact embedding status by default. Use `?verbosity=verbose` or the verbosity header for runtime details, startup job fields, and recent jobs.
+- Successful response: HTTP `200` with compact embedding status by default. Use `?verbosity=verbose` or the verbosity header for runtime details, startup job fields, and recent jobs. Custom or injected embedding providers report `model_status: "managed_externally"` and do not include a Recollectium model cache path or FastEmbed runtime.
 
 Example request: compact default
 
@@ -656,7 +656,8 @@ Example response: compact default
       "query_prompt_policy": "raw"
     },
     "provider_status": "configured",
-    "model_status": "managed_by_fastembed_cache",
+    "model_status": "managed_by_recollectium_cache",
+    "model_cache_path": "/home/alice/.cache/recollectium/models",
     "embedding_jobs_status_path": "/v1/embedding/jobs"
   }
 }
@@ -668,7 +669,7 @@ Example request: verbose
 curl -sS 'http://127.0.0.1:8765/v1/embedding/status?verbosity=verbose'
 ```
 
-Verbose response includes runtime fields, startup re-embedding paths, and recent embedding jobs.
+Verbose response includes runtime fields, startup re-embedding paths, the same model cache path for the built-in provider, and recent embedding jobs. The built-in FastEmbed cache at `${directories.cache}/models` is Recollectium-owned derived data and can be removed by plain uninstall even when `directories.cache` is customized.
 
 ### 9) List embedding jobs
 

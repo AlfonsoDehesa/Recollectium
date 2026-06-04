@@ -71,7 +71,8 @@ Common next steps:
 - Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB. Seeded memories include stable `metadata.eval_key` values and a checked-in thematic label dataset for future evaluator scoring work; the current `recollectium dev eval` output does not consume those labels yet.
 - Managed API and MCP service lifecycle with discovery metadata for adapters.
 - Structured JSON logging with rotation.
-- Bootstrap install, package upgrade with embedding maintenance, safe uninstall, and shell completion.
+- Bootstrap install, package upgrade with embedding maintenance, safe uninstall that removes heavy derived model artifacts while preserving memories by default, and shell completion.
+- The built-in FastEmbed cache at `${directories.cache}/models` is Recollectium-owned derived data. Plain uninstall preserves memories and config but removes that model cache, including when `directories.cache` points at a custom cache directory.
 
 ## Documentation
 

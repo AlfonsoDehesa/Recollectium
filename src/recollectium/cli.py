@@ -54,6 +54,7 @@ from recollectium.config import (
     _validate_config_value,
     get_config_value,
     load_config_file,
+    resolve_model_cache_path,
     set_config_value,
     unset_config_value,
     validate_config_file,
@@ -200,11 +201,13 @@ class _UninstallPlan:
         config_path: Path,
         database_path: Path,
         install_metadata_path: Path,
+        model_cache_path: Path,
     ) -> None:
         self.config = config
         self.config_path = config_path
         self.database_path = database_path
         self.install_metadata_path = install_metadata_path
+        self.model_cache_path = model_cache_path
 
 
 class _MetadataInvalidError(ValidationError):
@@ -936,6 +939,8 @@ def _directory_writable(path: Path) -> bool:
 
 def _builtin_fastembed_provider_from_config(
     config: dict[str, Any],
+    *,
+    model_cache_path: Path | None = None,
 ) -> BuiltinFastEmbedProvider:
     embedding = config.get("embedding", {})
     model_name = (
@@ -943,7 +948,13 @@ def _builtin_fastembed_provider_from_config(
         if isinstance(embedding, dict)
         else DEFAULTS["embedding"]["model"]
     )
-    return BuiltinFastEmbedProvider(str(model_name))
+    if model_cache_path is None:
+        directories = config.get("directories", {})
+        xdg_dirs = _resolve_xdg_dirs(
+            directories if isinstance(directories, dict) else {}
+        )
+        model_cache_path = resolve_model_cache_path(xdg_dirs["cache"])
+    return BuiltinFastEmbedProvider(str(model_name), cache_dir=model_cache_path)
 
 
 def _handle_config_command(
@@ -2371,6 +2382,7 @@ def _load_uninstall_plan(config_path: Path, *, explicit: bool) -> _UninstallPlan
     if not database_path.is_absolute():
         database_path = xdg_dirs["data"] / database_path
 
+    model_cache_path = resolve_model_cache_path(xdg_dirs["cache"])
     install_metadata_path = _resolve_install_metadata_path()
     return _UninstallPlan(
         config=_UninstallConfig(
@@ -2382,6 +2394,7 @@ def _load_uninstall_plan(config_path: Path, *, explicit: bool) -> _UninstallPlan
         config_path=config_path,
         database_path=database_path,
         install_metadata_path=install_metadata_path,
+        model_cache_path=model_cache_path,
     )
 
 
@@ -2423,22 +2436,22 @@ def _load_install_metadata(path: Path) -> dict[str, Any] | None:
     return payload
 
 
+def _detect_install_method_for_uninstall() -> str:
+    try:
+        return detect_install_method(load_install_metadata())
+    except (AttributeError, OSError):
+        return "unknown"
+
+
 def _metadata_with_detected_install_method(
     metadata: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    if metadata is not None and isinstance(metadata.get("install_method"), str):
+    raw_method = metadata.get("install_method") if metadata is not None else None
+    if isinstance(raw_method, str) and raw_method != "unknown":
         return metadata
 
-    if metadata is None:
-        return {"install_method": "unknown"}
-
-    try:
-        detected = detect_install_method(load_install_metadata())
-    except (AttributeError, OSError):
-        detected = "unknown"
-
-    enriched = dict(metadata)
-    enriched["install_method"] = detected
+    enriched = dict(metadata or {})
+    enriched["install_method"] = _detect_install_method_for_uninstall()
     return enriched
 
 
@@ -2785,6 +2798,20 @@ def _delete_purge_target(
     return _path_payload(path, deleted=True)
 
 
+def _remove_model_cache(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
+    owned_paths = {plan.model_cache_path.expanduser().resolve(strict=False)}
+    result = _delete_purge_target(
+        plan.model_cache_path, dry_run=dry_run, owned_paths=owned_paths
+    )
+    return {
+        "dry_run": dry_run,
+        "path": str(plan.model_cache_path),
+        "targets": [result],
+        "deleted": [result] if result["deleted"] else [],
+        "skipped": [] if result["deleted"] else [result],
+    }
+
+
 def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
     directory_overrides = plan.config.effective_config.get("directories", {})
     default_dirs = _resolve_xdg_dirs(DEFAULTS["directories"])
@@ -2799,6 +2826,12 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
     if plan.config.xdg_dirs["data"].expanduser().resolve(strict=False) in owned_paths:
         owned_paths.add(plan.database_path.expanduser().resolve(strict=False))
     owned_paths.add(plan.install_metadata_path.expanduser().resolve(strict=False))
+    resolved_cache_dir = (
+        plan.config.xdg_dirs["cache"].expanduser().resolve(strict=False)
+    )
+    include_model_cache_target = resolved_cache_dir not in owned_paths
+    if include_model_cache_target:
+        owned_paths.add(plan.model_cache_path.expanduser().resolve(strict=False))
 
     raw_targets = [
         plan.config_path,
@@ -2809,6 +2842,8 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
         plan.config.xdg_dirs["runtime"],
         plan.install_metadata_path,
     ]
+    if include_model_cache_target:
+        raw_targets.append(plan.model_cache_path)
     targets: list[Path] = []
     seen: set[Path] = set()
     for target in raw_targets:
@@ -2896,6 +2931,9 @@ def _handle_uninstall_command(
 
     data_payload: dict[str, Any] = {
         "preserved": not args.purge,
+        "memories_preserved": not args.purge,
+        "config_preserved": not args.purge,
+        "derived_artifacts_removed": not args.dry_run,
         "paths": {
             "config": str(plan.config_path),
             "data": str(plan.config.xdg_dirs["data"]),
@@ -2903,9 +2941,16 @@ def _handle_uninstall_command(
             "logs": str(plan.config.xdg_dirs["logs"]),
             "runtime": str(plan.config.xdg_dirs["runtime"]),
             "database": str(plan.database_path),
+            "model_cache": str(plan.model_cache_path),
         },
     }
     completion_payload = _remove_completion_blocks(metadata, dry_run=args.dry_run)
+    model_cache_cleanup_failed = False
+    if args.purge:
+        data_payload["model_cache"] = {
+            "path": str(plan.model_cache_path),
+            "handled_by": "purge",
+        }
 
     if args.purge:
         if args.dry_run:
@@ -2927,9 +2972,44 @@ def _handle_uninstall_command(
 
     package_payload = _remove_installed_package(metadata, dry_run=args.dry_run)
     package_status = package_payload["uninstall"]["status"]
+    if not args.purge:
+        try:
+            data_payload["model_cache"] = _remove_model_cache(
+                plan, dry_run=args.dry_run
+            )
+        except OSError as exc:
+            model_cache_cleanup_failed = True
+            skipped_target = {
+                "path": str(plan.model_cache_path),
+                "deleted": False,
+                "reason": f"cleanup_error: {exc}",
+            }
+            data_payload["model_cache"] = {
+                "dry_run": args.dry_run,
+                "path": str(plan.model_cache_path),
+                "status": "failed",
+                "targets": [skipped_target],
+                "deleted": [],
+                "skipped": [skipped_target],
+            }
+            data_payload["derived_artifacts_removed"] = False
+            _log.info(
+                "Uninstall model cache cleanup failed",
+                extra={
+                    "event": "uninstall.model_cache_cleanup_failed",
+                    "context": {"path": str(plan.model_cache_path)},
+                },
+            )
     result = {
         "status": (
-            "uninstalled"
+            "uninstalled_with_warnings"
+            if model_cache_cleanup_failed
+            and package_status in {"removed", "scheduled", "not_installed"}
+            else "dry_run_with_warnings"
+            if model_cache_cleanup_failed and package_status == "dry_run"
+            else "model_cache_cleanup_failed"
+            if model_cache_cleanup_failed
+            else "uninstalled"
             if package_status in {"removed", "scheduled", "not_installed"}
             else "dry_run"
             if package_status == "dry_run"
@@ -2948,7 +3028,7 @@ def _handle_uninstall_command(
             extra={"event": "uninstall.completed"},
         )
     _emit_success(result, output_format=output_format, command="uninstall")
-    return 1 if package_status == "failed" else 0
+    return 1 if package_status == "failed" or model_cache_cleanup_failed else 0
 
 
 def _handle_workspace_command(
@@ -3485,13 +3565,14 @@ def _build_parser() -> argparse.ArgumentParser:
     # -- uninstall ---------------------------------------------------------
     uninstall_parser = subparsers.add_parser(
         "uninstall",
-        help="uninstall Recollectium while preserving data by default",
+        help="uninstall Recollectium while preserving memories by default",
         description=(
-            "Stop managed services, remove managed shell completions, and uninstall the "
-            "installed Recollectium package while preserving memories by default. "
-            "Use --purge to also delete Recollectium-owned config, data, cache, logs, "
-            "and runtime paths after explicit confirmation. Source and unknown installs "
-            "report a manual package-removal hint because safe self-removal is not supported."
+            "Stop managed services, remove managed shell completions, delete the "
+            "derived local model cache, and uninstall the installed Recollectium package "
+            "while preserving memories by default. Use --purge to also delete "
+            "Recollectium-owned config, data, cache, logs, and runtime paths after "
+            "explicit confirmation. Source and unknown installs report a manual "
+            "package-removal hint because safe self-removal is not supported."
         ),
     )
     uninstall_parser.add_argument(
@@ -3499,7 +3580,8 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Permanently delete your memories and all Recollectium-owned config, data, "
-            "cache, logs, and runtime paths. Without this flag, local data is preserved."
+            "cache, logs, and runtime paths. Without this flag, memories and config are "
+            "preserved but derived model artifacts are removed."
         ),
     )
     uninstall_parser.add_argument(
@@ -3805,7 +3887,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="show active local FastEmbed profile and startup job",
         description=(
             "Show the active built-in local FastEmbed embedding profile plus startup "
-            "re-embedding job metadata. Recollectium uses the local model cache for "
+            "re-embedding job metadata, including the resolved model cache path. "
+            "Recollectium stores model artifacts under the local Recollectium cache for "
             f"the configured embedding.model. Default: {DEFAULTS['embedding']['model']}. "
             f"Supported models: {_SUPPORTED_EMBEDDING_MODELS_HELP}."
         ),
@@ -4484,7 +4567,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 if progress is not None:
                     progress("Checking embedding provider readiness")
-                provider = _builtin_fastembed_provider_from_config(cfg.effective_config)
+                provider = _builtin_fastembed_provider_from_config(
+                    cfg.effective_config, model_cache_path=cfg.model_cache_path
+                )
                 provider.ensure_ready()
                 reembedding_progress = _human_reembedding_progress_reporter(
                     output_format
@@ -4532,7 +4617,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 merged = _deep_merge(deepcopy(DEFAULTS), raw_config)
                 _validate_config_value(merged)
                 if use_seeded_database:
-                    provider = _builtin_fastembed_provider_from_config(merged)
+                    provider = _builtin_fastembed_provider_from_config(
+                        merged,
+                        model_cache_path=resolve_model_cache_path(
+                            cfg.xdg_dirs["cache"]
+                        ),
+                    )
                     provider.ensure_ready()
                     seed_result = ensure_seeded_dev_database(
                         _resolve_seeded_dev_database_path(cfg), provider
@@ -4565,7 +4655,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         }
                     )
             else:
-                provider = _builtin_fastembed_provider_from_config(cfg.effective_config)
+                provider = _builtin_fastembed_provider_from_config(
+                    cfg.effective_config, model_cache_path=cfg.model_cache_path
+                )
                 provider.ensure_ready()
                 result = reset_seeded_dev_database(
                     _resolve_seeded_dev_database_path(cfg), provider

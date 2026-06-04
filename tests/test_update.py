@@ -587,7 +587,7 @@ def test_load_install_metadata_unknown_method_in_file(tmp_path: Path) -> None:
     assert metadata.install_method == "unknown"
 
 
-def test_detect_install_method_finds_source_checkout_from_cwd(
+def test_detect_install_method_ignores_source_checkout_cwd(
     tmp_path: Path, monkeypatch
 ) -> None:
     import recollectium.update as update_mod
@@ -604,12 +604,13 @@ def test_detect_install_method_finds_source_checkout_from_cwd(
     outside_module.write_text("", encoding="utf-8")
     monkeypatch.setattr(update_mod, "__file__", str(outside_module))
 
-    assert (
-        detect_install_method(
-            _metadata("unknown"), executable_path="/tmp/python", env={}
-        )
-        == "source"
+    detected = detect_install_method(
+        _metadata("unknown"),
+        executable_path="/venv/lib/python3.12/site-packages/bin/python",
+        env={},
     )
+
+    assert detected == "pip"
 
 
 def test_detect_install_method_finds_source_checkout_from_module_path(

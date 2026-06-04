@@ -85,8 +85,9 @@ class RecollectiumCore:
             if isinstance(configured_embedding, dict)
             else None
         )
+        self._embedding_provider_managed_by_recollectium = embedding_provider is None
         self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider(
-            str(configured_model)
+            str(configured_model), cache_dir=self.config.model_cache_path
         )
         development = self.config.effective_config.get("development", {})
         if (
@@ -459,16 +460,29 @@ class RecollectiumCore:
             )
         profile = self.embedding_provider.embedding_profile
         runtime_threads = getattr(self.embedding_provider, "runtime_threads", None)
+        is_recollectium_managed_builtin = (
+            self._embedding_provider_managed_by_recollectium
+            and isinstance(self.embedding_provider, BuiltinFastEmbedProvider)
+        )
+        if is_recollectium_managed_builtin:
+            model_status = "managed_by_recollectium_cache"
+            model_cache_path = str(self.config.model_cache_path)
+            runtime: dict[str, Any] | None = {
+                "name": "fastembed",
+                "threads": runtime_threads,
+                "parallel": None,
+            }
+        else:
+            model_status = "managed_externally"
+            model_cache_path = None
+            runtime = None
 
         return {
             "embedding_profile": profile,
             "provider_status": "configured",
-            "model_status": "managed_by_fastembed_cache",
-            "runtime": {
-                "name": "fastembed",
-                "threads": runtime_threads,
-                "parallel": None,
-            },
+            "model_status": model_status,
+            "model_cache_path": model_cache_path,
+            "runtime": runtime,
             "startup_reembedding_job_id": self._startup_reembedding_job_id,
             "startup_reembedding_status_path": startup_status_path,
             "embedding_jobs_status_path": "/v1/embedding/jobs",
@@ -652,6 +666,13 @@ class RecollectiumCore:
         profile = self.embedding_provider.embedding_profile
         dimensions = profile.get("dimensions")
         profile_name = str(profile.get("profile", ""))
+        provider_cache_dir = getattr(self.embedding_provider, "cache_dir", None)
+        if provider_cache_dir is not None:
+            model_cache_path = str(provider_cache_dir)
+        elif self._embedding_provider_managed_by_recollectium:
+            model_cache_path = str(self.config.model_cache_path)
+        else:
+            model_cache_path = None
 
         existing = read_model_state(resolved_state_dir)
         if (
@@ -659,6 +680,8 @@ class RecollectiumCore:
             and existing.get("prepared_model") == model_name
             and existing.get("dimensions") == dimensions
             and existing.get("profile") == profile_name
+            and "model_cache_path" in existing
+            and existing.get("model_cache_path") == model_cache_path
         ):
             return  # already prepared, nothing to do
 
@@ -675,6 +698,7 @@ class RecollectiumCore:
             if isinstance(dimensions, int) and not isinstance(dimensions, bool)
             else 0,
             profile=profile_name,
+            model_cache_path=model_cache_path,
         )
 
     def _chunk_embed_pairs(self, text: str) -> list[tuple[ContentChunk, list[float]]]:
