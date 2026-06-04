@@ -317,3 +317,9 @@ def test_normalize_workspace_uid_leading_trailing_whitespace() -> None:
     from recollectium.models import normalize_workspace_uid
 
     assert normalize_workspace_uid("  Recollectium  ") == "recollectium"
+
+
+def test_search_result_match_amount_aliases_score() -> None:
+    result = SearchResult(memory=build_memory(), score=0.73, rank=1)
+
+    assert result.match_amount == 0.73

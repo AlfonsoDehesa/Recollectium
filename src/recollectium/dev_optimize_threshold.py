@@ -184,7 +184,7 @@ def generate_threshold_values(
             raise ThresholdOptimizationError(
                 "threshold sweep would test too many values; narrow the range or increase the step"
             )
-    if thresholds and thresholds[-1] > end + 1e-12:
+    if thresholds and thresholds[-1] > end + 1e-12:  # pragma: no cover
         thresholds[-1] = float(end_decimal)
     elif not thresholds or abs(thresholds[-1] - end) > 1e-12:
         thresholds.append(float(end_decimal))

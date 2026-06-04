@@ -39,13 +39,6 @@ from recollectium.cli import (
     _supports_color,
     main,
 )
-from recollectium.models import (
-    ALL_MEMORY_TYPES,
-    SPACE_USER,
-    SPACE_WORKSPACE,
-    USER_MEMORY_TYPES,
-    WORKSPACE_MEMORY_TYPES,
-)
 from recollectium.errors import (
     EmbeddingGenerationError,
     EmbeddingModelUnavailableError,
@@ -53,8 +46,16 @@ from recollectium.errors import (
     EmbeddingReadinessTimeoutError,
     MigrationError,
     RecollectiumError,
+    ServiceConflictError,
     ServiceError,
     ValidationError,
+)
+from recollectium.models import (
+    ALL_MEMORY_TYPES,
+    SPACE_USER,
+    SPACE_WORKSPACE,
+    USER_MEMORY_TYPES,
+    WORKSPACE_MEMORY_TYPES,
 )
 from recollectium.storage import SQLiteMemoryStore
 from recollectium.core import RecollectiumCore
@@ -161,6 +162,29 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "completion" in top_level_help
 
 
+def test_cli_internal_parser_helpers_reject_invalid_threshold_and_count() -> None:
+    with pytest.raises(cli_module.argparse.ArgumentTypeError, match="must be an integer >= 0"):
+        cli_module._parse_non_negative_int("-1")
+
+    with pytest.raises(
+        cli_module.argparse.ArgumentTypeError,
+        match="must be model_recommended_default, none, or a number between 0.0 and 1.0",
+    ):
+        cli_module._parse_match_threshold("oops")
+
+    with pytest.raises(
+        cli_module.argparse.ArgumentTypeError,
+        match="must be model_recommended_default, none, or a number between 0.0 and 1.0",
+    ):
+        cli_module._parse_match_threshold("1.5")
+
+    assert cli_module._parse_non_negative_int("0") == 0
+    assert cli_module._parse_match_threshold(" none ") is None
+    assert cli_module._parse_match_threshold("MODEL_RECOMMENDED_DEFAULT") == "model_recommended_default"
+    assert cli_module._parse_match_threshold("0.25") == 0.25
+
+
+
 def test_cli_memory_type_completer_prefers_known_space() -> None:
     from recollectium.cli import _memory_type_choices_for_space, _memory_type_completer
 
@@ -176,6 +200,7 @@ def test_cli_memory_type_completer_prefers_known_space() -> None:
         "decision"
     ]
     assert _memory_type_completer("f", SimpleNamespace(space=None)) == ["fact"]
+
 
 
 def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
@@ -1609,6 +1634,30 @@ def test_cli_dev_optimize_threshold_determinate_columns_suppress_phase_totals() 
     assert "0/None" not in rendered
     assert "None" not in rendered
 
+    determinate_task = SimpleNamespace(
+        total=3,
+        completed=1,
+        started=True,
+        finished=False,
+        time_remaining=0.0,
+        get_time=lambda: 0.0,
+    )
+    determinate_rendered = "".join(
+        str(column.render(determinate_task)) for column in columns  # type: ignore[arg-type]
+    )
+    assert determinate_rendered != ""
+    assert "1/3" in determinate_rendered
+
+
+def test_cli_dev_optimize_threshold_progress_reporter_handles_isatty_oserror() -> None:
+    class BadTTYStream(io.StringIO):
+        def isatty(self) -> bool:
+            raise OSError("no tty")
+
+    reporter = cli_module._ThresholdOptimizationProgressReporter(BadTTYStream())
+
+    assert reporter._isatty is False
+
 
 def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     tmp_path, capsys, monkeypatch
@@ -1759,6 +1808,109 @@ def test_cli_dev_optimize_threshold_write_config_persists_numeric_threshold(
     updated = json.loads(config_path.read_text(encoding="utf-8"))
     assert isinstance(updated["retrieval"]["match_threshold"], float)
     assert updated["retrieval"]["match_threshold"] != "model_recommended_default"
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_optimize_threshold_human_readable_csv_writes_summary_and_artifact(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    output_csv = tmp_path / "thresholds.csv"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--human-readable",
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "csv",
+            "--output",
+            str(output_csv),
+            "--start",
+            "0",
+            "--end",
+            "0.1",
+            "--step",
+            "0.1",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert "Recollectium dev optimize-threshold" in stdout
+    assert "Writing CSV artifact:" in stdout or "Writing CSV artifact:" in stderr
+    assert output_csv.exists()
+    assert output_csv.read_text(encoding="utf-8").startswith("threshold,")
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_optimize_threshold_human_readable_png_writes_summary_and_artifact(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    output_png = tmp_path / "thresholds.png"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--human-readable",
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "png",
+            "--output",
+            str(output_png),
+            "--write-config",
+            "--start",
+            "0",
+            "--end",
+            "0.1",
+            "--step",
+            "0.1",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert "Recollectium dev optimize-threshold" in stdout
+    assert "Writing config:" in stderr or "Writing config:" in stdout
+    assert "Writing PNG artifact:" in stderr or "Writing PNG artifact:" in stdout
+    assert "Recommendation:" in stdout
+    assert output_png.exists()
+    assert output_png.stat().st_size > 0
+    updated = json.loads(config_path.read_text(encoding="utf-8"))
+    assert isinstance(updated["retrieval"]["match_threshold"], float)
     assert dev_db.exists()
     assert not regular_db.exists()
 
@@ -8280,3 +8432,228 @@ def test_cli_upgrade_latest_uses_metadata_target_repo(capsys, monkeypatch) -> No
     assert stderr == ""
     assert payload["target_kind"] == "latest_release"
     assert payload["target_source"] == "metadata"
+
+
+class _FakeServiceConfig:
+    def __init__(self, config_path: Path, log_level: str | None = None) -> None:
+        self.config_path = config_path
+        self.log_level = log_level
+        self.effective_config = {"service": {"host": "127.0.0.1", "port": 8765}}
+
+
+@pytest.mark.parametrize("service_action", ["start", "stop", "status", "restart"])
+def test_cli_service_command_rejects_missing_config(
+    tmp_path, capsys, monkeypatch, service_action: str
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_output_format(*args: object, **kwargs: object) -> str:
+        return cli_module.CLI_OUTPUT_JSON
+
+    def fake_verbosity(*args: object, **kwargs: object) -> str:
+        return RESPONSE_VERBOSITY_COMPACT
+
+    class MissingConfig(_FakeServiceConfig):
+        def __init__(self, config_path: Path, log_level: str | None = None) -> None:
+            raise FileNotFoundError("config missing")
+
+    monkeypatch.setattr(cli_module, "_resolve_output_format", fake_output_format)
+    monkeypatch.setattr(cli_module, "_resolve_response_verbosity", fake_verbosity)
+    monkeypatch.setattr(cli_module, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_module, "RecollectiumConfig", MissingConfig)
+
+    argv = ["--config", str(config_path), "--json", "service", service_action]
+    if service_action == "start":
+        argv.append("api")
+    elif service_action == "restart":
+        argv.extend(["--type", "api"])
+
+    exit_code, stdout, stderr = _run_cli(argv, capsys, json_by_default=False)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "config missing" in stderr
+
+
+@pytest.mark.parametrize("service_action", ["start", "stop", "status", "restart"])
+def test_cli_service_command_rejects_invalid_config(
+    tmp_path, capsys, monkeypatch, service_action: str
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_output_format(*args: object, **kwargs: object) -> str:
+        return cli_module.CLI_OUTPUT_JSON
+
+    def fake_verbosity(*args: object, **kwargs: object) -> str:
+        return RESPONSE_VERBOSITY_COMPACT
+
+    class InvalidConfig(_FakeServiceConfig):
+        def __init__(self, config_path: Path, log_level: str | None = None) -> None:
+            raise ValidationError("config invalid")
+
+    monkeypatch.setattr(cli_module, "_resolve_output_format", fake_output_format)
+    monkeypatch.setattr(cli_module, "_resolve_response_verbosity", fake_verbosity)
+    monkeypatch.setattr(cli_module, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_module, "RecollectiumConfig", InvalidConfig)
+
+    argv = ["--config", str(config_path), "--json", "service", service_action]
+    if service_action == "start":
+        argv.append("api")
+    elif service_action == "restart":
+        argv.extend(["--type", "api"])
+
+    exit_code, stdout, stderr = _run_cli(argv, capsys, json_by_default=False)
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "config invalid" in stderr
+
+
+@pytest.mark.parametrize("service_action", ["start", "stop", "status", "restart"])
+def test_cli_service_command_success_and_runtime_errors(
+    tmp_path, capsys, monkeypatch, service_action: str
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    state: dict[str, object] = {
+        "start": "ok",
+        "stop": 1234,
+        "running": {"type": "service-a", "pid": 42},
+        "raw_pid_info": {"type": "service-a", "pid": 42},
+    }
+
+    def fake_output_format(*args: object, **kwargs: object) -> str:
+        return cli_module.CLI_OUTPUT_JSON
+
+    def fake_verbosity(*args: object, **kwargs: object) -> str:
+        return RESPONSE_VERBOSITY_COMPACT
+
+    def fake_start_service(
+        cfg: object, service_type: str, *, db_path: object = None, log_level: str | None = None
+    ) -> int:
+        mode = state["start"]
+        if mode == "conflict":
+            raise ServiceConflictError("start conflict")
+        if mode == "service_error":
+            raise ServiceError("start boom")
+        if mode == "value_error":
+            raise ValueError("bad service request")
+        return 4321
+
+    def fake_stop_service(cfg: object) -> int | None:
+        value = state["stop"]
+        if value is None:
+            return None
+        assert isinstance(value, int)
+        return value
+
+    def fake_get_pid_file_path(cfg: object) -> Path:
+        return tmp_path / "service.pid"
+
+    def fake_read_pid_file(path: Path) -> dict[str, object] | None:
+        raw = state["raw_pid_info"]
+        return raw if isinstance(raw, dict) else None
+
+    def fake_check_running_service(cfg: object) -> dict[str, object] | None:
+        running = state["running"]
+        return running if isinstance(running, dict) else None
+
+    monkeypatch.setattr(cli_module, "_resolve_output_format", fake_output_format)
+    monkeypatch.setattr(cli_module, "_resolve_response_verbosity", fake_verbosity)
+    monkeypatch.setattr(cli_module, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_module, "RecollectiumConfig", _FakeServiceConfig)
+    monkeypatch.setattr(cli_module, "start_service", fake_start_service)
+    monkeypatch.setattr(cli_module, "stop_service", fake_stop_service)
+    monkeypatch.setattr(cli_module, "get_pid_file_path", fake_get_pid_file_path)
+    monkeypatch.setattr(cli_module, "read_pid_file", fake_read_pid_file)
+    monkeypatch.setattr(cli_module, "check_running_service", fake_check_running_service)
+
+    def invoke(extra_args: list[str]) -> tuple[int, str, str]:
+        return _run_cli(
+            ["--config", str(config_path), "--json", "service", *extra_args],
+            capsys,
+            json_by_default=False,
+        )
+
+    if service_action == "start":
+        code, stdout, stderr = invoke(["start", "api"])
+        assert code == 0
+        assert "started" in stdout
+        state["start"] = "conflict"
+        code, stdout, stderr = invoke(["start", "api"])
+        assert code == 1
+        assert stdout == ""
+        assert "start conflict" in stderr
+        state["start"] = "service_error"
+        code, stdout, stderr = invoke(["start", "api"])
+        assert code == 1
+        assert stdout == ""
+        assert "start boom" in stderr
+        state["start"] = "value_error"
+        code, stdout, stderr = invoke(["start", "api"])
+        assert code == 2
+        assert stdout == ""
+        assert "validation_error" in stderr
+        return
+
+    if service_action == "stop":
+        state["stop"] = 9876
+        code, stdout, stderr = invoke(["stop"])
+        assert code == 0
+        assert "stopped" in stdout
+        state["stop"] = None
+        code, stdout, stderr = invoke(["stop"])
+        assert code == 0
+        assert "no_service_running" in stdout
+        return
+
+    if service_action == "status":
+        state["running"] = {"type": "service-a", "pid": 42}
+        code, stdout, stderr = invoke(["status"])
+        assert code == 0
+        assert "running" in stdout
+        state["running"] = None
+        state["raw_pid_info"] = {"type": "service-a", "pid": 42}
+        code, stdout, stderr = invoke(["status"])
+        assert code == 0
+        assert "last_service" in stdout
+        return
+
+    assert service_action == "restart"
+    state["running"] = {"type": "service-a", "pid": 42}
+    code, stdout, stderr = invoke(["restart", "--type", "api"])
+    assert code == 0
+    assert "restarted" in stdout
+    state["running"] = None
+    state["raw_pid_info"] = {"type": "service-b", "pid": 77}
+    code, stdout, stderr = invoke(["restart"])
+    assert code == 0
+    assert "restarted" in stdout
+    state["raw_pid_info"] = None
+    code, stdout, stderr = invoke(["restart", "--type", "api"])
+    assert code == 0
+    assert "restarted" in stdout
+    code, stdout, stderr = invoke(["restart"])
+    assert code == 1
+    assert stdout == ""
+    assert "No running service found" in stderr
+    state["running"] = {"type": "service-a", "pid": 42}
+    state["start"] = "conflict"
+    code, stdout, stderr = invoke(["restart", "--type", "api"])
+    assert code == 1
+    assert stdout == ""
+    assert "start conflict" in stderr
+    state["running"] = None
+    state["raw_pid_info"] = {"type": "service-a", "pid": 42}
+    state["start"] = "service_error"
+    code, stdout, stderr = invoke(["restart"])
+    assert code == 1
+    assert stdout == ""
+    assert "start boom" in stderr
+    state["start"] = "value_error"
+    code, stdout, stderr = invoke(["restart", "--type", "api"])
+    assert code == 2
+    assert stdout == ""
+    assert "validation_error" in stderr

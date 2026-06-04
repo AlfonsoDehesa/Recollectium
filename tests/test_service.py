@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 import pytest
 
 from recollectium.core import RecollectiumCore
@@ -15,12 +16,14 @@ from recollectium.models import (
 from recollectium.errors import ValidationError
 from recollectium.service import (
     _map_boundary_error,
+    _request_override_from_model,
     _parse_optional_bool,
     _parse_optional_positive_int,
     create_app,
     create_mcp_app,
     run_service,
 )
+from recollectium.retrieval import UNSET
 from recollectium.service_contract import (
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_REFRESH,
@@ -1539,3 +1542,14 @@ class TestVerbosityOverride:
         data = payload["data"]
         assert set(data.keys()) == {"id", "status"}
         assert data["status"] == "archived"
+
+
+def test_request_override_from_model_respects_model_fields_set() -> None:
+    class DemoRequest(BaseModel):
+        value: int | None = None
+
+    set_model = DemoRequest(value=7)
+    unset_model = DemoRequest()
+
+    assert _request_override_from_model(set_model, "value") == 7
+    assert _request_override_from_model(unset_model, "value") is UNSET

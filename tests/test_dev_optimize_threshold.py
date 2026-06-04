@@ -481,3 +481,59 @@ def test_write_threshold_png_rejects_empty_reports(tmp_path: Path) -> None:
 
     with pytest.raises(ThresholdOptimizationError, match="empty threshold sweep"):
         write_threshold_png(report, tmp_path / "empty.png")
+
+
+def test_generate_threshold_values_raises_when_sweep_would_exceed_max_points(monkeypatch) -> None:
+    monkeypatch.setattr(opt, "_MAX_THRESHOLD_POINTS", 2)
+
+    with pytest.raises(ThresholdOptimizationError, match="too many values"):
+        generate_threshold_values(0.0, 0.15, 0.1)
+
+
+@pytest.mark.parametrize(
+    ("beta", "expected_phrase"),
+    [
+        (0.5, "favoring precision over recall"),
+        (2.0, "favoring recall over precision"),
+    ],
+)
+def test_report_summary_lines_explain_beta_tradeoffs(
+    beta: float, expected_phrase: str
+) -> None:
+    row = ThresholdSweepRow(
+        threshold=0.5,
+        weighted_precision=0.8,
+        weighted_recall=0.6,
+        weighted_f_score=0.7,
+        direct_recall=0.5,
+        adjacent_recall=0.5,
+        unrelated_exposure=0.0,
+        confuser_exposure=0.0,
+        average_returned_count=2.0,
+        total_returned_count=2,
+        recommended=True,
+    )
+    report = ThresholdOptimizationReport(
+        model="fake-model",
+        provider="fake-provider",
+        start=0.0,
+        end=1.0,
+        step=1.0,
+        beta=beta,
+        tested_thresholds=1,
+        recommended_threshold=0.5,
+        output_format="csv",
+        output_path=None,
+        wrote_config=False,
+        cases=1,
+        rows=(row,),
+    )
+
+    lines = report_summary_lines(
+        report,
+        output_path=Path("/tmp/thresholds.csv"),
+        current_threshold=0.5,
+        current_source="config",
+    )
+
+    assert any(expected_phrase in line for line in lines)
