@@ -1595,6 +1595,21 @@ def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
     ]
 
 
+def test_cli_dev_optimize_threshold_determinate_columns_suppress_phase_totals() -> None:
+    phase_task = SimpleNamespace(total=None, completed=0)
+
+    columns = [
+        cli_module._DeterminateBarColumn(),
+        cli_module._DeterminateCountColumn(),
+        cli_module._DeterminateTimeRemainingColumn(),
+    ]
+
+    rendered = "".join(str(column.render(phase_task)) for column in columns)  # type: ignore[arg-type]
+    assert rendered == ""
+    assert "0/None" not in rendered
+    assert "None" not in rendered
+
+
 def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     tmp_path, capsys, monkeypatch
 ) -> None:

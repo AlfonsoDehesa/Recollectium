@@ -21,11 +21,13 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Any, Sequence, cast
 
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.progress import (
     BarColumn,
     Progress,
+    ProgressColumn,
     SpinnerColumn,
+    Task,
     TaskID,
     TextColumn,
     TimeElapsedColumn,
@@ -819,6 +821,41 @@ def _human_reembedding_progress_reporter(
     return _ReembeddingProgressReporter(sys.stderr)
 
 
+class _DeterminateBarColumn(ProgressColumn):
+    """Render a progress bar only for tasks with a determinate total."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._column = BarColumn()
+
+    def render(self, task: Task) -> RenderableType:
+        if task.total is None:
+            return Text("")
+        return self._column.render(task)
+
+
+class _DeterminateCountColumn(ProgressColumn):
+    """Render completed/total counts only for determinate tasks."""
+
+    def render(self, task: Task) -> Text:
+        if task.total is None:
+            return Text("")
+        return Text(f"{int(task.completed)}/{int(task.total)}")
+
+
+class _DeterminateTimeRemainingColumn(ProgressColumn):
+    """Render ETA only for tasks with a determinate total."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._column = TimeRemainingColumn()
+
+    def render(self, task: Task) -> Text:
+        if task.total is None:
+            return Text("")
+        return self._column.render(task)
+
+
 class _ThresholdOptimizationProgressReporter:
     """Render threshold optimizer phases and scoring progress for humans."""
 
@@ -846,9 +883,9 @@ class _ThresholdOptimizationProgressReporter:
         progress = Progress(
             SpinnerColumn(),
             TextColumn("[bold cyan]{task.description}"),
-            BarColumn(),
-            TextColumn("{task.completed}/{task.total}"),
-            TimeRemainingColumn(),
+            _DeterminateBarColumn(),
+            _DeterminateCountColumn(),
+            _DeterminateTimeRemainingColumn(),
             TimeElapsedColumn(),
             console=Console(file=self._stream),
             transient=False,
