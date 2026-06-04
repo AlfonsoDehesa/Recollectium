@@ -251,10 +251,9 @@ uv run recollectium uninstall --help
 
 Seeded development eval fixtures include stable `metadata.eval_key` values and
 checked-in thematic query-memory labels under `src/recollectium/`. The thematic
-label dataset feeds `recollectium dev optimize-threshold`: keep validation tests
-current when changing seeded thematic memories or queries. Do not document those
-labels as a `recollectium dev eval` score input unless scoring is explicitly
-wired into that evaluator.
+label dataset feeds `recollectium dev optimize-threshold` and the weighted
+thematic portion of `recollectium dev eval`: keep validation tests current when
+changing seeded thematic memories or queries.
 
 If a PR changes local service API endpoints, request schemas, response schemas, error shapes, capability names, version behavior, workspace UID rules, or local access/security assumptions, update both `docs/local-service-api.md` and `docs/local-service-openapi.json`.
 

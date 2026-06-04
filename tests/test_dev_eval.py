@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from math import log2
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 import re
 
 import pytest
@@ -47,6 +47,7 @@ from recollectium.dev_eval_thematic_labels import (
     ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS,
     ALLOWED_THEMATIC_CONTEXT_LABELS,
     THEMATIC_CONTEXT_LABEL_CASES,
+    ThematicContextLabel,
     ThematicContextLabelCase,
     seeded_eval_key_index,
     validate_thematic_context_label_cases,
@@ -2125,6 +2126,7 @@ def test_evaluate_thematic_weighted_metrics_for_core_uses_fixed_policy() -> None
             include_archived: bool,
             protected_minimum: int,
             match_threshold: float,
+            progress_callback: Callable[[dict[str, object]], None] | None = None,
         ) -> list[SearchResult]:
             self.user_calls.append(
                 {
@@ -2133,8 +2135,11 @@ def test_evaluate_thematic_weighted_metrics_for_core_uses_fixed_policy() -> None
                     "include_archived": include_archived,
                     "protected_minimum": protected_minimum,
                     "match_threshold": match_threshold,
+                    "progress_callback": progress_callback,
                 }
             )
+            if progress_callback is not None:
+                progress_callback({"scope": SPACE_USER, "query": query})
             return []
 
         def search_workspace_memories(
@@ -2146,6 +2151,7 @@ def test_evaluate_thematic_weighted_metrics_for_core_uses_fixed_policy() -> None
             include_archived: bool,
             protected_minimum: int,
             match_threshold: float,
+            progress_callback: Callable[[dict[str, object]], None] | None = None,
         ) -> list[SearchResult]:
             self.workspace_calls.append(
                 {
@@ -2155,13 +2161,29 @@ def test_evaluate_thematic_weighted_metrics_for_core_uses_fixed_policy() -> None
                     "include_archived": include_archived,
                     "protected_minimum": protected_minimum,
                     "match_threshold": match_threshold,
+                    "progress_callback": progress_callback,
                 }
             )
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "scope": SPACE_WORKSPACE,
+                        "workspace_uid": workspace_uid,
+                        "query": query,
+                    }
+                )
             return []
 
     core = FakeCore()
+    progress_events: list[dict[str, object]] = []
 
-    report = evaluate_thematic_weighted_metrics_for_core(core)
+    def progress_callback(event: dict[str, object]) -> None:
+        progress_events.append(event)
+
+    report = evaluate_thematic_weighted_metrics_for_core(
+        core,
+        progress_callback=progress_callback,
+    )
 
     assert report.limit == DEV_EVAL_LIMIT
     assert all(call["limit"] == DEV_EVAL_LIMIT for call in core.user_calls)
@@ -2183,6 +2205,17 @@ def test_evaluate_thematic_weighted_metrics_for_core_uses_fixed_policy() -> None
         for call in core.workspace_calls
     )
     assert all(call["include_archived"] is True for call in core.workspace_calls)
+    assert all(
+        call["progress_callback"] is progress_callback for call in core.user_calls
+    )
+    assert all(
+        call["progress_callback"] is progress_callback for call in core.workspace_calls
+    )
+    assert progress_events
+    assert {event["scope"] for event in progress_events} == {
+        SPACE_USER,
+        SPACE_WORKSPACE,
+    }
 
 
 def test_thematic_weighted_helpers_and_validation_edge_cases() -> None:
@@ -2269,6 +2302,49 @@ def test_thematic_weighted_helpers_and_validation_edge_cases() -> None:
             protected_minimum=DEV_EVAL_PROTECTED_MINIMUM,
             match_threshold=DEV_EVAL_MATCH_THRESHOLD,
             worst_query_limit=-1,
+        )
+
+    invalid_weighted_cases = (
+        ThematicContextLabelCase(
+            case_id="user|travel|invalid-1",
+            scope=SPACE_USER,
+            group="travel",
+            query_index=1,
+            query="invalid 1",
+            workspace_uid=None,
+            labels={"invalid-a": cast(ThematicContextLabel, 3), "invalid-b": -1},
+        ),
+        ThematicContextLabelCase(
+            case_id="user|travel|invalid-2",
+            scope=SPACE_USER,
+            group="travel",
+            query_index=2,
+            query="invalid 2",
+            workspace_uid=None,
+            labels={"invalid-a": 2, "invalid-b": -1},
+        ),
+        ThematicContextLabelCase(
+            case_id="user|travel|invalid-3",
+            scope=SPACE_USER,
+            group="travel",
+            query_index=3,
+            query="invalid 3",
+            workspace_uid=None,
+            labels={"invalid-a": 2, "invalid-b": -1},
+        ),
+    )
+    with pytest.raises(ValueError, match="invalid labels"):
+        evaluate_thematic_weighted_metrics(
+            invalid_weighted_cases,
+            search_user=lambda query, limit: pytest.fail(
+                "search_user should not be called"
+            ),
+            search_workspace=lambda query, workspace_uid, limit: pytest.fail(
+                "search_workspace should not be called"
+            ),
+            limit=DEV_EVAL_LIMIT,
+            protected_minimum=DEV_EVAL_PROTECTED_MINIMUM,
+            match_threshold=DEV_EVAL_MATCH_THRESHOLD,
         )
 
     short_group_cases = (

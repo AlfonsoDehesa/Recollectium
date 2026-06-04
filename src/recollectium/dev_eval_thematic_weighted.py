@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from recollectium.dev_eval_thematic_labels import (
+    ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS,
+    ALLOWED_THEMATIC_CONTEXT_LABELS,
     THEMATIC_CONTEXT_LABEL_CASES,
     ThematicContextLabel,
     ThematicContextLabelCase,
@@ -137,6 +139,100 @@ def thematic_weighted_cases_from_fixture(
     return cases
 
 
+def _validate_weighted_cases(cases: Sequence[ThematicContextLabelCase]) -> None:
+    """Validate caller-supplied weighted thematic cases before scoring."""
+
+    seen_case_ids: set[str] = set()
+    for case in cases:
+        if case.case_id in seen_case_ids:
+            raise ValueError(f"duplicate thematic weighted case id: {case.case_id!r}")
+        seen_case_ids.add(case.case_id)
+
+        if case.scope not in {SPACE_USER, SPACE_WORKSPACE}:
+            raise ValueError(f"unsupported thematic weighted scope: {case.scope!r}")
+        if case.scope == SPACE_USER and case.workspace_uid is not None:
+            raise ValueError(
+                f"user thematic weighted case {case.case_id!r} must not have workspace_uid"
+            )
+        if case.scope == SPACE_WORKSPACE and case.workspace_uid is None:
+            raise ValueError(
+                f"workspace thematic weighted case {case.case_id!r} requires workspace_uid"
+            )
+
+        labels_tuple = tuple(case.labels.values())
+        invalid_labels = sorted(set(labels_tuple) - ALLOWED_THEMATIC_CONTEXT_LABELS)
+        if invalid_labels:
+            raise ValueError(
+                f"thematic weighted case {case.case_id!r} has invalid labels {invalid_labels!r}"
+            )
+        if not any(label > 0 for label in labels_tuple):
+            raise ValueError(
+                f"thematic weighted case {case.case_id!r} lacks positive signal"
+            )
+        if not any(label < 0 for label in labels_tuple):
+            if case.case_id not in ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS:
+                raise ValueError(
+                    f"thematic weighted case {case.case_id!r} lacks negative signal"
+                )
+
+
+def _search_user_with_progress(
+    core: Any,
+    query: str,
+    *,
+    limit: int,
+    protected_minimum: int,
+    match_threshold: float,
+    progress_callback: Any | None,
+) -> list[SearchResult]:
+    if progress_callback is None:
+        return core.search_user_memories(
+            query=query,
+            limit=limit,
+            include_archived=True,
+            protected_minimum=protected_minimum,
+            match_threshold=match_threshold,
+        )
+    return core.search_user_memories(
+        query=query,
+        limit=limit,
+        include_archived=True,
+        protected_minimum=protected_minimum,
+        match_threshold=match_threshold,
+        progress_callback=progress_callback,
+    )
+
+
+def _search_workspace_with_progress(
+    core: Any,
+    query: str,
+    *,
+    workspace_uid: str,
+    limit: int,
+    protected_minimum: int,
+    match_threshold: float,
+    progress_callback: Any | None,
+) -> list[SearchResult]:
+    if progress_callback is None:
+        return core.search_workspace_memories(
+            query=query,
+            workspace_uid=workspace_uid,
+            limit=limit,
+            include_archived=True,
+            protected_minimum=protected_minimum,
+            match_threshold=match_threshold,
+        )
+    return core.search_workspace_memories(
+        query=query,
+        workspace_uid=workspace_uid,
+        limit=limit,
+        include_archived=True,
+        protected_minimum=protected_minimum,
+        match_threshold=match_threshold,
+        progress_callback=progress_callback,
+    )
+
+
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
@@ -240,7 +336,8 @@ def evaluate_thematic_weighted_metrics(
     if worst_query_limit < 0:
         raise ValueError("worst_query_limit must be non-negative")
 
-    validated_cases = thematic_weighted_cases_from_fixture(cases)
+    validated_cases = tuple(cases)
+    _validate_weighted_cases(validated_cases)
     grouped_cases: dict[
         tuple[str, str, str | None], list[ThematicContextLabelCase]
     ] = {}
@@ -265,11 +362,9 @@ def evaluate_thematic_weighted_metrics(
         for case in group_cases:
             if case.scope == SPACE_USER:
                 results = search_user(case.query, limit)
-            elif case.scope == SPACE_WORKSPACE:
+            else:
                 assert case.workspace_uid is not None
                 results = search_workspace(case.query, case.workspace_uid, limit)
-            else:
-                raise ValueError(f"unsupported thematic weighted scope: {case.scope!r}")
             score = _score_query(
                 case, case.query_index, case.query, results, limit=limit
             )
@@ -388,21 +483,23 @@ def evaluate_thematic_weighted_metrics_for_core(
     cases = thematic_weighted_cases_from_fixture()
     return evaluate_thematic_weighted_metrics(
         cases,
-        search_user=lambda query, limit: core.search_user_memories(
-            query=query,
+        search_user=lambda query, limit: _search_user_with_progress(
+            core,
+            query,
             limit=limit,
-            include_archived=True,
             protected_minimum=protected_minimum,
             match_threshold=match_threshold,
+            progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
-            core.search_workspace_memories(
-                query=query,
+            _search_workspace_with_progress(
+                core,
+                query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                include_archived=True,
                 protected_minimum=protected_minimum,
                 match_threshold=match_threshold,
+                progress_callback=progress_callback,
             )
         ),
         limit=limit,
