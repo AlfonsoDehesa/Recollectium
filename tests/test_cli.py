@@ -2719,7 +2719,7 @@ def test_cli_human_verbose_preserves_detailed_mutation_output(
 
 
 def test_cli_response_verbosity_flag_overrides_config_without_mutation(
-    tmp_path, capsys
+    tmp_path, capsys, monkeypatch
 ) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -2729,6 +2729,7 @@ def test_cli_response_verbosity_flag_overrides_config_without_mutation(
         encoding="utf-8",
     )
     db_path = tmp_path / "override.db"
+    monkeypatch.setattr("recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider)
 
     add_code, add_out, add_err = _run_cli(
         [
