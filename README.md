@@ -68,7 +68,7 @@ Common next steps:
 - Inline re-embedding jobs, explicit refresh controls, embedding job audit-record cleanup, and embedding status inspection. Switching embedding model or profile refreshes stale memories in the command or request that triggered it instead of relying on a fragile background thread.
 - CLI, Python API, local HTTP API, and MCP surfaces with matching compact and verbose response controls.
 - Configurable CLI output, with Rich-backed TTY color for human-readable text, JSON available for automation, and compact response payloads by default.
-- Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB.
+- Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB. Seeded memories include stable `metadata.eval_key` values and a checked-in thematic label dataset for future evaluator scoring work; the current `recollectium dev eval` output does not consume those labels yet.
 - Managed API and MCP service lifecycle with discovery metadata for adapters.
 - Structured JSON logging with rotation.
 - Bootstrap install, package upgrade with embedding maintenance, safe uninstall that removes heavy derived model artifacts while preserving memories by default, and shell completion.

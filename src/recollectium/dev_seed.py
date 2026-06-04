@@ -320,6 +320,7 @@ def _user_seed_memory(index: int) -> Memory:
         metadata={
             "dev_seed": True,
             "fictional": True,
+            "eval_key": f"dev-user-{ordinal:03d}",
             "dev_topic": topic,
             "dev_topic_index": topic_index,
             "dev_ordinal": ordinal,
@@ -348,6 +349,7 @@ def _workspace_seed_memory(workspace_index: int, memory_index: int) -> Memory:
         metadata={
             "dev_seed": True,
             "fictional": True,
+            "eval_key": f"dev-workspace-{workspace_index + 1:02d}-{ordinal:03d}",
             "dev_project": project_name,
             "dev_project_name": project_name,
             "dev_project_uid": workspace_uid,

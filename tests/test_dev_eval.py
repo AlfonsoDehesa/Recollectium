@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from math import log2
+from pathlib import Path
 from typing import cast
 import re
 
 import pytest
 
+import recollectium.dev_eval_thematic_labels as thematic_label_module
 from recollectium.dev_eval import (
     ExactMRRTarget,
     RankedSetNDCGTarget,
@@ -41,6 +43,14 @@ from recollectium.dev_eval_thematic_fixtures import (
     THEMATIC_PRECISION_QUERIES_PER_GROUP,
     ThematicPrecisionFixtureEntry,
 )
+from recollectium.dev_eval_thematic_labels import (
+    ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS,
+    ALLOWED_THEMATIC_CONTEXT_LABELS,
+    THEMATIC_CONTEXT_LABEL_CASES,
+    ThematicContextLabelCase,
+    seeded_eval_key_index,
+    validate_thematic_context_label_cases,
+)
 from recollectium.dev_seed import (
     DEV_SEED_PROJECTS,
     DEV_SEED_PROJECT_THEMES_BY_UID,
@@ -49,6 +59,8 @@ from recollectium.dev_seed import (
     DEV_SEED_USER_TOPICS,
     PROJECT_MEMORIES_BY_UID,
     USER_FACTS_BY_TOPIC,
+    _user_seed_memory,
+    _workspace_seed_memory,
 )
 from recollectium.models import Memory, SPACE_USER, SPACE_WORKSPACE, SearchResult
 
@@ -1399,6 +1411,297 @@ def test_thematic_fixture_covers_seeded_groups_with_three_queries() -> None:
         for target in targets
         for query in target.queries
     )
+
+
+def test_seeded_memories_have_stable_eval_keys() -> None:
+    expected_user_eval_keys = {f"dev-user-{index:03d}" for index in range(1, 101)}
+    expected_workspace_eval_keys = {
+        f"dev-workspace-{workspace_index:02d}-{memory_index:03d}"
+        for workspace_index in range(1, 4)
+        for memory_index in range(1, 31)
+    }
+
+    user_memories = [_user_seed_memory(index) for index in range(100)]
+    workspace_memories = [
+        _workspace_seed_memory(workspace_index, memory_index)
+        for workspace_index in range(3)
+        for memory_index in range(30)
+    ]
+
+    assert {memory.metadata["eval_key"] for memory in user_memories} == (
+        expected_user_eval_keys
+    )
+    assert {memory.metadata["eval_key"] for memory in workspace_memories} == (
+        expected_workspace_eval_keys
+    )
+    assert all(memory.metadata["eval_key"] == memory.id for memory in user_memories)
+    assert all(
+        memory.metadata["eval_key"] == memory.id for memory in workspace_memories
+    )
+
+
+def test_thematic_context_label_dataset_covers_every_query_candidate_pair() -> None:
+    validate_thematic_context_label_cases()
+    eval_key_index = seeded_eval_key_index()
+    expected_query_count = sum(
+        len(entry["queries"]) for entry in THEMATIC_PRECISION_FIXTURE
+    )
+    user_cases = [
+        case for case in THEMATIC_CONTEXT_LABEL_CASES if case.scope == SPACE_USER
+    ]
+    workspace_cases = [
+        case for case in THEMATIC_CONTEXT_LABEL_CASES if case.scope == SPACE_WORKSPACE
+    ]
+
+    assert len(THEMATIC_CONTEXT_LABEL_CASES) == expected_query_count == 57
+    assert len({case.case_id for case in THEMATIC_CONTEXT_LABEL_CASES}) == 57
+    assert len(user_cases) == len(DEV_SEED_USER_TOPICS) * 3
+    assert len(workspace_cases) == 27
+    for case in THEMATIC_CONTEXT_LABEL_CASES:
+        labels = tuple(case.labels.values())
+        assert set(labels) <= ALLOWED_THEMATIC_CONTEXT_LABELS
+        assert any(label > 0 for label in labels)
+        if case.case_id in ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS:
+            assert case.case_id == "workspace|proj-fic-harborpilot-01|scheduling|q2"
+            assert all(label > 0 for label in labels)
+        else:
+            assert any(label < 0 for label in labels)
+        if case.scope == SPACE_USER:
+            assert set(case.labels) == set(eval_key_index.user_eval_keys)
+            assert len(case.labels) == DEV_SEED_USER_MEMORY_COUNT
+        else:
+            assert case.workspace_uid is not None
+            assert set(case.labels) == set(
+                eval_key_index.workspace_eval_keys_by_uid[case.workspace_uid]
+            )
+            assert len(case.labels) == 30
+
+
+def test_thematic_context_label_dataset_matches_seeded_eval_keys() -> None:
+    seed_eval_keys = {
+        _user_seed_memory(index).metadata["eval_key"] for index in range(100)
+    } | {
+        _workspace_seed_memory(workspace_index, memory_index).metadata["eval_key"]
+        for workspace_index in range(3)
+        for memory_index in range(30)
+    }
+    dataset_eval_keys = {
+        eval_key for case in THEMATIC_CONTEXT_LABEL_CASES for eval_key in case.labels
+    }
+
+    assert dataset_eval_keys == seed_eval_keys
+
+
+def test_thematic_context_label_validation_fails_loudly_for_bad_labels() -> None:
+    valid_case = THEMATIC_CONTEXT_LABEL_CASES[0]
+    first_key = next(iter(valid_case.labels))
+    invalid_labels = dict(valid_case.labels)
+    invalid_labels[first_key] = 0  # type: ignore[assignment]
+
+    with pytest.raises(ValueError, match="invalid labels"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=valid_case.case_id,
+                    scope=valid_case.scope,
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid=valid_case.workspace_uid,
+                    labels=invalid_labels,  # type: ignore[arg-type]
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+    with pytest.raises(ValueError, match="coverage mismatch"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=valid_case.case_id,
+                    scope=valid_case.scope,
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid=valid_case.workspace_uid,
+                    labels={
+                        key: label
+                        for key, label in valid_case.labels.items()
+                        if key != first_key
+                    },
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+
+
+def test_thematic_context_label_validation_fails_for_shape_errors() -> None:
+    valid_case = THEMATIC_CONTEXT_LABEL_CASES[0]
+    extra_case = ThematicContextLabelCase(
+        case_id="extra-case",
+        scope=SPACE_USER,
+        group="travel",
+        query_index=99,
+        query="not a checked thematic query",
+        workspace_uid=None,
+        labels=valid_case.labels,
+    )
+
+    with pytest.raises(ValueError, match="case mismatch"):
+        validate_thematic_context_label_cases(THEMATIC_CONTEXT_LABEL_CASES[1:])
+    with pytest.raises(ValueError, match="case mismatch"):
+        validate_thematic_context_label_cases(
+            (*THEMATIC_CONTEXT_LABEL_CASES, extra_case)
+        )
+    with pytest.raises(ValueError, match="duplicate thematic label case id"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=THEMATIC_CONTEXT_LABEL_CASES[1].case_id,
+                    scope=valid_case.scope,
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid=valid_case.workspace_uid,
+                    labels=valid_case.labels,
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+    with pytest.raises(ValueError, match="must not have workspace_uid"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=valid_case.case_id,
+                    scope=valid_case.scope,
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid="project-a",
+                    labels=valid_case.labels,
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+    workspace_case = next(
+        case for case in THEMATIC_CONTEXT_LABEL_CASES if case.scope == SPACE_WORKSPACE
+    )
+    with pytest.raises(ValueError, match="requires workspace_uid"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=workspace_case.case_id,
+                    scope=workspace_case.scope,
+                    group=workspace_case.group,
+                    query_index=workspace_case.query_index,
+                    query=workspace_case.query,
+                    workspace_uid=None,
+                    labels=workspace_case.labels,
+                ),
+                *(
+                    case
+                    for case in THEMATIC_CONTEXT_LABEL_CASES
+                    if case.case_id != workspace_case.case_id
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="unsupported thematic label case scope"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=valid_case.case_id,
+                    scope="bad-scope",
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid=valid_case.workspace_uid,
+                    labels=valid_case.labels,
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+
+
+def test_thematic_context_label_validation_fails_for_signal_and_extra_labels() -> None:
+    valid_case = THEMATIC_CONTEXT_LABEL_CASES[0]
+
+    with pytest.raises(ValueError, match="extra labels"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=valid_case.case_id,
+                    scope=valid_case.scope,
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid=valid_case.workspace_uid,
+                    labels={**valid_case.labels, "not-a-seeded-eval-key": -1},
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+    with pytest.raises(ValueError, match="lacks positive signal"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=valid_case.case_id,
+                    scope=valid_case.scope,
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid=valid_case.workspace_uid,
+                    labels={key: -1 for key in valid_case.labels},
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+    with pytest.raises(ValueError, match="lacks negative signal"):
+        validate_thematic_context_label_cases(
+            (
+                ThematicContextLabelCase(
+                    case_id=valid_case.case_id,
+                    scope=valid_case.scope,
+                    group=valid_case.group,
+                    query_index=valid_case.query_index,
+                    query=valid_case.query,
+                    workspace_uid=valid_case.workspace_uid,
+                    labels={key: 1 for key in valid_case.labels},
+                ),
+                *THEMATIC_CONTEXT_LABEL_CASES[1:],
+            )
+        )
+
+
+def test_thematic_context_label_allowlisted_all_positive_case_is_intentional() -> None:
+    assert ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS == frozenset(
+        {"workspace|proj-fic-harborpilot-01|scheduling|q2"}
+    )
+
+    allowlisted_case = next(
+        case
+        for case in THEMATIC_CONTEXT_LABEL_CASES
+        if case.case_id in ADJUDICATED_ALL_POSITIVE_THEMATIC_CASE_IDS
+    )
+
+    assert allowlisted_case.scope == SPACE_WORKSPACE
+    assert allowlisted_case.workspace_uid == "proj-fic-harborpilot-01"
+    assert allowlisted_case.group == "scheduling"
+    assert allowlisted_case.query_index == 2
+    assert all(label > 0 for label in allowlisted_case.labels.values())
+    validate_thematic_context_label_cases(THEMATIC_CONTEXT_LABEL_CASES)
+
+
+def test_thematic_context_labels_are_explicit_checked_in_data() -> None:
+    label_source_path = thematic_label_module.__file__
+    assert label_source_path is not None
+    label_source = Path(label_source_path).read_text()
+
+    assert "def thematic_context_label_cases" not in label_source
+    assert "_labels_for_" not in label_source
+    assert "ADJACENT" not in label_source
+    assert "CONFUSER" not in label_source
+    assert label_source.count("    ThematicContextLabelCase(") == 57
+    assert '"dev-user-001": 2' in label_source
+    assert '"dev-workspace-01-001": 2' in label_source
 
 
 def test_ranked_set_fixture_is_curated_and_references_seeded_memories() -> None:
