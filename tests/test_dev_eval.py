@@ -1532,6 +1532,8 @@ def test_thematic_context_label_validation_fails_loudly_for_bad_labels() -> None
                 *THEMATIC_CONTEXT_LABEL_CASES[1:],
             )
         )
+
+
 def test_thematic_context_label_validation_fails_for_shape_errors() -> None:
     valid_case = THEMATIC_CONTEXT_LABEL_CASES[0]
     extra_case = ThematicContextLabelCase(
