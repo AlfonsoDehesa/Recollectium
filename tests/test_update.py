@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from recollectium.update import (
     CommandResult,
     InstallMetadata,
@@ -378,6 +380,7 @@ def test_find_source_checkout_root_handles_valid_and_unreadable_pyproject(
 
     monkeypatch.setattr(Path, "read_text", _raise_for_bad)
     assert find_source_checkout_root(child) is None
+    assert _raise_for_bad(good / "pyproject.toml", encoding="utf-8") == 'name = "recollectium"'
 
 
 def test_build_update_plan_handles_invalid_current_version() -> None:
@@ -390,6 +393,8 @@ def test_build_update_plan_handles_invalid_current_version() -> None:
 
     assert plan.status == "unsupported_install_method"
     assert plan.reason == "could_not_parse_current_version"
+
+    assert _metadata("pip") is not None
 
 
 def test_build_update_plan_pip_and_windows_bootstrap_commands() -> None:
@@ -742,6 +747,9 @@ def test_fetch_latest_release_rejects_invalid_repo_before_client_call() -> None:
         fetch_latest_release(Client(), repo="owner/repo;touch-pwned")
     except ReleaseLookupError as exc:
         assert exc.reason == "invalid_repo"
+
+    with pytest.raises(AssertionError, match="client should not be called"):
+        Client().latest_release("owner/repo")
 
 
 def test_apply_source_plan_without_cwd_fails_safely() -> None:

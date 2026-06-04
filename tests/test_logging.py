@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import logging.handlers
@@ -233,6 +234,7 @@ class TestSetupLogging:
         async def app(scope: object, receive: object, send: object) -> None:
             return None
 
+        asyncio.run(app({}, None, None))
         uvicorn_config = uvicorn.Config(app, log_config=None)
         uvicorn_config.configure_logging()
         logging.getLogger("uvicorn.error").warning("uvicorn warning reached file")

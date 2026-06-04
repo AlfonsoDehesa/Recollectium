@@ -363,6 +363,15 @@ def _service_docs_section_for_route(docs_text: str, route: str) -> str:
     return docs_text[route_index:next_heading_index]
 
 
+def test_service_docs_section_without_following_heading_returns_tail() -> None:
+    docs_text = "### GET /v1/health\nPurpose: health\nExample response: ok"
+
+    assert (
+        _service_docs_section_for_route(docs_text, "GET /v1/health")
+        == docs_text[docs_text.index("GET /v1/health") :]
+    )
+
+
 def _client(core: RecollectiumCore) -> TestClient:
     return TestClient(create_app(core), raise_server_exceptions=False)
 
@@ -556,6 +565,18 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
         "threads": 1,
         "parallel": None,
     }
+
+    core.store.create_embedding_job(
+        job_id="job-1",
+        state="completed",
+        total_count=1,
+        processed_count=1,
+        succeeded_count=1,
+        failed_count=0,
+        provider="builtin-fastembed",
+        model="fake-model",
+        embedding_profile=core.embedding_provider.embedding_profile,
+    )
 
     status, jobs_payload = _request_json(client, "GET", "/v1/embedding/jobs")
     assert status == 200

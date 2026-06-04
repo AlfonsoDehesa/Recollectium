@@ -163,7 +163,9 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
 
 
 def test_cli_internal_parser_helpers_reject_invalid_threshold_and_count() -> None:
-    with pytest.raises(cli_module.argparse.ArgumentTypeError, match="must be an integer >= 0"):
+    with pytest.raises(
+        cli_module.argparse.ArgumentTypeError, match="must be an integer >= 0"
+    ):
         cli_module._parse_non_negative_int("-1")
 
     with pytest.raises(
@@ -180,9 +182,11 @@ def test_cli_internal_parser_helpers_reject_invalid_threshold_and_count() -> Non
 
     assert cli_module._parse_non_negative_int("0") == 0
     assert cli_module._parse_match_threshold(" none ") is None
-    assert cli_module._parse_match_threshold("MODEL_RECOMMENDED_DEFAULT") == "model_recommended_default"
+    assert (
+        cli_module._parse_match_threshold("MODEL_RECOMMENDED_DEFAULT")
+        == "model_recommended_default"
+    )
     assert cli_module._parse_match_threshold("0.25") == 0.25
-
 
 
 def test_cli_memory_type_completer_prefers_known_space() -> None:
@@ -200,7 +204,6 @@ def test_cli_memory_type_completer_prefers_known_space() -> None:
         "decision"
     ]
     assert _memory_type_completer("f", SimpleNamespace(space=None)) == ["fact"]
-
 
 
 def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
@@ -478,6 +481,15 @@ def test_cli_serve_explicit_missing_config_fails_clearly(
     assert stdout == ""
     assert f"config file not found: {config_path}" in stderr
 
+    with pytest.raises(AssertionError, match="missing config"):
+        _fake_run_service(
+            host="127.0.0.1",
+            port=8765,
+            db_path=None,
+            config_path=str(config_path),
+            log_level=None,
+        )
+
 
 def test_cli_serve_invalid_config_fails_clearly(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
@@ -505,6 +517,15 @@ def test_cli_serve_invalid_config_fails_clearly(
     assert stdout == ""
     assert "ValidationError:" in stderr
     assert "service.port must be int" in stderr
+
+    with pytest.raises(AssertionError, match="invalid config"):
+        _fake_run_service(
+            host="127.0.0.1",
+            port=8765,
+            db_path=None,
+            config_path=str(config_path),
+            log_level=None,
+        )
 
 
 def test_cli_serve_explicit_missing_config_fails_after_flag_overrides(
@@ -1394,6 +1415,9 @@ def test_cli_dev_eval_refuses_when_seeded_database_matches_regular_database(
         assert f"Regular database: {shared_db}" in stderr
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
 
+    with pytest.raises(AssertionError, match="provider should not be constructed"):
+        ProviderMustNotBeConstructed()
+
 
 def test_cli_dev_eval_refuses_db_override_matching_seeded_database(
     tmp_path, capsys, monkeypatch
@@ -1433,6 +1457,9 @@ def test_cli_dev_eval_refuses_db_override_matching_seeded_database(
     assert payload["regular_database"] == str(shared_db)
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
     assert not configured_regular_db.exists()
+
+    with pytest.raises(AssertionError, match="provider should not be constructed"):
+        ProviderMustNotBeConstructed()
 
 
 def test_cli_dev_eval_refuses_tilde_db_override_matching_seeded_database(
@@ -1476,6 +1503,9 @@ def test_cli_dev_eval_refuses_tilde_db_override_matching_seeded_database(
     assert payload["regular_database"] == str(shared_db)
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
     assert not configured_regular_db.exists()
+
+    with pytest.raises(AssertionError, match="provider should not be constructed"):
+        ProviderMustNotBeConstructed()
 
 
 def test_cli_dev_eval_reports_db_override_as_regular_database(
@@ -1560,6 +1590,9 @@ def test_cli_dev_eval_refuses_relative_regular_database_overlap(
     assert payload["regular_database"] == str(shared_db)
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
 
+    with pytest.raises(AssertionError, match="provider should not be constructed"):
+        ProviderMustNotBeConstructed()
+
 
 def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
     monkeypatch,
@@ -1643,7 +1676,8 @@ def test_cli_dev_optimize_threshold_determinate_columns_suppress_phase_totals() 
         get_time=lambda: 0.0,
     )
     determinate_rendered = "".join(
-        str(column.render(determinate_task)) for column in columns  # type: ignore[arg-type]
+        str(column.render(determinate_task))
+        for column in columns  # type: ignore[arg-type]
     )
     assert determinate_rendered != ""
     assert "1/3" in determinate_rendered
@@ -1961,6 +1995,9 @@ def test_cli_dev_optimize_threshold_validates_sweep_before_provider_setup(
     assert not dev_db.exists()
     assert not regular_db.exists()
 
+    with pytest.raises(AssertionError, match="provider should not be constructed"):
+        ProviderMustNotBeConstructed()
+
 
 @pytest.mark.parametrize("output_mode", ["--json", "--human-readable"])
 def test_cli_dev_optimize_threshold_refuses_when_seeded_database_matches_regular_database(
@@ -2012,6 +2049,9 @@ def test_cli_dev_optimize_threshold_refuses_when_seeded_database_matches_regular
         assert "Status: unsafe_seeded_database_path" in stderr
         assert str(shared_db) in stderr
     assert shared_db.read_text(encoding="utf-8") == "regular database marker"
+
+    with pytest.raises(AssertionError, match="provider should not be constructed"):
+        ProviderMustNotBeConstructed()
 
 
 def test_cli_dev_reset_resolves_relative_seed_database_path(
@@ -2881,7 +2921,9 @@ def test_cli_response_verbosity_flag_overrides_config_without_mutation(
         encoding="utf-8",
     )
     db_path = tmp_path / "override.db"
-    monkeypatch.setattr("recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
 
     add_code, add_out, add_err = _run_cli(
         [
@@ -3276,6 +3318,8 @@ def test_cli_update_metadata_only_skips_readiness_gate(
     assert exit_code == 0
     assert len(readiness_called) == 0
 
+    TrackingCore()._ensure_model_ready()
+
 
 def test_cli_embedding_generation_error_returns_1(
     tmp_path, capsys, monkeypatch
@@ -3635,6 +3679,18 @@ def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
     }
     assert status_payload["embedding_jobs_status_path"] == "/v1/embedding/jobs"
     assert isinstance(status_payload["recent_embedding_jobs"], list)
+
+    SQLiteMemoryStore(db_path).create_embedding_job(
+        job_id="job-1",
+        state="completed",
+        total_count=1,
+        processed_count=1,
+        succeeded_count=1,
+        failed_count=0,
+        provider="builtin-fastembed",
+        model="fake-model",
+        embedding_profile={"provider": "builtin-fastembed", "model": "fake-model"},
+    )
 
     jobs_code, jobs_out, jobs_err = _run_cli(
         ["--db", str(db_path), "embedding-jobs"],
@@ -4656,6 +4712,9 @@ def test_cli_init_reports_model_unavailable_error(
     assert "EmbeddingModelUnavailableError: model not found" in stderr
     assert "recollectium init" in stderr
 
+    with pytest.raises(EmbeddingModelUnavailableError, match="model not found"):
+        _raise_model_error(None)
+
 
 def test_cli_init_reports_generic_recollectium_error(
     capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
@@ -4689,6 +4748,11 @@ def test_cli_update_without_memory_id_requires_memory_id(
     assert stdout == ""
     assert payload["status"] == "validation_error"
     assert "recollectium upgrade" in payload["hint"]
+
+    with pytest.raises(
+        AssertionError, match="missing memory id should not initialise RecollectiumCore"
+    ):
+        _unexpected_core()
 
 
 def _set_xdg_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -5353,6 +5417,10 @@ def test_cli_uninstall_completion_cleanup_reports_read_error(
         for item in payload["skipped"]
     )
 
+    other_path = tmp_path / "other.rc"
+    other_path.write_text("echo hi\n", encoding="utf-8")
+    assert _raise_for_bashrc(other_path) == "echo hi\n"
+
 
 def test_cli_uninstall_completion_cleanup_reports_write_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -5382,6 +5450,9 @@ def test_cli_uninstall_completion_cleanup_reports_write_error(
         item["path"] == str(bashrc) and item["reason"] == "write_error: cannot write"
         for item in payload["skipped"]
     )
+
+    other_path = tmp_path / "other.rc"
+    assert _raise_for_bashrc(other_path, "echo hi\n") == 8
 
 
 def test_cli_uninstall_stops_running_service(
@@ -5562,6 +5633,8 @@ def test_cli_uninstall_purge_cancelled_by_confirmation(
     assert "purge cancelled" in stderr
     assert not stopped
     assert "recollectium completion --source bash" in bashrc.read_text(encoding="utf-8")
+
+    _stop_service(object())
 
 
 def test_cli_uninstall_purge_accepts_interactive_confirmation(
@@ -5941,6 +6014,8 @@ def test_cli_uninstall_dry_run_does_not_stop_service(
 
     _run_cli(["uninstall", "--purge", "--dry-run"], capsys)
     assert stop_calls == []
+
+    _record_stop(object())
 
 
 def test_cli_uninstall_config_is_recollectium_config(
@@ -6628,6 +6703,8 @@ def test_cli_completion_unwritable_rc_file(
 
     assert exit_code == 1
     assert "Could not write to" in stderr
+
+    assert _fake_write_text(tmp_path / "other.rc", "echo hi\n", encoding="utf-8") == 8
 
 
 def test_cli_completion_help_includes_completion(
@@ -7769,6 +7846,9 @@ def test_cli_upgrade_ignores_config_errors_when_checking_services(
     assert stderr == ""
     assert json.loads(stdout)["services_to_restart"] == []
 
+    with pytest.raises(ServiceError, match="pid file broken"):
+        _raise_config()
+
 
 def test_cli_upgrade_service_stop_failure_blocks_package_update(
     capsys, monkeypatch
@@ -7809,6 +7889,11 @@ def test_cli_upgrade_service_stop_failure_blocks_package_update(
     assert stdout == ""
     payload = json.loads(stderr)
     assert payload["service_stop_errors"] == [{"type": "api", "error": "stop failed"}]
+
+    with pytest.raises(
+        AssertionError, match="package update should not run after stop failure"
+    ):
+        _unexpected_apply()
 
 
 def test_cli_upgrade_apply_failure_attempts_service_restore(
@@ -8100,6 +8185,11 @@ def test_cli_upgrade_check_explicit_config_creates_no_xdg_directories(
     assert payload["services_to_restart"] == []
     assert not any((path / "recollectium").exists() for path in xdg_env.values())
     assert not (xdg_env["XDG_STATE_HOME"] / "recollectium" / "logs").exists()
+
+    with pytest.raises(
+        AssertionError, match="must not load config or discover services"
+    ):
+        _unexpected_config()
 
 
 def test_write_tty_writes_to_controlling_terminal(
@@ -8531,7 +8621,11 @@ def test_cli_service_command_success_and_runtime_errors(
         return RESPONSE_VERBOSITY_COMPACT
 
     def fake_start_service(
-        cfg: object, service_type: str, *, db_path: object = None, log_level: str | None = None
+        cfg: object,
+        service_type: str,
+        *,
+        db_path: object = None,
+        log_level: str | None = None,
     ) -> int:
         mode = state["start"]
         if mode == "conflict":

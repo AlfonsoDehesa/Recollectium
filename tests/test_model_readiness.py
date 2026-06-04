@@ -86,6 +86,8 @@ def test_ensure_model_ready_noop_when_model_matches(tmp_path: Path):
     )
     core._ensure_model_ready(state_dir=state_dir)
     assert provider.ensure_ready_calls == []
+    assert provider.embed("abc") == [3.0, 97.0, 1.0]
+    assert provider.similarity([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]) == 32.0
 
 
 def test_ensure_model_ready_prepares_when_state_missing(tmp_path: Path):
@@ -310,4 +312,5 @@ def test_ensure_model_ready_falls_back_to_embed_healthcheck(tmp_path: Path):
         embedding_provider=provider,
     )
     core._ensure_model_ready(state_dir=state_dir)
+    assert provider.similarity([1.0], [1.0]) == 1.0
     assert "healthcheck" in provider.embed_calls

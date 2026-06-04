@@ -305,6 +305,9 @@ def test_is_pid_alive_uses_windows_non_signalling_probe(
         calls.append(pid)
         return True
 
+    with pytest.raises(AssertionError, match="must not call os.kill"):
+        fail_if_called(1, signal.SIGTERM)
+
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(os, "kill", fail_if_called)
     monkeypatch.setattr(
@@ -332,6 +335,8 @@ def test_is_windows_pid_alive_returns_false_when_ctypes_unavailable(
         if name == "ctypes":
             raise ImportError("ctypes missing")
         return real_import(name, globals, locals, fromlist, level)
+
+    assert fake_import("json") is __import__("json")
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
