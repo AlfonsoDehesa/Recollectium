@@ -1056,7 +1056,7 @@ def test_cli_dev_help_documents_actions(capsys) -> None:
     eval_help = _run_help(["dev", "eval", "--help"], capsys)
     assert "Exact MRR" in eval_help
     assert "Semantic MRR" in eval_help
-    assert "Thematic Precision@10" in eval_help
+    assert "Thematic Weighted Precision@10" in eval_help
     assert "Ranked-set NDCG@5" in eval_help
     normalized_eval_help = " ".join(eval_help.split())
     assert "seeded development regression check" in normalized_eval_help
@@ -1184,7 +1184,8 @@ def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
     assert set(payload["metrics"]) == {
         "exact_mrr",
         "semantic_mrr",
-        "thematic_precision_at_10",
+        "thematic_weighted_precision_at_10",
+        "thematic_weighted_recall_at_10",
         "ranked_set_ndcg_at_5",
     }
     assert "combined_score" not in payload
@@ -1193,7 +1194,17 @@ def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
     assert payload["metrics"]["exact_mrr"]["hit_at_1"] >= 0.0
     assert payload["metrics"]["exact_mrr"]["hit_at_3"] >= 0.0
     assert payload["metrics"]["semantic_mrr"]["queries"] == 570
-    assert payload["metrics"]["thematic_precision_at_10"]["groups"] == 19
+    assert payload["metrics"]["thematic_weighted_precision_at_10"]["groups"] == 19
+    assert payload["metrics"]["thematic_weighted_precision_at_10"]["limit"] == 10
+    assert (
+        payload["metrics"]["thematic_weighted_precision_at_10"]["protected_minimum"]
+        == 0
+    )
+    assert (
+        payload["metrics"]["thematic_weighted_precision_at_10"]["match_threshold"]
+        == 0.0
+    )
+    assert payload["metrics"]["thematic_weighted_recall_at_10"]["groups"] == 19
     assert payload["metrics"]["ranked_set_ndcg_at_5"]["cases"] >= 12
     assert set(payload["diagnostics"]) == {
         "worst_exact",
@@ -1247,12 +1258,12 @@ def test_cli_dev_eval_human_output_contains_progress_and_separate_metrics(
     assert "workspace memories  90/90" in stdout
     assert "Running semantic MRR" in stdout
     assert "paraphrases         570/570" in stdout
-    assert "Running thematic Precision@10" in stdout
+    assert "Running thematic weighted metrics" in stdout
     assert "Running ranked-set NDCG@5" in stdout
     assert "Results" in stdout
     assert "Exact MRR" in stdout
     assert "Semantic MRR" in stdout
-    assert "Thematic Precision@10" in stdout
+    assert "Thematic Weighted Precision@10" in stdout
     assert "Ranked-set NDCG@5" in stdout
     assert "Diagnostics" in stdout
     assert "combined" not in stdout.casefold()
@@ -1275,7 +1286,7 @@ def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
                     "total": 2,
                 },
                 "semantic_mrr": {"paraphrases": 6, "targets": 2},
-                "thematic_precision_at_10": {
+                "thematic_weighted_at_10": {
                     "user_topics": 1,
                     "workspace_themes": 1,
                     "queries": 6,
@@ -1285,7 +1296,18 @@ def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
             "metrics": {
                 "exact_mrr": {"value": 1.0},
                 "semantic_mrr": {"value": 1.0},
-                "thematic_precision_at_10": {"value": 1.0},
+                "thematic_weighted_precision_at_10": {
+                    "value": 1.0,
+                    "limit": 10,
+                    "protected_minimum": 0,
+                    "match_threshold": 0.0,
+                },
+                "thematic_weighted_recall_at_10": {
+                    "value": 1.0,
+                    "limit": 10,
+                    "protected_minimum": 0,
+                    "match_threshold": 0.0,
+                },
                 "ranked_set_ndcg_at_5": {"value": 1.0},
             },
             "diagnostics": {
@@ -1302,7 +1324,6 @@ def test_cli_dev_eval_human_output_handles_empty_diagnostics() -> None:
     assert "Worst exact target: none" in output
     assert "Worst semantic target: none" in output
     assert "Worst thematic query: none" in output
-    assert "Most confused group: none" in output
     assert "Worst ranked-set case: none" in output
 
 
@@ -1317,7 +1338,7 @@ def test_cli_dev_eval_human_output_includes_compact_diagnostics() -> None:
             "phases": {
                 "exact_mrr": {"user_memories": 1, "workspace_memories": 1, "total": 2},
                 "semantic_mrr": {"paraphrases": 6, "targets": 2},
-                "thematic_precision_at_10": {
+                "thematic_weighted_at_10": {
                     "user_topics": 1,
                     "workspace_themes": 1,
                     "queries": 6,
@@ -1327,7 +1348,18 @@ def test_cli_dev_eval_human_output_includes_compact_diagnostics() -> None:
             "metrics": {
                 "exact_mrr": {"value": 0.5},
                 "semantic_mrr": {"value": 0.5},
-                "thematic_precision_at_10": {"value": 0.4},
+                "thematic_weighted_precision_at_10": {
+                    "value": 0.4,
+                    "limit": 10,
+                    "protected_minimum": 0,
+                    "match_threshold": 0.0,
+                },
+                "thematic_weighted_recall_at_10": {
+                    "value": 0.6,
+                    "limit": 10,
+                    "protected_minimum": 0,
+                    "match_threshold": 0.0,
+                },
                 "ranked_set_ndcg_at_5": {"value": 0.3},
             },
             "diagnostics": {
@@ -1336,12 +1368,11 @@ def test_cli_dev_eval_human_output_includes_compact_diagnostics() -> None:
                 "worst_thematic": [
                     {
                         "expected_group": "project_planning",
-                        "precision": 0.2,
-                        "matching_results": 2,
-                        "group_distribution": [
-                            {"group": "infra", "count": 4},
-                            {"group": "project_planning", "count": 2},
-                        ],
+                        "weighted_precision": 0.2,
+                        "weighted_recall": 0.3,
+                        "returned_count": 2,
+                        "query_index": 1,
+                        "query": "planning q",
                     }
                 ],
                 "worst_ranked_sets": [
@@ -1364,8 +1395,8 @@ def test_cli_dev_eval_human_output_includes_compact_diagnostics() -> None:
         command="dev eval",
     )
 
-    assert "Worst thematic query: project_planning, precision 0.200" in output
-    assert "matches 2, returned infra=4, project_planning=2" in output
+    assert "Worst thematic query: project_planning, weighted precision 0.200" in output
+    assert "weighted recall" in output
     assert "Worst ranked-set case: ranked-case, NDCG 0.250" in output
     assert "expected top grades: expected-a:3, expected-b:2" in output
     assert "returned top grades: actual-x:0, expected-b:2" in output
