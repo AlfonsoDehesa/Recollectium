@@ -25,7 +25,6 @@ from rich.progress import (
     BarColumn,
     Progress,
     ProgressColumn,
-    SpinnerColumn,
     Task,
     TaskID,
     TextColumn,
@@ -833,14 +832,13 @@ class _ThresholdOptimizationProgressReporter:
         if not self._isatty or self._progress is not None:
             return
         progress = Progress(
-            SpinnerColumn(),
             TextColumn("[bold cyan]{task.description}"),
             _DeterminateBarColumn(),
             _DeterminateCountColumn(),
-            _DeterminateTimeRemainingColumn(),
             TimeElapsedColumn(),
             console=Console(file=self._stream),
             transient=True,
+            refresh_per_second=4,
         )
         progress.start()
         self._progress = progress
@@ -927,14 +925,13 @@ class _DevEvalProgressReporter:
         if not self._isatty or self._progress is not None:
             return
         progress = Progress(
-            SpinnerColumn(),
             TextColumn("[bold cyan]{task.description}"),
             _DeterminateBarColumn(),
             _DeterminateCountColumn(),
-            _DeterminateTimeRemainingColumn(),
             TimeElapsedColumn(),
             console=Console(file=self._stream),
             transient=True,
+            refresh_per_second=4,
         )
         progress.start()
         self._progress = progress
