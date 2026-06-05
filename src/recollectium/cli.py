@@ -67,6 +67,7 @@ from recollectium.config import (
     unset_config_value,
     validate_config_file,
 )
+from recollectium.cli_progress import SingleLineProgressReporter
 from recollectium.dev_eval import (
     ExactMRRReport,
     RankedSetNDCGReport,
@@ -739,16 +740,6 @@ _DEV_EVAL_PROGRESS_LABELS = {
 }
 
 
-def _dev_eval_progress_label(text: str) -> tuple[str, bool]:
-    """Return a curated dev eval progress label and whether it is known-safe."""
-
-    compact = " ".join(text.split())
-    label = _DEV_EVAL_PROGRESS_LABELS.get(compact)
-    if label is not None:
-        return label, True
-    return compact, False
-
-
 class _ReembeddingProgressReporter:
     """Render inline re-embedding progress for human-readable CLI commands."""
 
@@ -960,9 +951,7 @@ class _ThresholdOptimizationProgressReporter:
 
 
 class _DevEvalProgressReporter:
-    """Render seeded dev eval progress for humans on a single dynamic line."""
-
-    _clear_line = "\r\x1b[2K"
+    """Translate seeded dev eval progress events to a single-line renderer."""
 
     def __init__(
         self,
@@ -971,103 +960,35 @@ class _DevEvalProgressReporter:
         clock: Any = time.monotonic,
         min_render_interval: float = 0.25,
     ) -> None:
-        self._stream = stream
-        self._clock = clock
-        self._min_render_interval = min_render_interval
-        self._title_limit = _live_progress_title_limit(stream)
-        if self._title_limit is None:
-            self._title_limit = 12
-        self._active = False
-        self._position = 0
-        self._last_line_width = 0
-        self._last_render_at: float | None = None
-        self._last_rendered_line = ""
-        self._last_progress_key: tuple[str, int] | None = None
+        title_limit = _live_progress_title_limit(stream)
+        self._progress = SingleLineProgressReporter(
+            stream,
+            labels=_DEV_EVAL_PROGRESS_LABELS,
+            clock=clock,
+            min_render_interval=min_render_interval,
+            title_limit=12 if title_limit is None else title_limit,
+        )
 
     def __enter__(self) -> _DevEvalProgressReporter:
-        self._active = True
+        self._progress.__enter__()
         return self
 
     def __exit__(self, *_: object) -> None:
         self.finish()
 
     def finish(self) -> None:
-        if not self._active:
-            return
-        if self._write(self._clear_line):
-            self._last_line_width = 0
-            self._last_rendered_line = ""
-        self._active = False
+        self._progress.finish()
 
     def phase(self, message: str) -> None:
-        if not self._active:
-            return
-        if self._position < 5:
-            self._position = min(self._position + 1, 5)
-        self._render(message, self._position, None, None, force=True)
+        self._progress.phase(message)
 
     def __call__(self, event: dict[str, Any]) -> None:
-        if not self._active:
-            return
         label = str(event.get("label") or event.get("phase") or "dev eval")
-        total = int(event.get("total") or 0)
-        completed = int(event.get("completed") or 0)
-
-        if total <= 0 or completed <= 0:
-            self._position = min(self._position + 1, 98)
-            self._render(label, self._position, None, None)
-        else:
-            progress_key = (label, total)
-            first_progress_for_key = progress_key != self._last_progress_key
-            completed_eval = completed >= total
-            if completed >= total:
-                self._position = 100
-            else:
-                fraction = min(max(completed / total, 0), 1)
-                self._position = 5 + int(fraction * 93)
-            self._render(
-                label,
-                self._position,
-                completed,
-                total,
-                force=first_progress_for_key or completed_eval,
-            )
-            self._last_progress_key = progress_key
-
-    def _render(
-        self,
-        label: str,
-        percent: int,
-        completed: int | None,
-        total: int | None,
-        *,
-        force: bool = False,
-    ) -> None:
-        line = self._format_line(label, percent, completed, total)
-        if line == self._last_rendered_line:
-            return
-        now = self._clock()
-        if (
-            not force
-            and self._last_render_at is not None
-            and now - self._last_render_at < self._min_render_interval
-        ):
-            return
-        padding = " " * max(self._last_line_width - len(line), 0)
-        if self._write(f"\r{line}{padding}"):
-            self._last_line_width = len(line)
-            self._last_render_at = now
-            self._last_rendered_line = line
-
-    def _write(self, text: str) -> bool:
-        try:
-            self._stream.write(text)
-            self._stream.flush()
-        except (OSError, ValueError):
-            self._active = False
-            self._last_line_width = 0
-            return False
-        return True
+        self._progress.update(
+            label,
+            completed=int(event.get("completed") or 0),
+            total=int(event.get("total") or 0),
+        )
 
     def _format_line(
         self,
@@ -1076,37 +997,10 @@ class _DevEvalProgressReporter:
         completed: int | None,
         total: int | None,
     ) -> str:
-        display_label, curated = _dev_eval_progress_label(label)
-        short_label = (
-            display_label
-            if curated
-            else _compact_live_title(display_label, self._title_limit)
-        )
-        width = self._bar_width(short_label, completed, total)
-        filled = min(width, max(0, round(width * percent / 100)))
-        if filled >= width:
-            bar = "━" * width
-        else:
-            bar = "━" * filled + "╺" + "─" * max(width - filled - 1, 0)
-        count = (
-            f" {completed}/{total}"
-            if completed is not None and total is not None
-            else ""
-        )
-        return f"\x1b[36m{short_label}\x1b[0m {bar} {percent:3d}%{count}"
+        return self._progress._format_line(label, percent, completed, total)
 
     def _bar_width(self, label: str, completed: int | None, total: int | None) -> int:
-        try:
-            columns = shutil.get_terminal_size(fallback=(80, 24)).columns
-        except OSError:
-            columns = 80
-        count_width = (
-            len(f" {completed}/{total}")
-            if completed is not None and total is not None
-            else 0
-        )
-        fixed_width = len(label) + len("  100%") + count_width + 1
-        return max(10, min(30, columns - fixed_width))
+        return self._progress._bar_width(label, completed, total)
 
 
 def _parse_config_value(raw: str) -> Any:
