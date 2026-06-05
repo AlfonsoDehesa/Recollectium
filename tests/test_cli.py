@@ -907,37 +907,73 @@ def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
     assert "Status: Semantic MRR paraphrases: 1/2" in output
 
 
-def test_dev_eval_progress_reporter_uses_rich_for_tty(monkeypatch) -> None:
+def test_dev_eval_progress_reporter_non_tty_label_fallback() -> None:
+    """Non-TTY __call__ with no total should fall back to label-only output."""
+    stream = _OSErrorIsattyStream()
+    reporter = cli_module._DevEvalProgressReporter(stream)
+
+    reporter(
+        {
+            "label": "Results phase",
+            "completed": 0,
+            "total": 0,
+        }
+    )
+
+    # In non-TTY mode, the event produces a Status: <label> line not a
+    # count line.
+    output = stream.getvalue()
+    assert "Status: Results phase" in output
+
+
+def test_dev_eval_progress_reporter_uses_alive_bar_for_tty(monkeypatch) -> None:
     class FakeTTYStream(io.StringIO):
         def isatty(self) -> bool:
             return True
 
-    class FakeProgress:
-        instances: list[FakeProgress] = []
+    class FakeBar:
+        instances: list[FakeBar] = []
 
         def __init__(self, *args: object, **kwargs: object) -> None:
-            self.started = False
-            self.stopped = False
-            self.added_tasks: list[tuple[str, object]] = []
-            self.updates: list[tuple[object, dict[str, object]]] = []
-            self.columns = args
-            FakeProgress.instances.append(self)
+            self.title_calls: list[str] = []
+            self.position_calls: list[float] = []
+            self._title = ""
+            self._current = 0.0
+            FakeBar.instances.append(self)
 
-        def start(self) -> None:
-            self.started = True
+        @property
+        def title(self) -> str:
+            return self._title
 
-        def stop(self) -> None:
-            self.stopped = True
+        @title.setter
+        def title(self, value: str) -> None:
+            self._title = value
+            self.title_calls.append(value)
 
-        def add_task(self, description: str, *, total: object = None) -> int:
-            task_id = len(self.added_tasks) + 1
-            self.added_tasks.append((description, total))
-            return task_id
+        @property
+        def current(self) -> float:
+            return self._current
 
-        def update(self, task_id: object, **kwargs: object) -> None:
-            self.updates.append((task_id, kwargs))
+        def __call__(self, position: float = 0.0) -> None:
+            self._current = position
+            self.position_calls.append(position)
 
-    monkeypatch.setattr(cli_module, "Progress", FakeProgress)
+    class FakeCtx:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.entered = False
+            self.exited = False
+            self._bar = None
+
+        def __enter__(self) -> FakeBar:
+            self.entered = True
+            self._bar = FakeBar()
+            return self._bar
+
+        def __exit__(self, *_: object) -> None:
+            self.exited = True
+
+    fake_ctx = FakeCtx()
+    monkeypatch.setattr(cli_module, "alive_bar", lambda *a, **kw: fake_ctx)
 
     stream = FakeTTYStream()
     reporter = cli_module._DevEvalProgressReporter(stream)
@@ -948,74 +984,46 @@ def test_dev_eval_progress_reporter_uses_rich_for_tty(monkeypatch) -> None:
         reporter(
             {
                 "label": "Exact MRR user memories",
-                "completed": 1,
+                "completed": 50,
                 "total": 100,
             }
         )
         reporter(
             {
                 "label": "Semantic MRR paraphrases",
-                "completed": 1,
+                "completed": 570,
                 "total": 570,
             }
         )
         reporter.phase("Loading eval fixtures")
+        reporter(
+            {
+                "label": "Results phase",
+                "completed": 0,
+                "total": 0,
+            }
+        )
+        reporter(
+            {
+                "label": "Start phase",
+                "completed": 0,
+                "total": 1,
+            }
+        )
 
     assert stream.getvalue() == ""
-    assert len(FakeProgress.instances) == 1
-    progress = FakeProgress.instances[0]
-    assert progress.started is True
-    assert progress.stopped is True
-    assert all(
-        column.__class__.__name__ != "SpinnerColumn" for column in progress.columns
-    )
-    assert progress.added_tasks == [("Checking embedding provider readiness", 1)]
-    assert progress.updates == [
-        (
-            1,
-            {
-                "description": "Checking embedding provider readiness",
-                "total": 1,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Preparing seeded development database",
-                "total": 1,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Exact MRR user memories",
-                "total": 100,
-                "completed": 1,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Semantic MRR paraphrases",
-                "total": 570,
-                "completed": 1,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Loading eval fixtures",
-                "total": 1,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
+    assert fake_ctx.entered is True
+    assert fake_ctx.exited is True
+    bar = fake_ctx._bar
+    assert bar is not None
+    assert bar.title_calls == [
+        "Checking embedding provider readiness",
+        "Preparing seeded development database",
+        "Exact MRR user memories 50/100",
+        "Semantic MRR paraphrases 570/570",
+        "Loading eval fixtures",
+        "Results phase",
+        "Start phase 0/1",
     ]
 
 
@@ -1044,32 +1052,49 @@ def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
         def isatty(self) -> bool:
             return True
 
-    class FakeProgress:
-        instances: list[FakeProgress] = []
+    class FakeBar:
+        instances: list[FakeBar] = []
 
+        def __init__(self) -> None:
+            self.title_calls: list[str] = []
+            self.position_calls: list[float] = []
+            self._title = ""
+            self._current = 0.0
+            FakeBar.instances.append(self)
+
+        @property
+        def title(self) -> str:
+            return self._title
+
+        @title.setter
+        def title(self, value: str) -> None:
+            self._title = value
+            self.title_calls.append(value)
+
+        @property
+        def current(self) -> float:
+            return self._current
+
+        def __call__(self, position: float = 0.0) -> None:
+            self._current = position
+            self.position_calls.append(position)
+
+    class FakeCtx:
         def __init__(self, *args: object, **kwargs: object) -> None:
-            self.started = False
-            self.stopped = False
-            self.added_tasks: list[tuple[str, object]] = []
-            self.updates: list[tuple[object, dict[str, object]]] = []
-            self.columns = args
-            FakeProgress.instances.append(self)
+            self.entered = False
+            self.exited = False
+            self._bar = None
 
-        def start(self) -> None:
-            self.started = True
+        def __enter__(self) -> FakeBar:
+            self.entered = True
+            self._bar = FakeBar()
+            return self._bar
 
-        def stop(self) -> None:
-            self.stopped = True
+        def __exit__(self, *_: object) -> None:
+            self.exited = True
 
-        def add_task(self, description: str, *, total: object = None) -> int:
-            task_id = len(self.added_tasks) + 1
-            self.added_tasks.append((description, total))
-            return task_id
-
-        def update(self, task_id: object, **kwargs: object) -> None:
-            self.updates.append((task_id, kwargs))
-
-    monkeypatch.setattr(cli_module, "Progress", FakeProgress)
+    fake_ctx = FakeCtx()
+    monkeypatch.setattr(cli_module, "alive_bar", lambda *a, **kw: fake_ctx)
 
     stream = FakeTTYStream()
     reporter = cli_module._DevEvalProgressReporter(stream)
@@ -1080,75 +1105,28 @@ def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
         reporter(
             {
                 "label": "Exact MRR user memories",
-                "completed": 1,
+                "completed": 50,
                 "total": 100,
             }
         )
         reporter(
             {
                 "label": "Semantic MRR paraphrases",
-                "completed": 1,
+                "completed": 570,
                 "total": 570,
             }
         )
         reporter.phase("Loading eval fixtures")
 
     assert stream.getvalue() == ""
-    assert len(FakeProgress.instances) == 1
-    progress = FakeProgress.instances[0]
-    assert progress.started is True
-    assert progress.stopped is True
-    assert all(
-        column.__class__.__name__ != "SpinnerColumn" for column in progress.columns
-    )
-    assert progress.added_tasks == [("Checking embedding provider readiness", 1)]
-    assert progress.updates == [
-        (
-            1,
-            {
-                "description": "Checking embedding provider readiness",
-                "total": 1,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Preparing seeded development database",
-                "total": 1,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Exact MRR user memories",
-                "total": 100,
-                "completed": 1,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Semantic MRR paraphrases",
-                "total": 570,
-                "completed": 1,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Loading eval fixtures",
-                "total": 1,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
-    ]
+    assert fake_ctx.entered is True
+    assert fake_ctx.exited is True
+    bar = fake_ctx._bar
+    assert bar is not None
+    # Verify bar was created and used for all phases/counts
+    assert any("Exact MRR user memories" in t for t in bar.title_calls)
+    assert any("Semantic MRR paraphrases" in t for t in bar.title_calls)
+    assert any("Loading eval fixtures" in t for t in bar.title_calls)
 
 
 def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:

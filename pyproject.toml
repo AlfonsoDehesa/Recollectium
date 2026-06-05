@@ -26,6 +26,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+    "alive-progress>=3.3.0",
     "argcomplete>=3.0",
     "cryptography==46.0.3",
     "fastapi>=0.124",

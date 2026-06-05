@@ -20,6 +20,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Sequence, cast
 
+from alive_progress import alive_bar
 from rich.console import Console, RenderableType
 from rich.progress import (
     BarColumn,
@@ -903,7 +904,11 @@ class _ThresholdOptimizationProgressReporter:
 
 
 class _DevEvalProgressReporter:
-    """Render seeded dev eval phases and counted progress for humans."""
+    """Render seeded dev eval phases and counted progress for humans.
+
+    Uses alive-progress for smooth single-line TTY rendering that avoids
+    the flickering some terminals see with Rich's multi-line refresh.
+    """
 
     def __init__(self, stream: Any) -> None:
         self._stream = stream
@@ -914,56 +919,40 @@ class _DevEvalProgressReporter:
                 self._isatty = bool(isatty())
             except OSError:
                 self._isatty = False
-        self._progress: Progress | None = None
-        self._task_id: TaskID | None = None
+        self._bar: Any = None
+        self._ctx: Any = None
 
     def __enter__(self) -> _DevEvalProgressReporter:
-        self._ensure_progress()
+        if self._isatty:
+            self._ctx = alive_bar(
+                100,
+                title="dev eval",
+                bar="smooth",
+                manual=True,
+                enrich_print=False,
+                file=self._stream,
+            )
+            self._bar = self._ctx.__enter__()
         return self
-
-    def _ensure_progress(self) -> None:
-        if not self._isatty or self._progress is not None:
-            return
-        progress = Progress(
-            TextColumn("[bold cyan]{task.description}"),
-            _DeterminateBarColumn(),
-            _DeterminateCountColumn(),
-            TimeElapsedColumn(),
-            console=Console(file=self._stream),
-            transient=True,
-            refresh_per_second=4,
-        )
-        progress.start()
-        self._progress = progress
 
     def __exit__(self, *_: object) -> None:
         self.finish()
 
     def finish(self) -> None:
-        if self._progress is not None:
-            self._progress.stop()
-            self._progress = None
-            self._task_id = None
-
-    def _update_task(
-        self, *, description: str, total: int | None, completed: int = 0
-    ) -> None:
-        assert self._progress is not None
-        display_total = 1 if total is None else max(total, 1)
-        if self._task_id is None:
-            self._task_id = self._progress.add_task(description, total=display_total)
-        self._progress.update(
-            self._task_id,
-            description=description,
-            total=display_total,
-            completed=completed,
-            visible=True,
-        )
+        if self._ctx is not None:
+            self._ctx.__exit__(None, None, None)
+            self._bar = None
+            self._ctx = None
 
     def phase(self, message: str) -> None:
-        self._ensure_progress()
-        if self._progress is not None:
-            self._update_task(description=message, total=None, completed=0)
+        if self._bar is not None:
+            self._bar.title = message
+            # Advance a tiny amount for uncounted phases so the bar does not
+            # stay stuck at 0 %.  The visual weight of counted phases dwarfs
+            # these micro-ticks, so the bar still feels driven by real work.
+            current = self._bar.current
+            if current < 5:
+                self._bar(min(current + 1, 5) / 100)
             return
         self._stream.write(f"Status: {message}\n")
         self._stream.flush()
@@ -972,11 +961,28 @@ class _DevEvalProgressReporter:
         label = str(event.get("label") or event.get("phase") or "dev eval")
         total = int(event.get("total") or 0)
         completed = int(event.get("completed") or 0)
-        self._ensure_progress()
-        if self._progress is not None:
-            self._update_task(description=label, total=total, completed=completed)
+
+        if self._bar is not None:
+            if total:
+                self._bar.title = f"{label} {completed}/{total}"
+            else:
+                self._bar.title = label
+            if total <= 0 or completed <= 0:
+                # No meaningful progress fraction yet — just nudge.
+                current = self._bar.current
+                self._bar(min(current + 1, 98) / 100)
+            else:
+                # Map phase progress onto 5..98 % of the bar to leave
+                # room for the initial micro-ticks and final wrap-up.
+                fraction = completed / total
+                position = 5 + int(fraction * 93)
+                self._bar(position / 100)
             return
-        self._stream.write(f"Status: {label}: {completed}/{total}\n")
+
+        if total:
+            self._stream.write(f"Status: {label}: {completed}/{total}\n")
+        else:
+            self._stream.write(f"Status: {label}\n")
         self._stream.flush()
 
 
