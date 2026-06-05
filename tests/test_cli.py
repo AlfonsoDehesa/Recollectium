@@ -926,54 +926,10 @@ def test_dev_eval_progress_reporter_non_tty_label_fallback() -> None:
     assert "Status: Results phase" in output
 
 
-def test_dev_eval_progress_reporter_uses_alive_bar_for_tty(monkeypatch) -> None:
+def test_dev_eval_progress_reporter_renders_single_tty_line_and_clears() -> None:
     class FakeTTYStream(io.StringIO):
         def isatty(self) -> bool:
             return True
-
-    class FakeBar:
-        instances: list[FakeBar] = []
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            self.title_calls: list[str] = []
-            self.position_calls: list[float] = []
-            self._title = ""
-            self._current = 0.0
-            FakeBar.instances.append(self)
-
-        @property
-        def title(self) -> str:
-            return self._title
-
-        @title.setter
-        def title(self, value: str) -> None:
-            self._title = value
-            self.title_calls.append(value)
-
-        @property
-        def current(self) -> float:
-            return self._current
-
-        def __call__(self, position: float = 0.0) -> None:
-            self._current = position
-            self.position_calls.append(position)
-
-    class FakeCtx:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            self.entered = False
-            self.exited = False
-            self._bar = None
-
-        def __enter__(self) -> FakeBar:
-            self.entered = True
-            self._bar = FakeBar()
-            return self._bar
-
-        def __exit__(self, *_: object) -> None:
-            self.exited = True
-
-    fake_ctx = FakeCtx()
-    monkeypatch.setattr(cli_module, "alive_bar", lambda *a, **kw: fake_ctx)
 
     stream = FakeTTYStream()
     reporter = cli_module._DevEvalProgressReporter(stream)
@@ -1011,25 +967,16 @@ def test_dev_eval_progress_reporter_uses_alive_bar_for_tty(monkeypatch) -> None:
             }
         )
 
-    assert stream.getvalue() == ""
-    assert fake_ctx.entered is True
-    assert fake_ctx.exited is True
-    bar = fake_ctx._bar
-    assert bar is not None
-    limit = cli_module._live_progress_title_limit(stream)
-    assert bar.title_calls == [
-        cli_module._compact_live_title(
-            "Checking embedding provider readiness", limit
-        ),
-        cli_module._compact_live_title(
-            "Preparing seeded development database", limit
-        ),
-        cli_module._compact_live_title("Exact MRR user memories", limit),
-        cli_module._compact_live_title("Semantic MRR paraphrases", limit),
-        cli_module._compact_live_title("Loading eval fixtures", limit),
-        cli_module._compact_live_title("Results phase", limit),
-        cli_module._compact_live_title("Start phase", limit),
-    ]
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert output.count("\r") == 8
+    assert output.count("\x1b[2K") == 8
+    assert output.endswith("\r\x1b[2K")
+    assert "Exact MRR user" in output
+    assert "Semantic MRR" in output
+    assert "50/100" in output
+    assert "570/570" in output
+    assert "Status:" not in output
 
 
 def test_emit_human_progress_writes_status_line_and_flushes(monkeypatch) -> None:
@@ -1050,56 +997,10 @@ def test_emit_human_progress_writes_status_line_and_flushes(monkeypatch) -> None
     assert stream.flushed is True
 
 
-def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
-    monkeypatch,
-) -> None:
+def test_dev_eval_progress_reporter_uses_one_dynamic_tty_line_across_updates() -> None:
     class FakeTTYStream(io.StringIO):
         def isatty(self) -> bool:
             return True
-
-    class FakeBar:
-        instances: list[FakeBar] = []
-
-        def __init__(self) -> None:
-            self.title_calls: list[str] = []
-            self.position_calls: list[float] = []
-            self._title = ""
-            self._current = 0.0
-            FakeBar.instances.append(self)
-
-        @property
-        def title(self) -> str:
-            return self._title
-
-        @title.setter
-        def title(self, value: str) -> None:
-            self._title = value
-            self.title_calls.append(value)
-
-        @property
-        def current(self) -> float:
-            return self._current
-
-        def __call__(self, position: float = 0.0) -> None:
-            self._current = position
-            self.position_calls.append(position)
-
-    class FakeCtx:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            self.entered = False
-            self.exited = False
-            self._bar = None
-
-        def __enter__(self) -> FakeBar:
-            self.entered = True
-            self._bar = FakeBar()
-            return self._bar
-
-        def __exit__(self, *_: object) -> None:
-            self.exited = True
-
-    fake_ctx = FakeCtx()
-    monkeypatch.setattr(cli_module, "alive_bar", lambda *a, **kw: fake_ctx)
 
     stream = FakeTTYStream()
     reporter = cli_module._DevEvalProgressReporter(stream)
@@ -1123,23 +1024,14 @@ def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
         )
         reporter.phase("Loading eval fixtures")
 
-    assert stream.getvalue() == ""
-    assert fake_ctx.entered is True
-    assert fake_ctx.exited is True
-    bar = fake_ctx._bar
-    assert bar is not None
-    limit = cli_module._live_progress_title_limit(stream)
-    assert bar.title_calls == [
-        cli_module._compact_live_title(
-            "Checking embedding provider readiness", limit
-        ),
-        cli_module._compact_live_title(
-            "Preparing seeded development database", limit
-        ),
-        cli_module._compact_live_title("Exact MRR user memories", limit),
-        cli_module._compact_live_title("Semantic MRR paraphrases", limit),
-        cli_module._compact_live_title("Loading eval fixtures", limit),
-    ]
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert output.count("\r") == 6
+    assert output.count("\x1b[2K") == 6
+    assert output.endswith("\r\x1b[2K")
+    assert "Checking embedding" in output
+    assert "Preparing seeded" in output
+    assert "Loading eval" in output
 
 
 def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:
