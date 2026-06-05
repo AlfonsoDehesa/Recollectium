@@ -978,8 +978,57 @@ def test_dev_eval_progress_reporter_uses_dynamic_line_for_narrow_terminal(
     assert output.count("\r") == 2
     assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
-    assert "Exact MRR" in output
+    assert "Exact MRR: workspace" in output
+    assert "…" not in output
     assert "49/90" in output
+
+
+def test_dev_eval_progress_reporter_keeps_curated_labels_whole_on_narrow_terminal(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        cli_module.shutil,
+        "get_terminal_size",
+        lambda fallback: os.terminal_size((59, 24)),
+    )
+    stream = io.StringIO()
+    reporter = cli_module._DevEvalProgressReporter(stream, min_render_interval=0)
+
+    with reporter:
+        reporter.phase("Checking embedding provider readiness")
+        reporter.phase("Preparing seeded development database")
+        reporter.phase("Loading eval fixtures")
+        reporter(
+            {
+                "label": "Exact MRR workspace memories",
+                "completed": 49,
+                "total": 90,
+            }
+        )
+        reporter(
+            {
+                "label": "Thematic weighted workspace themes",
+                "completed": 6,
+                "total": 12,
+            }
+        )
+        reporter(
+            {
+                "label": "Ranked-set NDCG@5 cases",
+                "completed": 3,
+                "total": 5,
+            }
+        )
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Checking provider" in output
+    assert "Preparing dev DB" in output
+    assert "Loading fixtures" in output
+    assert "Exact MRR: workspace" in output
+    assert "Thematic metrics: workspace" in output
+    assert "NDCG@5" in output
+    assert "…" not in output
 
 
 def test_dev_eval_progress_reporter_non_tty_label_uses_dynamic_line() -> None:
@@ -1096,7 +1145,7 @@ def test_dev_eval_progress_reporter_forces_first_count_after_phase() -> None:
     output = stream.getvalue()
     assert "\n" not in output
     assert output.count("\r") == 4
-    assert "Preparing seeded" in output
+    assert "Preparing dev DB" in output
     assert "1/100" in output
     assert "2/100" not in output
     assert "100% 100/100" in output
@@ -1176,7 +1225,7 @@ def test_dev_eval_progress_reporter_renders_single_tty_line_and_clears() -> None
     assert output.count("\r") == 8
     assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
-    assert "Exact MRR user" in output
+    assert "Exact MRR: user" in output
     assert "Semantic MRR" in output
     assert "50/100" in output
     completed_line = next(line for line in output.split("\r") if "Semantic MRR" in line)
@@ -1236,9 +1285,9 @@ def test_dev_eval_progress_reporter_uses_one_dynamic_tty_line_across_updates() -
     assert output.count("\r") == 6
     assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
-    assert "Checking embedding" in output
-    assert "Preparing seeded" in output
-    assert "Loading eval" in output
+    assert "Checking provider" in output
+    assert "Preparing dev DB" in output
+    assert "Loading fixtures" in output
 
 
 def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:
@@ -1601,8 +1650,12 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     assert "\r\x1b[2K" in stderr
     assert stderr.endswith("\r\x1b[2K")
     assert "\n" not in stderr
-    assert "Checking embedding" in stderr
-    assert "Preparing seeded" in stderr
+    assert "Checking provider" in stderr
+    assert "Preparing dev DB" in stderr
+    assert "Exact MRR: workspace" in stderr
+    assert "Thematic metrics: workspace" in stderr
+    assert "NDCG@5" in stderr
+    assert "…" not in stderr
     assert str(dev_db) not in stderr
     assert "Status:" not in stderr
     assert "Status: Checking embedding provider readiness" not in stdout
@@ -1625,7 +1678,7 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     assert not regular_db.exists()
 
 
-def test_cli_dev_eval_human_output_verbose_progress_includes_database_path(
+def test_cli_dev_eval_human_output_verbose_progress_uses_concise_label(
     tmp_path, capsys, monkeypatch
 ) -> None:
     config_path = tmp_path / "config.json"
@@ -1659,7 +1712,10 @@ def test_cli_dev_eval_human_output_verbose_progress_includes_database_path(
     assert "\r\x1b[2K" in stderr
     assert stderr.endswith("\r\x1b[2K")
     assert "Status:" not in stderr
-    assert "Preparing seeded" in stderr
+    assert "Preparing dev DB" in stderr
+    assert "Preparing seeded" not in stderr
+    assert "…" not in stderr
+    assert str(dev_db) not in stderr
     assert "Recollectium dev eval" in stdout
     assert f"Seeded dev DB: {dev_db}" in stdout
 
@@ -1949,7 +2005,7 @@ def test_cli_dev_eval_human_progress_omits_reembedding_progress_when_unavailable
     assert "Recollectium dev eval" in stdout
     assert "\r\x1b[2K" in stderr
     assert stderr.endswith("\r\x1b[2K")
-    assert "Checking embedding" in stderr
+    assert "Checking provider" in stderr
     assert "Status:" not in stderr
     assert seen["kwargs"]["eval_progress_reporter"] is not None
     assert "search_progress_reporter" not in seen["kwargs"]

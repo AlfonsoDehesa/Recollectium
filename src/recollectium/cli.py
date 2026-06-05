@@ -719,6 +719,36 @@ def _compact_live_title(text: str, limit: int | None) -> str:
     return compact[: max(1, limit - 1)].rstrip() + "…"
 
 
+_DEV_EVAL_PROGRESS_LABELS = {
+    "Checking embedding provider readiness": "Checking provider",
+    "Checking provider": "Checking provider",
+    "Preparing seeded development database": "Preparing dev DB",
+    "Loading eval fixtures": "Loading fixtures",
+    "Running exact MRR": "Exact MRR",
+    "Running semantic MRR": "Semantic MRR",
+    "Running thematic weighted metrics": "Thematic metrics",
+    "Running ranked-set NDCG@5": "NDCG@5",
+    "Exact MRR user memories": "Exact MRR: user",
+    "Exact MRR workspace memories": "Exact MRR: workspace",
+    "Semantic MRR paraphrases": "Semantic MRR",
+    "Thematic weighted user topics": "Thematic metrics: user",
+    "Thematic weighted workspace themes": "Thematic metrics: workspace",
+    "Thematic Precision user topics": "Thematic metrics: user",
+    "Thematic Precision workspace themes": "Thematic metrics: workspace",
+    "Ranked-set NDCG@5 cases": "NDCG@5",
+}
+
+
+def _dev_eval_progress_label(text: str) -> tuple[str, bool]:
+    """Return a curated dev eval progress label and whether it is known-safe."""
+
+    compact = " ".join(text.split())
+    label = _DEV_EVAL_PROGRESS_LABELS.get(compact)
+    if label is not None:
+        return label, True
+    return compact, False
+
+
 class _ReembeddingProgressReporter:
     """Render inline re-embedding progress for human-readable CLI commands."""
 
@@ -1046,7 +1076,12 @@ class _DevEvalProgressReporter:
         completed: int | None,
         total: int | None,
     ) -> str:
-        short_label = _compact_live_title(label, self._title_limit)
+        display_label, curated = _dev_eval_progress_label(label)
+        short_label = (
+            display_label
+            if curated
+            else _compact_live_title(display_label, self._title_limit)
+        )
         width = self._bar_width(short_label, completed, total)
         filled = min(width, max(0, round(width * percent / 100)))
         if filled >= width:
@@ -2012,12 +2047,7 @@ def _run_seeded_dev_eval(
 ) -> dict[str, object]:
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
     if eval_progress_reporter is not None:
-        preparation_message = "Preparing seeded development database"
-        if verbose_progress:
-            preparation_message = (
-                f"Preparing seeded development database: {dev_db_path}"
-            )
-        eval_progress_reporter.phase(preparation_message)
+        eval_progress_reporter.phase("Preparing seeded development database")
     seed_result = ensure_seeded_dev_database(dev_db_path, provider)
     if eval_progress_reporter is not None:
         eval_progress_reporter.phase("Loading eval fixtures")
