@@ -1678,7 +1678,7 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     assert not regular_db.exists()
 
 
-def test_cli_dev_eval_human_output_verbose_progress_includes_database_path(
+def test_cli_dev_eval_human_output_verbose_progress_uses_concise_label(
     tmp_path, capsys, monkeypatch
 ) -> None:
     config_path = tmp_path / "config.json"
@@ -1712,7 +1712,10 @@ def test_cli_dev_eval_human_output_verbose_progress_includes_database_path(
     assert "\r\x1b[2K" in stderr
     assert stderr.endswith("\r\x1b[2K")
     assert "Status:" not in stderr
-    assert "Preparing seeded" in stderr
+    assert "Preparing dev DB" in stderr
+    assert "Preparing seeded" not in stderr
+    assert "…" not in stderr
+    assert str(dev_db) not in stderr
     assert "Recollectium dev eval" in stdout
     assert f"Seeded dev DB: {dev_db}" in stdout
 

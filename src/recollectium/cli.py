@@ -2047,12 +2047,7 @@ def _run_seeded_dev_eval(
 ) -> dict[str, object]:
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
     if eval_progress_reporter is not None:
-        preparation_message = "Preparing seeded development database"
-        if verbose_progress:
-            preparation_message = (
-                f"Preparing seeded development database: {dev_db_path}"
-            )
-        eval_progress_reporter.phase(preparation_message)
+        eval_progress_reporter.phase("Preparing seeded development database")
     seed_result = ensure_seeded_dev_database(dev_db_path, provider)
     if eval_progress_reporter is not None:
         eval_progress_reporter.phase("Loading eval fixtures")
