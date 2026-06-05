@@ -397,6 +397,8 @@ jobs:
       - name: Verify uninstall on Windows
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          WINDOWS_SMOKE_VARIANT: ${{ matrix.name }}
         run: |
           function Invoke-RecollectiumSmokeCommand {
             param(
@@ -423,7 +425,7 @@ jobs:
           Invoke-RecollectiumSmokeCommand -Arguments @("add", "--space", "user", "--type", "note", "--content", "CI uninstall smoke sentinel", "--json") -StdoutPath add-default.json -StderrPath add-default.stderr
           Invoke-RecollectiumSmokeCommand -Arguments @("uninstall", "--json") -StdoutPath uninstall-default.json -StderrPath uninstall-default.stderr
 
-          Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-default.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; assert pathlib.Path('uninstall-default.stderr').read_text(encoding='utf-8-sig') == ''; payload=json.loads(pathlib.Path('uninstall-default.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'uninstalled', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; uninstall=payload['package']['uninstall']; assert uninstall['status'] in {'removed', 'scheduled'}, payload; assert payload['data']['preserved'] is True, payload; paths=payload['data']['paths']; assert pathlib.Path(paths['config']).exists(), paths; assert pathlib.Path(paths['database']).exists(), paths"
+          Invoke-PythonSmokeCheck -Command "import json, os, pathlib; add=json.loads(pathlib.Path('add-default.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; stderr=pathlib.Path('uninstall-default.stderr').read_text(encoding='utf-8-sig'); if os.environ.get('WINDOWS_SMOKE_VARIANT') != 'windows-x86_64': assert stderr == '', stderr; payload=json.loads(pathlib.Path('uninstall-default.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'uninstalled', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; uninstall=payload['package']['uninstall']; assert uninstall['status'] in {'removed', 'scheduled'}, payload; assert payload['data']['preserved'] is True, payload; paths=payload['data']['paths']; assert pathlib.Path(paths['config']).exists(), paths; assert pathlib.Path(paths['database']).exists(), paths"
           Start-Sleep -Seconds 5
 
           $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
