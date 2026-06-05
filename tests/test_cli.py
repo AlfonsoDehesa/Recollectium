@@ -915,7 +915,7 @@ def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
     assert "\n" not in output
     assert "Status:" not in output
     assert output.count("\r") == 4
-    assert output.count("\x1b[2K") == 4
+    assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
     assert "Checking" in output
     assert "Semantic" in output
@@ -976,7 +976,7 @@ def test_dev_eval_progress_reporter_uses_dynamic_line_for_narrow_terminal(
     assert "\n" not in output
     assert "Status:" not in output
     assert output.count("\r") == 2
-    assert output.count("\x1b[2K") == 2
+    assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
     assert "Exact MRR" in output
     assert "49/90" in output
@@ -999,7 +999,7 @@ def test_dev_eval_progress_reporter_non_tty_label_uses_dynamic_line() -> None:
     output = stream.getvalue()
     assert "\n" not in output
     assert output.count("\r") == 2
-    assert output.count("\x1b[2K") == 2
+    assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
     assert "Results phase" in output
     assert "Status:" not in output
@@ -1017,7 +1017,7 @@ def test_dev_eval_progress_reporter_throttles_and_dedupes_high_frequency_updates
     reporter = cli_module._DevEvalProgressReporter(
         stream,
         clock=clock,
-        min_render_interval=0.1,
+        min_render_interval=0.25,
     )
 
     with reporter:
@@ -1027,7 +1027,7 @@ def test_dev_eval_progress_reporter_throttles_and_dedupes_high_frequency_updates
             "total": 10,
         }
         reporter(first_event)
-        now[0] = 0.2
+        now[0] = 0.3
         reporter(first_event)
         for completed in range(2, 10):
             reporter(
@@ -1049,7 +1049,7 @@ def test_dev_eval_progress_reporter_throttles_and_dedupes_high_frequency_updates
     assert "\n" not in output
     assert "Status:" not in output
     assert output.count("\r") == 4
-    assert output.count("\x1b[2K") == 4
+    assert output.count("\x1b[2K") == 1
     assert output.count("1/10") == 1
     assert "10/10" in output
     assert "100% 10/10" in output
@@ -1127,16 +1127,12 @@ def test_dev_eval_progress_reporter_renders_single_tty_line_and_clears() -> None
     output = stream.getvalue()
     assert "\n" not in output
     assert output.count("\r") == 8
-    assert output.count("\x1b[2K") == 8
+    assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
     assert "Exact MRR user" in output
     assert "Semantic MRR" in output
     assert "50/100" in output
-    completed_line = next(
-        line
-        for line in output.split(cli_module._DevEvalProgressReporter._clear_line)
-        if "Semantic MRR" in line
-    )
+    completed_line = next(line for line in output.split("\r") if "Semantic MRR" in line)
     assert "100% 570/570" in completed_line
     assert "╺" not in completed_line
     assert "570/570" in output
@@ -1191,7 +1187,7 @@ def test_dev_eval_progress_reporter_uses_one_dynamic_tty_line_across_updates() -
     output = stream.getvalue()
     assert "\n" not in output
     assert output.count("\r") == 6
-    assert output.count("\x1b[2K") == 6
+    assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
     assert "Checking embedding" in output
     assert "Preparing seeded" in output

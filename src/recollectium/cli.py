@@ -939,7 +939,7 @@ class _DevEvalProgressReporter:
         stream: Any,
         *,
         clock: Any = time.monotonic,
-        min_render_interval: float = 0.1,
+        min_render_interval: float = 0.25,
     ) -> None:
         self._stream = stream
         self._clock = clock
@@ -1014,7 +1014,7 @@ class _DevEvalProgressReporter:
         ):
             return
         padding = " " * max(self._last_line_width - len(line), 0)
-        if self._write(f"{self._clear_line}{line}{padding}"):
+        if self._write(f"\r{line}{padding}"):
             self._last_line_width = len(line)
             self._last_render_at = now
             self._last_rendered_line = line
