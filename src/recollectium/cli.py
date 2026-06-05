@@ -952,6 +952,7 @@ class _DevEvalProgressReporter:
         self._last_line_width = 0
         self._last_render_at: float | None = None
         self._last_rendered_line = ""
+        self._last_progress_key: tuple[str, int] | None = None
 
     def __enter__(self) -> _DevEvalProgressReporter:
         self._active = True
@@ -986,13 +987,22 @@ class _DevEvalProgressReporter:
             self._position = min(self._position + 1, 98)
             self._render(label, self._position, None, None)
         else:
+            progress_key = (label, total)
+            first_progress_for_key = progress_key != self._last_progress_key
             completed_eval = completed >= total
             if completed >= total:
                 self._position = 100
             else:
                 fraction = min(max(completed / total, 0), 1)
                 self._position = 5 + int(fraction * 93)
-            self._render(label, self._position, completed, total, force=completed_eval)
+            self._render(
+                label,
+                self._position,
+                completed,
+                total,
+                force=first_progress_for_key or completed_eval,
+            )
+            self._last_progress_key = progress_key
 
     def _render(
         self,

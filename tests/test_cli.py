@@ -1056,6 +1056,53 @@ def test_dev_eval_progress_reporter_throttles_and_dedupes_high_frequency_updates
     assert output.endswith("\r\x1b[2K")
 
 
+def test_dev_eval_progress_reporter_forces_first_count_after_phase() -> None:
+    now = [0.0]
+
+    def clock() -> float:
+        return now[0]
+
+    stream = io.StringIO()
+    reporter = cli_module._DevEvalProgressReporter(
+        stream,
+        clock=clock,
+        min_render_interval=0.25,
+    )
+
+    with reporter:
+        reporter.phase("Preparing seeded development database")
+        reporter(
+            {
+                "label": "Exact MRR user memories",
+                "completed": 1,
+                "total": 100,
+            }
+        )
+        reporter(
+            {
+                "label": "Exact MRR user memories",
+                "completed": 2,
+                "total": 100,
+            }
+        )
+        reporter(
+            {
+                "label": "Exact MRR user memories",
+                "completed": 100,
+                "total": 100,
+            }
+        )
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert output.count("\r") == 4
+    assert "Preparing seeded" in output
+    assert "1/100" in output
+    assert "2/100" not in output
+    assert "100% 100/100" in output
+    assert output.endswith("\r\x1b[2K")
+
+
 def test_dev_eval_progress_reporter_format_line_renders_full_bar_at_width() -> None:
     reporter = cli_module._DevEvalProgressReporter(io.StringIO())
 
