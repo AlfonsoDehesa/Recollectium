@@ -982,8 +982,11 @@ class _DevEvalProgressReporter:
                 self._position = min(self._position + 1, 98)
                 self._render(label, self._position, None, None)
             else:
-                fraction = min(max(completed / total, 0), 1)
-                self._position = 5 + int(fraction * 93)
+                if completed >= total:
+                    self._position = 100
+                else:
+                    fraction = min(max(completed / total, 0), 1)
+                    self._position = 5 + int(fraction * 93)
                 self._render(label, self._position, completed, total)
             return
 

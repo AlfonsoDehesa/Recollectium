@@ -1045,6 +1045,13 @@ def test_dev_eval_progress_reporter_renders_single_tty_line_and_clears() -> None
     assert "Exact MRR user" in output
     assert "Semantic MRR" in output
     assert "50/100" in output
+    completed_line = next(
+        line
+        for line in output.split(cli_module._DevEvalProgressReporter._clear_line)
+        if "Semantic MRR" in line
+    )
+    assert "100% 570/570" in completed_line
+    assert "╺" not in completed_line
     assert "570/570" in output
     assert "Status:" not in output
 
