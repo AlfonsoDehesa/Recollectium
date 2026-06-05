@@ -1327,6 +1327,7 @@ def evaluate_thematic_precision(
         confusers=confusers,
     )
 
+
 def evaluate_exact_mrr_for_core(
     core: ExactMRRCore,
     *,

@@ -956,7 +956,9 @@ def test_emit_human_progress_writes_status_line_and_flushes(monkeypatch) -> None
     assert stream.flushed is True
 
 
-def test_dev_eval_progress_reporter_reuses_phase_task_and_switches_count_label() -> None:
+def test_dev_eval_progress_reporter_reuses_phase_task_and_switches_count_label() -> (
+    None
+):
     stream = io.StringIO()
     stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
     reporter = cli_module._DevEvalProgressReporter(stream)
@@ -1652,7 +1654,9 @@ def test_cli_dev_eval_human_progress_omits_reembedding_progress_when_unavailable
     )
 
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
-    monkeypatch.setattr(cli_module, "_human_reembedding_progress_reporter", lambda _: None)
+    monkeypatch.setattr(
+        cli_module, "_human_reembedding_progress_reporter", lambda _: None
+    )
 
     seen: dict[str, Any] = {}
 

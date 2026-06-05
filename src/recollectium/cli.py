@@ -1929,7 +1929,9 @@ def _run_seeded_dev_eval(
     if eval_progress_reporter is not None:
         preparation_message = "Preparing seeded development database"
         if verbose_progress:
-            preparation_message = f"Preparing seeded development database: {dev_db_path}"
+            preparation_message = (
+                f"Preparing seeded development database: {dev_db_path}"
+            )
         eval_progress_reporter.phase(preparation_message)
     seed_result = ensure_seeded_dev_database(dev_db_path, provider)
     if eval_progress_reporter is not None:

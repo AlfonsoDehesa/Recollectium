@@ -32,6 +32,7 @@ def _emit_dev_eval_progress(
     if progress_callback is not None:
         progress_callback(event)
 
+
 _LABEL_USEFUL_VALUE: Mapping[int, float] = {2: 1.0, 1: 0.5, -1: 0.0, -2: 0.0}
 _LABEL_RETRIEVED_COST: Mapping[int, float] = {2: 1.0, 1: 1.0, -1: 1.0, -2: 1.5}
 
@@ -361,7 +362,9 @@ def evaluate_thematic_weighted_metrics(
     user_completed = 0
     workspace_completed = 0
     user_total = sum(1 for scope, _, _ in grouped_cases if scope == SPACE_USER)
-    workspace_total = sum(1 for scope, _, _ in grouped_cases if scope == SPACE_WORKSPACE)
+    workspace_total = sum(
+        1 for scope, _, _ in grouped_cases if scope == SPACE_WORKSPACE
+    )
     for scope, group, workspace_uid in sorted(grouped_cases):
         group_cases = sorted(
             grouped_cases[(scope, group, workspace_uid)],
