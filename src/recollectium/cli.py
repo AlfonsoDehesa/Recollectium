@@ -20,7 +20,6 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Sequence, cast
 
-from alive_progress import alive_bar
 from rich.console import Console, RenderableType
 from rich.progress import (
     BarColumn,
@@ -931,56 +930,44 @@ class _ThresholdOptimizationProgressReporter:
 
 
 class _DevEvalProgressReporter:
-    """Render seeded dev eval phases and counted progress for humans.
+    """Render seeded dev eval progress for humans on a single TTY line."""
 
-    Uses alive-progress for smooth single-line TTY rendering that avoids
-    the flickering some terminals see with Rich's multi-line refresh.
-    """
+    _clear_line = "\r\x1b[2K"
 
     def __init__(self, stream: Any) -> None:
         self._stream = stream
         isatty = getattr(stream, "isatty", None)
-        self._isatty = False
+        self._isatty_error = False
         if callable(isatty):
             try:
-                self._isatty = bool(isatty())
+                bool(isatty())
             except OSError:
-                self._isatty = False
+                self._isatty_error = True
         self._title_limit = _live_progress_title_limit(stream)
-        self._bar: Any = None
-        self._ctx: Any = None
+        self._active = False
+        self._position = 0
+        self._last_line_width = 0
 
     def __enter__(self) -> _DevEvalProgressReporter:
-        if self._isatty and self._title_limit is not None:
-            self._ctx = alive_bar(
-                100,
-                title="dev eval",
-                bar="smooth",
-                manual=True,
-                enrich_print=False,
-                file=self._stream,
-            )
-            self._bar = self._ctx.__enter__()
+        self._active = self._title_limit is not None and not self._isatty_error
         return self
 
     def __exit__(self, *_: object) -> None:
         self.finish()
 
     def finish(self) -> None:
-        if self._ctx is not None:
-            self._ctx.__exit__(None, None, None)
-            self._bar = None
-            self._ctx = None
+        if not self._active:
+            return
+        self._stream.write(self._clear_line)
+        self._stream.flush()
+        self._active = False
+        self._last_line_width = 0
 
     def phase(self, message: str) -> None:
-        if self._bar is not None:
-            self._bar.title = _compact_live_title(message, self._title_limit)
-            # Advance a tiny amount for uncounted phases so the bar does not
-            # stay stuck at 0 %.  The visual weight of counted phases dwarfs
-            # these micro-ticks, so the bar still feels driven by real work.
-            current = self._bar.current
-            if current < 5:
-                self._bar(min(current + 1, 5) / 100)
+        if self._active:
+            if self._position < 5:
+                self._position = min(self._position + 1, 5)
+            self._render(message, self._position, None, None)
             return
         self._stream.write(f"Status: {message}\n")
         self._stream.flush()
@@ -990,19 +977,17 @@ class _DevEvalProgressReporter:
         total = int(event.get("total") or 0)
         completed = int(event.get("completed") or 0)
 
-        if self._bar is not None:
-            short_label = _compact_live_title(label, self._title_limit)
-            self._bar.title = short_label
+        if self._active:
             if total <= 0 or completed <= 0:
-                # No meaningful progress fraction yet — just nudge.
-                current = self._bar.current
-                self._bar(min(current + 1, 98) / 100)
+                self._position = min(self._position + 1, 98)
+                self._render(label, self._position, None, None)
             else:
-                # Map phase progress onto 5..98 % of the bar to leave
-                # room for the initial micro-ticks and final wrap-up.
-                fraction = completed / total
-                position = 5 + int(fraction * 93)
-                self._bar(position / 100)
+                if completed >= total:
+                    self._position = 100
+                else:
+                    fraction = min(max(completed / total, 0), 1)
+                    self._position = 5 + int(fraction * 93)
+                self._render(label, self._position, completed, total)
             return
 
         if total:
@@ -1010,6 +995,53 @@ class _DevEvalProgressReporter:
         else:
             self._stream.write(f"Status: {label}\n")
         self._stream.flush()
+
+    def _render(
+        self,
+        label: str,
+        percent: int,
+        completed: int | None,
+        total: int | None,
+    ) -> None:
+        line = self._format_line(label, percent, completed, total)
+        padding = " " * max(self._last_line_width - len(line), 0)
+        self._stream.write(f"{self._clear_line}{line}{padding}")
+        self._stream.flush()
+        self._last_line_width = len(line)
+
+    def _format_line(
+        self,
+        label: str,
+        percent: int,
+        completed: int | None,
+        total: int | None,
+    ) -> str:
+        short_label = _compact_live_title(label, self._title_limit)
+        width = self._bar_width(short_label, completed, total)
+        filled = min(width, max(0, round(width * percent / 100)))
+        if filled >= width:
+            bar = "━" * width
+        else:
+            bar = "━" * filled + "╺" + "─" * max(width - filled - 1, 0)
+        count = (
+            f" {completed}/{total}"
+            if completed is not None and total is not None
+            else ""
+        )
+        return f"\x1b[36m{short_label}\x1b[0m {bar} {percent:3d}%{count}"
+
+    def _bar_width(self, label: str, completed: int | None, total: int | None) -> int:
+        try:
+            columns = shutil.get_terminal_size(fallback=(80, 24)).columns
+        except OSError:
+            columns = 80
+        count_width = (
+            len(f" {completed}/{total}")
+            if completed is not None and total is not None
+            else 0
+        )
+        fixed_width = len(label) + len("  100%") + count_width + 1
+        return max(10, min(30, columns - fixed_width))
 
 
 def _parse_config_value(raw: str) -> Any:
