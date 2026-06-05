@@ -1016,13 +1016,13 @@ def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
     progress = FakeProgress.instances[0]
     assert progress.started is True
     assert progress.stopped is True
-    assert progress.added_tasks == [("Checking embedding provider readiness", None)]
+    assert progress.added_tasks == [("Checking embedding provider readiness", 1)]
     assert progress.updates == [
         (
             1,
             {
                 "description": "Checking embedding provider readiness",
-                "total": None,
+                "total": 1,
                 "completed": 0,
                 "visible": True,
             },
@@ -1031,7 +1031,7 @@ def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
             1,
             {
                 "description": "Preparing seeded development database",
-                "total": None,
+                "total": 1,
                 "completed": 0,
                 "visible": True,
             },
@@ -1058,7 +1058,7 @@ def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
             1,
             {
                 "description": "Loading eval fixtures",
-                "total": None,
+                "total": 1,
                 "completed": 0,
                 "visible": True,
             },
@@ -1547,6 +1547,7 @@ def test_cli_dev_eval_human_output_compact_hides_verbose_sections() -> None:
     assert "Results" not in output
     assert "Diagnostics" not in output
     assert "Worst exact target" not in output
+    assert output.endswith("\n\n")
 
 
 def test_cli_dev_eval_human_output_verbose_preserves_details() -> None:
@@ -1637,6 +1638,7 @@ def test_cli_dev_eval_human_output_verbose_preserves_details() -> None:
     assert "Running semantic MRR" not in output
     assert "Running thematic weighted metrics" not in output
     assert "Running ranked-set NDCG@5" not in output
+    assert output.endswith("\n\n")
 
 
 def test_cli_dev_eval_human_output_verbose_includes_diagnostics_and_fallbacks() -> None:
@@ -2119,13 +2121,13 @@ def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
     progress = FakeProgress.instances[0]
     assert progress.started is True
     assert progress.stopped is True
-    assert progress.added_tasks == [("Checking embedding provider readiness", None)]
+    assert progress.added_tasks == [("Checking embedding provider readiness", 1)]
     assert progress.updates == [
         (
             1,
             {
                 "description": "Checking embedding provider readiness",
-                "total": None,
+                "total": 1,
                 "completed": 0,
                 "visible": True,
             },
@@ -2152,7 +2154,7 @@ def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
             1,
             {
                 "description": "Writing CSV artifact: thresholds.csv",
-                "total": None,
+                "total": 1,
                 "completed": 0,
                 "visible": True,
             },
