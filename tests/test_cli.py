@@ -952,6 +952,10 @@ def test_live_progress_title_limit_returns_none_for_narrow_terminal(
     assert cli_module._live_progress_title_limit(io.StringIO()) is None
 
 
+def test_compact_live_title_returns_untrimmed_label_within_limit() -> None:
+    assert cli_module._compact_live_title("Short label", 20) == "Short label"
+
+
 def test_dev_eval_progress_reporter_uses_dynamic_line_for_narrow_terminal(
     monkeypatch,
 ) -> None:
