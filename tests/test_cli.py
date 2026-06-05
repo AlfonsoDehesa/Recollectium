@@ -1533,7 +1533,8 @@ def test_cli_dev_eval_human_output_compact_hides_verbose_sections() -> None:
         response_verbosity=RESPONSE_VERBOSITY_COMPACT,
     )
 
-    assert "Recollectium dev eval" in output
+    assert output.startswith("\nRecollectium dev eval\n  Exact MRR")
+    assert "\nRecollectium dev eval\n\n" not in output
     assert "Exact MRR" in output
     assert "Semantic MRR" in output
     assert "Thematic Weighted Precision@10" in output

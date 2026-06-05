@@ -451,9 +451,8 @@ def _format_dev_eval_output(
     color: bool = False,
     verbose: bool = False,
 ) -> str:
-    lines = [_style("Recollectium dev eval", _RICH_HEADING, enabled=color)]
+    lines = ["", _style("Recollectium dev eval", _RICH_HEADING, enabled=color)]
     if not verbose:
-        lines.extend([""])
         lines.extend(_format_dev_eval_metric_lines(payload["metrics"], color=color))
         return "\n".join(lines) + "\n"
 
@@ -719,7 +718,7 @@ class _ReembeddingProgressReporter:
                 TextColumn("{task.completed}/{task.total}"),
                 TimeElapsedColumn(),
                 console=Console(file=self._stream),
-                transient=False,
+                transient=True,
             )
             progress.start()
             self._progress = progress
@@ -841,7 +840,7 @@ class _ThresholdOptimizationProgressReporter:
             _DeterminateTimeRemainingColumn(),
             TimeElapsedColumn(),
             console=Console(file=self._stream),
-            transient=False,
+            transient=True,
         )
         progress.start()
         self._progress = progress
@@ -930,7 +929,7 @@ class _DevEvalProgressReporter:
             _DeterminateTimeRemainingColumn(),
             TimeElapsedColumn(),
             console=Console(file=self._stream),
-            transient=False,
+            transient=True,
         )
         progress.start()
         self._progress = progress
