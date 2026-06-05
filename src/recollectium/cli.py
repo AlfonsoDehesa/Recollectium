@@ -913,9 +913,7 @@ class _DevEvalProgressReporter:
             except OSError:
                 self._isatty = False
         self._progress: Progress | None = None
-        self._phase_task_id: TaskID | None = None
-        self._count_task_id: TaskID | None = None
-        self._count_label: str | None = None
+        self._task_id: TaskID | None = None
 
     def __enter__(self) -> _DevEvalProgressReporter:
         self._ensure_progress()
@@ -944,23 +942,24 @@ class _DevEvalProgressReporter:
         if self._progress is not None:
             self._progress.stop()
             self._progress = None
-            self._phase_task_id = None
-            self._count_task_id = None
-            self._count_label = None
+            self._task_id = None
+
+    def _update_task(self, *, description: str, total: int | None, completed: int = 0) -> None:
+        assert self._progress is not None
+        if self._task_id is None:
+            self._task_id = self._progress.add_task(description, total=total)
+        self._progress.update(
+            self._task_id,
+            description=description,
+            total=total,
+            completed=completed,
+            visible=True,
+        )
 
     def phase(self, message: str) -> None:
         self._ensure_progress()
         if self._progress is not None:
-            if self._count_task_id is not None:
-                self._progress.update(self._count_task_id, visible=False)
-                self._count_task_id = None
-                self._count_label = None
-            if self._phase_task_id is None:
-                self._phase_task_id = self._progress.add_task(message, total=None)
-            else:
-                self._progress.update(
-                    self._phase_task_id, description=message, visible=True
-                )
+            self._update_task(description=message, total=None, completed=0)
             return
         self._stream.write(f"Status: {message}\n")
         self._stream.flush()
@@ -971,19 +970,7 @@ class _DevEvalProgressReporter:
         completed = int(event.get("completed") or 0)
         self._ensure_progress()
         if self._progress is not None:
-            if self._phase_task_id is not None:
-                self._progress.update(self._phase_task_id, visible=False)
-            if self._count_task_id is None or self._count_label != label:
-                if self._count_task_id is not None:
-                    self._progress.update(self._count_task_id, visible=False)
-                self._count_task_id = self._progress.add_task(label, total=total)
-                self._count_label = label
-            self._progress.update(
-                self._count_task_id,
-                completed=completed,
-                total=total,
-                description=label,
-            )
+            self._update_task(description=label, total=total, completed=completed)
             return
         self._stream.write(f"Status: {label}: {completed}/{total}\n")
         self._stream.flush()

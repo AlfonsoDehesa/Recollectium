@@ -956,21 +956,45 @@ def test_emit_human_progress_writes_status_line_and_flushes(monkeypatch) -> None
     assert stream.flushed is True
 
 
-def test_dev_eval_progress_reporter_reuses_phase_task_and_switches_count_label() -> (
-    None
-):
-    stream = io.StringIO()
-    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
+    monkeypatch,
+) -> None:
+    class FakeTTYStream(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    class FakeProgress:
+        instances: list[FakeProgress] = []
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.started = False
+            self.stopped = False
+            self.added_tasks: list[tuple[str, object]] = []
+            self.updates: list[tuple[object, dict[str, object]]] = []
+            FakeProgress.instances.append(self)
+
+        def start(self) -> None:
+            self.started = True
+
+        def stop(self) -> None:
+            self.stopped = True
+
+        def add_task(self, description: str, *, total: object = None) -> int:
+            task_id = len(self.added_tasks) + 1
+            self.added_tasks.append((description, total))
+            return task_id
+
+        def update(self, task_id: object, **kwargs: object) -> None:
+            self.updates.append((task_id, kwargs))
+
+    monkeypatch.setattr(cli_module, "Progress", FakeProgress)
+
+    stream = FakeTTYStream()
     reporter = cli_module._DevEvalProgressReporter(stream)
 
     with reporter:
         reporter.phase("Checking embedding provider readiness")
-        first_phase_task_id = reporter._phase_task_id
-        assert first_phase_task_id is not None
-
         reporter.phase("Preparing seeded development database")
-        assert reporter._phase_task_id == first_phase_task_id
-
         reporter(
             {
                 "label": "Exact MRR user memories",
@@ -978,10 +1002,6 @@ def test_dev_eval_progress_reporter_reuses_phase_task_and_switches_count_label()
                 "total": 100,
             }
         )
-        first_count_task_id = reporter._count_task_id
-        assert first_count_task_id is not None
-        assert reporter._count_label == "Exact MRR user memories"
-
         reporter(
             {
                 "label": "Semantic MRR paraphrases",
@@ -989,13 +1009,61 @@ def test_dev_eval_progress_reporter_reuses_phase_task_and_switches_count_label()
                 "total": 570,
             }
         )
-        assert reporter._count_task_id is not None
-        assert reporter._count_task_id != first_count_task_id
-        assert reporter._count_label == "Semantic MRR paraphrases"
-
         reporter.phase("Loading eval fixtures")
-        assert reporter._count_task_id is None
-        assert reporter._count_label is None
+
+    assert stream.getvalue() == ""
+    assert len(FakeProgress.instances) == 1
+    progress = FakeProgress.instances[0]
+    assert progress.started is True
+    assert progress.stopped is True
+    assert progress.added_tasks == [("Checking embedding provider readiness", None)]
+    assert progress.updates == [
+        (
+            1,
+            {
+                "description": "Checking embedding provider readiness",
+                "total": None,
+                "completed": 0,
+                "visible": True,
+            },
+        ),
+        (
+            1,
+            {
+                "description": "Preparing seeded development database",
+                "total": None,
+                "completed": 0,
+                "visible": True,
+            },
+        ),
+        (
+            1,
+            {
+                "description": "Exact MRR user memories",
+                "total": 100,
+                "completed": 1,
+                "visible": True,
+            },
+        ),
+        (
+            1,
+            {
+                "description": "Semantic MRR paraphrases",
+                "total": 570,
+                "completed": 1,
+                "visible": True,
+            },
+        ),
+        (
+            1,
+            {
+                "description": "Loading eval fixtures",
+                "total": None,
+                "completed": 0,
+                "visible": True,
+            },
+        ),
+    ]
 
 
 def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:
