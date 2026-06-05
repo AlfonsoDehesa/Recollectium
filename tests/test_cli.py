@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tomllib
 from copy import deepcopy
 from importlib.metadata import PackageNotFoundError
@@ -907,6 +908,35 @@ def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
     assert "Status: Semantic MRR paraphrases: 1/2" in output
 
 
+def test_live_progress_title_limit_returns_none_when_terminal_size_errors(
+    monkeypatch,
+) -> None:
+    def raise_terminal_size_error(
+        fallback: tuple[int, int],
+    ) -> os.terminal_size:
+        raise OSError("terminal size unavailable")
+
+    monkeypatch.setattr(
+        cli_module.shutil,
+        "get_terminal_size",
+        raise_terminal_size_error,
+    )
+
+    assert cli_module._live_progress_title_limit(io.StringIO()) is None
+
+
+def test_live_progress_title_limit_returns_none_for_narrow_terminal(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        cli_module.shutil,
+        "get_terminal_size",
+        lambda fallback: os.terminal_size((59, 24)),
+    )
+
+    assert cli_module._live_progress_title_limit(io.StringIO()) is None
+
+
 def test_dev_eval_progress_reporter_non_tty_label_fallback() -> None:
     """Non-TTY __call__ with no total should fall back to label-only output."""
     stream = _OSErrorIsattyStream()
@@ -924,6 +954,33 @@ def test_dev_eval_progress_reporter_non_tty_label_fallback() -> None:
     # count line.
     output = stream.getvalue()
     assert "Status: Results phase" in output
+
+
+def test_dev_eval_progress_reporter_format_line_renders_full_bar_at_width() -> None:
+    reporter = cli_module._DevEvalProgressReporter(io.StringIO())
+
+    line = reporter._format_line("Finished", 100, 3, 3)
+
+    assert "100% 3/3" in line
+    assert "╺" not in line
+
+
+def test_dev_eval_progress_reporter_bar_width_uses_fallback_when_terminal_size_errors(
+    monkeypatch,
+) -> None:
+    def raise_terminal_size_error(
+        fallback: tuple[int, int],
+    ) -> os.terminal_size:
+        raise OSError("terminal size unavailable")
+
+    monkeypatch.setattr(
+        cli_module.shutil,
+        "get_terminal_size",
+        raise_terminal_size_error,
+    )
+    reporter = cli_module._DevEvalProgressReporter(io.StringIO())
+
+    assert reporter._bar_width("Short label", 1, 2) == 30
 
 
 def test_dev_eval_progress_reporter_renders_single_tty_line_and_clears() -> None:
