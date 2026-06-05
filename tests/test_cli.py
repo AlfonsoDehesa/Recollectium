@@ -1360,8 +1360,8 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     assert "Status: Exact MRR user memories: 1/100" in stderr
     assert "Status: Exact MRR workspace memories: 90/90" in stderr
     assert "Status: Semantic MRR paraphrases: 570/570" in stderr
-    assert "Status: Thematic weighted user topics: 1/30" in stderr
-    assert "Status: Thematic weighted workspace themes: 1/27" in stderr
+    assert "Status: Thematic weighted user topics: 1/10" in stderr
+    assert "Status: Thematic weighted workspace themes: 1/9" in stderr
     assert "Status: Ranked-set NDCG@5 cases: 15/15" in stderr
     assert "Seeded dev DB:" not in stdout
     assert "Regular DB:" not in stdout

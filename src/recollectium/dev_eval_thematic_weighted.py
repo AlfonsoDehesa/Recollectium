@@ -360,10 +360,8 @@ def evaluate_thematic_weighted_metrics(
     scored_queries: list[tuple[str, str, str | None, ThematicWeightedQueryScore]] = []
     user_completed = 0
     workspace_completed = 0
-    user_total = sum(1 for case in validated_cases if case.scope == SPACE_USER)
-    workspace_total = sum(
-        1 for case in validated_cases if case.scope == SPACE_WORKSPACE
-    )
+    user_total = sum(1 for scope, _, _ in grouped_cases if scope == SPACE_USER)
+    workspace_total = sum(1 for scope, _, _ in grouped_cases if scope == SPACE_WORKSPACE)
     for scope, group, workspace_uid in sorted(grouped_cases):
         group_cases = sorted(
             grouped_cases[(scope, group, workspace_uid)],
