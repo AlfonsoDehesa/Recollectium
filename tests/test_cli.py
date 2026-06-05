@@ -2118,14 +2118,44 @@ def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
     progress = FakeProgress.instances[0]
     assert progress.started is True
     assert progress.stopped is True
-    assert progress.added_tasks == [
-        ("Checking embedding provider readiness", None),
-        ("Scoring thresholds", 2),
-    ]
+    assert progress.added_tasks == [("Checking embedding provider readiness", None)]
     assert progress.updates == [
-        (1, {"visible": False}),
-        (2, {"completed": 1, "description": "Scoring thresholds (threshold 0.50)"}),
-        (1, {"description": "Writing CSV artifact: thresholds.csv", "visible": True}),
+        (
+            1,
+            {
+                "description": "Checking embedding provider readiness",
+                "total": None,
+                "completed": 0,
+                "visible": True,
+            },
+        ),
+        (
+            1,
+            {
+                "description": "Scoring thresholds",
+                "total": 2,
+                "completed": 0,
+                "visible": True,
+            },
+        ),
+        (
+            1,
+            {
+                "description": "Scoring thresholds (threshold 0.50)",
+                "total": 2,
+                "completed": 1,
+                "visible": True,
+            },
+        ),
+        (
+            1,
+            {
+                "description": "Writing CSV artifact: thresholds.csv",
+                "total": None,
+                "completed": 0,
+                "visible": True,
+            },
+        ),
     ]
 
 

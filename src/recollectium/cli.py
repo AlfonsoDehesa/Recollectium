@@ -823,8 +823,7 @@ class _ThresholdOptimizationProgressReporter:
             except OSError:
                 self._isatty = False
         self._progress: Progress | None = None
-        self._phase_task_id: TaskID | None = None
-        self._scoring_task_id: TaskID | None = None
+        self._task_id: TaskID | None = None
         self._scoring_total = 0
 
     def __enter__(self) -> _ThresholdOptimizationProgressReporter:
@@ -854,18 +853,24 @@ class _ThresholdOptimizationProgressReporter:
         if self._progress is not None:
             self._progress.stop()
             self._progress = None
-            self._phase_task_id = None
-            self._scoring_task_id = None
+            self._task_id = None
+
+    def _update_task(self, *, description: str, total: int | None, completed: int = 0) -> None:
+        assert self._progress is not None
+        if self._task_id is None:
+            self._task_id = self._progress.add_task(description, total=total)
+        self._progress.update(
+            self._task_id,
+            description=description,
+            total=total,
+            completed=completed,
+            visible=True,
+        )
 
     def phase(self, message: str) -> None:
         self._ensure_progress()
         if self._progress is not None:
-            if self._phase_task_id is None:
-                self._phase_task_id = self._progress.add_task(message, total=None)
-            else:
-                self._progress.update(
-                    self._phase_task_id, description=message, visible=True
-                )
+            self._update_task(description=message, total=None, completed=0)
             return
         self._stream.write(f"Status: {message}\n")
         self._stream.flush()
@@ -874,23 +879,18 @@ class _ThresholdOptimizationProgressReporter:
         self._ensure_progress()
         self._scoring_total = total
         if self._progress is not None:
-            if self._phase_task_id is not None:
-                self._progress.update(self._phase_task_id, visible=False)
-            self._scoring_task_id = self._progress.add_task(
-                "Scoring thresholds", total=total
-            )
+            self._update_task(description="Scoring thresholds", total=total, completed=0)
             return
         self._stream.write(f"Status: Scoring thresholds: 0/{total} (ETA calculating)\n")
         self._stream.flush()
 
     def advance_scoring(self, completed: int, threshold: float) -> None:
         if self._progress is not None:
-            if self._scoring_task_id is not None:
-                self._progress.update(
-                    self._scoring_task_id,
-                    completed=completed,
-                    description=f"Scoring thresholds (threshold {threshold:.2f})",
-                )
+            self._update_task(
+                description=f"Scoring thresholds (threshold {threshold:.2f})",
+                total=self._scoring_total,
+                completed=completed,
+            )
             return
         if completed == self._scoring_total or completed == 1:
             self._stream.write(
