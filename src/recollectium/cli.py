@@ -854,7 +854,9 @@ class _ThresholdOptimizationProgressReporter:
             self._progress = None
             self._task_id = None
 
-    def _update_task(self, *, description: str, total: int | None, completed: int = 0) -> None:
+    def _update_task(
+        self, *, description: str, total: int | None, completed: int = 0
+    ) -> None:
         assert self._progress is not None
         if self._task_id is None:
             self._task_id = self._progress.add_task(description, total=total)
@@ -878,7 +880,9 @@ class _ThresholdOptimizationProgressReporter:
         self._ensure_progress()
         self._scoring_total = total
         if self._progress is not None:
-            self._update_task(description="Scoring thresholds", total=total, completed=0)
+            self._update_task(
+                description="Scoring thresholds", total=total, completed=0
+            )
             return
         self._stream.write(f"Status: Scoring thresholds: 0/{total} (ETA calculating)\n")
         self._stream.flush()
@@ -943,7 +947,9 @@ class _DevEvalProgressReporter:
             self._progress = None
             self._task_id = None
 
-    def _update_task(self, *, description: str, total: int | None, completed: int = 0) -> None:
+    def _update_task(
+        self, *, description: str, total: int | None, completed: int = 0
+    ) -> None:
         assert self._progress is not None
         if self._task_id is None:
             self._task_id = self._progress.add_task(description, total=total)
