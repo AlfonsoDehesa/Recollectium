@@ -892,20 +892,29 @@ def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
     stream = _OSErrorIsattyStream()
     reporter = cli_module._DevEvalProgressReporter(stream)
 
-    reporter.phase("Checking embedding provider readiness")
-    reporter(
-        {
-            "phase": "semantic_mrr",
-            "bucket": "paraphrases",
-            "label": "Semantic MRR paraphrases",
-            "completed": 1,
-            "total": 2,
-        }
-    )
+    with reporter:
+        reporter.phase("Checking embedding provider readiness")
+        reporter(
+            {
+                "phase": "semantic_mrr",
+                "bucket": "paraphrases",
+                "label": "Semantic MRR paraphrases",
+                "completed": 1,
+                "total": 2,
+            }
+        )
+        reporter(
+            {
+                "label": "Results phase",
+                "completed": 0,
+                "total": 0,
+            }
+        )
 
     output = stream.getvalue()
     assert "Status: Checking embedding provider readiness" in output
     assert "Status: Semantic MRR paraphrases: 1/2" in output
+    assert "Status: Results phase" in output
 
 
 def test_live_progress_title_limit_returns_none_when_terminal_size_errors(
@@ -937,23 +946,27 @@ def test_live_progress_title_limit_returns_none_for_narrow_terminal(
     assert cli_module._live_progress_title_limit(io.StringIO()) is None
 
 
-def test_dev_eval_progress_reporter_non_tty_label_fallback() -> None:
-    """Non-TTY __call__ with no total should fall back to label-only output."""
-    stream = _OSErrorIsattyStream()
+def test_dev_eval_progress_reporter_non_tty_label_uses_dynamic_line() -> None:
+    """Captured non-TTY output should not emit one Status line per event."""
+    stream = io.StringIO()
     reporter = cli_module._DevEvalProgressReporter(stream)
 
-    reporter(
-        {
-            "label": "Results phase",
-            "completed": 0,
-            "total": 0,
-        }
-    )
+    with reporter:
+        reporter(
+            {
+                "label": "Results phase",
+                "completed": 0,
+                "total": 0,
+            }
+        )
 
-    # In non-TTY mode, the event produces a Status: <label> line not a
-    # count line.
     output = stream.getvalue()
-    assert "Status: Results phase" in output
+    assert "\n" not in output
+    assert output.count("\r") == 2
+    assert output.count("\x1b[2K") == 2
+    assert output.endswith("\r\x1b[2K")
+    assert "Results phase" in output
+    assert "Status:" not in output
 
 
 def test_dev_eval_progress_reporter_format_line_renders_full_bar_at_width() -> None:
@@ -1448,16 +1461,20 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     )
 
     assert exit_code == 0
-    assert "Status: Checking embedding provider readiness" in stderr
-    assert "Status: Preparing seeded development database" in stderr
+    assert "\r\x1b[2K" in stderr
+    assert stderr.endswith("\r\x1b[2K")
+    assert "\n" not in stderr
+    assert "Checking embedding" in stderr
+    assert "Preparing seeded" in stderr
     assert str(dev_db) not in stderr
+    assert "Status:" not in stderr
     assert "Status: Checking embedding provider readiness" not in stdout
-    assert "Status: Exact MRR user memories: 1/100" in stderr
-    assert "Status: Exact MRR workspace memories: 90/90" in stderr
-    assert "Status: Semantic MRR paraphrases: 570/570" in stderr
-    assert "Status: Thematic weighted user topics: 1/10" in stderr
-    assert "Status: Thematic weighted workspace themes: 1/9" in stderr
-    assert "Status: Ranked-set NDCG@5 cases: 15/15" in stderr
+    assert "1/100" in stderr
+    assert "90/90" in stderr
+    assert "570/570" in stderr
+    assert "1/10" in stderr
+    assert "1/9" in stderr
+    assert "15/15" in stderr
     assert "Seeded dev DB:" not in stdout
     assert "Regular DB:" not in stdout
     assert "Diagnostics" not in stdout
@@ -1502,7 +1519,10 @@ def test_cli_dev_eval_human_output_verbose_progress_includes_database_path(
     )
 
     assert exit_code == 0
-    assert f"Status: Preparing seeded development database: {dev_db}" in stderr
+    assert "\r\x1b[2K" in stderr
+    assert stderr.endswith("\r\x1b[2K")
+    assert "Status:" not in stderr
+    assert "Preparing seeded" in stderr
     assert "Recollectium dev eval" in stdout
     assert f"Seeded dev DB: {dev_db}" in stdout
 
@@ -1790,7 +1810,10 @@ def test_cli_dev_eval_human_progress_omits_reembedding_progress_when_unavailable
 
     assert exit_code == 0
     assert "Recollectium dev eval" in stdout
-    assert "Status: Checking embedding provider readiness" in stderr
+    assert "\r\x1b[2K" in stderr
+    assert stderr.endswith("\r\x1b[2K")
+    assert "Checking embedding" in stderr
+    assert "Status:" not in stderr
     assert seen["kwargs"]["eval_progress_reporter"] is not None
     assert "search_progress_reporter" not in seen["kwargs"]
 

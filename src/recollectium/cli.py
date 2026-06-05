@@ -937,19 +937,19 @@ class _DevEvalProgressReporter:
     def __init__(self, stream: Any) -> None:
         self._stream = stream
         isatty = getattr(stream, "isatty", None)
-        self._isatty = False
+        self._isatty_error = False
         if callable(isatty):
             try:
-                self._isatty = bool(isatty())
+                bool(isatty())
             except OSError:
-                self._isatty = False
+                self._isatty_error = True
         self._title_limit = _live_progress_title_limit(stream)
         self._active = False
         self._position = 0
         self._last_line_width = 0
 
     def __enter__(self) -> _DevEvalProgressReporter:
-        self._active = self._isatty and self._title_limit is not None
+        self._active = self._title_limit is not None and not self._isatty_error
         return self
 
     def __exit__(self, *_: object) -> None:
