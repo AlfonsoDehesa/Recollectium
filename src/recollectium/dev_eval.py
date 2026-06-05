@@ -383,9 +383,9 @@ def _search_user_with_progress(
     query: str,
     *,
     limit: int,
-    progress_callback: ReembeddingProgressCallback | None,
+    search_progress_callback: ReembeddingProgressCallback | None,
 ) -> list[SearchResult]:
-    if progress_callback is None:
+    if search_progress_callback is None:
         return core.search_user_memories(
             query,
             limit=limit,
@@ -395,7 +395,7 @@ def _search_user_with_progress(
         query,
         limit=limit,
         include_archived=True,
-        progress_callback=progress_callback,
+        progress_callback=search_progress_callback,
     )
 
 
@@ -405,9 +405,9 @@ def _search_workspace_with_progress(
     *,
     workspace_uid: str,
     limit: int,
-    progress_callback: ReembeddingProgressCallback | None,
+    search_progress_callback: ReembeddingProgressCallback | None,
 ) -> list[SearchResult]:
-    if progress_callback is None:
+    if search_progress_callback is None:
         return core.search_workspace_memories(
             query,
             workspace_uid=workspace_uid,
@@ -419,7 +419,7 @@ def _search_workspace_with_progress(
         workspace_uid=workspace_uid,
         limit=limit,
         include_archived=True,
-        progress_callback=progress_callback,
+        progress_callback=search_progress_callback,
     )
 
 
@@ -1335,7 +1335,11 @@ def evaluate_exact_mrr_for_core(
     progress_callback: ReembeddingProgressCallback | None = None,
     eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> ExactMRRReport:
-    """Evaluate exact MRR against a seeded development database via core methods."""
+    """Evaluate exact MRR against a seeded development database via core methods.
+
+    progress_callback is forwarded to the core search calls so live retrieval work
+    can be surfaced independently from eval_progress_callback phase updates.
+    """
 
     targets = seeded_exact_mrr_targets(core)
     return evaluate_exact_mrr(
@@ -1344,7 +1348,7 @@ def evaluate_exact_mrr_for_core(
             core,
             query,
             limit=limit,
-            progress_callback=progress_callback,
+            search_progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
             _search_workspace_with_progress(
@@ -1352,7 +1356,7 @@ def evaluate_exact_mrr_for_core(
                 query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                progress_callback=progress_callback,
+                search_progress_callback=progress_callback,
             )
         ),
         cutoff=cutoff,
@@ -1369,7 +1373,11 @@ def evaluate_semantic_mrr_for_core(
     progress_callback: ReembeddingProgressCallback | None = None,
     eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> SemanticMRRReport:
-    """Evaluate semantic MRR against a seeded development database via core methods."""
+    """Evaluate semantic MRR against a seeded development database via core methods.
+
+    progress_callback is forwarded to retrieval work; eval_progress_callback is
+    reserved for per-target phase progress.
+    """
 
     targets = seeded_semantic_mrr_targets(core)
     return evaluate_semantic_mrr(
@@ -1378,7 +1386,7 @@ def evaluate_semantic_mrr_for_core(
             core,
             query,
             limit=limit,
-            progress_callback=progress_callback,
+            search_progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
             _search_workspace_with_progress(
@@ -1386,7 +1394,7 @@ def evaluate_semantic_mrr_for_core(
                 query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                progress_callback=progress_callback,
+                search_progress_callback=progress_callback,
             )
         ),
         cutoff=cutoff,
@@ -1404,7 +1412,11 @@ def evaluate_thematic_precision_for_core(
     progress_callback: ReembeddingProgressCallback | None = None,
     eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> ThematicPrecisionReport:
-    """Evaluate thematic Precision@10 against a seeded development database."""
+    """Evaluate thematic Precision@10 against a seeded development database.
+
+    progress_callback tracks retrieval progress, while eval_progress_callback tracks
+    evaluation-phase progress.
+    """
 
     targets = thematic_precision_targets_from_fixture()
     return evaluate_thematic_precision(
@@ -1413,7 +1425,7 @@ def evaluate_thematic_precision_for_core(
             core,
             query,
             limit=limit,
-            progress_callback=progress_callback,
+            search_progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
             _search_workspace_with_progress(
@@ -1421,7 +1433,7 @@ def evaluate_thematic_precision_for_core(
                 query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                progress_callback=progress_callback,
+                search_progress_callback=progress_callback,
             )
         ),
         cutoff=cutoff,
@@ -1439,7 +1451,11 @@ def evaluate_ranked_set_ndcg_for_core(
     progress_callback: ReembeddingProgressCallback | None = None,
     eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> RankedSetNDCGReport:
-    """Evaluate ranked-set NDCG@5 against a seeded development database."""
+    """Evaluate ranked-set NDCG@5 against a seeded development database.
+
+    progress_callback tracks retrieval progress, while eval_progress_callback tracks
+    evaluation-phase progress.
+    """
 
     targets = ranked_set_ndcg_targets_from_fixture()
     return evaluate_ranked_set_ndcg(
@@ -1448,7 +1464,7 @@ def evaluate_ranked_set_ndcg_for_core(
             core,
             query,
             limit=limit,
-            progress_callback=progress_callback,
+            search_progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
             _search_workspace_with_progress(
@@ -1456,7 +1472,7 @@ def evaluate_ranked_set_ndcg_for_core(
                 query,
                 workspace_uid=workspace_uid,
                 limit=limit,
-                progress_callback=progress_callback,
+                search_progress_callback=progress_callback,
             )
         ),
         cutoff=cutoff,

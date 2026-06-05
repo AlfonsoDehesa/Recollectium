@@ -192,9 +192,9 @@ def _search_user_with_progress(
     limit: int,
     protected_minimum: int,
     match_threshold: float,
-    progress_callback: Any | None,
+    search_progress_callback: Any | None,
 ) -> list[SearchResult]:
-    if progress_callback is None:
+    if search_progress_callback is None:
         return core.search_user_memories(
             query=query,
             limit=limit,
@@ -208,7 +208,7 @@ def _search_user_with_progress(
         include_archived=True,
         protected_minimum=protected_minimum,
         match_threshold=match_threshold,
-        progress_callback=progress_callback,
+        progress_callback=search_progress_callback,
     )
 
 
@@ -220,9 +220,9 @@ def _search_workspace_with_progress(
     limit: int,
     protected_minimum: int,
     match_threshold: float,
-    progress_callback: Any | None,
+    search_progress_callback: Any | None,
 ) -> list[SearchResult]:
-    if progress_callback is None:
+    if search_progress_callback is None:
         return core.search_workspace_memories(
             query=query,
             workspace_uid=workspace_uid,
@@ -238,7 +238,7 @@ def _search_workspace_with_progress(
         include_archived=True,
         protected_minimum=protected_minimum,
         match_threshold=match_threshold,
-        progress_callback=progress_callback,
+        progress_callback=search_progress_callback,
     )
 
 
@@ -521,8 +521,11 @@ def evaluate_thematic_weighted_metrics_for_core(
     progress_callback: Any | None = None,
     eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> ThematicWeightedReport:
-    """Evaluate judged thematic labels against a seeded development database."""
+    """Evaluate judged thematic labels against a seeded development database.
 
+    progress_callback tracks retrieval work, while eval_progress_callback tracks
+    per-group evaluation progress.
+    """
     cases = thematic_weighted_cases_from_fixture()
     return evaluate_thematic_weighted_metrics(
         cases,
@@ -532,7 +535,7 @@ def evaluate_thematic_weighted_metrics_for_core(
             limit=limit,
             protected_minimum=protected_minimum,
             match_threshold=match_threshold,
-            progress_callback=progress_callback,
+            search_progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
             _search_workspace_with_progress(
@@ -542,7 +545,7 @@ def evaluate_thematic_weighted_metrics_for_core(
                 limit=limit,
                 protected_minimum=protected_minimum,
                 match_threshold=match_threshold,
-                progress_callback=progress_callback,
+                search_progress_callback=progress_callback,
             )
         ),
         limit=limit,

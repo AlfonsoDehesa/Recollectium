@@ -1353,16 +1353,16 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     )
 
     assert exit_code == 0
-    assert stderr == ""
-    assert stdout.index("Status: Checking embedding provider readiness") < stdout.index(
-        "Recollectium dev eval"
-    )
-    assert "Status: Exact MRR user memories: 1/100" in stdout
-    assert "Status: Exact MRR workspace memories: 90/90" in stdout
-    assert "Status: Semantic MRR paraphrases: 570/570" in stdout
-    assert "Status: Thematic weighted user topics: 1/30" in stdout
-    assert "Status: Thematic weighted workspace themes: 1/27" in stdout
-    assert "Status: Ranked-set NDCG@5 cases: 15/15" in stdout
+    assert "Status: Checking embedding provider readiness" in stderr
+    assert "Status: Preparing seeded development database" in stderr
+    assert str(dev_db) not in stderr
+    assert "Status: Checking embedding provider readiness" not in stdout
+    assert "Status: Exact MRR user memories: 1/100" in stderr
+    assert "Status: Exact MRR workspace memories: 90/90" in stderr
+    assert "Status: Semantic MRR paraphrases: 570/570" in stderr
+    assert "Status: Thematic weighted user topics: 1/30" in stderr
+    assert "Status: Thematic weighted workspace themes: 1/27" in stderr
+    assert "Status: Ranked-set NDCG@5 cases: 15/15" in stderr
     assert "Seeded dev DB:" not in stdout
     assert "Regular DB:" not in stdout
     assert "Diagnostics" not in stdout
@@ -1374,6 +1374,42 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     assert "Ranked-set NDCG@5: 0.103" in stdout
     assert dev_db.exists()
     assert not regular_db.exists()
+
+
+def test_cli_dev_eval_human_output_verbose_progress_includes_database_path(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--human-readable",
+            "--verbose",
+            "dev",
+            "eval",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert f"Status: Preparing seeded development database: {dev_db}" in stderr
+    assert "Recollectium dev eval" in stdout
+    assert f"Seeded dev DB: {dev_db}" in stdout
 
 
 def test_cli_dev_eval_human_output_compact_hides_verbose_sections() -> None:
@@ -1518,8 +1554,14 @@ def test_cli_dev_eval_human_output_verbose_preserves_details() -> None:
     assert "Loading eval fixtures... loaded" in output
     assert "Results" in output
     assert "Diagnostics" in output
-    assert "Worst thematic query: project_planning, weighted precision 0.200" in output
-    assert "Worst ranked-set case: ranked-case, NDCG 0.250" in output
+    assert "Worst exact: none" in output
+    assert "Worst semantic: none" in output
+    assert "Worst thematic" in output
+    assert "Expected group: project_planning" in output
+    assert "Weighted precision: 0.2" in output
+    assert "Case id: ranked-case" in output
+    assert "Memory id: expected-a" in output
+    assert "Memory id: actual-x" in output
     assert "Running exact MRR" not in output
     assert "Running semantic MRR" not in output
     assert "Running thematic weighted metrics" not in output
@@ -1584,10 +1626,12 @@ def test_cli_dev_eval_human_output_verbose_includes_diagnostics_and_fallbacks() 
         response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
     )
 
-    assert "Worst exact target: exact-1, rank miss" in output
-    assert "Worst semantic target: semantic-1, average 0.250" in output
-    assert "Worst thematic query: none" in output
-    assert "Worst ranked-set case: none" in output
+    assert "Diagnostics" in output
+    assert "Target id: exact-1" in output
+    assert "Target id: semantic-1" in output
+    assert "Average reciprocal rank: 0.25" in output
+    assert "Worst thematic: none" in output
+    assert "Worst ranked sets: none" in output
 
 
 def test_cli_dev_eval_human_progress_omits_reembedding_progress_when_unavailable(
@@ -1645,10 +1689,10 @@ def test_cli_dev_eval_human_progress_omits_reembedding_progress_when_unavailable
     )
 
     assert exit_code == 0
-    assert stderr == ""
     assert "Recollectium dev eval" in stdout
-    assert seen["kwargs"]["progress"] is not None
-    assert "reembedding_progress" not in seen["kwargs"]
+    assert "Status: Checking embedding provider readiness" in stderr
+    assert seen["kwargs"]["eval_progress_reporter"] is not None
+    assert "search_progress_reporter" not in seen["kwargs"]
 
 
 def test_cli_dev_eval_json_progress_uses_reembedding_progress_when_available(
@@ -1728,7 +1772,7 @@ def test_cli_dev_eval_json_progress_uses_reembedding_progress_when_available(
     assert stderr == ""
     assert fake_reembedding_progress.entered is True
     assert fake_reembedding_progress.exited is True
-    assert seen["kwargs"]["reembedding_progress"] is fake_reembedding_progress
+    assert seen["kwargs"]["search_progress_reporter"] is fake_reembedding_progress
 
 
 @pytest.mark.parametrize("output_mode", ["--json", "--human-readable"])

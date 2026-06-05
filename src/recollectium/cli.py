@@ -472,47 +472,7 @@ def _format_dev_eval_output(
     lines.extend(_format_dev_eval_metric_lines(payload["metrics"], color=color))
     lines.append("")
     lines.append("Diagnostics")
-    diagnostics = payload["diagnostics"]
-    if diagnostics["worst_exact"]:
-        worst_exact = diagnostics["worst_exact"][0]
-        rank = worst_exact["rank"] if worst_exact["rank"] is not None else "miss"
-        lines.append(f"  Worst exact target: {worst_exact['target_id']}, rank {rank}")
-    else:
-        lines.append("  Worst exact target: none")
-    if diagnostics["worst_semantic"]:
-        worst_semantic = diagnostics["worst_semantic"][0]
-        lines.append(
-            "  Worst semantic target: "
-            f"{worst_semantic['target_id']}, average {worst_semantic['average_reciprocal_rank']:.3f}"
-        )
-    else:
-        lines.append("  Worst semantic target: none")
-    if diagnostics["worst_thematic"]:
-        worst_thematic = diagnostics["worst_thematic"][0]
-        lines.append(
-            "  Worst thematic query: "
-            f"{worst_thematic['expected_group']}, weighted precision {worst_thematic['weighted_precision']:.3f}, "
-            f"weighted recall {worst_thematic['weighted_recall']:.3f}, returned {worst_thematic['returned_count']}"
-        )
-    else:
-        lines.append("  Worst thematic query: none")
-    if diagnostics["worst_ranked_sets"]:
-        worst_ranked = diagnostics["worst_ranked_sets"][0]
-        expected = ", ".join(
-            f"{memory['memory_id']}:{memory['grade']}"
-            for memory in worst_ranked["expected_memories"][:3]
-        )
-        returned = ", ".join(
-            f"{memory['memory_id']}:{memory['grade']}"
-            for memory in worst_ranked["returned_top"][:5]
-        )
-        lines.append(
-            f"  Worst ranked-set case: {worst_ranked['case_id']}, NDCG {worst_ranked['ndcg']:.3f}"
-        )
-        lines.append(f"    expected top grades: {expected or 'none'}")
-        lines.append(f"    returned top grades: {returned or 'none'}")
-    else:
-        lines.append("  Worst ranked-set case: none")
+    lines.extend(_format_mapping_lines(payload["diagnostics"], indent=2, color=color))
     return "\n".join(lines) + "\n"
 
 
@@ -1961,48 +1921,52 @@ def _run_seeded_dev_eval(
     provider: Any,
     config_path: Path | None,
     regular_db_path: Path,
-    progress: _DevEvalProgressReporter | None = None,
-    reembedding_progress: _ReembeddingProgressReporter | None = None,
+    eval_progress_reporter: _DevEvalProgressReporter | None = None,
+    search_progress_reporter: _ReembeddingProgressReporter | None = None,
+    verbose_progress: bool = False,
 ) -> dict[str, object]:
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
-    if progress is not None:
-        progress.phase(f"Preparing seeded development database: {dev_db_path}")
+    if eval_progress_reporter is not None:
+        preparation_message = "Preparing seeded development database"
+        if verbose_progress:
+            preparation_message = f"Preparing seeded development database: {dev_db_path}"
+        eval_progress_reporter.phase(preparation_message)
     seed_result = ensure_seeded_dev_database(dev_db_path, provider)
-    if progress is not None:
-        progress.phase("Loading eval fixtures")
+    if eval_progress_reporter is not None:
+        eval_progress_reporter.phase("Loading eval fixtures")
     core = RecollectiumCore(
         db_path=dev_db_path,
         config_path=config_path,
         embedding_provider=provider,
         log_level=cfg.effective_config["logging"]["level"],
     )
-    if progress is not None:
-        progress.phase("Running exact MRR")
+    if eval_progress_reporter is not None:
+        eval_progress_reporter.phase("Running exact MRR")
     exact_report = evaluate_exact_mrr_for_core(
         cast(Any, core),
-        progress_callback=reembedding_progress,
-        eval_progress_callback=progress,
+        progress_callback=search_progress_reporter,
+        eval_progress_callback=eval_progress_reporter,
     )
-    if progress is not None:
-        progress.phase("Running semantic MRR")
+    if eval_progress_reporter is not None:
+        eval_progress_reporter.phase("Running semantic MRR")
     semantic_report = evaluate_semantic_mrr_for_core(
         cast(Any, core),
-        progress_callback=reembedding_progress,
-        eval_progress_callback=progress,
+        progress_callback=search_progress_reporter,
+        eval_progress_callback=eval_progress_reporter,
     )
-    if progress is not None:
-        progress.phase("Running thematic weighted metrics")
+    if eval_progress_reporter is not None:
+        eval_progress_reporter.phase("Running thematic weighted metrics")
     thematic_report = evaluate_thematic_weighted_metrics_for_core(
         cast(Any, core),
-        progress_callback=reembedding_progress,
-        eval_progress_callback=progress,
+        progress_callback=search_progress_reporter,
+        eval_progress_callback=eval_progress_reporter,
     )
-    if progress is not None:
-        progress.phase("Running ranked-set NDCG@5")
+    if eval_progress_reporter is not None:
+        eval_progress_reporter.phase("Running ranked-set NDCG@5")
     ranked_set_report = evaluate_ranked_set_ndcg_for_core(
         cast(Any, core),
-        progress_callback=reembedding_progress,
-        eval_progress_callback=progress,
+        progress_callback=search_progress_reporter,
+        eval_progress_callback=eval_progress_reporter,
     )
     return {
         "status": "ok",
@@ -4654,6 +4618,7 @@ def _handle_dev_command(
     config_path: Path,
     core_config_path: Path | None,
     output_format: str,
+    response_verbosity: str,
 ) -> int:
     dev_action = getattr(args, "dev_action", getattr(args, "state", None))
     try:
@@ -4679,7 +4644,7 @@ def _handle_dev_command(
                     regular_database=str(regular_db_path),
                 )
             progress_reporter = (
-                _DevEvalProgressReporter(sys.stdout)
+                _DevEvalProgressReporter(sys.stderr)
                 if output_format == CLI_OUTPUT_HUMAN_READABLE
                 else None
             )
@@ -4690,50 +4655,62 @@ def _handle_dev_command(
                         cfg.effective_config, model_cache_path=cfg.model_cache_path
                     )
                     provider.ensure_ready()
-                    reembedding_progress = _human_reembedding_progress_reporter(
+                    search_progress_reporter = _human_reembedding_progress_reporter(
                         output_format
                     )
-                    if reembedding_progress is None:
+                    if search_progress_reporter is None:
                         result = _run_seeded_dev_eval(
                             cfg,
                             provider=provider,
                             config_path=core_config_path,
-                            progress=progress_reporter,
+                            eval_progress_reporter=progress_reporter,
                             regular_db_path=regular_db_path,
+                            verbose_progress=(
+                                response_verbosity == RESPONSE_VERBOSITY_VERBOSE
+                            ),
                         )
                     else:
-                        with reembedding_progress:
+                        with search_progress_reporter:
                             result = _run_seeded_dev_eval(
                                 cfg,
                                 provider=provider,
                                 config_path=core_config_path,
-                                progress=progress_reporter,
-                                reembedding_progress=reembedding_progress,
+                                eval_progress_reporter=progress_reporter,
                                 regular_db_path=regular_db_path,
+                                search_progress_reporter=search_progress_reporter,
+                                verbose_progress=(
+                                    response_verbosity == RESPONSE_VERBOSITY_VERBOSE
+                                ),
                             )
             else:
                 provider = _builtin_fastembed_provider_from_config(
                     cfg.effective_config, model_cache_path=cfg.model_cache_path
                 )
                 provider.ensure_ready()
-                reembedding_progress = _human_reembedding_progress_reporter(
+                search_progress_reporter = _human_reembedding_progress_reporter(
                     output_format
                 )
-                if reembedding_progress is None:
+                if search_progress_reporter is None:
                     result = _run_seeded_dev_eval(
                         cfg,
                         provider=provider,
                         config_path=core_config_path,
                         regular_db_path=regular_db_path,
+                        verbose_progress=(
+                            response_verbosity == RESPONSE_VERBOSITY_VERBOSE
+                        ),
                     )
                 else:
-                    with reembedding_progress:
+                    with search_progress_reporter:
                         result = _run_seeded_dev_eval(
                             cfg,
                             provider=provider,
                             config_path=core_config_path,
-                            reembedding_progress=reembedding_progress,
                             regular_db_path=regular_db_path,
+                            search_progress_reporter=search_progress_reporter,
+                            verbose_progress=(
+                                response_verbosity == RESPONSE_VERBOSITY_VERBOSE
+                            ),
                         )
             _emit_success(result, output_format=output_format, command="dev eval")
             return 0
@@ -5360,6 +5337,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             config_path=config_path,
             core_config_path=core_config_path,
             output_format=output_format,
+            response_verbosity=response_verbosity,
         )
 
     if args.command == "uninstall":
