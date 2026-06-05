@@ -930,26 +930,32 @@ class _ThresholdOptimizationProgressReporter:
 
 
 class _DevEvalProgressReporter:
-    """Render seeded dev eval progress for humans on a single TTY line."""
+    """Render seeded dev eval progress for humans on a single dynamic line."""
 
     _clear_line = "\r\x1b[2K"
 
-    def __init__(self, stream: Any) -> None:
+    def __init__(
+        self,
+        stream: Any,
+        *,
+        clock: Any = time.monotonic,
+        min_render_interval: float = 0.25,
+    ) -> None:
         self._stream = stream
-        isatty = getattr(stream, "isatty", None)
-        self._isatty_error = False
-        if callable(isatty):
-            try:
-                bool(isatty())
-            except OSError:
-                self._isatty_error = True
+        self._clock = clock
+        self._min_render_interval = min_render_interval
         self._title_limit = _live_progress_title_limit(stream)
+        if self._title_limit is None:
+            self._title_limit = 12
         self._active = False
         self._position = 0
         self._last_line_width = 0
+        self._last_render_at: float | None = None
+        self._last_rendered_line = ""
+        self._last_progress_key: tuple[str, int] | None = None
 
     def __enter__(self) -> _DevEvalProgressReporter:
-        self._active = self._title_limit is not None and not self._isatty_error
+        self._active = True
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -958,43 +964,45 @@ class _DevEvalProgressReporter:
     def finish(self) -> None:
         if not self._active:
             return
-        self._stream.write(self._clear_line)
-        self._stream.flush()
+        if self._write(self._clear_line):
+            self._last_line_width = 0
+            self._last_rendered_line = ""
         self._active = False
-        self._last_line_width = 0
 
     def phase(self, message: str) -> None:
-        if self._active:
-            if self._position < 5:
-                self._position = min(self._position + 1, 5)
-            self._render(message, self._position, None, None)
+        if not self._active:
             return
-        self._stream.write(f"Status: {message}\n")
-        self._stream.flush()
+        if self._position < 5:
+            self._position = min(self._position + 1, 5)
+        self._render(message, self._position, None, None, force=True)
 
     def __call__(self, event: dict[str, Any]) -> None:
+        if not self._active:
+            return
         label = str(event.get("label") or event.get("phase") or "dev eval")
         total = int(event.get("total") or 0)
         completed = int(event.get("completed") or 0)
 
-        if self._active:
-            if total <= 0 or completed <= 0:
-                self._position = min(self._position + 1, 98)
-                self._render(label, self._position, None, None)
-            else:
-                if completed >= total:
-                    self._position = 100
-                else:
-                    fraction = min(max(completed / total, 0), 1)
-                    self._position = 5 + int(fraction * 93)
-                self._render(label, self._position, completed, total)
-            return
-
-        if total:
-            self._stream.write(f"Status: {label}: {completed}/{total}\n")
+        if total <= 0 or completed <= 0:
+            self._position = min(self._position + 1, 98)
+            self._render(label, self._position, None, None)
         else:
-            self._stream.write(f"Status: {label}\n")
-        self._stream.flush()
+            progress_key = (label, total)
+            first_progress_for_key = progress_key != self._last_progress_key
+            completed_eval = completed >= total
+            if completed >= total:
+                self._position = 100
+            else:
+                fraction = min(max(completed / total, 0), 1)
+                self._position = 5 + int(fraction * 93)
+            self._render(
+                label,
+                self._position,
+                completed,
+                total,
+                force=first_progress_for_key or completed_eval,
+            )
+            self._last_progress_key = progress_key
 
     def _render(
         self,
@@ -1002,12 +1010,34 @@ class _DevEvalProgressReporter:
         percent: int,
         completed: int | None,
         total: int | None,
+        *,
+        force: bool = False,
     ) -> None:
         line = self._format_line(label, percent, completed, total)
+        if line == self._last_rendered_line:
+            return
+        now = self._clock()
+        if (
+            not force
+            and self._last_render_at is not None
+            and now - self._last_render_at < self._min_render_interval
+        ):
+            return
         padding = " " * max(self._last_line_width - len(line), 0)
-        self._stream.write(f"{self._clear_line}{line}{padding}")
-        self._stream.flush()
-        self._last_line_width = len(line)
+        if self._write(f"\r{line}{padding}"):
+            self._last_line_width = len(line)
+            self._last_render_at = now
+            self._last_rendered_line = line
+
+    def _write(self, text: str) -> bool:
+        try:
+            self._stream.write(text)
+            self._stream.flush()
+        except (OSError, ValueError):
+            self._active = False
+            self._last_line_width = 0
+            return False
+        return True
 
     def _format_line(
         self,
