@@ -291,6 +291,8 @@ jobs:
           add_payload = json.loads(Path("add-default.json").read_text(encoding="utf-8"))
           assert add_payload.get("id"), add_payload
 
+          stderr = Path("uninstall-default.stderr").read_text(encoding="utf-8")
+          assert stderr == "", stderr
           payload = json.loads(Path("uninstall-default.json").read_text(encoding="utf-8"))
           assert payload["status"] == "uninstalled", payload
           assert payload["package"]["install_method"] == "bootstrap", payload
