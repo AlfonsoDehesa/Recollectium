@@ -454,7 +454,7 @@ def _format_dev_eval_output(
     lines = ["", _style("Recollectium dev eval", _RICH_HEADING, enabled=color)]
     if not verbose:
         lines.extend(_format_dev_eval_metric_lines(payload["metrics"], color=color))
-        return "\n".join(lines) + "\n"
+        return "\n".join(lines) + "\n\n"
 
     lines.extend(
         [
@@ -472,7 +472,7 @@ def _format_dev_eval_output(
     lines.append("")
     lines.append("Diagnostics")
     lines.extend(_format_mapping_lines(payload["diagnostics"], indent=2, color=color))
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n\n"
 
 
 def _format_human_output(
@@ -858,12 +858,13 @@ class _ThresholdOptimizationProgressReporter:
         self, *, description: str, total: int | None, completed: int = 0
     ) -> None:
         assert self._progress is not None
+        display_total = 1 if total is None else max(total, 1)
         if self._task_id is None:
-            self._task_id = self._progress.add_task(description, total=total)
+            self._task_id = self._progress.add_task(description, total=display_total)
         self._progress.update(
             self._task_id,
             description=description,
-            total=total,
+            total=display_total,
             completed=completed,
             visible=True,
         )
@@ -951,12 +952,13 @@ class _DevEvalProgressReporter:
         self, *, description: str, total: int | None, completed: int = 0
     ) -> None:
         assert self._progress is not None
+        display_total = 1 if total is None else max(total, 1)
         if self._task_id is None:
-            self._task_id = self._progress.add_task(description, total=total)
+            self._task_id = self._progress.add_task(description, total=display_total)
         self._progress.update(
             self._task_id,
             description=description,
-            total=total,
+            total=display_total,
             completed=completed,
             visible=True,
         )
