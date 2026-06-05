@@ -479,7 +479,7 @@ def test_subprocess_command_runner_success_and_errors(
     runner = SubprocessCommandRunner()
 
     success = runner.run(
-        ["python", "-c", "print('ok')"], timeout_seconds=10, cwd=str(tmp_path)
+        [sys.executable, "-c", "print('ok')"], timeout_seconds=10, cwd=str(tmp_path)
     )
     assert success.returncode == 0
     assert success.stdout.strip() == "ok"

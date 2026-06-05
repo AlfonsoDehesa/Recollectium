@@ -22,6 +22,16 @@ DEV_EVAL_PROTECTED_MINIMUM = 0
 DEV_EVAL_MATCH_THRESHOLD = 0.0
 THEMATIC_WEIGHTED_QUERIES_PER_GROUP = 3
 DEFAULT_WORST_THEMATIC_LIMIT = 10
+DevEvalProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _emit_dev_eval_progress(
+    progress_callback: DevEvalProgressCallback | None,
+    event: dict[str, Any],
+) -> None:
+    if progress_callback is not None:
+        progress_callback(event)
+
 
 _LABEL_USEFUL_VALUE: Mapping[int, float] = {2: 1.0, 1: 0.5, -1: 0.0, -2: 0.0}
 _LABEL_RETRIEVED_COST: Mapping[int, float] = {2: 1.0, 1: 1.0, -1: 1.0, -2: 1.5}
@@ -183,9 +193,9 @@ def _search_user_with_progress(
     limit: int,
     protected_minimum: int,
     match_threshold: float,
-    progress_callback: Any | None,
+    search_progress_callback: Any | None,
 ) -> list[SearchResult]:
-    if progress_callback is None:
+    if search_progress_callback is None:
         return core.search_user_memories(
             query=query,
             limit=limit,
@@ -199,7 +209,7 @@ def _search_user_with_progress(
         include_archived=True,
         protected_minimum=protected_minimum,
         match_threshold=match_threshold,
-        progress_callback=progress_callback,
+        progress_callback=search_progress_callback,
     )
 
 
@@ -211,9 +221,9 @@ def _search_workspace_with_progress(
     limit: int,
     protected_minimum: int,
     match_threshold: float,
-    progress_callback: Any | None,
+    search_progress_callback: Any | None,
 ) -> list[SearchResult]:
-    if progress_callback is None:
+    if search_progress_callback is None:
         return core.search_workspace_memories(
             query=query,
             workspace_uid=workspace_uid,
@@ -229,7 +239,7 @@ def _search_workspace_with_progress(
         include_archived=True,
         protected_minimum=protected_minimum,
         match_threshold=match_threshold,
-        progress_callback=progress_callback,
+        progress_callback=search_progress_callback,
     )
 
 
@@ -324,6 +334,7 @@ def evaluate_thematic_weighted_metrics(
     protected_minimum: int = DEV_EVAL_PROTECTED_MINIMUM,
     match_threshold: float = DEV_EVAL_MATCH_THRESHOLD,
     worst_query_limit: int = DEFAULT_WORST_THEMATIC_LIMIT,
+    progress_callback: DevEvalProgressCallback | None = None,
 ) -> ThematicWeightedReport:
     """Evaluate judged thematic labels under the fixed dev eval retrieval policy."""
 
@@ -348,6 +359,12 @@ def evaluate_thematic_weighted_metrics(
     group_scores: list[ThematicWeightedGroupScore] = []
     all_query_scores: list[ThematicWeightedQueryScore] = []
     scored_queries: list[tuple[str, str, str | None, ThematicWeightedQueryScore]] = []
+    user_completed = 0
+    workspace_completed = 0
+    user_total = sum(1 for scope, _, _ in grouped_cases if scope == SPACE_USER)
+    workspace_total = sum(
+        1 for scope, _, _ in grouped_cases if scope == SPACE_WORKSPACE
+    )
     for scope, group, workspace_uid in sorted(grouped_cases):
         group_cases = sorted(
             grouped_cases[(scope, group, workspace_uid)],
@@ -390,6 +407,32 @@ def evaluate_thematic_weighted_metrics(
                 query_scores=query_score_triple,
             )
         )
+        if scope == SPACE_USER:
+            user_completed += 1
+            _emit_dev_eval_progress(
+                progress_callback,
+                {
+                    "phase": "thematic_weighted",
+                    "bucket": "user_topics",
+                    "label": "Thematic weighted user topics",
+                    "scope": SPACE_USER,
+                    "completed": user_completed,
+                    "total": user_total,
+                },
+            )
+        else:
+            workspace_completed += 1
+            _emit_dev_eval_progress(
+                progress_callback,
+                {
+                    "phase": "thematic_weighted",
+                    "bucket": "workspace_themes",
+                    "label": "Thematic weighted workspace themes",
+                    "scope": SPACE_WORKSPACE,
+                    "completed": workspace_completed,
+                    "total": workspace_total,
+                },
+            )
 
     user_group_scores = [score for score in group_scores if score.scope == SPACE_USER]
     workspace_group_scores = [
@@ -477,9 +520,13 @@ def evaluate_thematic_weighted_metrics_for_core(
     match_threshold: float = DEV_EVAL_MATCH_THRESHOLD,
     worst_query_limit: int = DEFAULT_WORST_THEMATIC_LIMIT,
     progress_callback: Any | None = None,
+    eval_progress_callback: DevEvalProgressCallback | None = None,
 ) -> ThematicWeightedReport:
-    """Evaluate judged thematic labels against a seeded development database."""
+    """Evaluate judged thematic labels against a seeded development database.
 
+    progress_callback tracks retrieval work, while eval_progress_callback tracks
+    per-group evaluation progress.
+    """
     cases = thematic_weighted_cases_from_fixture()
     return evaluate_thematic_weighted_metrics(
         cases,
@@ -489,7 +536,7 @@ def evaluate_thematic_weighted_metrics_for_core(
             limit=limit,
             protected_minimum=protected_minimum,
             match_threshold=match_threshold,
-            progress_callback=progress_callback,
+            search_progress_callback=progress_callback,
         ),
         search_workspace=lambda query, workspace_uid, limit: (
             _search_workspace_with_progress(
@@ -499,11 +546,12 @@ def evaluate_thematic_weighted_metrics_for_core(
                 limit=limit,
                 protected_minimum=protected_minimum,
                 match_threshold=match_threshold,
-                progress_callback=progress_callback,
+                search_progress_callback=progress_callback,
             )
         ),
         limit=limit,
         protected_minimum=protected_minimum,
         match_threshold=match_threshold,
         worst_query_limit=worst_query_limit,
+        progress_callback=eval_progress_callback,
     )

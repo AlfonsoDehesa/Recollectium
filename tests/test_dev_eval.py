@@ -58,6 +58,7 @@ from recollectium.dev_eval_thematic_weighted import (
     DEV_EVAL_PROTECTED_MINIMUM,
     _eval_key_for_result,
     _score_query,
+    _validate_weighted_cases,
     evaluate_thematic_weighted_metrics,
     evaluate_thematic_weighted_metrics_for_core,
 )
@@ -2415,3 +2416,108 @@ def test_thematic_weighted_helpers_and_validation_edge_cases() -> None:
             protected_minimum=DEV_EVAL_PROTECTED_MINIMUM,
             match_threshold=DEV_EVAL_MATCH_THRESHOLD,
         )
+
+
+@pytest.mark.parametrize(
+    ("cases", "match"),
+    [
+        (
+            (
+                ThematicContextLabelCase(
+                    case_id="user|travel|duplicate",
+                    scope=SPACE_USER,
+                    group="travel",
+                    query_index=1,
+                    query="duplicate 1",
+                    workspace_uid=None,
+                    labels={"a": 2, "b": -1},
+                ),
+                ThematicContextLabelCase(
+                    case_id="user|travel|duplicate",
+                    scope=SPACE_USER,
+                    group="travel",
+                    query_index=2,
+                    query="duplicate 2",
+                    workspace_uid=None,
+                    labels={"a": 2, "b": -1},
+                ),
+            ),
+            "duplicate thematic weighted case id",
+        ),
+        (
+            (
+                ThematicContextLabelCase(
+                    case_id="bad|scope|case",
+                    scope="bad-scope",
+                    group="bad",
+                    query_index=1,
+                    query="bad scope",
+                    workspace_uid=None,
+                    labels={"a": 2, "b": -1},
+                ),
+            ),
+            "unsupported thematic weighted scope",
+        ),
+        (
+            (
+                ThematicContextLabelCase(
+                    case_id="user|bad|workspace-uid",
+                    scope=SPACE_USER,
+                    group="travel",
+                    query_index=1,
+                    query="bad workspace uid",
+                    workspace_uid="project-a",
+                    labels={"a": 2, "b": -1},
+                ),
+            ),
+            "must not have workspace_uid",
+        ),
+        (
+            (
+                ThematicContextLabelCase(
+                    case_id="workspace|missing|uid",
+                    scope=SPACE_WORKSPACE,
+                    group="ops",
+                    query_index=1,
+                    query="missing uid",
+                    workspace_uid=None,
+                    labels={"a": 2, "b": -1},
+                ),
+            ),
+            "requires workspace_uid",
+        ),
+        (
+            (
+                ThematicContextLabelCase(
+                    case_id="user|missing|positive",
+                    scope=SPACE_USER,
+                    group="travel",
+                    query_index=1,
+                    query="missing positive",
+                    workspace_uid=None,
+                    labels={"a": cast(ThematicContextLabel, -1), "b": -2},
+                ),
+            ),
+            "lacks positive signal",
+        ),
+        (
+            (
+                ThematicContextLabelCase(
+                    case_id="user|missing|negative",
+                    scope=SPACE_USER,
+                    group="travel",
+                    query_index=1,
+                    query="missing negative",
+                    workspace_uid=None,
+                    labels={"a": 2, "b": 1},
+                ),
+            ),
+            "lacks negative signal",
+        ),
+    ],
+)
+def test_validate_weighted_cases_rejects_invalid_input(
+    cases: tuple[ThematicContextLabelCase, ...], match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        _validate_weighted_cases(cases)
