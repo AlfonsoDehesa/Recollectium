@@ -884,7 +884,7 @@ def test_reembedding_progress_reporter_uses_rich_for_tty() -> None:
             }
         )
 
-    assert "Re-embedding memories" in stream.getvalue()
+    assert "Re-embedding" in stream.getvalue()
 
 
 def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
@@ -1016,14 +1016,19 @@ def test_dev_eval_progress_reporter_uses_alive_bar_for_tty(monkeypatch) -> None:
     assert fake_ctx.exited is True
     bar = fake_ctx._bar
     assert bar is not None
+    limit = cli_module._live_progress_title_limit(stream)
     assert bar.title_calls == [
-        "Checking embedding provider readiness",
-        "Preparing seeded development database",
-        "Exact MRR user memories 50/100",
-        "Semantic MRR paraphrases 570/570",
-        "Loading eval fixtures",
-        "Results phase",
-        "Start phase 0/1",
+        cli_module._compact_live_title(
+            "Checking embedding provider readiness", limit
+        ),
+        cli_module._compact_live_title(
+            "Preparing seeded development database", limit
+        ),
+        cli_module._compact_live_title("Exact MRR user memories", limit),
+        cli_module._compact_live_title("Semantic MRR paraphrases", limit),
+        cli_module._compact_live_title("Loading eval fixtures", limit),
+        cli_module._compact_live_title("Results phase", limit),
+        cli_module._compact_live_title("Start phase", limit),
     ]
 
 
@@ -1123,10 +1128,18 @@ def test_dev_eval_progress_reporter_uses_a_single_task_across_phases_and_counts(
     assert fake_ctx.exited is True
     bar = fake_ctx._bar
     assert bar is not None
-    # Verify bar was created and used for all phases/counts
-    assert any("Exact MRR user memories" in t for t in bar.title_calls)
-    assert any("Semantic MRR paraphrases" in t for t in bar.title_calls)
-    assert any("Loading eval fixtures" in t for t in bar.title_calls)
+    limit = cli_module._live_progress_title_limit(stream)
+    assert bar.title_calls == [
+        cli_module._compact_live_title(
+            "Checking embedding provider readiness", limit
+        ),
+        cli_module._compact_live_title(
+            "Preparing seeded development database", limit
+        ),
+        cli_module._compact_live_title("Exact MRR user memories", limit),
+        cli_module._compact_live_title("Semantic MRR paraphrases", limit),
+        cli_module._compact_live_title("Loading eval fixtures", limit),
+    ]
 
 
 def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:

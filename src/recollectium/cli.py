@@ -695,6 +695,31 @@ def _emit_human_progress(message: str) -> None:
     sys.stdout.flush()
 
 
+def _live_progress_title_limit(stream: Any) -> int | None:
+    """Return a safe live-title length for terminal progress bars.
+
+    Some terminals and log bridges turn long live-updating lines into a stream
+    of wrapped blank rows. Keep the live title short enough to fit comfortably
+    on common 80-column terminals, and disable the live bar entirely if the
+    detected width is too narrow.
+    """
+
+    try:
+        columns = shutil.get_terminal_size(fallback=(80, 24)).columns
+    except OSError:
+        return None
+    if columns < 60:
+        return None
+    return max(12, min(24, columns - 60))
+
+
+def _compact_live_title(text: str, limit: int | None) -> str:
+    compact = " ".join(text.split())
+    if limit is None or len(compact) <= limit:
+        return compact
+    return compact[: max(1, limit - 1)].rstrip() + "…"
+
+
 class _ReembeddingProgressReporter:
     """Render inline re-embedding progress for human-readable CLI commands."""
 
@@ -707,11 +732,12 @@ class _ReembeddingProgressReporter:
                 self._isatty = bool(isatty())
             except OSError:
                 self._isatty = False
+        self._title_limit = _live_progress_title_limit(stream)
         self._progress: Progress | None = None
         self._task_id: TaskID | None = None
 
     def __enter__(self) -> _ReembeddingProgressReporter:
-        if self._isatty:
+        if self._isatty and self._title_limit is not None:
             progress = Progress(
                 TextColumn("[bold cyan]{task.description}"),
                 BarColumn(),
@@ -738,16 +764,17 @@ class _ReembeddingProgressReporter:
         reason = str(event.get("reason") or "re-embedding")
         model = str(event.get("model") or "unknown model")
         event_name = str(event.get("event") or "progress")
-        label = f"Re-embedding memories ({reason}, {model})"
+        label = "Re-embedding memories"
 
         if self._progress is not None:
+            live_label = _compact_live_title(label, self._title_limit)
             if self._task_id is None:
-                self._task_id = self._progress.add_task(label, total=total)
+                self._task_id = self._progress.add_task(live_label, total=total)
             self._progress.update(
                 self._task_id,
                 completed=processed,
                 total=total,
-                description=label,
+                description=live_label,
             )
             return
 
@@ -919,11 +946,12 @@ class _DevEvalProgressReporter:
                 self._isatty = bool(isatty())
             except OSError:
                 self._isatty = False
+        self._title_limit = _live_progress_title_limit(stream)
         self._bar: Any = None
         self._ctx: Any = None
 
     def __enter__(self) -> _DevEvalProgressReporter:
-        if self._isatty:
+        if self._isatty and self._title_limit is not None:
             self._ctx = alive_bar(
                 100,
                 title="dev eval",
@@ -946,7 +974,7 @@ class _DevEvalProgressReporter:
 
     def phase(self, message: str) -> None:
         if self._bar is not None:
-            self._bar.title = message
+            self._bar.title = _compact_live_title(message, self._title_limit)
             # Advance a tiny amount for uncounted phases so the bar does not
             # stay stuck at 0 %.  The visual weight of counted phases dwarfs
             # these micro-ticks, so the bar still feels driven by real work.
@@ -963,10 +991,8 @@ class _DevEvalProgressReporter:
         completed = int(event.get("completed") or 0)
 
         if self._bar is not None:
-            if total:
-                self._bar.title = f"{label} {completed}/{total}"
-            else:
-                self._bar.title = label
+            short_label = _compact_live_title(label, self._title_limit)
+            self._bar.title = short_label
             if total <= 0 or completed <= 0:
                 # No meaningful progress fraction yet — just nudge.
                 current = self._bar.current
