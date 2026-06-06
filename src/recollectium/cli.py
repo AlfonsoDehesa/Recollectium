@@ -20,17 +20,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Sequence, cast
 
-from rich.console import Console, RenderableType
-from rich.progress import (
-    BarColumn,
-    Progress,
-    ProgressColumn,
-    Task,
-    TaskID,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
+from rich.console import Console
 from rich.text import Text
 
 from platformdirs import user_state_dir
@@ -739,78 +729,58 @@ _DEV_EVAL_PROGRESS_LABELS = {
     "Ranked-set NDCG@5 cases": "NDCG@5",
 }
 
+_REEMBEDDING_PROGRESS_LABELS = {
+    "Re-embedding memories": "Re-embedding",
+}
+
+_THRESHOLD_OPTIMIZATION_PROGRESS_LABELS = {
+    "Checking embedding provider readiness": "Checking provider",
+    "Preparing seeded development database": "Preparing dev DB",
+    "Loading fixtures": "Loading fixtures",
+    "Loading candidate pools": "Loading candidates",
+    "Scoring thresholds": "Scoring thresholds",
+    "Writing config": "Writing config",
+    "Writing PNG artifact": "Writing PNG",
+    "Writing CSV artifact": "Writing CSV",
+    "Writing CSV sweep to stdout": "Writing CSV stdout",
+}
+
 
 class _ReembeddingProgressReporter:
-    """Render inline re-embedding progress for human-readable CLI commands."""
+    """Translate re-embedding progress events to a single-line renderer."""
 
     def __init__(self, stream: Any) -> None:
-        self._stream = stream
-        isatty = getattr(stream, "isatty", None)
-        self._isatty = False
-        if callable(isatty):
-            try:
-                self._isatty = bool(isatty())
-            except OSError:
-                self._isatty = False
-        self._title_limit = _live_progress_title_limit(stream)
-        self._progress: Progress | None = None
-        self._task_id: TaskID | None = None
+        title_limit = _live_progress_title_limit(stream)
+        self._progress = SingleLineProgressReporter(
+            stream,
+            labels=_REEMBEDDING_PROGRESS_LABELS,
+            title_limit=12 if title_limit is None else title_limit,
+        )
+        self._started = False
 
     def __enter__(self) -> _ReembeddingProgressReporter:
-        if self._isatty and self._title_limit is not None:
-            progress = Progress(
-                TextColumn("[bold cyan]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TimeElapsedColumn(),
-                console=Console(file=self._stream),
-                transient=True,
-            )
-            progress.start()
-            self._progress = progress
+        self._ensure_started()
         return self
 
     def __exit__(self, *_: object) -> None:
-        if self._progress is not None:
-            self._progress.stop()
-            self._progress = None
-            self._task_id = None
+        self.finish()
+
+    def finish(self) -> None:
+        self._progress.finish()
+
+    def _ensure_started(self) -> None:
+        if self._started:
+            return
+        self._progress.__enter__()
+        self._started = True
 
     def __call__(self, event: dict[str, Any]) -> None:
-        total = int(event.get("total") or 0)
-        processed = int(event.get("processed") or 0)
-        succeeded = int(event.get("succeeded") or 0)
-        failed = int(event.get("failed") or 0)
-        reason = str(event.get("reason") or "re-embedding")
-        model = str(event.get("model") or "unknown model")
-        event_name = str(event.get("event") or "progress")
-        label = "Re-embedding memories"
-
-        if self._progress is not None:
-            live_label = _compact_live_title(label, self._title_limit)
-            if self._task_id is None:
-                self._task_id = self._progress.add_task(live_label, total=total)
-            self._progress.update(
-                self._task_id,
-                completed=processed,
-                total=total,
-                description=live_label,
-            )
-            return
-
-        if event_name == "started":
-            line = f"Re-embedding memories started: 0/{total} ({reason}, {model})"
-        elif event_name == "progress":
-            line = (
-                f"Re-embedding memories: {processed}/{total} "
-                f"processed, {succeeded} succeeded, {failed} failed"
-            )
-        elif event_name == "completed":
-            line = f"Re-embedding memories completed: {succeeded}/{total} succeeded"
-        else:
-            line = f"Re-embedding memories failed: {failed}/{total} failed"
-        self._stream.write(f"{line}\n")
-        self._stream.flush()
+        self._ensure_started()
+        self._progress.update(
+            "Re-embedding memories",
+            completed=int(event.get("processed") or 0),
+            total=int(event.get("total") or 0),
+        )
 
 
 def _human_reembedding_progress_reporter(
@@ -821,133 +791,58 @@ def _human_reembedding_progress_reporter(
     return _ReembeddingProgressReporter(sys.stderr)
 
 
-class _DeterminateBarColumn(ProgressColumn):
-    """Render a progress bar only for tasks with a determinate total."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._column = BarColumn()
-
-    def render(self, task: Task) -> RenderableType:
-        if task.total is None:
-            return Text("")
-        return self._column.render(task)
-
-
-class _DeterminateCountColumn(ProgressColumn):
-    """Render completed/total counts only for determinate tasks."""
-
-    def render(self, task: Task) -> Text:
-        if task.total is None:
-            return Text("")
-        return Text(f"{int(task.completed)}/{int(task.total)}")
-
-
-class _DeterminateTimeRemainingColumn(ProgressColumn):
-    """Render ETA only for tasks with a determinate total."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._column = TimeRemainingColumn()
-
-    def render(self, task: Task) -> Text:
-        if task.total is None:
-            return Text("")
-        return self._column.render(task)
-
-
 class _ThresholdOptimizationProgressReporter:
-    """Render threshold optimizer phases and scoring progress for humans."""
+    """Translate threshold optimizer updates to a single-line renderer."""
 
     def __init__(self, stream: Any) -> None:
-        self._stream = stream
-        isatty = getattr(stream, "isatty", None)
-        self._isatty = False
-        if callable(isatty):
-            try:
-                self._isatty = bool(isatty())
-            except OSError:
-                self._isatty = False
-        self._progress: Progress | None = None
-        self._task_id: TaskID | None = None
+        title_limit = _live_progress_title_limit(stream)
+        self._progress = SingleLineProgressReporter(
+            stream,
+            labels=_THRESHOLD_OPTIMIZATION_PROGRESS_LABELS,
+            title_limit=12 if title_limit is None else title_limit,
+        )
+        self._started = False
         self._scoring_total = 0
 
     def __enter__(self) -> _ThresholdOptimizationProgressReporter:
-        self._ensure_progress()
+        self._ensure_started()
         return self
 
-    def _ensure_progress(self) -> None:
-        if not self._isatty or self._progress is not None:
+    def _ensure_started(self) -> None:
+        if self._started:
             return
-        progress = Progress(
-            TextColumn("[bold cyan]{task.description}"),
-            _DeterminateBarColumn(),
-            _DeterminateCountColumn(),
-            TimeElapsedColumn(),
-            console=Console(file=self._stream),
-            transient=True,
-            refresh_per_second=4,
-        )
-        progress.start()
-        self._progress = progress
+        self._progress.__enter__()
+        self._started = True
 
     def __exit__(self, *_: object) -> None:
         self.finish()
 
     def finish(self) -> None:
-        if self._progress is not None:
-            self._progress.stop()
-            self._progress = None
-            self._task_id = None
-
-    def _update_task(
-        self, *, description: str, total: int | None, completed: int = 0
-    ) -> None:
-        assert self._progress is not None
-        display_total = 1 if total is None else max(total, 1)
-        if self._task_id is None:
-            self._task_id = self._progress.add_task(description, total=display_total)
-        self._progress.update(
-            self._task_id,
-            description=description,
-            total=display_total,
-            completed=completed,
-            visible=True,
-        )
+        self._progress.finish()
 
     def phase(self, message: str) -> None:
-        self._ensure_progress()
-        if self._progress is not None:
-            self._update_task(description=message, total=None, completed=0)
-            return
-        self._stream.write(f"Status: {message}\n")
-        self._stream.flush()
+        self._ensure_started()
+        self._progress.phase(self._phase_label(message))
 
     def start_scoring(self, total: int) -> None:
-        self._ensure_progress()
+        self._ensure_started()
         self._scoring_total = total
-        if self._progress is not None:
-            self._update_task(
-                description="Scoring thresholds", total=total, completed=0
-            )
-            return
-        self._stream.write(f"Status: Scoring thresholds: 0/{total} (ETA calculating)\n")
-        self._stream.flush()
+        self._progress.update("Scoring thresholds", completed=0, total=total)
 
     def advance_scoring(self, completed: int, threshold: float) -> None:
-        if self._progress is not None:
-            self._update_task(
-                description=f"Scoring thresholds (threshold {threshold:.2f})",
-                total=self._scoring_total,
-                completed=completed,
-            )
-            return
-        if completed == self._scoring_total or completed == 1:
-            self._stream.write(
-                "Status: Scoring thresholds: "
-                f"{completed}/{self._scoring_total} (threshold {threshold:.2f})\n"
-            )
-            self._stream.flush()
+        _ = threshold
+        self._ensure_started()
+        self._progress.update(
+            "Scoring thresholds",
+            completed=completed,
+            total=self._scoring_total,
+        )
+
+    def _phase_label(self, message: str) -> str:
+        for prefix in _THRESHOLD_OPTIMIZATION_PROGRESS_LABELS:
+            if message == prefix or message.startswith(f"{prefix}:"):
+                return prefix
+        return message
 
 
 class _DevEvalProgressReporter:

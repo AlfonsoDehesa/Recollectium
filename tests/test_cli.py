@@ -689,9 +689,12 @@ def test_cli_human_search_emits_reembedding_progress_to_stderr(
 
     assert search_code == 0
     assert "1 result" in search_out
-    assert "Re-embedding memories started: 0/1 (search, fake-model)" in search_err
-    assert "Re-embedding memories: 1/1 processed, 1 succeeded, 0 failed" in search_err
-    assert "Re-embedding memories completed: 1/1 succeeded" in search_err
+    assert "\r\x1b[2K" in search_err
+    assert search_err.endswith("\r\x1b[2K")
+    assert "Re-embedding" in search_err
+    assert "1/1" in search_err
+    assert "Status:" not in search_err
+    assert "\n" not in search_err
 
 
 def test_cli_human_embedding_refresh_emits_reembedding_progress_to_stderr(
@@ -736,11 +739,12 @@ def test_cli_human_embedding_refresh_emits_reembedding_progress_to_stderr(
 
     assert refresh_code == 0
     assert "Embedding refresh" in refresh_out
-    assert (
-        "Re-embedding memories started: 0/1 (force-refresh, fake-model)" in refresh_err
-    )
-    assert "Re-embedding memories: 1/1 processed, 1 succeeded, 0 failed" in refresh_err
-    assert "Re-embedding memories completed: 1/1 succeeded" in refresh_err
+    assert "\r\x1b[2K" in refresh_err
+    assert refresh_err.endswith("\r\x1b[2K")
+    assert "Re-embedding" in refresh_err
+    assert "1/1" in refresh_err
+    assert "Status:" not in refresh_err
+    assert "\n" not in refresh_err
 
 
 def test_cli_json_search_reembedding_remains_parse_safe(
@@ -827,9 +831,12 @@ def test_cli_human_workspace_search_emits_reembedding_progress_to_stderr(
 
     assert search_code == 0
     assert "1 result" in search_out
-    assert "Re-embedding memories started: 0/1 (search, fake-model)" in search_err
-    assert "Re-embedding memories: 1/1 processed, 1 succeeded, 0 failed" in search_err
-    assert "Re-embedding memories completed: 1/1 succeeded" in search_err
+    assert "\r\x1b[2K" in search_err
+    assert search_err.endswith("\r\x1b[2K")
+    assert "Re-embedding" in search_err
+    assert "1/1" in search_err
+    assert "Status:" not in search_err
+    assert "\n" not in search_err
 
 
 class _OSErrorIsattyStream(io.StringIO):
@@ -841,22 +848,28 @@ def test_reembedding_progress_reporter_handles_isatty_errors() -> None:
     stream = _OSErrorIsattyStream()
     reporter = _ReembeddingProgressReporter(stream)
 
-    reporter(
-        {
-            "event": "failed",
-            "reason": "search",
-            "model": "fake-model",
-            "total": 2,
-            "processed": 1,
-            "succeeded": 0,
-            "failed": 1,
-        }
-    )
+    with reporter:
+        reporter(
+            {
+                "event": "failed",
+                "reason": "search",
+                "model": "fake-model",
+                "total": 2,
+                "processed": 1,
+                "succeeded": 0,
+                "failed": 1,
+            }
+        )
 
-    assert "Re-embedding memories failed: 1/2 failed" in stream.getvalue()
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Re-embedding" in output
+    assert "1/2" in output
 
 
-def test_reembedding_progress_reporter_uses_rich_for_tty() -> None:
+def test_reembedding_progress_reporter_uses_single_line_for_tty() -> None:
     stream = io.StringIO()
     stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
     reporter = _ReembeddingProgressReporter(stream)
@@ -885,7 +898,12 @@ def test_reembedding_progress_reporter_uses_rich_for_tty() -> None:
             }
         )
 
-    assert "Re-embedding" in stream.getvalue()
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Re-embedding" in output
+    assert "1/2" in output
 
 
 def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
@@ -954,6 +972,7 @@ def test_live_progress_title_limit_returns_none_for_narrow_terminal(
 
 def test_compact_live_title_returns_untrimmed_label_within_limit() -> None:
     assert cli_module._compact_live_title("Short label", 20) == "Short label"
+    assert cli_module._compact_live_title("Long label", 6) == "Long…"
 
 
 def test_dev_eval_progress_reporter_uses_dynamic_line_for_narrow_terminal(
@@ -2318,42 +2337,16 @@ def test_cli_dev_eval_refuses_relative_regular_database_overlap(
         ProviderMustNotBeConstructed()
 
 
-def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
-    monkeypatch,
-) -> None:
+def test_cli_dev_optimize_threshold_progress_reporter_uses_single_line_and_clears() -> (
+    None
+):
     class FakeTTYStream(io.StringIO):
         def isatty(self) -> bool:
             return True
 
-    class FakeProgress:
-        instances: list[FakeProgress] = []
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            self.started = False
-            self.stopped = False
-            self.added_tasks: list[tuple[str, object]] = []
-            self.updates: list[tuple[object, dict[str, object]]] = []
-            self.columns = args
-            FakeProgress.instances.append(self)
-
-        def start(self) -> None:
-            self.started = True
-
-        def stop(self) -> None:
-            self.stopped = True
-
-        def add_task(self, description: str, *, total: object = None) -> int:
-            task_id = len(self.added_tasks) + 1
-            self.added_tasks.append((description, total))
-            return task_id
-
-        def update(self, task_id: object, **kwargs: object) -> None:
-            self.updates.append((task_id, kwargs))
-
-    monkeypatch.setattr(cli_module, "Progress", FakeProgress)
-
     stream = FakeTTYStream()
     reporter = cli_module._ThresholdOptimizationProgressReporter(stream)
+
     with pytest.raises(RuntimeError):
         with reporter:
             reporter.phase("Checking embedding provider readiness")
@@ -2362,83 +2355,46 @@ def test_cli_dev_optimize_threshold_tty_progress_reporter_uses_rich_and_stops(
             reporter.phase("Writing CSV artifact: thresholds.csv")
             raise RuntimeError("boom")
 
-    assert stream.getvalue() == ""
-    assert len(FakeProgress.instances) == 1
-    progress = FakeProgress.instances[0]
-    assert progress.started is True
-    assert progress.stopped is True
-    assert all(
-        column.__class__.__name__ != "SpinnerColumn" for column in progress.columns
-    )
-    assert progress.added_tasks == [("Checking embedding provider readiness", 1)]
-    assert progress.updates == [
-        (
-            1,
-            {
-                "description": "Checking embedding provider readiness",
-                "total": 1,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Scoring thresholds",
-                "total": 2,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Scoring thresholds (threshold 0.50)",
-                "total": 2,
-                "completed": 1,
-                "visible": True,
-            },
-        ),
-        (
-            1,
-            {
-                "description": "Writing CSV artifact: thresholds.csv",
-                "total": 1,
-                "completed": 0,
-                "visible": True,
-            },
-        ),
-    ]
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Checking provider" in output
+    assert "Scoring thresholds" in output
+    assert "1/2" in output
+    assert "Writing CSV" in output
+    assert "thresholds.csv" not in output
+    assert "…" not in output
 
 
-def test_cli_dev_optimize_threshold_determinate_columns_suppress_phase_totals() -> None:
-    phase_task = SimpleNamespace(total=None, completed=0)
+def test_cli_dev_optimize_threshold_progress_reporter_non_tty_uses_dynamic_line() -> (
+    None
+):
+    stream = io.StringIO()
+    reporter = cli_module._ThresholdOptimizationProgressReporter(stream)
 
-    columns = [
-        cli_module._DeterminateBarColumn(),
-        cli_module._DeterminateCountColumn(),
-        cli_module._DeterminateTimeRemainingColumn(),
-    ]
+    with reporter:
+        reporter.phase("Preparing seeded development database: /tmp/dev.db")
+        reporter.phase("Loading candidate pools")
+        reporter.start_scoring(3)
+        reporter.advance_scoring(1, 0.0)
+        reporter.advance_scoring(3, 0.2)
+        reporter.phase("Writing CSV sweep to stdout")
+        reporter.phase("Unknown done")
 
-    rendered = "".join(str(column.render(phase_task)) for column in columns)  # type: ignore[arg-type]
-    assert rendered == ""
-    assert "0/None" not in rendered
-    assert "None" not in rendered
-
-    determinate_task = SimpleNamespace(
-        total=3,
-        completed=1,
-        started=True,
-        finished=False,
-        time_remaining=0.0,
-        get_time=lambda: 0.0,
-    )
-    determinate_rendered = "".join(
-        str(column.render(determinate_task))
-        for column in columns  # type: ignore[arg-type]
-    )
-    assert determinate_rendered != ""
-    assert "1/3" in determinate_rendered
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Preparing dev DB" in output
+    assert "Loading candidates" in output
+    assert "Scoring thresholds" in output
+    assert "1/3" in output
+    assert "3/3" in output
+    assert "Writing CSV stdout" in output
+    assert "Unknown done" in output
+    assert "/tmp/dev.db" not in output
+    assert "…" not in output
 
 
 def test_cli_dev_optimize_threshold_progress_reporter_handles_isatty_oserror() -> None:
@@ -2446,9 +2402,17 @@ def test_cli_dev_optimize_threshold_progress_reporter_handles_isatty_oserror() -
         def isatty(self) -> bool:
             raise OSError("no tty")
 
-    reporter = cli_module._ThresholdOptimizationProgressReporter(BadTTYStream())
+    stream = BadTTYStream()
+    reporter = cli_module._ThresholdOptimizationProgressReporter(stream)
 
-    assert reporter._isatty is False
+    with reporter:
+        reporter.phase("Loading fixtures")
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Loading fixtures" in output
 
 
 def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
@@ -2491,12 +2455,18 @@ def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     assert exit_code == 0
     assert stdout.startswith("threshold,weighted_precision")
     assert "Status:" not in stdout
-    assert "Preparing seeded development database" in stderr
+    assert "\r\x1b[2K" in stderr
+    assert "Status:" not in stderr
+    assert "Preparing dev DB" in stderr
     assert "Loading fixtures" in stderr
-    assert "Loading candidate pools" in stderr
-    assert "Scoring thresholds: 0/2 (ETA calculating)" in stderr
-    assert "Scoring thresholds: 2/2" in stderr
-    assert "Writing CSV sweep to stdout" in stderr
+    assert "Loading candidates" in stderr
+    assert "Scoring thresholds" in stderr
+    assert "1/2" in stderr
+    assert "2/2" in stderr
+    assert "Writing CSV stdout" in stderr
+    assert "Preparing seeded development database" not in stderr
+    assert "Loading candidate pools" not in stderr
+    assert "Scoring thresholds: 0/2 (ETA calculating)" not in stderr
     assert "Recommendation:" in stderr
     assert "Apply: recollectium config set retrieval.match_threshold" in stderr
     assert dev_db.exists()
@@ -2646,7 +2616,8 @@ def test_cli_dev_optimize_threshold_human_readable_csv_writes_summary_and_artifa
 
     assert exit_code == 0
     assert "Recollectium dev optimize-threshold" in stdout
-    assert "Writing CSV artifact:" in stdout or "Writing CSV artifact:" in stderr
+    assert "Writing CSV" in stderr
+    assert "Writing CSV artifact:" not in stderr
     assert output_csv.exists()
     assert output_csv.read_text(encoding="utf-8").startswith("threshold,")
     assert dev_db.exists()
@@ -2696,8 +2667,10 @@ def test_cli_dev_optimize_threshold_human_readable_png_writes_summary_and_artifa
 
     assert exit_code == 0
     assert "Recollectium dev optimize-threshold" in stdout
-    assert "Writing config:" in stderr or "Writing config:" in stdout
-    assert "Writing PNG artifact:" in stderr or "Writing PNG artifact:" in stdout
+    assert "Writing config" in stderr
+    assert "Writing PNG" in stderr
+    assert "Writing config:" not in stderr
+    assert "Writing PNG artifact:" not in stderr
     assert "Recommendation:" in stdout
     assert output_png.exists()
     assert output_png.stat().st_size > 0
