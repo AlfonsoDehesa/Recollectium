@@ -18,7 +18,7 @@ import tempfile
 import time
 from io import StringIO
 from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import Any, NoReturn, Sequence, cast
 
 from rich.console import Console
 from rich.text import Text
@@ -175,6 +175,26 @@ _COMPLETABLE_CONFIG_KEYS = [
     "workspace.uid_normalization",
 ]
 _SUPPORTED_EMBEDDING_MODELS_HELP = ", ".join(sorted(SUPPORTED_EMBEDDING_MODELS))
+
+
+def _frame_human_output(text: str) -> str:
+    """Frame final human-readable CLI output with leading and trailing space."""
+    return "\n" + text.strip("\n") + "\n\n" if text else "\n\n"
+
+
+class _HumanFramedArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that frames argparse human help and error output."""
+
+    def format_help(self) -> str:
+        return _frame_human_output(super().format_help())
+
+    def error(self, message: str) -> NoReturn:
+        self.exit(
+            2,
+            _frame_human_output(
+                f"{argparse.ArgumentParser.format_usage(self)}{self.prog}: error: {message}"
+            ),
+        )
 
 
 def _memory_type_choices_for_space(space: Any | None) -> tuple[str, ...]:
@@ -669,12 +689,14 @@ def _emit_success(
         )
     if output_format == CLI_OUTPUT_HUMAN_READABLE:
         sys.stdout.write(
-            _format_human_output(
-                payload,
-                command=command,
-                label=label,
-                color=_supports_color(sys.stdout),
-                response_verbosity=verbosity,
+            _frame_human_output(
+                _format_human_output(
+                    payload,
+                    command=command,
+                    label=label,
+                    color=_supports_color(sys.stdout),
+                    response_verbosity=verbosity,
+                )
             )
         )
         return
@@ -1281,7 +1303,10 @@ def _handle_config_command(
         return 0
 
     if args.path:
-        print(str(config_path))
+        if output_format == CLI_OUTPUT_HUMAN_READABLE:
+            sys.stdout.write(_frame_human_output(str(config_path)))
+        else:
+            print(str(config_path))
         return 0
 
     if args.defaults:
@@ -1446,9 +1471,10 @@ def _format_human_error(payload: dict[str, object], *, color: bool = False) -> s
 
 def _emit_failure_payload(payload: dict[str, object]) -> None:
     if _CURRENT_CLI_OUTPUT_FORMAT == CLI_OUTPUT_HUMAN_READABLE:
-        print(
-            _format_human_error(payload, color=_supports_color(sys.stderr)),
-            file=sys.stderr,
+        sys.stderr.write(
+            _frame_human_output(
+                _format_human_error(payload, color=_supports_color(sys.stderr))
+            )
         )
         return
     _print_json_stderr(payload)
@@ -2110,7 +2136,7 @@ def _run_seeded_dev_optimize_threshold(
                 enabled=_supports_color(sys.stderr),
             ),
         )
-        sys.stderr.write("\n".join(summary_lines) + "\n")
+        sys.stderr.write(_frame_human_output("\n".join(summary_lines)))
         sys.stderr.flush()
         return 0
 
@@ -2134,7 +2160,7 @@ def _run_seeded_dev_optimize_threshold(
                 enabled=_supports_color(sys.stdout),
             ),
         )
-        sys.stdout.write("\n".join(summary_lines) + "\n")
+        sys.stdout.write(_frame_human_output("\n".join(summary_lines)))
         return 0
 
     _emit_success(
@@ -2745,7 +2771,7 @@ def _handle_completion_command(args: argparse.Namespace, *, output_format: str) 
             "After adding the line, restart your shell or run:",
             f"  source ~/{_COMPLETION_RC_FILES[shell]}",
         ]
-    sys.stdout.write("\n".join(instructions) + "\n")
+    sys.stdout.write(_frame_human_output("\n".join(instructions)))
     return 0
 
 
@@ -3491,7 +3517,7 @@ def _handle_workspace_command(
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _HumanFramedArgumentParser(
         prog="recollectium",
         description=(
             "Recollectium Core local memory CLI. Human-readable output is the "
@@ -4857,7 +4883,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             installed_version = package_version("recollectium")
         except PackageNotFoundError:
             installed_version = __version__
-        print(f"recollectium {installed_version}")
+        sys.stdout.write(_frame_human_output(f"recollectium {installed_version}"))
         return 0
 
     if args.command is None:

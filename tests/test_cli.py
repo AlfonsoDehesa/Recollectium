@@ -139,8 +139,15 @@ def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
     return captured.out
 
 
+def _assert_human_framed(output: str) -> None:
+    assert output.startswith("\n")
+    assert output.endswith("\n\n")
+
+
 def test_cli_help_documents_commands_and_flags(capsys) -> None:
     top_level_help = _run_help(["--help"], capsys)
+    _assert_human_framed(top_level_help)
+    assert top_level_help.startswith("\nusage:")
     assert "Recollectium Core local memory CLI" in top_level_help
     assert "Human-readable output is the default" in top_level_help
     assert "--json for structured JSON" in top_level_help
@@ -209,6 +216,8 @@ def test_cli_memory_type_completer_prefers_known_space() -> None:
 
 def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     add_help = _run_help(["add", "--help"], capsys)
+    _assert_human_framed(add_help)
+    assert add_help.startswith("\nusage:")
     assert "User memories must not" in add_help
     assert "include --workspace-uid" in add_help
     assert "Workspace memories require --workspace-uid" in add_help
@@ -250,6 +259,8 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "optimize-threshold" in dev_help
 
     dev_eval_help = _run_help(["dev", "eval", "--help"], capsys)
+    _assert_human_framed(dev_eval_help)
+    assert dev_eval_help.startswith("\nusage:")
     normalized_dev_eval_help = " ".join(dev_eval_help.split())
     assert (
         "This seeded development benchmark helps developers judge a model's expected "
@@ -280,6 +291,8 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     )
 
     optimize_help = _run_help(["dev", "optimize-threshold", "--help"], capsys)
+    _assert_human_framed(optimize_help)
+    assert optimize_help.startswith("\nusage:")
     normalized_optimize_help = " ".join(optimize_help.split())
     assert "advisory by default" in normalized_optimize_help
     assert "seeded thematic query" in normalized_optimize_help
@@ -354,6 +367,8 @@ def test_cli_no_args_prints_help(capsys) -> None:
 
     captured = capsys.readouterr()
     assert exit_code == 0
+    _assert_human_framed(captured.out)
+    assert captured.out.startswith("\nusage:")
     assert "Recollectium Core local memory CLI" in captured.out
     assert captured.err == ""
 
@@ -391,6 +406,23 @@ def test_cli_log_level_applies_to_missing_config_fallback(
     assert exit_code == 0
     assert stderr == ""
     assert "config.json" in stdout
+
+
+def test_cli_config_path_human_output_is_framed(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "config", "--path"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    _assert_human_framed(stdout)
+    assert stdout.strip() == str(tmp_path / "config" / "recollectium" / "config.json")
 
 
 def test_cli_logging_falls_back_after_os_error(
@@ -3069,7 +3101,8 @@ def test_cli_human_readable_flag_formats_failure_output(tmp_path, capsys) -> Non
 
     assert exit_code == 2
     assert stdout == ""
-    assert stderr.startswith("Config is invalid.\n")
+    assert stderr.startswith("\nConfig is invalid.\n")
+    _assert_human_framed(stderr)
     assert "Status: config_invalid" in stderr
     assert "Detail: ValidationError: logging.level must be one of" in stderr
     with pytest.raises(json.JSONDecodeError):
@@ -3097,7 +3130,8 @@ def test_cli_human_readable_config_formats_failure_output(tmp_path, capsys) -> N
 
     assert exit_code == 2
     assert stdout == ""
-    assert stderr.startswith("Config is invalid.\n")
+    assert stderr.startswith("\nConfig is invalid.\n")
+    _assert_human_framed(stderr)
     assert "Status: config_invalid" in stderr
     assert "service.port must be int" in stderr
 
@@ -3137,7 +3171,8 @@ def test_cli_human_readable_flag_formats_success_output(tmp_path, capsys) -> Non
 
     assert exit_code == 0
     assert stderr == ""
-    assert stdout.startswith("Db status\n")
+    assert stdout.startswith("\nDb status\n")
+    _assert_human_framed(stdout)
     assert "Db path:" in stdout
     assert "Up to date: true" in stdout
     assert "\x1b[" not in stdout
@@ -3185,7 +3220,8 @@ def test_cli_human_readable_success_uses_color_on_tty(monkeypatch) -> None:
     )
 
     output = stream.getvalue()
-    assert output.startswith("\x1b[1;36mDb status\x1b[0m\n")
+    assert output.startswith("\n\x1b[1;36mDb status\x1b[0m\n")
+    _assert_human_framed(output)
     assert "\x1b[1mUp to date:\x1b[0m true" in output
     assert "\x1b[" in output
 
@@ -3201,7 +3237,8 @@ def test_cli_human_readable_success_does_not_color_non_tty(monkeypatch) -> None:
     )
 
     output = stream.getvalue()
-    assert output.startswith("Db status\n")
+    assert output.startswith("\nDb status\n")
+    _assert_human_framed(output)
     assert "\x1b[" not in output
 
 
@@ -3223,7 +3260,8 @@ def test_cli_human_readable_errors_use_color_on_tty(monkeypatch) -> None:
         _set_cli_output_format("json")
 
     output = stream.getvalue()
-    assert output.startswith("\x1b[1;31mConfig is invalid.\x1b[0m\n")
+    assert output.startswith("\n\x1b[1;31mConfig is invalid.\x1b[0m\n")
+    _assert_human_framed(output)
     assert "\x1b[1mStatus:\x1b[0m config_invalid" in output
     assert "\x1b[33mFix the config file.\x1b[0m" in output
 
@@ -3237,7 +3275,8 @@ def test_cli_human_readable_is_default_output(tmp_path, capsys) -> None:
 
     assert exit_code == 0
     assert stderr == ""
-    assert stdout.startswith("Db status\n")
+    assert stdout.startswith("\nDb status\n")
+    _assert_human_framed(stdout)
     with pytest.raises(json.JSONDecodeError):
         json.loads(stdout)
 
@@ -3264,7 +3303,8 @@ def test_cli_output_config_controls_success_output(tmp_path, capsys) -> None:
 
     assert exit_code == 0
     assert stderr == ""
-    assert stdout.startswith("Db status\n")
+    assert stdout.startswith("\nDb status\n")
+    _assert_human_framed(stdout)
 
 
 def test_cli_json_flag_overrides_human_readable_config(tmp_path, capsys) -> None:
@@ -3299,7 +3339,8 @@ def test_cli_output_flags_work_before_command(tmp_path, capsys) -> None:
     )
     assert human_code == 0
     assert human_err == ""
-    assert human_out.startswith("Db status\n")
+    assert human_out.startswith("\nDb status\n")
+    _assert_human_framed(human_out)
 
     json_code, json_out, json_err = _run_cli(
         ["--json", "--db", str(db_path), "db-status"], capsys
@@ -3338,7 +3379,8 @@ def test_cli_output_flags_are_mutually_exclusive(capsys) -> None:
 
     assert exit_code == 2
     assert stdout == ""
-    assert stderr.startswith("Choose either --json or --human-readable, not both.\n")
+    assert stderr.startswith("\nChoose either --json or --human-readable, not both.\n")
+    _assert_human_framed(stderr)
     assert "Status: validation_error" in stderr
 
 
@@ -3666,9 +3708,9 @@ def test_cli_json_verbosity_compact_vs_verbose_memory_shapes(tmp_path, capsys) -
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
-        ("add", "Memory saved!\n"),
-        ("update", "Memory updated.\n"),
-        ("archive", "Memory archived.\n"),
+        ("add", "\nMemory saved!\n\n"),
+        ("update", "\nMemory updated.\n\n"),
+        ("archive", "\nMemory archived.\n\n"),
     ],
 )
 def test_cli_human_compact_projects_mutations_to_short_messages(
@@ -3728,7 +3770,8 @@ def test_cli_human_verbose_preserves_detailed_mutation_output(
     )
 
     output = stream.getvalue()
-    assert output.startswith("Memory added\n")
+    assert output.startswith("\nMemory added\n")
+    _assert_human_framed(output)
     assert "Memory mem-1 (fact)" in output
     assert "Content: verbose human mutation" in output
     assert 'Metadata: {"source": "test"}' in output
@@ -5345,7 +5388,8 @@ def test_cli_version_prints_package_version(capsys, monkeypatch) -> None:
     exit_code, stdout, stderr = _run_cli(["--version"], capsys)
 
     assert exit_code == 0
-    assert stdout == "recollectium 1.2.3\n"
+    assert stdout == "\nrecollectium 1.2.3\n\n"
+    _assert_human_framed(stdout)
     assert stderr == ""
 
 
@@ -5359,7 +5403,8 @@ def test_cli_version_uses_source_fallback(capsys, monkeypatch) -> None:
     exit_code, stdout, stderr = _run_cli(["--version"], capsys)
 
     assert exit_code == 0
-    assert stdout == "recollectium 0.1.0-dev\n"
+    assert stdout == "\nrecollectium 0.1.0-dev\n\n"
+    _assert_human_framed(stdout)
     assert stderr == ""
 
 
@@ -5367,7 +5412,8 @@ def test_cli_version_without_command_does_not_require_subcommand(capsys) -> None
     exit_code, stdout, stderr = _run_cli(["--version"], capsys)
 
     assert exit_code == 0
-    assert stdout.startswith("recollectium ")
+    assert stdout.startswith("\nrecollectium ")
+    _assert_human_framed(stdout)
     assert stderr == ""
 
 
