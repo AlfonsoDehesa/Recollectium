@@ -523,7 +523,7 @@ def _format_human_output(
         if not payload:
             return "No results\n"
         if all(isinstance(item, dict) for item in payload):
-            lines = [
+            blocks = [
                 _style(
                     f"{len(payload)} result{'s' if len(payload) != 1 else ''}",
                     _RICH_HEADING,
@@ -532,10 +532,12 @@ def _format_human_output(
             ]
             for index, item in enumerate(payload, start=1):
                 if "content" in item or "memory" in item:
-                    lines.extend(_format_memory(item, index=index, color=color))
+                    blocks.append(
+                        "\n".join(_format_memory(item, index=index, color=color))
+                    )
                 else:
-                    lines.append(f"{index}. {json.dumps(item, sort_keys=True)}")
-            return "\n".join(lines) + "\n"
+                    blocks.append(f"{index}. {json.dumps(item, sort_keys=True)}")
+            return "\n\n".join(blocks) + "\n"
         return "\n".join(f"- {_json_scalar(item)}" for item in payload) + "\n"
     if command == "config get" and label is not None:
         return f"{_format_label(label, color=color)} {_json_scalar(payload)}\n"
