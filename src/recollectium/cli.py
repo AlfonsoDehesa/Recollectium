@@ -4178,12 +4178,25 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_eval_parser = dev_subparsers.add_parser(
         "eval",
         help="run seeded development retrieval regression metrics",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "Initialize or refresh the seeded development database if needed, then "
             "run Exact MRR, Semantic MRR, Thematic Weighted Precision@10, "
             "Thematic Weighted Recall@10, and Ranked-set NDCG@5 against that database only. "
-            "This is a seeded development regression check, not a benchmark leaderboard or "
-            "user-facing quality guarantee. No combined score is reported."
+            "This seeded development benchmark helps developers judge a model's expected "
+            "retrieval performance on Recollectium-style memory tasks. No combined score "
+            "is reported.\n\n"
+            "Metrics:\n"
+            "  Exact MRR: Checks whether known exact-memory queries rank the intended seeded "
+            "memory first or near the top.\n"
+            "  Semantic MRR: Checks whether paraphrased queries retrieve the intended seeded "
+            "memory near the top.\n"
+            "  Thematic Weighted Precision@10: Checks how much of the top 10 is relevant to "
+            "the requested theme, weighted by fixture relevance grades.\n"
+            "  Thematic Weighted Recall@10: Checks how much of the theme's expected relevant "
+            "set appears in the top 10, weighted by fixture relevance grades.\n"
+            "  Ranked-set NDCG@5: Checks whether graded expected results appear in the right "
+            "order near the top 5."
         ),
     )
     dev_eval_parser.set_defaults(state="eval")
