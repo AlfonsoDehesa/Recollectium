@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 import multiprocessing
+import os
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -30,12 +32,22 @@ class EmbeddingProvider(Protocol):
 
 
 def _fastembed_readiness_worker(
-    result_connection: Connection, model_name: str, cache_dir: str | None
+    result_connection: Connection,
+    model_name: str,
+    cache_dir: str | None,
+    suppress_output: bool = False,
 ) -> None:
     try:
-        BuiltinFastEmbedProvider(
-            model_name, cache_dir=cache_dir
-        )._ensure_ready_unbounded()
+        provider = BuiltinFastEmbedProvider(model_name, cache_dir=cache_dir)
+        if suppress_output:
+            with open(os.devnull, "w", encoding="utf-8") as devnull:
+                with (
+                    contextlib.redirect_stdout(devnull),
+                    contextlib.redirect_stderr(devnull),
+                ):
+                    provider._ensure_ready_unbounded()
+        else:
+            provider._ensure_ready_unbounded()
     except Exception as exc:  # pragma: no cover - exercised through parent process
         result_connection.send(
             {
@@ -215,7 +227,9 @@ class BuiltinFastEmbedProvider:
         self._validate_dimensions(vector)
         return self._normalize_vector(vector)
 
-    def ensure_ready(self, *, timeout_seconds: float = 60.0) -> None:
+    def ensure_ready(
+        self, *, timeout_seconds: float = 60.0, suppress_output: bool = False
+    ) -> None:
         if timeout_seconds <= 0:
             raise EmbeddingReadinessTimeoutError(
                 "FastEmbed provider startup timed out after 0 seconds"
@@ -223,9 +237,12 @@ class BuiltinFastEmbedProvider:
 
         context = multiprocessing.get_context("spawn")
         parent_connection, child_connection = context.Pipe(duplex=False)
+        process_args = (child_connection, self.model_name, self.cache_dir)
+        if suppress_output:
+            process_args = (*process_args, suppress_output)
         process = context.Process(
             target=_fastembed_readiness_worker,
-            args=(child_connection, self.model_name, self.cache_dir),
+            args=process_args,
         )
         process.start()
         child_connection.close()

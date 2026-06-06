@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import contextlib
+import inspect
 import logging
+import os
 from pathlib import Path
 from platformdirs import user_state_dir
 from typing import Any, Literal
@@ -49,6 +52,18 @@ from recollectium.storage import SQLiteMemoryStore, utc_now_iso
 _log = logging.getLogger(__name__)
 
 ReembeddingProgressCallback = Callable[[dict[str, Any]], None]
+ModelReadinessProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _callable_accepts_keyword(callback: Callable[..., object], keyword: str) -> bool:
+    try:
+        signature = inspect.signature(callback)
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD or name == keyword
+        for name, parameter in signature.parameters.items()
+    )
 
 
 def _validate_optional_string(field_name: str, value: str | None) -> str | None:
@@ -706,7 +721,13 @@ class RecollectiumCore:
     # (search, explicit refresh, API request, or MCP tool call) so refresh work
     # stays inline with the caller's requested scope.
 
-    def _ensure_model_ready(self, *, state_dir: Path | None = None) -> None:
+    def _ensure_model_ready(
+        self,
+        *,
+        state_dir: Path | None = None,
+        progress_callback: ModelReadinessProgressCallback | None = None,
+        suppress_provider_output: bool = False,
+    ) -> None:
         """Make sure the configured embedding model is downloaded and ready.
 
         Compares the configured ``embedding.model`` against the last-prepared
@@ -739,11 +760,23 @@ class RecollectiumCore:
         ):
             return  # already prepared, nothing to do
 
-        provider_ready = getattr(self.embedding_provider, "ensure_ready", None)
-        if callable(provider_ready):
-            provider_ready()
-        else:
-            self.embedding_provider.embed("healthcheck")
+        if progress_callback is not None:
+            progress_callback({"phase": "Preparing embedding model"})
+
+        with contextlib.ExitStack() as stack:
+            if suppress_provider_output:
+                devnull = stack.enter_context(open(os.devnull, "w", encoding="utf-8"))
+                stack.enter_context(contextlib.redirect_stdout(devnull))
+                stack.enter_context(contextlib.redirect_stderr(devnull))
+
+            provider_ready = getattr(self.embedding_provider, "ensure_ready", None)
+            if callable(provider_ready):
+                if _callable_accepts_keyword(provider_ready, "suppress_output"):
+                    provider_ready(suppress_output=suppress_provider_output)
+                else:
+                    provider_ready()
+            else:
+                self.embedding_provider.embed("healthcheck")
 
         write_model_state(
             resolved_state_dir,

@@ -6,6 +6,7 @@ import argparse
 import argcomplete
 from argcomplete.completers import ChoicesCompleter
 from copy import deepcopy
+import inspect
 import json
 import logging
 import os
@@ -758,6 +759,10 @@ _REEMBEDDING_PROGRESS_LABELS = {
     "Re-embedding memories": "Re-embedding",
 }
 
+_MODEL_READINESS_PROGRESS_LABELS = {
+    "Preparing embedding model": "Preparing model",
+}
+
 _THRESHOLD_OPTIMIZATION_PROGRESS_LABELS = {
     "Checking embedding provider readiness": "Checking provider",
     "Preparing seeded development database": "Preparing dev DB",
@@ -814,6 +819,82 @@ def _human_reembedding_progress_reporter(
     if output_format != CLI_OUTPUT_HUMAN_READABLE:
         return None
     return _ReembeddingProgressReporter(sys.stderr)
+
+
+class _ModelReadinessProgressReporter:
+    """Render model readiness preparation using the shared single-line UX."""
+
+    def __init__(self, stream: Any) -> None:
+        title_limit = _live_progress_title_limit(stream)
+        self._progress = SingleLineProgressReporter(
+            stream,
+            labels=_MODEL_READINESS_PROGRESS_LABELS,
+            title_limit=12 if title_limit is None else title_limit,
+        )
+        self._started = False
+
+    def __enter__(self) -> _ModelReadinessProgressReporter:
+        self._ensure_started()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.finish()
+
+    def finish(self) -> None:
+        self._progress.finish()
+
+    def _ensure_started(self) -> None:
+        if self._started:
+            return
+        self._progress.__enter__()
+        self._started = True
+
+    def __call__(self, event: dict[str, Any]) -> None:
+        self._ensure_started()
+        label = str(event.get("phase") or "Preparing embedding model")
+        self._progress.phase(label)
+
+
+def _human_model_readiness_progress_reporter(
+    output_format: str,
+) -> _ModelReadinessProgressReporter | None:
+    if output_format != CLI_OUTPUT_HUMAN_READABLE:
+        return None
+    return _ModelReadinessProgressReporter(sys.stderr)
+
+
+def _ensure_cli_model_ready(core: RecollectiumCore, *, output_format: str) -> None:
+    ensure_ready = core._ensure_model_ready
+    progress_reporter = _human_model_readiness_progress_reporter(output_format)
+    if progress_reporter is None:
+        if _callable_accepts_cli_readiness_keyword(
+            ensure_ready, "suppress_provider_output"
+        ):
+            ensure_ready(suppress_provider_output=True)
+        else:
+            ensure_ready()
+        return
+    with progress_reporter:
+        if _callable_accepts_cli_readiness_keyword(ensure_ready, "progress_callback"):
+            kwargs: dict[str, object] = {"progress_callback": progress_reporter}
+            if _callable_accepts_cli_readiness_keyword(
+                ensure_ready, "suppress_provider_output"
+            ):
+                kwargs["suppress_provider_output"] = True
+            cast(Any, ensure_ready)(**kwargs)
+        else:
+            ensure_ready()
+
+
+def _callable_accepts_cli_readiness_keyword(callback: Any, keyword: str) -> bool:
+    try:
+        signature = inspect.signature(callback)
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD or name == keyword
+        for name, parameter in signature.parameters.items()
+    )
 
 
 class _ThresholdOptimizationProgressReporter:
@@ -5371,7 +5452,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.command == "update" and args.content is not None
         )
         if _needs_embedding:
-            core._ensure_model_ready()
+            _ensure_cli_model_ready(core, output_format=output_format)
 
         if args.command == "add":
             result = core.add_memory(

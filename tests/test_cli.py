@@ -94,6 +94,14 @@ class FakeEmbeddingProvider:
         return None
 
 
+class NoisyReadinessEmbeddingProvider(FakeEmbeddingProvider):
+    """Fake provider that simulates third-party readiness output leaks."""
+
+    def ensure_ready(self, *, timeout_seconds: float = 60.0) -> None:
+        print("provider stdout readiness noise")
+        print("provider stderr readiness noise", file=sys.stderr)
+
+
 def _run_cli(
     args: list[str],
     capsys: CaptureFixture[str],
@@ -127,6 +135,10 @@ def _mark_memory_profile_stale(db_path: Path, memory_id: str) -> None:
         "profile": "stale-profile",
     }
     SQLiteMemoryStore(db_path).update_memory(memory_id, embedding_profile=stale_profile)
+
+
+def _forget_model_readiness_state(tmp_path: Path) -> None:
+    (tmp_path / "state" / "recollectium" / "model-state.json").unlink(missing_ok=True)
 
 
 def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
@@ -870,6 +882,102 @@ def test_cli_json_search_reembedding_remains_parse_safe(
     assert payload[0]["memory"]["id"] == memory_id
     assert "Re-embedding memories" not in search_out
     assert "Re-embedding memories" not in search_err
+
+
+def test_cli_human_search_readiness_progress_clears_before_results(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "human-readiness-progress.db"
+
+    add_code, add_out, add_err = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            SPACE_USER,
+            "--type",
+            "fact",
+            "--content",
+            "Readiness progress should clear before search results",
+        ],
+        capsys,
+    )
+    assert add_code == 0
+    assert add_err == ""
+    memory_id = json.loads(add_out)["id"]
+    _forget_model_readiness_state(tmp_path)
+
+    search_code, search_out, search_err = _run_cli(
+        [
+            "--human-readable",
+            "--db",
+            str(db_path),
+            "search-user",
+            "search results",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert search_code == 0
+    assert "1 result" in search_out
+    assert memory_id in search_out
+    assert "Preparing model" in search_err
+    assert "\r\x1b[2K" in search_err
+    assert search_err.endswith("\r\x1b[2K")
+    assert "provider stdout readiness noise" not in search_out
+    assert "provider stdout readiness noise" not in search_err
+    assert "provider stderr readiness noise" not in search_err
+    assert "Status:" not in search_err
+    assert "\n" not in search_err
+
+
+def test_cli_json_search_readiness_progress_remains_quiet_parse_safe(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "json-readiness-progress.db"
+
+    add_code, add_out, add_err = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            SPACE_USER,
+            "--type",
+            "fact",
+            "--content",
+            "JSON readiness should remain parse safe",
+        ],
+        capsys,
+    )
+    assert add_code == 0
+    assert add_err == ""
+    memory_id = json.loads(add_out)["id"]
+    _forget_model_readiness_state(tmp_path)
+
+    search_code, search_out, search_err = _run_cli(
+        ["--db", str(db_path), "search-user", "parse safe"],
+        capsys,
+    )
+
+    assert search_code == 0
+    payload = json.loads(search_out)
+    assert payload[0]["memory"]["id"] == memory_id
+    assert "Preparing model" not in search_out
+    assert "Preparing model" not in search_err
+    assert "provider stdout readiness noise" not in search_out
+    assert "provider stdout readiness noise" not in search_err
+    assert "provider stderr readiness noise" not in search_err
 
 
 def test_cli_human_workspace_search_emits_reembedding_progress_to_stderr(
