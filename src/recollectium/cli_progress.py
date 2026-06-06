@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import shutil
+import sys
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
+try:
+    import termios as _termios
+except ImportError:  # pragma: no cover - exercised by monkeypatch on POSIX CI
+    _termios = None  # type: ignore[assignment]
+
 
 Clock = Callable[[], float]
+
+
+def _termios_error_types() -> tuple[type[BaseException], ...]:
+    errors: list[type[BaseException]] = [AttributeError, OSError, ValueError]
+    termios_error = getattr(_termios, "error", None)
+    if isinstance(termios_error, type) and issubclass(termios_error, BaseException):
+        errors.append(termios_error)
+    return tuple(errors)
 
 
 def live_progress_title_limit() -> int | None:
@@ -45,8 +59,10 @@ class SingleLineProgressReporter:
         clock: Clock = time.monotonic,
         min_render_interval: float = 0.25,
         title_limit: int | None = None,
+        input_stream: Any | None = None,
     ) -> None:
         self._stream = stream
+        self._input_stream = sys.stdin if input_stream is None else input_stream
         self._labels = dict(labels or {})
         self._clock = clock
         self._min_render_interval = min_render_interval
@@ -61,9 +77,12 @@ class SingleLineProgressReporter:
         self._last_render_at: float | None = None
         self._last_rendered_line = ""
         self._last_progress_key: tuple[str, int] | None = None
+        self._echo_fd: int | None = None
+        self._echo_attrs: list[Any] | None = None
 
     def __enter__(self) -> SingleLineProgressReporter:
         self._active = True
+        self._suppress_input_echo()
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -72,12 +91,13 @@ class SingleLineProgressReporter:
     def finish(self) -> None:
         """Clear the dynamic line and disable rendering."""
 
-        if not self._active:
-            return
-        if self._write(self._clear_line):
-            self._last_line_width = 0
-            self._last_rendered_line = ""
-        self._active = False
+        try:
+            if self._active and self._write(self._clear_line):
+                self._last_line_width = 0
+                self._last_rendered_line = ""
+            self._active = False
+        finally:
+            self._restore_input_echo()
 
     def phase(self, label: str) -> None:
         """Render a phase-only progress update."""
@@ -157,6 +177,34 @@ class SingleLineProgressReporter:
             self._last_line_width = 0
             return False
         return True
+
+    def _suppress_input_echo(self) -> None:
+        if _termios is None or self._echo_fd is not None:
+            return
+        try:
+            if not self._input_stream.isatty() or not self._stream.isatty():
+                return
+            fd = self._input_stream.fileno()
+            attrs = _termios.tcgetattr(fd)
+            new_attrs = list(attrs)
+            new_attrs[3] = new_attrs[3] & ~_termios.ECHO
+            _termios.tcsetattr(fd, _termios.TCSADRAIN, new_attrs)
+        except _termios_error_types():
+            return
+        self._echo_fd = fd
+        self._echo_attrs = list(attrs)
+
+    def _restore_input_echo(self) -> None:
+        if _termios is None or self._echo_fd is None or self._echo_attrs is None:
+            return
+        fd = self._echo_fd
+        attrs = self._echo_attrs
+        self._echo_fd = None
+        self._echo_attrs = None
+        try:
+            _termios.tcsetattr(fd, _termios.TCSADRAIN, attrs)
+        except _termios_error_types():
+            return
 
     def _format_line(
         self,
