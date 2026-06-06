@@ -4204,11 +4204,26 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_optimize_parser = dev_subparsers.add_parser(
         "optimize-threshold",
         help="optimize a retrieval match threshold from seeded thematic labels",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "Load the seeded development database if needed, evaluate the full labeled "
-            "candidate pool for each seeded thematic query, and recommend a match threshold. "
+            "candidate pool for each seeded thematic query, and recommend a match threshold.\n\n"
             "This command is advisory by default and only writes config when explicitly "
-            "asked to do so."
+            "asked to do so.\n\n"
+            "Metrics:\n"
+            "  Weighted precision: Checks how much of the returned set is useful, with "
+            "direct matches and adjacent matches counted more than confusers or unrelated "
+            "results.\n"
+            "  Weighted recall: Checks how much of the total useful labeled set the returned "
+            "set captures, using the same relevance weights.\n"
+            "  Weighted F-beta: Combines weighted precision and weighted recall so the sweep "
+            "can rank thresholds by the chosen precision-recall balance.\n"
+            "  Confuser exposure: Checks how much of the returned set is mislabeled or "
+            "confusing, where lower is better.\n"
+            "  Unrelated exposure: Checks how much of the returned set is unrelated to the "
+            "query, where lower is better.\n"
+            "  Average returned count: Checks how many memories are returned on average per "
+            "seeded query at the threshold."
         ),
     )
     dev_optimize_parser.add_argument(

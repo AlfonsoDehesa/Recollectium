@@ -253,6 +253,13 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "advisory by default" in optimize_help
     assert "seeded thematic query" in optimize_help
     assert "PR1 query" not in optimize_help
+    assert "Metrics:" in optimize_help
+    assert "Weighted precision: Checks how much of the returned set is useful" in optimize_help
+    assert "Weighted recall: Checks how much of the total useful labeled set the returned set captures" in optimize_help
+    assert "Weighted F-beta: Combines weighted precision and weighted recall" in optimize_help
+    assert "Confuser exposure: Checks how much of the returned set is mislabeled or confusing" in optimize_help
+    assert "Unrelated exposure: Checks how much of the returned set is unrelated to the query" in optimize_help
+    assert "Average returned count: Checks how many memories are returned on average per seeded query at the threshold" in optimize_help
     assert "--write-config" in optimize_help
     assert "--format" in optimize_help
     assert "--beta" in optimize_help
