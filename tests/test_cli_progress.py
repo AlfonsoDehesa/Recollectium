@@ -59,6 +59,9 @@ class TTYStringIO(io.StringIO):
 
 
 class FakeTermios:
+    class error(Exception):
+        pass
+
     ECHO = 0b1000
     TCSADRAIN = 2
 
@@ -67,9 +70,11 @@ class FakeTermios:
         *,
         fail_getattr: bool = False,
         fail_setattr_calls: set[int] | None = None,
+        exception_type: type[Exception] = OSError,
     ) -> None:
         self.fail_getattr = fail_getattr
         self.fail_setattr_calls = fail_setattr_calls or set()
+        self.exception_type = exception_type
         self.attrs = [1, 2, 3, self.ECHO | 0b0010]
         self.getattr_calls: list[int] = []
         self.setattr_calls: list[tuple[int, int, list[int]]] = []
@@ -77,13 +82,14 @@ class FakeTermios:
     def tcgetattr(self, fd: int) -> list[int]:
         self.getattr_calls.append(fd)
         if self.fail_getattr:
-            raise OSError("tcgetattr failed")
+            raise self.exception_type("tcgetattr failed")
         return list(self.attrs)
 
     def tcsetattr(self, fd: int, when: int, attrs: list[int]) -> None:
         self.setattr_calls.append((fd, when, list(attrs)))
         if len(self.setattr_calls) in self.fail_setattr_calls:
-            raise OSError("tcsetattr failed")
+            raise self.exception_type("tcsetattr failed")
+        self.attrs = list(attrs)
 
 
 def test_single_line_progress_normal_frame_uses_cr_padding_not_clear_line() -> None:
@@ -179,6 +185,20 @@ def test_single_line_progress_restores_echo_on_context_exception(
         (TTYStringIO(fail_fileno=True), FakeTermios()),
         (TTYStringIO(), FakeTermios(fail_getattr=True)),
         (TTYStringIO(), FakeTermios(fail_setattr_calls={1})),
+        (
+            TTYStringIO(),
+            FakeTermios(
+                fail_getattr=True,
+                exception_type=FakeTermios.error,
+            ),
+        ),
+        (
+            TTYStringIO(),
+            FakeTermios(
+                fail_setattr_calls={1},
+                exception_type=FakeTermios.error,
+            ),
+        ),
         (TTYStringIO(), None),
     ],
 )
@@ -224,6 +244,31 @@ def test_single_line_progress_finish_restores_echo_once(
     ]
 
 
+def test_single_line_progress_reenter_does_not_overwrite_saved_echo_attrs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_termios = FakeTermios()
+    monkeypatch.setattr(cli_progress, "_termios", fake_termios)
+    stream = TTYStringIO(fd=20)
+    input_stream = TTYStringIO(fd=30)
+    progress = SingleLineProgressReporter(
+        stream,
+        min_render_interval=0,
+        input_stream=input_stream,
+    )
+
+    progress.__enter__()
+    progress.__enter__()
+    progress.finish()
+
+    assert fake_termios.getattr_calls == [30]
+    assert fake_termios.setattr_calls == [
+        (30, fake_termios.TCSADRAIN, [1, 2, 3, 0b0010]),
+        (30, fake_termios.TCSADRAIN, [1, 2, 3, fake_termios.ECHO | 0b0010]),
+    ]
+    assert fake_termios.attrs == [1, 2, 3, fake_termios.ECHO | 0b0010]
+
+
 def test_single_line_progress_restores_echo_after_rendering_write_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -250,6 +295,28 @@ def test_single_line_progress_restore_echo_failure_is_swallowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_termios = FakeTermios(fail_setattr_calls={2})
+    monkeypatch.setattr(cli_progress, "_termios", fake_termios)
+    stream = TTYStringIO(fd=20)
+    input_stream = TTYStringIO(fd=30)
+
+    with SingleLineProgressReporter(
+        stream,
+        min_render_interval=0,
+        input_stream=input_stream,
+    ) as progress:
+        progress.phase("Starting")
+
+    assert len(fake_termios.setattr_calls) == 2
+    assert "Starting" in stream.getvalue()
+
+
+def test_single_line_progress_restore_termios_error_failure_is_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_termios = FakeTermios(
+        fail_setattr_calls={2},
+        exception_type=FakeTermios.error,
+    )
     monkeypatch.setattr(cli_progress, "_termios", fake_termios)
     stream = TTYStringIO(fd=20)
     input_stream = TTYStringIO(fd=30)

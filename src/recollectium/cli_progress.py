@@ -17,6 +17,14 @@ except ImportError:  # pragma: no cover - exercised by monkeypatch on POSIX CI
 Clock = Callable[[], float]
 
 
+def _termios_error_types() -> tuple[type[BaseException], ...]:
+    errors: list[type[BaseException]] = [AttributeError, OSError, ValueError]
+    termios_error = getattr(_termios, "error", None)
+    if isinstance(termios_error, type) and issubclass(termios_error, BaseException):
+        errors.append(termios_error)
+    return tuple(errors)
+
+
 def live_progress_title_limit() -> int | None:
     """Return a safe live-title length for terminal progress bars."""
 
@@ -171,7 +179,7 @@ class SingleLineProgressReporter:
         return True
 
     def _suppress_input_echo(self) -> None:
-        if _termios is None:
+        if _termios is None or self._echo_fd is not None:
             return
         try:
             if not self._input_stream.isatty() or not self._stream.isatty():
@@ -181,7 +189,7 @@ class SingleLineProgressReporter:
             new_attrs = list(attrs)
             new_attrs[3] = new_attrs[3] & ~_termios.ECHO
             _termios.tcsetattr(fd, _termios.TCSADRAIN, new_attrs)
-        except (AttributeError, OSError, ValueError):
+        except _termios_error_types():
             return
         self._echo_fd = fd
         self._echo_attrs = list(attrs)
@@ -195,7 +203,7 @@ class SingleLineProgressReporter:
         self._echo_attrs = None
         try:
             _termios.tcsetattr(fd, _termios.TCSADRAIN, attrs)
-        except (AttributeError, OSError, ValueError):
+        except _termios_error_types():
             return
 
     def _format_line(
