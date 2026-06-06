@@ -36,6 +36,56 @@ class FlushErrorStream(io.StringIO):
         raise OSError("stream flush failed")
 
 
+class TTYStringIO(io.StringIO):
+    def __init__(
+        self,
+        *,
+        fd: int = 10,
+        is_tty: bool = True,
+        fail_fileno: bool = False,
+    ) -> None:
+        super().__init__()
+        self._fd = fd
+        self._is_tty = is_tty
+        self._fail_fileno = fail_fileno
+
+    def isatty(self) -> bool:
+        return self._is_tty
+
+    def fileno(self) -> int:
+        if self._fail_fileno:
+            raise OSError("fileno failed")
+        return self._fd
+
+
+class FakeTermios:
+    ECHO = 0b1000
+    TCSADRAIN = 2
+
+    def __init__(
+        self,
+        *,
+        fail_getattr: bool = False,
+        fail_setattr_calls: set[int] | None = None,
+    ) -> None:
+        self.fail_getattr = fail_getattr
+        self.fail_setattr_calls = fail_setattr_calls or set()
+        self.attrs = [1, 2, 3, self.ECHO | 0b0010]
+        self.getattr_calls: list[int] = []
+        self.setattr_calls: list[tuple[int, int, list[int]]] = []
+
+    def tcgetattr(self, fd: int) -> list[int]:
+        self.getattr_calls.append(fd)
+        if self.fail_getattr:
+            raise OSError("tcgetattr failed")
+        return list(self.attrs)
+
+    def tcsetattr(self, fd: int, when: int, attrs: list[int]) -> None:
+        self.setattr_calls.append((fd, when, list(attrs)))
+        if len(self.setattr_calls) in self.fail_setattr_calls:
+            raise OSError("tcsetattr failed")
+
+
 def test_single_line_progress_normal_frame_uses_cr_padding_not_clear_line() -> None:
     stream = io.StringIO()
     progress = SingleLineProgressReporter(stream, min_render_interval=0, title_limit=40)
@@ -53,6 +103,166 @@ def test_single_line_progress_normal_frame_uses_cr_padding_not_clear_line() -> N
     assert output.endswith("\r\x1b[2K")
     assert "A much longer label" in frames[1]
     assert frames[2].endswith(" ")
+
+
+def test_single_line_progress_does_not_suppress_echo_for_non_tty_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_termios = FakeTermios()
+    monkeypatch.setattr(cli_progress, "_termios", fake_termios)
+    stream = io.StringIO()
+    input_stream = TTYStringIO()
+
+    with SingleLineProgressReporter(
+        stream,
+        min_render_interval=0,
+        input_stream=input_stream,
+    ) as progress:
+        progress.phase("Starting")
+
+    assert fake_termios.getattr_calls == []
+    assert fake_termios.setattr_calls == []
+    assert "Starting" in stream.getvalue()
+
+
+def test_single_line_progress_suppresses_and_restores_echo_for_ttys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_termios = FakeTermios()
+    monkeypatch.setattr(cli_progress, "_termios", fake_termios)
+    stream = TTYStringIO(fd=20)
+    input_stream = TTYStringIO(fd=30)
+
+    with SingleLineProgressReporter(
+        stream,
+        min_render_interval=0,
+        input_stream=input_stream,
+    ) as progress:
+        progress.phase("Starting")
+
+    assert fake_termios.getattr_calls == [30]
+    assert fake_termios.setattr_calls == [
+        (30, fake_termios.TCSADRAIN, [1, 2, 3, 0b0010]),
+        (30, fake_termios.TCSADRAIN, [1, 2, 3, fake_termios.ECHO | 0b0010]),
+    ]
+    assert "Starting" in stream.getvalue()
+
+
+def test_single_line_progress_restores_echo_on_context_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_termios = FakeTermios()
+    monkeypatch.setattr(cli_progress, "_termios", fake_termios)
+    stream = TTYStringIO(fd=20)
+    input_stream = TTYStringIO(fd=30)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with SingleLineProgressReporter(
+            stream,
+            min_render_interval=0,
+            input_stream=input_stream,
+        ) as progress:
+            progress.phase("Starting")
+            raise RuntimeError("boom")
+
+    assert len(fake_termios.setattr_calls) == 2
+    assert fake_termios.setattr_calls[-1] == (
+        30,
+        fake_termios.TCSADRAIN,
+        [1, 2, 3, fake_termios.ECHO | 0b0010],
+    )
+
+
+@pytest.mark.parametrize(
+    ("input_stream", "termios_module"),
+    [
+        (TTYStringIO(fail_fileno=True), FakeTermios()),
+        (TTYStringIO(), FakeTermios(fail_getattr=True)),
+        (TTYStringIO(), FakeTermios(fail_setattr_calls={1})),
+        (TTYStringIO(), None),
+    ],
+)
+def test_single_line_progress_echo_suppression_failures_are_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+    input_stream: TTYStringIO,
+    termios_module: FakeTermios | None,
+) -> None:
+    monkeypatch.setattr(cli_progress, "_termios", termios_module)
+    stream = TTYStringIO()
+
+    with SingleLineProgressReporter(
+        stream,
+        min_render_interval=0,
+        input_stream=input_stream,
+    ) as progress:
+        progress.phase("Still works")
+
+    assert "Still works" in stream.getvalue()
+
+
+def test_single_line_progress_finish_restores_echo_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_termios = FakeTermios()
+    monkeypatch.setattr(cli_progress, "_termios", fake_termios)
+    stream = TTYStringIO(fd=20)
+    input_stream = TTYStringIO(fd=30)
+    progress = SingleLineProgressReporter(
+        stream,
+        min_render_interval=0,
+        input_stream=input_stream,
+    )
+
+    with progress:
+        progress.phase("Starting")
+        progress.finish()
+        progress.finish()
+
+    assert fake_termios.setattr_calls == [
+        (30, fake_termios.TCSADRAIN, [1, 2, 3, 0b0010]),
+        (30, fake_termios.TCSADRAIN, [1, 2, 3, fake_termios.ECHO | 0b0010]),
+    ]
+
+
+def test_single_line_progress_restores_echo_after_rendering_write_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_termios = FakeTermios()
+    monkeypatch.setattr(cli_progress, "_termios", fake_termios)
+    stream = OSErrorStream()
+    stream.isatty = lambda: True  # type: ignore[method-assign]
+    input_stream = TTYStringIO(fd=30)
+
+    with SingleLineProgressReporter(
+        stream,
+        min_render_interval=0,
+        input_stream=input_stream,
+    ) as progress:
+        progress.phase("Will fail")
+
+    assert fake_termios.setattr_calls == [
+        (30, fake_termios.TCSADRAIN, [1, 2, 3, 0b0010]),
+        (30, fake_termios.TCSADRAIN, [1, 2, 3, fake_termios.ECHO | 0b0010]),
+    ]
+
+
+def test_single_line_progress_restore_echo_failure_is_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_termios = FakeTermios(fail_setattr_calls={2})
+    monkeypatch.setattr(cli_progress, "_termios", fake_termios)
+    stream = TTYStringIO(fd=20)
+    input_stream = TTYStringIO(fd=30)
+
+    with SingleLineProgressReporter(
+        stream,
+        min_render_interval=0,
+        input_stream=input_stream,
+    ) as progress:
+        progress.phase("Starting")
+
+    assert len(fake_termios.setattr_calls) == 2
+    assert "Starting" in stream.getvalue()
 
 
 def test_single_line_progress_finish_uses_clear_line() -> None:
