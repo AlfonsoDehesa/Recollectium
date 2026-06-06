@@ -1482,15 +1482,32 @@ def test_cli_dev_help_documents_actions(capsys) -> None:
     assert "eval" in dev_help
 
     eval_help = _run_help(["dev", "eval", "--help"], capsys)
-    assert "Exact MRR" in eval_help
-    assert "Semantic MRR" in eval_help
-    assert "Thematic Weighted Precision@10" in eval_help
-    assert "Ranked-set NDCG@5" in eval_help
     normalized_eval_help = " ".join(eval_help.split())
-    assert "seeded development regression check" in normalized_eval_help
-    assert "not a benchmark leaderboard" in normalized_eval_help
-    assert "user-facing quality guarantee" in normalized_eval_help
-    assert "No combined score" in eval_help
+    assert (
+        "This seeded development benchmark helps developers judge a model's expected "
+        "retrieval performance on Recollectium-style memory tasks. No combined score "
+        "is reported."
+    ) in normalized_eval_help
+    assert (
+        "Exact MRR: Checks whether known exact-memory queries rank the intended "
+        "seeded memory first or near the top."
+    ) in normalized_eval_help
+    assert (
+        "Semantic MRR: Checks whether paraphrased queries retrieve the intended "
+        "seeded memory near the top."
+    ) in normalized_eval_help
+    assert (
+        "Thematic Weighted Precision@10: Checks how much of the top 10 is relevant "
+        "to the requested theme, weighted by fixture relevance grades."
+    ) in normalized_eval_help
+    assert (
+        "Thematic Weighted Recall@10: Checks how much of the theme's expected "
+        "relevant set appears in the top 10, weighted by fixture relevance grades."
+    ) in normalized_eval_help
+    assert (
+        "Ranked-set NDCG@5: Checks whether graded expected results appear in the "
+        "right order near the top 5."
+    ) in normalized_eval_help
 
 
 def test_cli_dev_reset_resets_configured_seed_database(
