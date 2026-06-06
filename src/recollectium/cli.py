@@ -310,6 +310,7 @@ def _json_scalar(value: Any) -> str:
 
 _RICH_BOLD = "bold"
 _RICH_HEADING = "bold cyan"
+_RICH_BLUE_HEADING = "bold blue"
 _RICH_SUCCESS = "bold green"
 _RICH_ERROR = "bold red"
 _RICH_HINT = "yellow"
@@ -1930,6 +1931,7 @@ def _run_seeded_dev_optimize_threshold(
     regular_db_path: Path,
     args: argparse.Namespace,
     output_format: str,
+    response_verbosity: str,
     progress: _ThresholdOptimizationProgressReporter | None = None,
 ) -> int:
     """Run the seeded threshold optimizer against the PR1 thematic fixtures."""
@@ -2097,6 +2099,16 @@ def _run_seeded_dev_optimize_threshold(
             output_path=Path("stdout"),
             current_threshold=policy.match_threshold,
             current_source=policy.match_threshold_source,
+            verbose=response_verbosity == RESPONSE_VERBOSITY_VERBOSE,
+            write_config=args.write_config,
+            title_formatter=lambda value: _style(
+                value, _RICH_BLUE_HEADING, enabled=_supports_color(sys.stderr)
+            ),
+            footer_formatter=lambda value: _style(
+                value,
+                _RICH_SUCCESS if args.write_config else _RICH_HINT,
+                enabled=_supports_color(sys.stderr),
+            ),
         )
         sys.stderr.write("\n".join(summary_lines) + "\n")
         sys.stderr.flush()
@@ -2111,6 +2123,16 @@ def _run_seeded_dev_optimize_threshold(
             output_path=artifact_path,
             current_threshold=policy.match_threshold,
             current_source=policy.match_threshold_source,
+            verbose=response_verbosity == RESPONSE_VERBOSITY_VERBOSE,
+            write_config=args.write_config,
+            title_formatter=lambda value: _style(
+                value, _RICH_BLUE_HEADING, enabled=_supports_color(sys.stdout)
+            ),
+            footer_formatter=lambda value: _style(
+                value,
+                _RICH_SUCCESS if args.write_config else _RICH_HINT,
+                enabled=_supports_color(sys.stdout),
+            ),
         )
         sys.stdout.write("\n".join(summary_lines) + "\n")
         return 0
@@ -4209,7 +4231,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "Load the seeded development database if needed, evaluate the full labeled "
             "candidate pool for each seeded thematic query, and recommend a match threshold.\n\n"
             "This command is advisory by default and only writes config when explicitly "
-            "asked to do so.\n\n"
+            "asked to do so with --write-config. In human-readable output, compact mode "
+            "shows the recommendation and metrics; --verbose also shows the threshold "
+            "sweep range.\n\n"
             "Metrics:\n"
             "  Weighted precision: Checks how much of the returned set is useful, with "
             "direct matches and adjacent matches counted more than confusers or unrelated "
@@ -4218,10 +4242,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "set captures, using the same relevance weights.\n"
             "  Weighted F-beta: Combines weighted precision and weighted recall so the sweep "
             "can rank thresholds by the chosen precision-recall balance.\n"
-            "  Confuser exposure: Checks how much of the returned set is mislabeled or "
-            "confusing, where lower is better.\n"
-            "  Unrelated exposure: Checks how much of the returned set is unrelated to the "
-            "query, where lower is better.\n"
+            "  Exposure: Checks the share of the returned set that is confuser or unrelated, "
+            "where lower is better. Confuser exposure and unrelated exposure are reported "
+            "separately.\n"
             "  Average returned count: Checks how many memories are returned on average per "
             "seeded query at the threshold."
         ),
@@ -4687,6 +4710,7 @@ def _handle_dev_command(
                         regular_db_path=regular_db_path,
                         args=args,
                         output_format=output_format,
+                        response_verbosity=response_verbosity,
                         progress=progress_reporter,
                     )
             provider = _builtin_fastembed_provider_from_config(
@@ -4700,6 +4724,7 @@ def _handle_dev_command(
                 regular_db_path=regular_db_path,
                 args=args,
                 output_format=output_format,
+                response_verbosity=response_verbosity,
             )
 
         raw_config = load_config_file(config_path)
