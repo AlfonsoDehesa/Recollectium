@@ -249,6 +249,34 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     dev_help = _run_help(["dev", "--help"], capsys)
     assert "optimize-threshold" in dev_help
 
+    dev_eval_help = _run_help(["dev", "eval", "--help"], capsys)
+    assert (
+        "This seeded development benchmark helps developers judge a model's expected "
+        "retrieval performance on Recollectium-style memory tasks. No combined score "
+        "is reported." in dev_eval_help
+    )
+    assert (
+        "Exact MRR: Checks whether known exact-memory queries rank the intended seeded "
+        "memory first or near the top." in dev_eval_help
+    )
+    assert (
+        "Semantic MRR: Checks whether paraphrased queries retrieve the intended seeded "
+        "memory near the top." in dev_eval_help
+    )
+    assert (
+        "Thematic Weighted Precision@10: Checks how much of the top 10 is relevant to "
+        "the requested theme, weighted by fixture relevance grades." in dev_eval_help
+    )
+    assert (
+        "Thematic Weighted Recall@10: Checks how much of the theme's expected relevant "
+        "set appears in the top 10, weighted by fixture relevance grades."
+        in dev_eval_help
+    )
+    assert (
+        "Ranked-set NDCG@5: Checks whether graded expected results appear in the right "
+        "order near the top 5." in dev_eval_help
+    )
+
     optimize_help = _run_help(["dev", "optimize-threshold", "--help"], capsys)
     assert "advisory by default" in optimize_help
     assert "seeded thematic query" in optimize_help
