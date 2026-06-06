@@ -229,6 +229,46 @@ def test_load_install_metadata_reads_state_file(tmp_path: Path) -> None:
     assert metadata.metadata_path == state / "install.json"
 
 
+def test_load_install_metadata_reads_main_bootstrap_commit(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    state.mkdir()
+    commit = "abcdef0123456789abcdef0123456789abcdef01"
+    (state / "install.json").write_text(
+        json.dumps(
+            {
+                "metadata_version": 2,
+                "install_method": "bootstrap",
+                "source_ref": commit,
+                "source_ref_kind": "main",
+                "source_repo": "AlfonsoDehesa/recollectium",
+                "tracking_target": {
+                    "kind": "main",
+                    "selector": "main",
+                    "repo": "AlfonsoDehesa/recollectium",
+                    "ref": "main",
+                },
+                "last_resolved": {
+                    "ref": "main",
+                    "commit": commit,
+                    "resolved_at": "2026-01-01T00:00:00Z",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    metadata = load_install_metadata(state_dir=state)
+
+    assert metadata.install_method == "bootstrap"
+    assert metadata.source_ref == commit
+    assert metadata.source_ref_kind == "main"
+    assert metadata.tracking_target == TrackingTarget(
+        "main", "main", repo="AlfonsoDehesa/recollectium", ref="main"
+    )
+    assert metadata.last_resolved_ref == "main"
+    assert metadata.last_resolved_commit == commit
+
+
 def test_detect_install_method_prefers_metadata_and_env() -> None:
     assert detect_install_method(_metadata("bootstrap"), env={}) == "bootstrap"
     assert (

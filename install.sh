@@ -9,6 +9,7 @@ ORIGINAL_PATH="${PATH:-}"
 MANAGED_PATH_EDITS=""
 COMPLETION_RC=""
 COMPLETION_SHELL=""
+RESOLVED_COMMIT=""
 
 info() {
   printf '%s\n' "$1"
@@ -98,6 +99,17 @@ resolve_latest_release_tag() {
     | head -n 1 || true
 }
 
+is_commit_sha() {
+  printf '%s' "$1" | grep -Eq '^[0-9A-Fa-f]{40}$'
+}
+
+resolve_main_commit() {
+  command_exists git || fail "git is required to resolve Recollectium main; install git or set RECOLLECTIUM_INSTALL_RESOLVED_REF"
+  git ls-remote "https://github.com/${REPO}.git" refs/heads/main \
+    | sed -n 's/[[:space:]].*//p' \
+    | head -n 1 || true
+}
+
 resolve_ref() {
   selector_count=0
   [ -n "${RECOLLECTIUM_INSTALL_VERSION:-}" ] && selector_count=$((selector_count + 1))
@@ -109,6 +121,7 @@ resolve_ref() {
   TRACKING_SELECTOR="latest"
   TRACKING_VERSION=""
   RESOLVED_RELEASE_URL=""
+  RESOLVED_COMMIT=""
 
   if [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "1" ] || [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "true" ] || [ "${RECOLLECTIUM_INSTALL_MAIN:-}" = "yes" ]; then
     TRACKING_KIND="main"
@@ -116,7 +129,11 @@ resolve_ref() {
     if [ -n "${RECOLLECTIUM_INSTALL_RESOLVED_REF:-}" ]; then
       RESOLVED_REF="$RECOLLECTIUM_INSTALL_RESOLVED_REF"
     else
-      RESOLVED_REF="main"
+      RESOLVED_REF=$(resolve_main_commit)
+      [ -n "$RESOLVED_REF" ] || fail "failed to resolve Recollectium main commit"
+    fi
+    if is_commit_sha "$RESOLVED_REF"; then
+      RESOLVED_COMMIT="$RESOLVED_REF"
     fi
     return
   fi
@@ -450,9 +467,16 @@ EOF
   fi
   tracking_target="${tracking_target}}"
 
-  last_resolved="{\"ref\": \"${escaped_ref}\", \"resolved_at\": \"${installed_at}\""
+  last_resolved_ref="$escaped_ref"
+  if [ "$TRACKING_KIND" = "main" ]; then
+    last_resolved_ref="$escaped_selector"
+  fi
+  last_resolved="{\"ref\": \"${last_resolved_ref}\", \"resolved_at\": \"${installed_at}\""
   if [ -n "$TRACKING_VERSION" ]; then
     last_resolved="${last_resolved}, \"version\": \"$(json_escape "$TRACKING_VERSION")\""
+  fi
+  if [ -n "$RESOLVED_COMMIT" ]; then
+    last_resolved="${last_resolved}, \"commit\": \"$(json_escape "$RESOLVED_COMMIT")\""
   fi
   last_resolved="${last_resolved}}"
 
