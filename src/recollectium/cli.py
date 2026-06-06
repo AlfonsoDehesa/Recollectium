@@ -4180,23 +4180,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="run seeded development retrieval regression metrics",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Initialize or refresh the seeded development database if needed, then "
-            "run Exact MRR, Semantic MRR, Thematic Weighted Precision@10, "
-            "Thematic Weighted Recall@10, and Ranked-set NDCG@5 against that database only. "
-            "This seeded development benchmark helps developers judge a model's expected "
-            "retrieval performance on Recollectium-style memory tasks. No combined score "
+            "Initialize or refresh the seeded development database if needed, then run\n"
+            "Exact MRR, Semantic MRR, Thematic Weighted Precision@10, Thematic Weighted\n"
+            "Recall@10, and Ranked-set NDCG@5 against that database only.\n\n"
+            "This seeded development benchmark helps developers judge a model's expected\n"
+            "retrieval performance on Recollectium-style memory tasks. No combined score\n"
             "is reported.\n\n"
             "Metrics:\n"
-            "  Exact MRR: Checks whether known exact-memory queries rank the intended seeded "
-            "memory first or near the top.\n"
-            "  Semantic MRR: Checks whether paraphrased queries retrieve the intended seeded "
-            "memory near the top.\n"
-            "  Thematic Weighted Precision@10: Checks how much of the top 10 is relevant to "
-            "the requested theme, weighted by fixture relevance grades.\n"
-            "  Thematic Weighted Recall@10: Checks how much of the theme's expected relevant "
-            "set appears in the top 10, weighted by fixture relevance grades.\n"
-            "  Ranked-set NDCG@5: Checks whether graded expected results appear in the right "
-            "order near the top 5."
+            "  Exact MRR: Checks whether known exact-memory queries rank the intended\n"
+            "    seeded memory first or near the top.\n"
+            "  Semantic MRR: Checks whether paraphrased queries retrieve the intended\n"
+            "    seeded memory near the top.\n"
+            "  Thematic Weighted Precision@10: Checks how much of the top 10 is relevant\n"
+            "    to the requested theme, weighted by fixture relevance grades.\n"
+            "  Thematic Weighted Recall@10: Checks how much of the theme's expected\n"
+            "    relevant set appears in the top 10, weighted by fixture relevance grades.\n"
+            "  Ranked-set NDCG@5: Checks whether graded expected results appear in the\n"
+            "    right order near the top 5."
         ),
     )
     dev_eval_parser.set_defaults(state="eval")
@@ -4204,11 +4204,26 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_optimize_parser = dev_subparsers.add_parser(
         "optimize-threshold",
         help="optimize a retrieval match threshold from seeded thematic labels",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "Load the seeded development database if needed, evaluate the full labeled "
-            "candidate pool for each seeded thematic query, and recommend a match threshold. "
+            "candidate pool for each seeded thematic query, and recommend a match threshold.\n\n"
             "This command is advisory by default and only writes config when explicitly "
-            "asked to do so."
+            "asked to do so.\n\n"
+            "Metrics:\n"
+            "  Weighted precision: Checks how much of the returned set is useful, with "
+            "direct matches and adjacent matches counted more than confusers or unrelated "
+            "results.\n"
+            "  Weighted recall: Checks how much of the total useful labeled set the returned "
+            "set captures, using the same relevance weights.\n"
+            "  Weighted F-beta: Combines weighted precision and weighted recall so the sweep "
+            "can rank thresholds by the chosen precision-recall balance.\n"
+            "  Confuser exposure: Checks how much of the returned set is mislabeled or "
+            "confusing, where lower is better.\n"
+            "  Unrelated exposure: Checks how much of the returned set is unrelated to the "
+            "query, where lower is better.\n"
+            "  Average returned count: Checks how many memories are returned on average per "
+            "seeded query at the threshold."
         ),
     )
     dev_optimize_parser.add_argument(

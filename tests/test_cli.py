@@ -281,6 +281,13 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "advisory by default" in optimize_help
     assert "seeded thematic query" in optimize_help
     assert "PR1 query" not in optimize_help
+    assert "Metrics:" in optimize_help
+    assert "Weighted precision: Checks how much of the returned set is useful" in optimize_help
+    assert "Weighted recall: Checks how much of the total useful labeled set the returned set captures" in optimize_help
+    assert "Weighted F-beta: Combines weighted precision and weighted recall" in optimize_help
+    assert "Confuser exposure: Checks how much of the returned set is mislabeled or confusing" in optimize_help
+    assert "Unrelated exposure: Checks how much of the returned set is unrelated to the query" in optimize_help
+    assert "Average returned count: Checks how many memories are returned on average per seeded query at the threshold" in optimize_help
     assert "--write-config" in optimize_help
     assert "--format" in optimize_help
     assert "--beta" in optimize_help
@@ -1510,24 +1517,32 @@ def test_cli_dev_help_documents_actions(capsys) -> None:
     assert "eval" in dev_help
 
     eval_help = _run_help(["dev", "eval", "--help"], capsys)
-    assert "Exact MRR" in eval_help
-    assert "Semantic MRR" in eval_help
-    assert "Thematic Weighted Precision@10" in eval_help
-    assert "Ranked-set NDCG@5" in eval_help
     normalized_eval_help = " ".join(eval_help.split())
     assert (
         "This seeded development benchmark helps developers judge a model's expected "
         "retrieval performance on Recollectium-style memory tasks. No combined score "
-        "is reported." in normalized_eval_help
-    )
+        "is reported."
+    ) in normalized_eval_help
     assert (
-        "Exact MRR: Checks whether known exact-memory queries" in normalized_eval_help
-    )
-    assert "Semantic MRR: Checks whether paraphrased queries" in normalized_eval_help
+        "Exact MRR: Checks whether known exact-memory queries rank the intended "
+        "seeded memory first or near the top."
+    ) in normalized_eval_help
     assert (
-        "Thematic Weighted Recall@10: Checks how much of the theme's"
-        in normalized_eval_help
-    )
+        "Semantic MRR: Checks whether paraphrased queries retrieve the intended "
+        "seeded memory near the top."
+    ) in normalized_eval_help
+    assert (
+        "Thematic Weighted Precision@10: Checks how much of the top 10 is relevant "
+        "to the requested theme, weighted by fixture relevance grades."
+    ) in normalized_eval_help
+    assert (
+        "Thematic Weighted Recall@10: Checks how much of the theme's expected "
+        "relevant set appears in the top 10, weighted by fixture relevance grades."
+    ) in normalized_eval_help
+    assert (
+        "Ranked-set NDCG@5: Checks whether graded expected results appear in the "
+        "right order near the top 5."
+    ) in normalized_eval_help
 
 
 def test_cli_dev_reset_resets_configured_seed_database(
