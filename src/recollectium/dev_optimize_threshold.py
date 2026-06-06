@@ -660,45 +660,56 @@ def report_summary_lines(
     output_path: Path,
     current_threshold: float | None,
     current_source: str,
+    verbose: bool = False,
+    write_config: bool = False,
+    title_formatter: Callable[[str], str] | None = None,
+    footer_formatter: Callable[[str], str] | None = None,
 ) -> list[str]:
     """Return human-readable summary lines for stderr or terminal output."""
 
+    _ = (current_threshold, current_source)
     recommended_row = next((row for row in report.rows if row.recommended), None)
-    objective = f"maximize weighted F{report.beta:g}"
-    if report.beta < 1.0:
-        objective += ", favoring precision over recall"
-    elif report.beta > 1.0:
-        objective += ", favoring recall over precision"
-    else:
-        objective += ", balancing precision and recall"
+    format_title = title_formatter or (lambda value: value)
+    format_footer = footer_formatter or (lambda value: value)
 
     lines = [
-        "Recollectium dev optimize-threshold",
-        f"Model: {report.model}",
-        f"Thresholds: {report.start:.2f} to {report.end:.2f} by {report.step:.2f}",
-        f"Output: {output_path}",
-        f"Objective: {objective}",
-        f"Recommendation: {report.recommended_threshold:.2f}",
+        "",
+        format_title("Recollectium dev optimize-threshold"),
+        f"  Model: {report.model}",
     ]
+    if verbose:
+        lines.append(
+            f"  Thresholds: {report.start:.2f} to {report.end:.2f} by {report.step:.2f}"
+        )
+    lines.extend(
+        [
+            f"  Output: {output_path}",
+            f"  Recommendation: {report.recommended_threshold:.2f}",
+        ]
+    )
     if recommended_row is not None:
         lines.extend(
             [
-                "Recommended metrics: "
+                "  Metrics: "
                 f"precision={recommended_row.weighted_precision:.3f}, "
                 f"recall={recommended_row.weighted_recall:.3f}, "
                 f"F{report.beta:g}={recommended_row.weighted_f_score:.3f}",
-                "Exposure at recommendation: "
+                "  Exposure: "
                 f"confusers={recommended_row.confuser_exposure:.3f}, "
                 f"unrelated={recommended_row.unrelated_exposure:.3f}, "
                 f"avg_returned={recommended_row.average_returned_count:.2f}",
             ]
         )
-    if current_threshold is None:
-        current_line = f"Current config: disabled ({current_source})"
+    lines.append("")
+    if write_config:
+        lines.append(format_footer("Recommendation result applied to config"))
     else:
-        current_line = f"Current config: {current_threshold:.2f} ({current_source})"
-    lines.append(current_line)
-    lines.append(
-        f"Apply: recollectium config set retrieval.match_threshold {report.recommended_threshold:.2f}"
-    )
+        lines.extend(
+            [
+                format_footer("Result not applied. To apply recommendation, use:"),
+                "recollectium config set retrieval.match_threshold "
+                f"{report.recommended_threshold:.2f}",
+            ]
+        )
+    lines.append("")
     return lines

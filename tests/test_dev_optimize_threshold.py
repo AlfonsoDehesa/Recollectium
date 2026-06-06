@@ -433,12 +433,6 @@ def test_report_csv_png_and_summary_helpers_write_artifacts(tmp_path: Path) -> N
         current_threshold=None,
         current_source="disabled",
     )
-    enabled_summary = report_summary_lines(
-        report,
-        output_path=png_path,
-        current_threshold=0.42,
-        current_source="explicit",
-    )
 
     assert csv_path is not None
     assert csv_path.read_text(encoding="utf-8").startswith("threshold,")
@@ -447,19 +441,34 @@ def test_report_csv_png_and_summary_helpers_write_artifacts(tmp_path: Path) -> N
     assert png_path.stat().st_size > 0
     assert report.to_dict()["recommended_threshold"] == report.recommended_threshold
     assert any(row.recommended for row in report.rows)
-    assert (
-        "Objective: maximize weighted F1, balancing precision and recall"
-        in disabled_summary
-    )
+    assert "Thresholds:" not in disabled_summary
+    assert any(line.startswith("  Metrics: precision=") for line in disabled_summary)
+    assert any(line.startswith("  Exposure: confusers=") for line in disabled_summary)
+    assert all("Objective:" not in line for line in disabled_summary)
+    assert all("Current config:" not in line for line in disabled_summary)
+    assert all("Recommended metrics:" not in line for line in disabled_summary)
+    assert "Result not applied. To apply recommendation, use:" in disabled_summary
     assert any(
-        line.startswith("Recommended metrics: precision=") for line in disabled_summary
-    )
-    assert any(
-        line.startswith("Exposure at recommendation: confusers=")
+        line.startswith("recollectium config set retrieval.match_threshold ")
         for line in disabled_summary
     )
-    assert "Current config: disabled (disabled)" in disabled_summary
-    assert "Current config: 0.42 (explicit)" in enabled_summary
+    verbose_summary = report_summary_lines(
+        report,
+        output_path=png_path,
+        current_threshold=0.42,
+        current_source="explicit",
+        verbose=True,
+    )
+    applied_summary = report_summary_lines(
+        report,
+        output_path=png_path,
+        current_threshold=0.42,
+        current_source="explicit",
+        write_config=True,
+    )
+    assert "  Thresholds: 0.00 to 1.00 by 1.00" in verbose_summary
+    assert "Recommendation result applied to config" in applied_summary
+    assert not any("recollectium config set" in line for line in applied_summary)
 
 
 def test_write_threshold_png_rejects_empty_reports(tmp_path: Path) -> None:
@@ -492,16 +501,7 @@ def test_generate_threshold_values_raises_when_sweep_would_exceed_max_points(
         generate_threshold_values(0.0, 0.15, 0.1)
 
 
-@pytest.mark.parametrize(
-    ("beta", "expected_phrase"),
-    [
-        (0.5, "favoring precision over recall"),
-        (2.0, "favoring recall over precision"),
-    ],
-)
-def test_report_summary_lines_explain_beta_tradeoffs(
-    beta: float, expected_phrase: str
-) -> None:
+def test_report_summary_lines_wrap_with_blank_lines_and_formatters() -> None:
     row = ThresholdSweepRow(
         threshold=0.5,
         weighted_precision=0.8,
@@ -521,7 +521,7 @@ def test_report_summary_lines_explain_beta_tradeoffs(
         start=0.0,
         end=1.0,
         step=1.0,
-        beta=beta,
+        beta=2.0,
         tested_thresholds=1,
         recommended_threshold=0.5,
         output_format="csv",
@@ -536,6 +536,12 @@ def test_report_summary_lines_explain_beta_tradeoffs(
         output_path=Path("/tmp/thresholds.csv"),
         current_threshold=0.5,
         current_source="config",
+        title_formatter=lambda value: f"TITLE:{value}",
+        footer_formatter=lambda value: f"FOOTER:{value}",
     )
 
-    assert any(expected_phrase in line for line in lines)
+    assert lines[0] == ""
+    assert lines[-1] == ""
+    assert lines[1] == "TITLE:Recollectium dev optimize-threshold"
+    assert "FOOTER:Result not applied. To apply recommendation, use:" in lines
+    assert all("Objective:" not in line for line in lines)

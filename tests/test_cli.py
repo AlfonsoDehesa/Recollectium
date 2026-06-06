@@ -250,44 +250,63 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "optimize-threshold" in dev_help
 
     dev_eval_help = _run_help(["dev", "eval", "--help"], capsys)
+    normalized_dev_eval_help = " ".join(dev_eval_help.split())
     assert (
         "This seeded development benchmark helps developers judge a model's expected "
         "retrieval performance on Recollectium-style memory tasks. No combined score "
-        "is reported." in dev_eval_help
+        "is reported." in normalized_dev_eval_help
     )
     assert (
         "Exact MRR: Checks whether known exact-memory queries rank the intended seeded "
-        "memory first or near the top." in dev_eval_help
+        "memory first or near the top." in normalized_dev_eval_help
     )
     assert (
         "Semantic MRR: Checks whether paraphrased queries retrieve the intended seeded "
-        "memory near the top." in dev_eval_help
+        "memory near the top." in normalized_dev_eval_help
     )
     assert (
         "Thematic Weighted Precision@10: Checks how much of the top 10 is relevant to "
-        "the requested theme, weighted by fixture relevance grades." in dev_eval_help
+        "the requested theme, weighted by fixture relevance grades."
+        in normalized_dev_eval_help
     )
     assert (
         "Thematic Weighted Recall@10: Checks how much of the theme's expected relevant "
         "set appears in the top 10, weighted by fixture relevance grades."
-        in dev_eval_help
+        in normalized_dev_eval_help
     )
     assert (
         "Ranked-set NDCG@5: Checks whether graded expected results appear in the right "
-        "order near the top 5." in dev_eval_help
+        "order near the top 5." in normalized_dev_eval_help
     )
 
     optimize_help = _run_help(["dev", "optimize-threshold", "--help"], capsys)
-    assert "advisory by default" in optimize_help
-    assert "seeded thematic query" in optimize_help
-    assert "PR1 query" not in optimize_help
-    assert "Metrics:" in optimize_help
-    assert "Weighted precision: Checks how much of the returned set is useful" in optimize_help
-    assert "Weighted recall: Checks how much of the total useful labeled set the returned set captures" in optimize_help
-    assert "Weighted F-beta: Combines weighted precision and weighted recall" in optimize_help
-    assert "Confuser exposure: Checks how much of the returned set is mislabeled or confusing" in optimize_help
-    assert "Unrelated exposure: Checks how much of the returned set is unrelated to the query" in optimize_help
-    assert "Average returned count: Checks how many memories are returned on average per seeded query at the threshold" in optimize_help
+    normalized_optimize_help = " ".join(optimize_help.split())
+    assert "advisory by default" in normalized_optimize_help
+    assert "seeded thematic query" in normalized_optimize_help
+    assert "PR1 query" not in normalized_optimize_help
+    assert "Metrics:" in normalized_optimize_help
+    assert (
+        "Weighted precision: Checks how much of the returned set is useful"
+        in normalized_optimize_help
+    )
+    assert (
+        "Weighted recall: Checks how much of the total useful labeled set the returned set captures"
+        in normalized_optimize_help
+    )
+    assert (
+        "Weighted F-beta: Combines weighted precision and weighted recall"
+        in normalized_optimize_help
+    )
+    assert (
+        "Exposure: Checks the share of the returned set that is confuser or unrelated"
+        in normalized_optimize_help
+    )
+    assert "lower is better" in normalized_optimize_help
+    assert "--verbose also shows the threshold sweep range" in normalized_optimize_help
+    assert (
+        "Average returned count: Checks how many memories are returned on average per seeded query at the threshold"
+        in normalized_optimize_help
+    )
     assert "--write-config" in optimize_help
     assert "--format" in optimize_help
     assert "--beta" in optimize_help
@@ -2520,7 +2539,12 @@ def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     assert "Loading candidate pools" not in stderr
     assert "Scoring thresholds: 0/2 (ETA calculating)" not in stderr
     assert "Recommendation:" in stderr
-    assert "Apply: recollectium config set retrieval.match_threshold" in stderr
+    assert "Exposure:" in stderr
+    assert "Result not applied. To apply recommendation, use:" in stderr
+    assert "recollectium config set retrieval.match_threshold" in stderr
+    assert "Apply:" not in stderr
+    assert "Objective:" not in stderr
+    assert "Current config:" not in stderr
     assert dev_db.exists()
     assert not regular_db.exists()
 
@@ -2668,6 +2692,15 @@ def test_cli_dev_optimize_threshold_human_readable_csv_writes_summary_and_artifa
 
     assert exit_code == 0
     assert "Recollectium dev optimize-threshold" in stdout
+    assert stdout.startswith("\nRecollectium dev optimize-threshold")
+    assert stdout.endswith("\n\n")
+    assert "Thresholds:" not in stdout
+    assert "Metrics:" in stdout
+    assert "Exposure:" in stdout
+    assert "Result not applied. To apply recommendation, use:" in stdout
+    assert "Apply:" not in stdout
+    assert "Objective:" not in stdout
+    assert "Current config:" not in stdout
     assert "Writing CSV" in stderr
     assert "Writing CSV artifact:" not in stderr
     assert output_csv.exists()
@@ -2699,6 +2732,7 @@ def test_cli_dev_optimize_threshold_human_readable_png_writes_summary_and_artifa
             "--config",
             str(config_path),
             "--human-readable",
+            "--verbose",
             "dev",
             "optimize-threshold",
             "--format",
@@ -2724,6 +2758,13 @@ def test_cli_dev_optimize_threshold_human_readable_png_writes_summary_and_artifa
     assert "Writing config:" not in stderr
     assert "Writing PNG artifact:" not in stderr
     assert "Recommendation:" in stdout
+    assert "Thresholds:" in stdout
+    assert "Recommendation result applied to config" in stdout
+    assert "Result not applied" not in stdout
+    assert "recollectium config set retrieval.match_threshold" not in stdout
+    assert "Apply:" not in stdout
+    assert "Objective:" not in stdout
+    assert "Current config:" not in stdout
     assert output_png.exists()
     assert output_png.stat().st_size > 0
     updated = json.loads(config_path.read_text(encoding="utf-8"))
