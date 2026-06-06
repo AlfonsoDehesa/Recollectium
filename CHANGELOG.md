@@ -33,6 +33,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Clarified bootstrap installer PATH guidance when the current shell cannot see the installed command yet.
 - Fixed model cache status and uninstall cleanup reporting for custom embedding providers and Recollectium-owned FastEmbed cache paths.
 - Fixed `recollectium dev eval` human-readable TTY progress so it updates one pretty stderr line and clears before the final summary instead of printing a line per progress update.
+- Fixed human-readable CLI output framing so final output and argparse help start with a blank line and end with a trailing blank line while JSON, CSV, completion, and protocol output stay byte-clean.
 
 ### 🧹 Chores
 
