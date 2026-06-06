@@ -24,6 +24,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 - Re-embedding now runs inline for the triggering CLI command, API request, or MCP tool call so large refreshes finish durably instead of being stranded in a process-local background daemon queue.
 - Fixed bootstrap install metadata on macOS so `recollectium upgrade` reads installs from the same state directory the installer writes.
+- Fixed `main`-tracking bootstrap installs to record the installed commit SHA so immediate `recollectium upgrade` no-ops when remote `main` has not moved.
 - Fixed `main`-tracking upgrades to compare installed and remote commit SHAs so `--check`, `--dry-run`, and plain upgrades skip work when already current unless `--force` is used.
 - Fixed uninstall planning for direct pip, pipx, and uv tool installs when install metadata is missing.
 - Fixed source upgrade detection so package installs launched from a Recollectium checkout are not misclassified as source checkouts.

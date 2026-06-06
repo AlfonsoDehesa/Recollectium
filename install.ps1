@@ -208,9 +208,25 @@ function Get-LatestReleaseTag {
     throw "latest GitHub release did not include tag_name"
 }
 
+function Test-CommitSha {
+    param([string]$Value)
+    return $Value -match '^[0-9A-Fa-f]{40}$'
+}
+
+function Get-MainCommit {
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) { throw "git is required to resolve Recollectium main; install git or set RECOLLECTIUM_INSTALL_RESOLVED_REF" }
+    $output = & $git.Source ls-remote "https://github.com/$Repo.git" refs/heads/main
+    if ($LASTEXITCODE -ne 0) { throw "failed to resolve Recollectium main commit" }
+    $commit = ($output -split "\s+")[0]
+    if (Test-CommitSha $commit) { return $commit }
+    throw "failed to resolve Recollectium main commit"
+}
+
 $script:TrackingKind = "latest_release"
 $script:TrackingSelector = "latest"
 $script:TrackingVersion = $null
+$script:ResolvedCommit = $null
 
 function Get-RecollectiumInstallRef {
     $selectors = @($env:RECOLLECTIUM_INSTALL_VERSION, $env:RECOLLECTIUM_INSTALL_MAIN, $env:RECOLLECTIUM_INSTALL_REF) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
@@ -219,8 +235,14 @@ function Get-RecollectiumInstallRef {
     if ($env:RECOLLECTIUM_INSTALL_MAIN -match '^(1|true|yes)$') {
         $script:TrackingKind = "main"
         $script:TrackingSelector = "main"
-        if ($env:RECOLLECTIUM_INSTALL_RESOLVED_REF) { return $env:RECOLLECTIUM_INSTALL_RESOLVED_REF }
-        return "main"
+        if ($env:RECOLLECTIUM_INSTALL_RESOLVED_REF) {
+            $ref = $env:RECOLLECTIUM_INSTALL_RESOLVED_REF
+        }
+        else {
+            $ref = Get-MainCommit
+        }
+        if (Test-CommitSha $ref) { $script:ResolvedCommit = $ref }
+        return $ref
     }
     if ($env:RECOLLECTIUM_INSTALL_VERSION) {
         if ($env:RECOLLECTIUM_INSTALL_VERSION.ToLowerInvariant() -eq "latest") {
@@ -310,10 +332,11 @@ elseif ($script:TrackingKind -ne "latest_release") {
     $trackingTarget.ref = $ref
 }
 $resolved = [ordered]@{
-    ref = $ref
+    ref = $(if ($script:TrackingKind -eq "main") { $script:TrackingSelector } else { $ref })
     resolved_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 }
 if ($script:TrackingVersion) { $resolved.version = $script:TrackingVersion }
+if ($script:ResolvedCommit) { $resolved.commit = $script:ResolvedCommit }
 $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $metadata = [ordered]@{
     metadata_version = 2

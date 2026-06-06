@@ -186,7 +186,7 @@ def test_unix_bootstrap_resolves_tracking_metadata_in_current_shell() -> None:
 
     assert "ref=$(resolve_ref)" not in script
     assert 'resolve_ref\nref="$RESOLVED_REF"' in script
-    assert 'RESOLVED_REF="main"' in script
+    assert "RESOLVED_REF=$(resolve_main_commit)" in script
     assert 'RESOLVED_REF="$ref"' in script
 
 
@@ -229,7 +229,51 @@ def test_unix_bootstrap_resolved_main_ref_installs_commit_but_tracks_main(
         "repo": "AlfonsoDehesa/recollectium",
         "ref": "main",
     }
-    assert metadata["last_resolved"]["ref"] == commit
+    assert metadata["last_resolved"]["ref"] == "main"
+    assert metadata["last_resolved"]["commit"] == commit
+
+
+def test_unix_bootstrap_plain_main_resolves_commit_and_records_main_ref(
+    tmp_path: Path,
+) -> None:
+    helpers = _unix_bootstrap_helpers()
+    home = tmp_path / "home"
+    state = tmp_path / "state"
+    fake_bin = tmp_path / "bin"
+    home.mkdir()
+    state.mkdir()
+    fake_bin.mkdir()
+    commit = "abcdef0123456789abcdef0123456789abcdef01"
+    git = fake_bin / "git"
+    git.write_text(
+        f"#!/bin/sh\nprintf '%s\\trefs/heads/main\\n' '{commit}'\n",
+        encoding="utf-8",
+    )
+    git.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nresolve_ref\nref="$RESOLVED_REF"\nrecord_install_metadata\nprintf \'%s\' "$metadata_path"',
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(home),
+            "XDG_STATE_HOME": str(state),
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "RECOLLECTIUM_INSTALL_MAIN": "1",
+        },
+    )
+
+    metadata = json.loads(Path(result.stdout).read_text(encoding="utf-8"))
+    assert metadata["source_ref"] == commit
+    assert metadata["source_ref_kind"] == "main"
+    assert metadata["tracking_target"]["ref"] == "main"
+    assert metadata["last_resolved"]["ref"] == "main"
+    assert metadata["last_resolved"]["commit"] == commit
 
 
 def test_unix_bootstrap_json_escape_does_not_corrupt_plain_f() -> None:
@@ -751,7 +795,14 @@ def test_unix_bootstrap_records_metadata_in_macos_xdg_state_home(
 def test_unix_bootstrap_records_selector_tracking_targets(tmp_path: Path) -> None:
     helpers = _unix_bootstrap_helpers()
     cases = [
-        ({"RECOLLECTIUM_INSTALL_MAIN": "1"}, "main", "main"),
+        (
+            {
+                "RECOLLECTIUM_INSTALL_MAIN": "1",
+                "RECOLLECTIUM_INSTALL_RESOLVED_REF": "0123456789abcdef0123456789abcdef01234567",
+            },
+            "main",
+            "main",
+        ),
         ({"RECOLLECTIUM_INSTALL_VERSION": "1.2.3"}, "release", "v1.2.3"),
         (
             {
@@ -795,12 +846,16 @@ def test_unix_bootstrap_records_selector_tracking_targets(tmp_path: Path) -> Non
 def test_windows_bootstrap_resolved_main_ref_installs_commit_but_tracks_main() -> None:
     script = (ROOT / "install.ps1").read_text(encoding="utf-8")
 
-    assert (
-        "if ($env:RECOLLECTIUM_INSTALL_RESOLVED_REF) { return "
-        "$env:RECOLLECTIUM_INSTALL_RESOLVED_REF }"
-    ) in script
+    assert ("$ref = $env:RECOLLECTIUM_INSTALL_RESOLVED_REF") in script
+    assert "$ref = Get-MainCommit" in script
+    assert "if (Test-CommitSha $ref) { $script:ResolvedCommit = $ref }" in script
     assert 'elseif ($script:TrackingKind -eq "main") {' in script
     assert "$trackingTarget.ref = $script:TrackingSelector" in script
+    assert 'ref = $(if ($script:TrackingKind -eq "main")' in script
+    assert (
+        "if ($script:ResolvedCommit) { $resolved.commit = $script:ResolvedCommit }"
+        in script
+    )
 
 
 def test_windows_bootstrap_installs_powershell_current_user_current_host_completion() -> (
