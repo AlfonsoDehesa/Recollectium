@@ -3209,6 +3209,82 @@ def test_cli_human_output_uses_rich_as_direct_dependency() -> None:
     assert any(dependency.partition(">=")[0] == "rich" for dependency in dependencies)
 
 
+def test_cli_human_memory_result_output_spaces_header_and_entries() -> None:
+    output = _format_human_output(
+        [
+            {
+                "id": "mem-1",
+                "space": "user",
+                "type": "fact",
+                "status": "active",
+                "content": "First memory.",
+            },
+            {
+                "memory": {
+                    "id": "mem-2",
+                    "space": "user",
+                    "type": "note",
+                    "status": "active",
+                    "content": "Second memory.",
+                },
+                "score": 0.75,
+            },
+        ],
+        command="search-user",
+    )
+
+    assert output.startswith("2 results\n\n1. ")
+    assert "  Content: First memory.\n\n2. " in output
+    assert "2. Memory mem-2 (note, active) score=0.75" in output
+    assert output.endswith("Second memory.\n")
+
+
+def test_cli_human_memory_result_success_preserves_global_frame(monkeypatch) -> None:
+    stream = _NonTTYBuffer()
+    monkeypatch.setattr("sys.stdout", stream)
+
+    _emit_success(
+        [
+            {
+                "id": "mem-1",
+                "space": "user",
+                "type": "fact",
+                "status": "active",
+                "content": "First memory.",
+            }
+        ],
+        output_format="human_readable",
+        command="list",
+    )
+
+    output = stream.getvalue()
+    assert output.startswith("\n1 result\n\n1. ")
+    _assert_human_framed(output)
+
+
+def test_cli_json_memory_result_output_is_unframed_and_parseable(monkeypatch) -> None:
+    stream = _NonTTYBuffer()
+    monkeypatch.setattr("sys.stdout", stream)
+    payload = [
+        {
+            "id": "mem-1",
+            "space": "user",
+            "type": "fact",
+            "status": "active",
+            "content": "First memory.",
+        }
+    ]
+
+    _emit_success(payload, output_format="json", command="search-user")
+
+    output = stream.getvalue()
+    assert not output.startswith("\n")
+    assert output.endswith("\n")
+    parsed = json.loads(output)
+    assert parsed == [{"content": "First memory.", "id": "mem-1", "match": 0.0}]
+    assert "1 result\n\n1. " not in output
+
+
 def test_cli_human_readable_success_uses_color_on_tty(monkeypatch) -> None:
     stream = _TTYBuffer()
     monkeypatch.setattr("sys.stdout", stream)
