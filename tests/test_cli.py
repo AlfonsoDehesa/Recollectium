@@ -1514,7 +1514,10 @@ def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:
     assert archive_payload["status"] == "archived"
 
 
-def test_cli_reads_metadata_from_json_file(tmp_path, capsys) -> None:
+def test_cli_reads_metadata_from_json_file(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
     db_path = tmp_path / "cli-file-metadata.db"
     metadata_path = tmp_path / "metadata.json"
     metadata_path.write_text('{"origin": "file"}', encoding="utf-8")
