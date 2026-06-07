@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from recollectium.core import RecollectiumCore
+import recollectium.core as core_module
 from recollectium.model_state import read_model_state, write_model_state
 
 # The default model name config validation accepts.
@@ -314,3 +315,17 @@ def test_ensure_model_ready_falls_back_to_embed_healthcheck(tmp_path: Path):
     core._ensure_model_ready(state_dir=state_dir)
     assert provider.similarity([1.0], [1.0]) == 1.0
     assert "healthcheck" in provider.embed_calls
+
+
+def test_model_readiness_keyword_detection_returns_false_for_opaque_callable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raises_value_error(callback: object) -> object:
+        raise ValueError("no signature available")
+
+    monkeypatch.setattr(core_module.inspect, "signature", raises_value_error)
+
+    def callback(**kwargs: object) -> None:
+        raise AssertionError("callback should not be invoked")
+
+    assert not core_module._callable_accepts_keyword(callback, "progress_callback")

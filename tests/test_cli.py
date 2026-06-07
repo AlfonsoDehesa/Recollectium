@@ -62,6 +62,19 @@ from recollectium.storage import SQLiteMemoryStore
 from recollectium.core import RecollectiumCore
 
 
+class DummyModelReadinessProgressReporter:
+    def __init__(self) -> None:
+        self.entered = False
+        self.exited = False
+
+    def __enter__(self) -> "DummyModelReadinessProgressReporter":
+        self.entered = True
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.exited = True
+
+
 class FakeEmbeddingProvider:
     """Lightweight fake embedding provider for CLI workspace tests."""
 
@@ -9808,3 +9821,40 @@ def test_cli_service_command_success_and_runtime_errors(
     assert code == 2
     assert stdout == ""
     assert "validation_error" in stderr
+
+
+def test_ensure_cli_model_ready_falls_back_when_progress_keyword_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    reporter = DummyModelReadinessProgressReporter()
+
+    def ensure_ready() -> None:
+        calls.append("ready")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_human_model_readiness_progress_reporter",
+        lambda output_format: reporter,
+    )
+
+    core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)
+    cli_module._ensure_cli_model_ready(
+        core,
+        output_format="human",
+    )
+
+    assert calls == ["ready"]
+    assert reporter.entered
+    assert reporter.exited
+
+
+def test_cli_readiness_keyword_detection_returns_false_for_opaque_callable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raises_type_error(callback: object) -> object:
+        raise TypeError("no signature available")
+
+    monkeypatch.setattr(cli_module.inspect, "signature", raises_type_error)
+
+    assert not cli_module._callable_accepts_cli_readiness_keyword(object(), "keyword")
