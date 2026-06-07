@@ -62,6 +62,19 @@ from recollectium.storage import SQLiteMemoryStore
 from recollectium.core import RecollectiumCore
 
 
+class DummyModelReadinessProgressReporter:
+    def __init__(self) -> None:
+        self.entered = False
+        self.exited = False
+
+    def __enter__(self) -> "DummyModelReadinessProgressReporter":
+        self.entered = True
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.exited = True
+
+
 class FakeEmbeddingProvider:
     """Lightweight fake embedding provider for CLI workspace tests."""
 
@@ -92,6 +105,14 @@ class FakeEmbeddingProvider:
 
     def ensure_ready(self, *, timeout_seconds: float = 60.0) -> None:
         return None
+
+
+class NoisyReadinessEmbeddingProvider(FakeEmbeddingProvider):
+    """Fake provider that simulates third-party readiness output leaks."""
+
+    def ensure_ready(self, *, timeout_seconds: float = 60.0) -> None:
+        print("provider stdout readiness noise")
+        print("provider stderr readiness noise", file=sys.stderr)
 
 
 def _run_cli(
@@ -127,6 +148,10 @@ def _mark_memory_profile_stale(db_path: Path, memory_id: str) -> None:
         "profile": "stale-profile",
     }
     SQLiteMemoryStore(db_path).update_memory(memory_id, embedding_profile=stale_profile)
+
+
+def _forget_model_readiness_state(tmp_path: Path) -> None:
+    (tmp_path / "state" / "recollectium" / "model-state.json").unlink(missing_ok=True)
 
 
 def _run_help(args: list[str], capsys: CaptureFixture[str]) -> str:
@@ -872,6 +897,101 @@ def test_cli_json_search_reembedding_remains_parse_safe(
     assert "Re-embedding memories" not in search_err
 
 
+def test_cli_human_search_non_tty_readiness_progress_remains_quiet(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "human-readiness-progress.db"
+
+    add_code, add_out, add_err = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            SPACE_USER,
+            "--type",
+            "fact",
+            "--content",
+            "Readiness progress should clear before search results",
+        ],
+        capsys,
+    )
+    assert add_code == 0
+    assert add_err == ""
+    memory_id = json.loads(add_out)["id"]
+    _forget_model_readiness_state(tmp_path)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
+
+    search_code, search_out, search_err = _run_cli(
+        [
+            "--human-readable",
+            "--db",
+            str(db_path),
+            "search-user",
+            "search results",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert search_code == 0
+    assert "1 result" in search_out
+    assert memory_id in search_out
+    assert "Preparing model" not in search_out
+    assert "Preparing model" not in search_err
+    assert "provider stdout readiness noise" not in search_out
+    assert "provider stdout readiness noise" not in search_err
+    assert "provider stderr readiness noise" not in search_out
+    assert "provider stderr readiness noise" not in search_err
+
+
+def test_cli_json_search_readiness_progress_remains_quiet_parse_safe(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "json-readiness-progress.db"
+
+    add_code, add_out, add_err = _run_cli(
+        [
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            SPACE_USER,
+            "--type",
+            "fact",
+            "--content",
+            "JSON readiness should remain parse safe",
+        ],
+        capsys,
+    )
+    assert add_code == 0
+    assert add_err == ""
+    memory_id = json.loads(add_out)["id"]
+    _forget_model_readiness_state(tmp_path)
+
+    search_code, search_out, search_err = _run_cli(
+        ["--db", str(db_path), "search-user", "parse safe"],
+        capsys,
+    )
+
+    assert search_code == 0
+    payload = json.loads(search_out)
+    assert payload[0]["memory"]["id"] == memory_id
+    assert "Preparing model" not in search_out
+    assert "Preparing model" not in search_err
+    assert "provider stdout readiness noise" not in search_out
+    assert "provider stdout readiness noise" not in search_err
+    assert "provider stderr readiness noise" not in search_err
+
+
 def test_cli_human_workspace_search_emits_reembedding_progress_to_stderr(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -928,6 +1048,70 @@ def test_cli_human_workspace_search_emits_reembedding_progress_to_stderr(
 class _OSErrorIsattyStream(io.StringIO):
     def isatty(self) -> bool:
         raise OSError("isatty unavailable")
+
+
+class _ValueErrorIsattyStream(io.StringIO):
+    def isatty(self) -> bool:
+        raise ValueError("isatty unavailable")
+
+
+def test_human_model_readiness_progress_reporter_requires_tty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: False  # type: ignore[attr-defined,method-assign]
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+
+    reporter = cli_module._human_model_readiness_progress_reporter(
+        cli_module.CLI_OUTPUT_HUMAN_READABLE
+    )
+
+    assert reporter is None
+
+
+@pytest.mark.parametrize("stream", [_OSErrorIsattyStream(), _ValueErrorIsattyStream()])
+def test_human_model_readiness_progress_reporter_handles_isatty_errors(
+    stream: io.StringIO,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+
+    reporter = cli_module._human_model_readiness_progress_reporter(
+        cli_module.CLI_OUTPUT_HUMAN_READABLE
+    )
+
+    assert reporter is None
+
+
+def test_human_model_readiness_progress_reporter_returns_reporter_for_tty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+
+    reporter = cli_module._human_model_readiness_progress_reporter(
+        cli_module.CLI_OUTPUT_HUMAN_READABLE
+    )
+
+    assert isinstance(reporter, cli_module._ModelReadinessProgressReporter)
+
+
+def test_model_readiness_progress_reporter_uses_single_line_for_tty() -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    reporter = cli_module._ModelReadinessProgressReporter(stream)
+
+    with reporter:
+        reporter({"phase": "Preparing model"})
+        reporter({"phase": "Checking model cache"})
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Preparing" in output
+    assert "Checking" in output
 
 
 def test_reembedding_progress_reporter_handles_isatty_errors() -> None:
@@ -4351,7 +4535,10 @@ def test_cli_embedding_maintenance_prepares_model_and_refreshes(
             self.store = FakeStore(db_path)
             self.embedding_provider = FakeProvider()
 
-        def _ensure_model_ready(self) -> None:
+        def _ensure_model_ready(
+            self, *, suppress_provider_output: bool = False
+        ) -> None:
+            assert suppress_provider_output is True
             calls.append("model_state")
 
         def refresh_stale_embeddings(self, *, include_archived=False, **kwargs):
@@ -4383,13 +4570,12 @@ def test_cli_embedding_maintenance_prepares_model_and_refreshes(
     assert calls == [
         f"store:{db_path}",
         f"core:{db_path}",
-        "ensure_ready",
         "model_state",
         "refresh:True",
     ]
 
 
-def test_cli_embedding_maintenance_provider_without_ready_uses_healthcheck(
+def test_cli_embedding_maintenance_delegates_readiness_to_core(
     tmp_path, capsys, monkeypatch
 ) -> None:
     import recollectium.cli as cli_mod
@@ -4411,8 +4597,7 @@ def test_cli_embedding_maintenance_provider_without_ready_uses_healthcheck(
         }
 
         def embed(self, text: str) -> list[float]:
-            calls.append(f"embed:{text}")
-            return [0.0, 0.0, 0.0]
+            raise AssertionError(f"CLI should delegate readiness to core, got {text}")
 
     class FakeCore:
         def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
@@ -4437,7 +4622,72 @@ def test_cli_embedding_maintenance_provider_without_ready_uses_healthcheck(
     assert exit_code == 0
     assert stderr == ""
     assert json.loads(stdout)["status"] == "embedding_maintenance_completed"
-    assert calls == ["embed:healthcheck", "model_state", "refresh:True"]
+    assert calls == ["model_state", "refresh:True"]
+
+
+def test_cli_json_embedding_maintenance_suppresses_noisy_readiness_provider(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "maintenance-noisy.db"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "embedding-maintenance"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "embedding_maintenance_completed"
+    assert payload["database"] == str(db_path)
+    assert "provider stdout readiness noise" not in stdout
+    assert "provider stderr readiness noise" not in stdout
+
+
+def test_cli_json_init_suppresses_noisy_readiness_provider(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "init-noisy.db"
+
+    exit_code, stdout, stderr = _run_cli(["init", "--db", str(db_path)], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "initialized"
+    assert payload["database"] == str(db_path)
+    assert "provider stdout readiness noise" not in stdout
+    assert "provider stderr readiness noise" not in stdout
+
+
+def test_cli_human_init_non_tty_suppresses_readiness_progress_and_provider_noise(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "init-human-noisy.db"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "init", "--db", str(db_path)],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Recollectium initialized" in stdout
+    assert "Preparing model" not in stdout
+    assert "provider stdout readiness noise" not in stdout
+    assert "provider stderr readiness noise" not in stdout
 
 
 def test_run_installed_embedding_maintenance_builds_fresh_process_command(
@@ -5535,6 +5785,7 @@ def test_cli_init_creates_runtime_files_and_downloads_model(
 def test_cli_init_explicit_missing_config_creates_file(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
     config_path = tmp_path / "custom" / "config.json"
     ready_calls: list[object] = []
 
@@ -5556,7 +5807,7 @@ def test_cli_init_explicit_missing_config_creates_file(
 def test_cli_init_accepts_db_after_subcommand(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
     db_path = tmp_path / "custom.db"
     monkeypatch.setattr(
         "recollectium.cli.BuiltinFastEmbedProvider.ensure_ready",
@@ -5603,7 +5854,7 @@ def test_cli_init_reports_file_not_found_from_handler(
 def test_cli_init_reports_model_readiness_error(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
 
     def _raise_readiness_error(self) -> None:
         raise EmbeddingProviderUnavailableError("model unavailable")
@@ -5623,7 +5874,7 @@ def test_cli_init_reports_model_readiness_error(
 def test_cli_init_reports_readiness_timeout_error(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
 
     def _raise_timeout(self) -> None:
         raise EmbeddingReadinessTimeoutError("startup timed out")
@@ -5644,7 +5895,7 @@ def test_cli_init_reports_readiness_timeout_error(
 def test_cli_init_reports_model_unavailable_error(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
 
     def _raise_model_error(self) -> None:
         raise EmbeddingModelUnavailableError("model not found")
@@ -9700,3 +9951,101 @@ def test_cli_service_command_success_and_runtime_errors(
     assert code == 2
     assert stdout == ""
     assert "validation_error" in stderr
+
+
+def test_ensure_cli_model_ready_non_tty_stays_quiet_and_suppresses_provider_noise(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[bool] = []
+
+    def ensure_ready(*, suppress_provider_output: bool = False) -> None:
+        calls.append(suppress_provider_output)
+        if not suppress_provider_output:
+            print("provider stdout readiness noise")
+            print("provider stderr readiness noise", file=sys.stderr)
+
+    stream = io.StringIO()
+    stream.isatty = lambda: False  # type: ignore[attr-defined,method-assign]
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+    core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)
+
+    cli_module._ensure_cli_model_ready(
+        core,
+        output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
+    )
+    captured = capsys.readouterr()
+
+    assert calls == [True]
+    assert captured.out == ""
+    assert captured.err == ""
+    assert stream.getvalue() == ""
+
+
+def test_ensure_cli_model_ready_passes_progress_callback_and_suppresses_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    reporter = DummyModelReadinessProgressReporter()
+
+    def ensure_ready(
+        *, progress_callback: object, suppress_provider_output: bool = False
+    ) -> None:
+        calls.append(
+            {
+                "progress_callback": progress_callback,
+                "suppress_provider_output": suppress_provider_output,
+            }
+        )
+
+    monkeypatch.setattr(
+        cli_module,
+        "_human_model_readiness_progress_reporter",
+        lambda output_format: reporter,
+    )
+
+    core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)
+    cli_module._ensure_cli_model_ready(
+        core,
+        output_format="human",
+    )
+
+    assert calls == [{"progress_callback": reporter, "suppress_provider_output": True}]
+    assert reporter.entered
+    assert reporter.exited
+
+
+def test_ensure_cli_model_ready_falls_back_when_progress_keyword_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    reporter = DummyModelReadinessProgressReporter()
+
+    def ensure_ready() -> None:
+        calls.append("ready")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_human_model_readiness_progress_reporter",
+        lambda output_format: reporter,
+    )
+
+    core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)
+    cli_module._ensure_cli_model_ready(
+        core,
+        output_format="human",
+    )
+
+    assert calls == ["ready"]
+    assert reporter.entered
+    assert reporter.exited
+
+
+def test_cli_readiness_keyword_detection_returns_false_for_opaque_callable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raises_type_error(callback: object) -> object:
+        raise TypeError("no signature available")
+
+    monkeypatch.setattr(cli_module.inspect, "signature", raises_type_error)
+
+    assert not cli_module._callable_accepts_cli_readiness_keyword(object(), "keyword")

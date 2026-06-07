@@ -339,7 +339,7 @@ class FakeConnection:
 
 
 def test_fastembed_readiness_worker_reports_success_and_failure(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class ReadyProvider:
         configured_models: list[str] = []
@@ -361,6 +361,26 @@ def test_fastembed_readiness_worker_reports_success_and_failure(
     assert ReadyProvider.configured_models == ["legacy-model"]
     assert success_connection.messages == [{"ok": True}]
     assert success_connection.closed is True
+
+    class NoisyReadyProvider:
+        def __init__(self, model_name: str, *, cache_dir: str | None = None) -> None:
+            self.model_name = model_name
+            self.cache_dir = cache_dir
+
+        def _ensure_ready_unbounded(self) -> None:
+            print("readiness stdout noise")
+            print("readiness stderr noise", file=sys.stderr)
+
+    monkeypatch.setattr(
+        "recollectium.embeddings.BuiltinFastEmbedProvider", NoisyReadyProvider
+    )
+    noisy_connection = FakeConnection()
+    _fastembed_readiness_worker(cast(Any, noisy_connection), "legacy-model", None, True)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert noisy_connection.messages == [{"ok": True}]
+    assert noisy_connection.closed is True
 
     class FailingProvider:
         def __init__(self, model_name: str, *, cache_dir: str | None = None) -> None:

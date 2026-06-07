@@ -80,6 +80,29 @@ class BlockingFakeEmbeddingProvider(FakeEmbeddingProvider):
         return super().embed(text)
 
 
+def test_ensure_model_ready_reports_progress_callback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+    provider = FakeEmbeddingProvider()
+    events: list[dict[str, Any]] = []
+    core = RecollectiumCore(
+        db_path=tmp_path / "ready.db",
+        embedding_provider=provider,
+    )
+
+    core._ensure_model_ready(
+        progress_callback=events.append,
+        suppress_provider_output=True,
+    )
+
+    assert events == [{"phase": "Preparing embedding model"}]
+
+
 def make_memories_stale(
     db_path: Path,
     memory_ids: list[str],
