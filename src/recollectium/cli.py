@@ -1423,6 +1423,7 @@ def _run_embedding_maintenance(
     explicit: bool,
     db_path: str | None,
     log_level: str | None,
+    output_format: str,
 ) -> dict[str, Any]:
     """Prepare the configured FastEmbed model and refresh stale DB embeddings."""
     if explicit and not config_path.exists():
@@ -1444,12 +1445,7 @@ def _run_embedding_maintenance(
         "preparing embedding model and refreshing stale embeddings",
         extra={"event": "embedding_maintenance.start"},
     )
-    provider_ready = getattr(core.embedding_provider, "ensure_ready", None)
-    if callable(provider_ready):
-        provider_ready()
-    else:
-        core.embedding_provider.embed("healthcheck")
-    core._ensure_model_ready()
+    _ensure_cli_model_ready(core, output_format=output_format)
     refresh = core.refresh_stale_embeddings(include_archived=True)
     profile = core.embedding_provider.embedding_profile
     return {
@@ -1501,6 +1497,7 @@ def _handle_init_command(
         explicit=explicit,
         db_path=db_path,
         log_level=log_level,
+        output_format=output_format,
     )
     result["status"] = "initialized"
     _emit_success(result, output_format=output_format, command="init")
@@ -5048,6 +5045,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 explicit=args.config_path is not None,
                 db_path=args.db_path,
                 log_level=args.log_level,
+                output_format=output_format,
             )
             _emit_success(
                 result, output_format=output_format, command="embedding-maintenance"

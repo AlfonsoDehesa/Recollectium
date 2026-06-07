@@ -4472,7 +4472,10 @@ def test_cli_embedding_maintenance_prepares_model_and_refreshes(
             self.store = FakeStore(db_path)
             self.embedding_provider = FakeProvider()
 
-        def _ensure_model_ready(self) -> None:
+        def _ensure_model_ready(
+            self, *, suppress_provider_output: bool = False
+        ) -> None:
+            assert suppress_provider_output is True
             calls.append("model_state")
 
         def refresh_stale_embeddings(self, *, include_archived=False, **kwargs):
@@ -4504,13 +4507,12 @@ def test_cli_embedding_maintenance_prepares_model_and_refreshes(
     assert calls == [
         f"store:{db_path}",
         f"core:{db_path}",
-        "ensure_ready",
         "model_state",
         "refresh:True",
     ]
 
 
-def test_cli_embedding_maintenance_provider_without_ready_uses_healthcheck(
+def test_cli_embedding_maintenance_delegates_readiness_to_core(
     tmp_path, capsys, monkeypatch
 ) -> None:
     import recollectium.cli as cli_mod
@@ -4532,8 +4534,7 @@ def test_cli_embedding_maintenance_provider_without_ready_uses_healthcheck(
         }
 
         def embed(self, text: str) -> list[float]:
-            calls.append(f"embed:{text}")
-            return [0.0, 0.0, 0.0]
+            raise AssertionError(f"CLI should delegate readiness to core, got {text}")
 
     class FakeCore:
         def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
@@ -4558,7 +4559,49 @@ def test_cli_embedding_maintenance_provider_without_ready_uses_healthcheck(
     assert exit_code == 0
     assert stderr == ""
     assert json.loads(stdout)["status"] == "embedding_maintenance_completed"
-    assert calls == ["embed:healthcheck", "model_state", "refresh:True"]
+    assert calls == ["model_state", "refresh:True"]
+
+
+def test_cli_json_embedding_maintenance_suppresses_noisy_readiness_provider(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "maintenance-noisy.db"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "embedding-maintenance"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "embedding_maintenance_completed"
+    assert payload["database"] == str(db_path)
+    assert "provider stdout readiness noise" not in stdout
+    assert "provider stderr readiness noise" not in stdout
+
+
+def test_cli_json_init_suppresses_noisy_readiness_provider(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "init-noisy.db"
+
+    exit_code, stdout, stderr = _run_cli(["init", "--db", str(db_path)], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "initialized"
+    assert payload["database"] == str(db_path)
+    assert "provider stdout readiness noise" not in stdout
+    assert "provider stderr readiness noise" not in stdout
 
 
 def test_run_installed_embedding_maintenance_builds_fresh_process_command(
@@ -5656,6 +5699,7 @@ def test_cli_init_creates_runtime_files_and_downloads_model(
 def test_cli_init_explicit_missing_config_creates_file(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
     config_path = tmp_path / "custom" / "config.json"
     ready_calls: list[object] = []
 
@@ -5677,7 +5721,7 @@ def test_cli_init_explicit_missing_config_creates_file(
 def test_cli_init_accepts_db_after_subcommand(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
     db_path = tmp_path / "custom.db"
     monkeypatch.setattr(
         "recollectium.cli.BuiltinFastEmbedProvider.ensure_ready",
@@ -5724,7 +5768,7 @@ def test_cli_init_reports_file_not_found_from_handler(
 def test_cli_init_reports_model_readiness_error(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
 
     def _raise_readiness_error(self) -> None:
         raise EmbeddingProviderUnavailableError("model unavailable")
@@ -5744,7 +5788,7 @@ def test_cli_init_reports_model_readiness_error(
 def test_cli_init_reports_readiness_timeout_error(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
 
     def _raise_timeout(self) -> None:
         raise EmbeddingReadinessTimeoutError("startup timed out")
@@ -5765,7 +5809,7 @@ def test_cli_init_reports_readiness_timeout_error(
 def test_cli_init_reports_model_unavailable_error(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
 
     def _raise_model_error(self) -> None:
         raise EmbeddingModelUnavailableError("model not found")
