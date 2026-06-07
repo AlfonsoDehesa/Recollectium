@@ -860,6 +860,11 @@ def _human_model_readiness_progress_reporter(
 ) -> _ModelReadinessProgressReporter | None:
     if output_format != CLI_OUTPUT_HUMAN_READABLE:
         return None
+    try:
+        if not sys.stderr.isatty():
+            return None
+    except (OSError, ValueError):
+        return None
     return _ModelReadinessProgressReporter(sys.stderr)
 
 

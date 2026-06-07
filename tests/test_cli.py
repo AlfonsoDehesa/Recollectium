@@ -897,7 +897,7 @@ def test_cli_json_search_reembedding_remains_parse_safe(
     assert "Re-embedding memories" not in search_err
 
 
-def test_cli_human_search_readiness_progress_clears_before_results(
+def test_cli_human_search_non_tty_readiness_progress_remains_quiet(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _isolate_xdg_dirs(tmp_path, monkeypatch)
@@ -924,6 +924,7 @@ def test_cli_human_search_readiness_progress_clears_before_results(
     assert add_err == ""
     memory_id = json.loads(add_out)["id"]
     _forget_model_readiness_state(tmp_path)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
 
     search_code, search_out, search_err = _run_cli(
         [
@@ -940,14 +941,12 @@ def test_cli_human_search_readiness_progress_clears_before_results(
     assert search_code == 0
     assert "1 result" in search_out
     assert memory_id in search_out
-    assert "Preparing model" in search_err
-    assert "\r\x1b[2K" in search_err
-    assert search_err.endswith("\r\x1b[2K")
+    assert "Preparing model" not in search_out
+    assert "Preparing model" not in search_err
     assert "provider stdout readiness noise" not in search_out
     assert "provider stdout readiness noise" not in search_err
+    assert "provider stderr readiness noise" not in search_out
     assert "provider stderr readiness noise" not in search_err
-    assert "Status:" not in search_err
-    assert "\n" not in search_err
 
 
 def test_cli_json_search_readiness_progress_remains_quiet_parse_safe(
@@ -1049,6 +1048,70 @@ def test_cli_human_workspace_search_emits_reembedding_progress_to_stderr(
 class _OSErrorIsattyStream(io.StringIO):
     def isatty(self) -> bool:
         raise OSError("isatty unavailable")
+
+
+class _ValueErrorIsattyStream(io.StringIO):
+    def isatty(self) -> bool:
+        raise ValueError("isatty unavailable")
+
+
+def test_human_model_readiness_progress_reporter_requires_tty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: False  # type: ignore[attr-defined,method-assign]
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+
+    reporter = cli_module._human_model_readiness_progress_reporter(
+        cli_module.CLI_OUTPUT_HUMAN_READABLE
+    )
+
+    assert reporter is None
+
+
+@pytest.mark.parametrize("stream", [_OSErrorIsattyStream(), _ValueErrorIsattyStream()])
+def test_human_model_readiness_progress_reporter_handles_isatty_errors(
+    stream: io.StringIO,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+
+    reporter = cli_module._human_model_readiness_progress_reporter(
+        cli_module.CLI_OUTPUT_HUMAN_READABLE
+    )
+
+    assert reporter is None
+
+
+def test_human_model_readiness_progress_reporter_returns_reporter_for_tty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+
+    reporter = cli_module._human_model_readiness_progress_reporter(
+        cli_module.CLI_OUTPUT_HUMAN_READABLE
+    )
+
+    assert isinstance(reporter, cli_module._ModelReadinessProgressReporter)
+
+
+def test_model_readiness_progress_reporter_uses_single_line_for_tty() -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    reporter = cli_module._ModelReadinessProgressReporter(stream)
+
+    with reporter:
+        reporter({"phase": "Preparing model"})
+        reporter({"phase": "Checking model cache"})
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Preparing" in output
+    assert "Checking" in output
 
 
 def test_reembedding_progress_reporter_handles_isatty_errors() -> None:
@@ -4600,6 +4663,29 @@ def test_cli_json_init_suppresses_noisy_readiness_provider(
     payload = json.loads(stdout)
     assert payload["status"] == "initialized"
     assert payload["database"] == str(db_path)
+    assert "provider stdout readiness noise" not in stdout
+    assert "provider stderr readiness noise" not in stdout
+
+
+def test_cli_human_init_non_tty_suppresses_readiness_progress_and_provider_noise(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    db_path = tmp_path / "init-human-noisy.db"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "init", "--db", str(db_path)],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Recollectium initialized" in stdout
+    assert "Preparing model" not in stdout
     assert "provider stdout readiness noise" not in stdout
     assert "provider stderr readiness noise" not in stdout
 
@@ -9865,6 +9951,67 @@ def test_cli_service_command_success_and_runtime_errors(
     assert code == 2
     assert stdout == ""
     assert "validation_error" in stderr
+
+
+def test_ensure_cli_model_ready_non_tty_stays_quiet_and_suppresses_provider_noise(
+    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[bool] = []
+
+    def ensure_ready(*, suppress_provider_output: bool = False) -> None:
+        calls.append(suppress_provider_output)
+        if not suppress_provider_output:
+            print("provider stdout readiness noise")
+            print("provider stderr readiness noise", file=sys.stderr)
+
+    stream = io.StringIO()
+    stream.isatty = lambda: False  # type: ignore[attr-defined,method-assign]
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+    core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)
+
+    cli_module._ensure_cli_model_ready(
+        core,
+        output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
+    )
+    captured = capsys.readouterr()
+
+    assert calls == [True]
+    assert captured.out == ""
+    assert captured.err == ""
+    assert stream.getvalue() == ""
+
+
+def test_ensure_cli_model_ready_passes_progress_callback_and_suppresses_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    reporter = DummyModelReadinessProgressReporter()
+
+    def ensure_ready(
+        *, progress_callback: object, suppress_provider_output: bool = False
+    ) -> None:
+        calls.append(
+            {
+                "progress_callback": progress_callback,
+                "suppress_provider_output": suppress_provider_output,
+            }
+        )
+
+    monkeypatch.setattr(
+        cli_module,
+        "_human_model_readiness_progress_reporter",
+        lambda output_format: reporter,
+    )
+
+    core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)
+    cli_module._ensure_cli_model_ready(
+        core,
+        output_format="human",
+    )
+
+    assert calls == [{"progress_callback": reporter, "suppress_provider_output": True}]
+    assert reporter.entered
+    assert reporter.exited
 
 
 def test_ensure_cli_model_ready_falls_back_when_progress_keyword_unsupported(
