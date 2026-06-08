@@ -72,6 +72,12 @@ class ContentChunk:
 
 
 @dataclass(frozen=True, slots=True)
+class FastEmbedCacheLayout:
+    root: tuple[str, ...]
+    payload: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FastEmbedModelSpec:
     model_name: str
     dimensions: int
@@ -79,6 +85,7 @@ class FastEmbedModelSpec:
     max_tokens: int
     chunk_tokens: int
     chunk_overlap_tokens: int
+    cache_layouts: tuple[FastEmbedCacheLayout, ...]
     query_prompt_policy: str = "raw"
     recommended_match_threshold: float | None = None
 
@@ -94,6 +101,16 @@ BUILTIN_FASTEMBED_MODEL_SPECS: dict[str, FastEmbedModelSpec] = {
         max_tokens=512,
         chunk_tokens=384,
         chunk_overlap_tokens=64,
+        cache_layouts=(
+            FastEmbedCacheLayout(
+                root=("models--qdrant--bge-base-en-v1.5-onnx-q",),
+                payload=("model_optimized.onnx",),
+            ),
+            FastEmbedCacheLayout(
+                root=("fast-bge-base-en-v1.5",),
+                payload=("model_optimized.onnx",),
+            ),
+        ),
     ),
     JINA_SMALL_EN_MODEL: FastEmbedModelSpec(
         model_name=JINA_SMALL_EN_MODEL,
@@ -102,6 +119,12 @@ BUILTIN_FASTEMBED_MODEL_SPECS: dict[str, FastEmbedModelSpec] = {
         max_tokens=8192,
         chunk_tokens=6144,
         chunk_overlap_tokens=512,
+        cache_layouts=(
+            FastEmbedCacheLayout(
+                root=("models--xenova--jina-embeddings-v2-small-en",),
+                payload=("onnx", "model.onnx"),
+            ),
+        ),
     ),
 }
 DEFAULT_BUILTIN_FASTEMBED_MODEL = BGE_BASE_EN_V15_MODEL
@@ -188,6 +211,7 @@ class BuiltinFastEmbedProvider:
         self.max_tokens = spec.max_tokens
         self.chunk_tokens = spec.chunk_tokens
         self.chunk_overlap_tokens = spec.chunk_overlap_tokens
+        self._cache_layouts = spec.cache_layouts
         self.query_prompt_policy = spec.query_prompt_policy
         self.cache_dir = str(cache_dir) if cache_dir is not None else None
         self._embedder: Any | None = None
@@ -205,6 +229,20 @@ class BuiltinFastEmbedProvider:
             "chunk_overlap_tokens": self.chunk_overlap_tokens,
             "query_prompt_policy": self.query_prompt_policy,
         }
+
+    def has_cached_model_artifact(self) -> bool:
+        """Return whether the configured FastEmbed cache appears populated."""
+        if self.cache_dir is None:
+            return False
+        cache_root = Path(self.cache_dir)
+        if not cache_root.is_dir():
+            return False
+
+        for layout in self._cache_layouts:
+            candidate = cache_root.joinpath(*layout.root)
+            if _cache_tree_has_model_artifact(candidate, layout.payload):
+                return True
+        return False
 
     def embed(self, text: str) -> list[float]:
         normalized = text.strip()
@@ -354,3 +392,40 @@ class BuiltinFastEmbedProvider:
         if norm == 0.0:
             return vector
         return [value / norm for value in vector]
+
+
+def _cache_tree_has_model_artifact(
+    path: Path, expected_relative_path: tuple[str, ...] = ("model.onnx",)
+) -> bool:
+    expected_name = expected_relative_path[-1]
+    if path.is_file():
+        return path.name == expected_name and _is_model_artifact_file(path)
+    if not path.is_dir():
+        return False
+    return any(
+        _has_relative_path_suffix(candidate, expected_relative_path)
+        and _is_model_artifact_file(candidate)
+        for candidate in path.rglob(expected_name)
+    )
+
+
+def _has_relative_path_suffix(
+    path: Path, expected_relative_path: tuple[str, ...]
+) -> bool:
+    return path.parts[-len(expected_relative_path) :] == expected_relative_path
+
+
+def _is_model_artifact_file(path: Path) -> bool:
+    try:
+        is_file = path.is_file()
+    except OSError:
+        return False
+    if not is_file:
+        return False
+    lowered = path.name.lower()
+    if lowered.endswith((".lock", ".incomplete")):
+        return False
+    try:
+        return path.stat().st_size > 0
+    except OSError:
+        return False

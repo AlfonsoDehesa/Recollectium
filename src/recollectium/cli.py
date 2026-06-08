@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import argcomplete
+import contextlib
 from argcomplete.completers import ChoicesCompleter
 from copy import deepcopy
 import inspect
@@ -85,6 +86,7 @@ from recollectium.dev_optimize_threshold import (
     write_threshold_png,
 )
 from recollectium.dev_seed import ensure_seeded_dev_database, reset_seeded_dev_database
+import recollectium.embeddings as embeddings_module
 from recollectium.embeddings import BuiltinFastEmbedProvider
 from recollectium.logging import setup_logging
 from recollectium.models import (
@@ -889,6 +891,39 @@ def _ensure_cli_model_ready(core: RecollectiumCore, *, output_format: str) -> No
             cast(Any, ensure_ready)(**kwargs)
         else:
             ensure_ready()
+
+
+def _ensure_cli_provider_ready(
+    provider: BuiltinFastEmbedProvider,
+    *,
+    config_path: Path | None,
+    log_level: str | None,
+    output_format: str,
+) -> None:
+    if not isinstance(provider, embeddings_module.BuiltinFastEmbedProvider):
+        _ensure_cli_custom_provider_ready(provider, output_format=output_format)
+        return
+    readiness_core = cast(RecollectiumCore, object.__new__(RecollectiumCore))
+    readiness_core.config = RecollectiumConfig(config_path, log_level=log_level)
+    readiness_core.embedding_provider = provider
+    readiness_core._embedding_provider_managed_by_recollectium = True
+    _ensure_cli_model_ready(readiness_core, output_format=output_format)
+
+
+def _ensure_cli_custom_provider_ready(provider: object, *, output_format: str) -> None:
+    progress_reporter = _human_model_readiness_progress_reporter(output_format)
+    with contextlib.ExitStack() as stack:
+        if progress_reporter is not None:
+            stack.enter_context(progress_reporter)
+        else:
+            devnull = stack.enter_context(open(os.devnull, "w", encoding="utf-8"))
+            stack.enter_context(contextlib.redirect_stdout(devnull))
+            stack.enter_context(contextlib.redirect_stderr(devnull))
+        provider_ready = getattr(provider, "ensure_ready", None)
+        if callable(provider_ready):
+            provider_ready()
+        else:
+            cast(Any, provider).embed("healthcheck")
 
 
 def _callable_accepts_cli_readiness_keyword(callback: Any, keyword: str) -> bool:
@@ -4722,7 +4757,12 @@ def _handle_dev_command(
                     provider = _builtin_fastembed_provider_from_config(
                         cfg.effective_config, model_cache_path=cfg.model_cache_path
                     )
-                    provider.ensure_ready()
+                    _ensure_cli_provider_ready(
+                        provider,
+                        config_path=core_config_path,
+                        log_level=args.log_level,
+                        output_format=output_format,
+                    )
                     search_progress_reporter = _human_reembedding_progress_reporter(
                         output_format
                     )
@@ -4754,7 +4794,12 @@ def _handle_dev_command(
                 provider = _builtin_fastembed_provider_from_config(
                     cfg.effective_config, model_cache_path=cfg.model_cache_path
                 )
-                provider.ensure_ready()
+                _ensure_cli_provider_ready(
+                    provider,
+                    config_path=core_config_path,
+                    log_level=args.log_level,
+                    output_format=output_format,
+                )
                 search_progress_reporter = _human_reembedding_progress_reporter(
                     output_format
                 )
@@ -4813,7 +4858,12 @@ def _handle_dev_command(
                     provider = _builtin_fastembed_provider_from_config(
                         cfg.effective_config, model_cache_path=cfg.model_cache_path
                     )
-                    provider.ensure_ready()
+                    _ensure_cli_provider_ready(
+                        provider,
+                        config_path=core_config_path,
+                        log_level=args.log_level,
+                        output_format=output_format,
+                    )
                     return _run_seeded_dev_optimize_threshold(
                         cfg,
                         provider=provider,
@@ -4827,7 +4877,12 @@ def _handle_dev_command(
             provider = _builtin_fastembed_provider_from_config(
                 cfg.effective_config, model_cache_path=cfg.model_cache_path
             )
-            provider.ensure_ready()
+            _ensure_cli_provider_ready(
+                provider,
+                config_path=core_config_path,
+                log_level=args.log_level,
+                output_format=output_format,
+            )
             return _run_seeded_dev_optimize_threshold(
                 cfg,
                 provider=provider,
@@ -4864,7 +4919,12 @@ def _handle_dev_command(
                     merged,
                     model_cache_path=resolve_model_cache_path(cfg.xdg_dirs["cache"]),
                 )
-                provider.ensure_ready()
+                _ensure_cli_provider_ready(
+                    provider,
+                    config_path=core_config_path,
+                    log_level=args.log_level,
+                    output_format=output_format,
+                )
                 seed_result = ensure_seeded_dev_database(
                     _resolve_seeded_dev_database_path(cfg), provider
                 )
@@ -4897,7 +4957,12 @@ def _handle_dev_command(
             provider = _builtin_fastembed_provider_from_config(
                 cfg.effective_config, model_cache_path=cfg.model_cache_path
             )
-            provider.ensure_ready()
+            _ensure_cli_provider_ready(
+                provider,
+                config_path=core_config_path,
+                log_level=args.log_level,
+                output_format=output_format,
+            )
             result = reset_seeded_dev_database(
                 _resolve_seeded_dev_database_path(cfg), provider
             )

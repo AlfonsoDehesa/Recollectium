@@ -1936,6 +1936,81 @@ def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
     assert not regular_db.exists()
 
 
+@pytest.mark.parametrize(
+    ("dev_args", "expected_status"),
+    [
+        (["dev", "true"], "enabled"),
+        (["dev", "reset"], "reset"),
+        (["dev", "eval"], "evaluated"),
+        (["dev", "optimize-threshold", "--format", "csv"], "optimized"),
+    ],
+)
+def test_cli_dev_json_readiness_suppresses_provider_output(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    dev_args: list[str],
+    expected_status: str,
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        cli_module, "BuiltinFastEmbedProvider", NoisyReadinessEmbeddingProvider
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "ensure_seeded_dev_database",
+        lambda _path, _provider: {"status": "created"},
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "reset_seeded_dev_database",
+        lambda _path, _provider: {"status": "reset"},
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_run_seeded_dev_eval",
+        lambda *args, **kwargs: {"status": "evaluated"},
+    )
+
+    def fake_optimize_threshold(*args: object, **kwargs: object) -> int:
+        cli_module._emit_success(
+            {"status": "optimized"},
+            output_format=str(kwargs["output_format"]),
+            command="dev optimize-threshold",
+        )
+        return 0
+
+    monkeypatch.setattr(
+        cli_module,
+        "_run_seeded_dev_optimize_threshold",
+        fake_optimize_threshold,
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), *dev_args], capsys
+    )
+
+    assert exit_code == 0
+    assert "provider stdout readiness noise" not in stdout
+    assert "provider stderr readiness noise" not in stdout
+    assert "provider stdout readiness noise" not in stderr
+    assert "provider stderr readiness noise" not in stderr
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == expected_status
+
+
 def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -10010,6 +10085,58 @@ def test_ensure_cli_model_ready_passes_progress_callback_and_suppresses_provider
     )
 
     assert calls == [{"progress_callback": reporter, "suppress_provider_output": True}]
+    assert reporter.entered
+    assert reporter.exited
+
+
+def test_ensure_cli_provider_ready_uses_model_state_wrapper_for_builtin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[RecollectiumCore] = []
+    provider = cli_module.embeddings_module.BuiltinFastEmbedProvider(
+        cache_dir=tmp_path / "models"
+    )
+
+    monkeypatch.setattr(
+        cli_module,
+        "_ensure_cli_model_ready",
+        lambda core, *, output_format: calls.append(core),
+    )
+
+    cli_module._ensure_cli_provider_ready(
+        provider,
+        config_path=None,
+        log_level=None,
+        output_format=cli_module.CLI_OUTPUT_JSON,
+    )
+
+    assert calls
+    assert calls[0].embedding_provider is provider
+    assert calls[0]._embedding_provider_managed_by_recollectium is True
+
+
+def test_ensure_cli_custom_provider_ready_uses_progress_and_embed_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reporter = DummyModelReadinessProgressReporter()
+    calls: list[str] = []
+
+    class EmbedOnlyProvider:
+        def embed(self, text: str) -> list[float]:
+            calls.append(text)
+            return [1.0]
+
+    monkeypatch.setattr(
+        cli_module,
+        "_human_model_readiness_progress_reporter",
+        lambda output_format: reporter,
+    )
+
+    cli_module._ensure_cli_custom_provider_ready(
+        EmbedOnlyProvider(), output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE
+    )
+
+    assert calls == ["healthcheck"]
     assert reporter.entered
     assert reporter.exited
 

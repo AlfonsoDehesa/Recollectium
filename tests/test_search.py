@@ -7,7 +7,9 @@ import pytest
 
 from recollectium.embeddings import (
     BuiltinFastEmbedProvider,
+    _cache_tree_has_model_artifact,
     _fastembed_readiness_worker,
+    _is_model_artifact_file,
     chunk_text_for_profile,
 )
 from recollectium.errors import (
@@ -63,6 +65,113 @@ def test_provider_profile_matches_fastembed_spec() -> None:
         legacy_provider.embedding_profile["profile"]
         == "builtin-fastembed-jina-v2-small-en-v1"
     )
+
+
+def test_provider_cache_artifact_detection_handles_expected_cache_shapes(
+    tmp_path: Path,
+) -> None:
+    provider = BuiltinFastEmbedProvider(cache_dir=None)
+    assert not provider.has_cached_model_artifact()
+
+    cache_root = tmp_path / "cache"
+    provider = BuiltinFastEmbedProvider(cache_dir=cache_root)
+    assert not provider.has_cached_model_artifact()
+
+    artifact = (
+        cache_root
+        / "models--qdrant--bge-base-en-v1.5-onnx-q"
+        / "snapshots"
+        / "snapshot-id"
+        / "model_optimized.onnx"
+    )
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"artifact")
+    assert provider.has_cached_model_artifact()
+
+
+def test_provider_cache_artifact_detection_handles_bge_gcs_cache_layout(
+    tmp_path: Path,
+) -> None:
+    provider = BuiltinFastEmbedProvider(cache_dir=tmp_path)
+    artifact = tmp_path / "fast-bge-base-en-v1.5" / "model_optimized.onnx"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"artifact")
+
+    assert provider.has_cached_model_artifact()
+
+
+def test_provider_cache_artifact_detection_handles_jina_hf_cache_layout(
+    tmp_path: Path,
+) -> None:
+    provider = BuiltinFastEmbedProvider(
+        "jinaai/jina-embeddings-v2-small-en", cache_dir=tmp_path
+    )
+    artifact = (
+        tmp_path
+        / "models--xenova--jina-embeddings-v2-small-en"
+        / "snapshots"
+        / "snapshot-id"
+        / "onnx"
+        / "model.onnx"
+    )
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"artifact")
+
+    assert provider.has_cached_model_artifact()
+
+
+def test_provider_cache_artifact_detection_ignores_metadata_only_cache(
+    tmp_path: Path,
+) -> None:
+    provider = BuiltinFastEmbedProvider(cache_dir=tmp_path)
+    cache_root = tmp_path / "models--qdrant--bge-base-en-v1.5-onnx-q"
+    refs = cache_root / "refs"
+    snapshot = cache_root / "snapshots" / "snapshot-id"
+    refs.mkdir(parents=True)
+    snapshot.mkdir(parents=True)
+    (refs / "main").write_text("snapshot-id", encoding="utf-8")
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (snapshot / "model.onnx").write_bytes(b"wrong payload name")
+
+    assert not provider.has_cached_model_artifact()
+
+
+def test_model_artifact_file_detection_ignores_incomplete_and_stat_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    incomplete = tmp_path / "model.onnx.incomplete"
+    incomplete.write_bytes(b"partial")
+    artifact = tmp_path / "model.onnx"
+    artifact.write_bytes(b"artifact")
+    missing = tmp_path / "missing"
+
+    assert not _cache_tree_has_model_artifact(incomplete)
+    assert not _cache_tree_has_model_artifact(missing)
+    assert not _is_model_artifact_file(incomplete)
+    assert not _is_model_artifact_file(missing)
+
+    original_stat = Path.stat
+
+    def raising_stat(self: Path, *args: object, **kwargs: object) -> object:
+        if self == artifact:
+            raise OSError("stat failed")
+        return original_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", raising_stat)
+
+    assert not _is_model_artifact_file(artifact)
+
+    class StatFailingPath:
+        name = "model.onnx"
+
+        def is_file(self) -> bool:
+            return True
+
+        def stat(self) -> object:
+            raise OSError("stat failed")
+
+    assert not _is_model_artifact_file(cast(Path, StatFailingPath()))
 
 
 def test_provider_rejects_unsupported_model() -> None:
