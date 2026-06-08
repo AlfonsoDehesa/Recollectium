@@ -930,9 +930,10 @@ def _suppress_cli_readiness_provider_output() -> Iterator[None]:
 
 def _ensure_cli_model_ready(core: RecollectiumCore, *, output_format: str) -> None:
     ensure_ready = core._ensure_model_ready
-    model_name, cached_model_artifact = _model_readiness_context(
-        getattr(core, "embedding_provider", None)
-    )
+    with _suppress_cli_readiness_provider_output():
+        model_name, cached_model_artifact = _model_readiness_context(
+            getattr(core, "embedding_provider", None)
+        )
     progress_reporter = _human_model_readiness_progress_reporter(
         output_format,
         model_name=model_name,
@@ -977,7 +978,8 @@ def _ensure_cli_provider_ready(
 
 
 def _ensure_cli_custom_provider_ready(provider: object, *, output_format: str) -> None:
-    model_name, cached_model_artifact = _model_readiness_context(provider)
+    with _suppress_cli_readiness_provider_output():
+        model_name, cached_model_artifact = _model_readiness_context(provider)
     progress_reporter = _human_model_readiness_progress_reporter(
         output_format,
         model_name=model_name,

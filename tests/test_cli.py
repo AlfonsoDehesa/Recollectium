@@ -10089,6 +10089,12 @@ def test_ensure_cli_model_ready_non_tty_stays_quiet_and_suppresses_provider_nois
 ) -> None:
     calls: list[bool] = []
 
+    class Provider:
+        def has_cached_model_artifact(self) -> bool:
+            print("provider stdout cache probe noise")
+            print("provider stderr cache probe noise", file=sys.stderr)
+            return True
+
     def ensure_ready(*, suppress_provider_output: bool = False) -> None:
         calls.append(suppress_provider_output)
         if not suppress_provider_output:
@@ -10098,7 +10104,10 @@ def test_ensure_cli_model_ready_non_tty_stays_quiet_and_suppresses_provider_nois
     stream = io.StringIO()
     stream.isatty = lambda: False  # type: ignore[attr-defined,method-assign]
     monkeypatch.setattr(cli_module.sys, "stderr", stream)
-    core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)
+    core: Any = SimpleNamespace(
+        _ensure_model_ready=ensure_ready,
+        embedding_provider=Provider(),
+    )
 
     cli_module._ensure_cli_model_ready(
         core,
@@ -10110,6 +10119,35 @@ def test_ensure_cli_model_ready_non_tty_stays_quiet_and_suppresses_provider_nois
     assert captured.out == ""
     assert captured.err == ""
     assert stream.getvalue() == ""
+
+
+def test_ensure_cli_model_ready_json_suppresses_cache_probe_provider_noise(
+    capsys: CaptureFixture[str],
+) -> None:
+    calls: list[bool] = []
+
+    class Provider:
+        def has_cached_model_artifact(self) -> bool:
+            print("provider stdout cache probe noise")
+            print("provider stderr cache probe noise", file=sys.stderr)
+            return False
+
+    def ensure_ready(*, suppress_provider_output: bool = False) -> None:
+        calls.append(suppress_provider_output)
+
+    core: Any = SimpleNamespace(
+        _ensure_model_ready=ensure_ready,
+        embedding_provider=Provider(),
+    )
+    cli_module._ensure_cli_model_ready(
+        core,
+        output_format=cli_module.CLI_OUTPUT_JSON,
+    )
+    captured = capsys.readouterr()
+
+    assert calls == [True]
+    assert captured.out == ""
+    assert captured.err == ""
 
 
 def test_ensure_cli_model_ready_passes_progress_callback_and_suppresses_provider(
@@ -10200,6 +10238,11 @@ def test_ensure_cli_custom_provider_ready_uses_progress_and_embed_fallback(
 
     class EmbedOnlyProvider:
         model_name = "custom-model"
+
+        def has_cached_model_artifact(self) -> bool:
+            print("provider stdout cache probe noise")
+            print("provider stderr cache probe noise", file=sys.stderr)
+            return False
 
         def embed(self, text: str) -> list[float]:
             calls.append(text)
