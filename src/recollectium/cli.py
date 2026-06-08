@@ -940,12 +940,12 @@ def _ensure_cli_model_ready(core: RecollectiumCore, *, output_format: str) -> No
         cached_model_artifact=cached_model_artifact,
     )
     if progress_reporter is None:
-        if _callable_accepts_cli_readiness_keyword(
-            ensure_ready, "suppress_provider_output"
-        ):
-            ensure_ready(suppress_provider_output=True)
-        else:
-            with _suppress_cli_readiness_provider_output():
+        with _suppress_cli_readiness_provider_output():
+            if _callable_accepts_cli_readiness_keyword(
+                ensure_ready, "suppress_provider_output"
+            ):
+                ensure_ready(suppress_provider_output=True)
+            else:
                 ensure_ready()
         return
     with progress_reporter, _suppress_cli_readiness_provider_output():

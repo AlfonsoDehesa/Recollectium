@@ -2,10 +2,12 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import threading
 from typing import Any, Iterator
 
 import pytest
+from pytest import CaptureFixture
 
 from recollectium.core import RecollectiumCore
 from recollectium.embeddings import BuiltinFastEmbedProvider
@@ -181,6 +183,35 @@ def test_ensure_model_ready_skips_matching_state_when_cache_artifact_present(
     core._ensure_model_ready(suppress_provider_output=True)
 
     assert calls == []
+
+
+def test_ensure_model_ready_suppresses_matching_state_cache_probe_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture[str]
+) -> None:
+    _isolate_core_xdg_dirs(tmp_path, monkeypatch)
+    state_dir = tmp_path / "state" / "recollectium"
+
+    def fake_ensure_ready(
+        self: BuiltinFastEmbedProvider, *, suppress_output: bool = False
+    ) -> None:
+        raise AssertionError("matching state should return before provider readiness")
+
+    def noisy_cache_probe(model_cache_path: str | None) -> bool:
+        assert model_cache_path == str(core.config.model_cache_path)
+        print("cache probe stdout leak")
+        print("cache probe stderr leak", file=sys.stderr)
+        return True
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "ensure_ready", fake_ensure_ready)
+    core = RecollectiumCore(db_path=tmp_path / "quiet-cache-probe.db")
+    _write_matching_model_state(core, state_dir)
+    monkeypatch.setattr(core, "_model_cache_artifact_is_present", noisy_cache_probe)
+
+    core._ensure_model_ready(suppress_provider_output=True)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
 
 
 def make_memories_stale(
