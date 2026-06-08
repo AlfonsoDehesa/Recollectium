@@ -206,6 +206,32 @@ class BuiltinFastEmbedProvider:
             "query_prompt_policy": self.query_prompt_policy,
         }
 
+    def has_cached_model_artifact(self) -> bool:
+        """Return whether the configured FastEmbed cache appears populated."""
+        if self.cache_dir is None:
+            return False
+        cache_root = Path(self.cache_dir)
+        if not cache_root.is_dir():
+            return False
+
+        model_parts = [part for part in self.model_name.split("/") if part]
+        candidate_roots = [cache_root / self.model_name]
+        if len(model_parts) >= 2:
+            namespace, name = model_parts[0], model_parts[-1]
+            candidate_roots.extend(
+                [
+                    cache_root / namespace / name,
+                    cache_root / f"models--{namespace}--{name}",
+                ]
+            )
+        elif model_parts:
+            candidate_roots.append(cache_root / model_parts[0])
+
+        for candidate in candidate_roots:
+            if _cache_tree_has_model_artifact(candidate):
+                return True
+        return False
+
     def embed(self, text: str) -> list[float]:
         normalized = text.strip()
         if not normalized:
@@ -354,3 +380,27 @@ class BuiltinFastEmbedProvider:
         if norm == 0.0:
             return vector
         return [value / norm for value in vector]
+
+
+def _cache_tree_has_model_artifact(path: Path) -> bool:
+    if path.is_file():
+        return _is_model_artifact_file(path)
+    if not path.is_dir():
+        return False
+    return any(_is_model_artifact_file(candidate) for candidate in path.rglob("*"))
+
+
+def _is_model_artifact_file(path: Path) -> bool:
+    try:
+        is_file = path.is_file()
+    except OSError:
+        return False
+    if not is_file:
+        return False
+    lowered = path.name.lower()
+    if lowered.endswith((".lock", ".incomplete")):
+        return False
+    try:
+        return path.stat().st_size > 0
+    except OSError:
+        return False

@@ -7,7 +7,9 @@ import pytest
 
 from recollectium.embeddings import (
     BuiltinFastEmbedProvider,
+    _cache_tree_has_model_artifact,
     _fastembed_readiness_worker,
+    _is_model_artifact_file,
     chunk_text_for_profile,
 )
 from recollectium.errors import (
@@ -63,6 +65,76 @@ def test_provider_profile_matches_fastembed_spec() -> None:
         legacy_provider.embedding_profile["profile"]
         == "builtin-fastembed-jina-v2-small-en-v1"
     )
+
+
+def test_provider_cache_artifact_detection_handles_expected_cache_shapes(
+    tmp_path: Path,
+) -> None:
+    provider = BuiltinFastEmbedProvider(cache_dir=None)
+    assert not provider.has_cached_model_artifact()
+
+    cache_root = tmp_path / "cache"
+    provider = BuiltinFastEmbedProvider(cache_dir=cache_root)
+    assert not provider.has_cached_model_artifact()
+
+    artifact = (
+        cache_root
+        / "models--BAAI--bge-base-en-v1.5"
+        / "snapshots"
+        / "snapshot-id"
+        / "model.onnx"
+    )
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"artifact")
+    assert provider.has_cached_model_artifact()
+
+
+def test_provider_cache_artifact_detection_handles_single_part_models(
+    tmp_path: Path,
+) -> None:
+    provider = cast(BuiltinFastEmbedProvider, object.__new__(BuiltinFastEmbedProvider))
+    provider.cache_dir = str(tmp_path)
+    provider.model_name = "local-model"
+    artifact = tmp_path / "local-model" / "model.onnx"
+    artifact.parent.mkdir()
+    artifact.write_bytes(b"artifact")
+
+    assert provider.has_cached_model_artifact()
+
+
+def test_model_artifact_file_detection_ignores_incomplete_and_stat_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    incomplete = tmp_path / "model.onnx.incomplete"
+    incomplete.write_bytes(b"partial")
+    artifact = tmp_path / "model.onnx"
+    artifact.write_bytes(b"artifact")
+    missing = tmp_path / "missing"
+
+    assert not _cache_tree_has_model_artifact(incomplete)
+    assert not _cache_tree_has_model_artifact(missing)
+
+    original_stat = Path.stat
+
+    def raising_stat(self: Path, *args: object, **kwargs: object) -> object:
+        if self == artifact:
+            raise OSError("stat failed")
+        return original_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", raising_stat)
+
+    assert not _is_model_artifact_file(artifact)
+
+    class StatFailingPath:
+        name = "model.onnx"
+
+        def is_file(self) -> bool:
+            return True
+
+        def stat(self) -> object:
+            raise OSError("stat failed")
+
+    assert not _is_model_artifact_file(cast(Path, StatFailingPath()))
 
 
 def test_provider_rejects_unsupported_model() -> None:

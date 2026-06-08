@@ -16,6 +16,7 @@ from recollectium.errors import (
     ReembeddingFailedError,
     ValidationError,
 )
+from recollectium.model_state import read_model_state, write_model_state
 from recollectium.models import SPACE_USER, SPACE_WORKSPACE, STATUS_ARCHIVED
 
 
@@ -101,6 +102,85 @@ def test_ensure_model_ready_reports_progress_callback(
     )
 
     assert events == [{"phase": "Preparing embedding model"}]
+
+
+def _isolate_core_xdg_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+
+def _write_matching_model_state(core: RecollectiumCore, state_dir: Path) -> None:
+    profile = core.embedding_provider.embedding_profile
+    dimensions = profile["dimensions"]
+    assert isinstance(dimensions, int)
+    write_model_state(
+        state_dir,
+        model=str(profile["model"]),
+        dimensions=dimensions,
+        profile=str(profile["profile"]),
+        model_cache_path=str(core.config.model_cache_path),
+    )
+
+
+def _write_fake_fastembed_cache_artifact(cache_root: Path) -> None:
+    artifact = (
+        cache_root
+        / "models--BAAI--bge-base-en-v1.5"
+        / "snapshots"
+        / "test-snapshot"
+        / "model.onnx"
+    )
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(b"fake model artifact")
+
+
+def test_ensure_model_ready_reprepares_matching_state_when_cache_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_core_xdg_dirs(tmp_path, monkeypatch)
+    state_dir = tmp_path / "state" / "recollectium"
+    calls: list[bool] = []
+
+    def fake_ensure_ready(
+        self: BuiltinFastEmbedProvider, *, suppress_output: bool = False
+    ) -> None:
+        calls.append(suppress_output)
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "ensure_ready", fake_ensure_ready)
+    core = RecollectiumCore(db_path=tmp_path / "missing-cache.db")
+    _write_matching_model_state(core, state_dir)
+
+    core._ensure_model_ready(suppress_provider_output=True)
+
+    assert calls == [True]
+    state = read_model_state(state_dir)
+    assert state is not None
+    assert state["model_cache_path"] == str(core.config.model_cache_path)
+
+
+def test_ensure_model_ready_skips_matching_state_when_cache_artifact_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_core_xdg_dirs(tmp_path, monkeypatch)
+    state_dir = tmp_path / "state" / "recollectium"
+    calls: list[bool] = []
+
+    def fake_ensure_ready(
+        self: BuiltinFastEmbedProvider, *, suppress_output: bool = False
+    ) -> None:
+        calls.append(suppress_output)
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "ensure_ready", fake_ensure_ready)
+    core = RecollectiumCore(db_path=tmp_path / "present-cache.db")
+    _write_matching_model_state(core, state_dir)
+    _write_fake_fastembed_cache_artifact(core.config.model_cache_path)
+
+    core._ensure_model_ready(suppress_provider_output=True)
+
+    assert calls == []
 
 
 def make_memories_stale(

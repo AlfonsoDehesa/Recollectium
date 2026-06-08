@@ -750,14 +750,15 @@ class RecollectiumCore:
             model_cache_path = None
 
         existing = read_model_state(resolved_state_dir)
-        if (
+        matching_state = (
             existing is not None
             and existing.get("prepared_model") == model_name
             and existing.get("dimensions") == dimensions
             and existing.get("profile") == profile_name
             and "model_cache_path" in existing
             and existing.get("model_cache_path") == model_cache_path
-        ):
+        )
+        if matching_state and self._model_cache_artifact_is_present(model_cache_path):
             return  # already prepared, nothing to do
 
         if progress_callback is not None:
@@ -786,6 +787,26 @@ class RecollectiumCore:
             else 0,
             profile=profile_name,
             model_cache_path=model_cache_path,
+        )
+
+    def _model_cache_artifact_is_present(self, model_cache_path: str | None) -> bool:
+        if not self._uses_recollectium_managed_fastembed_cache(model_cache_path):
+            return True
+        has_artifact = getattr(
+            self.embedding_provider, "has_cached_model_artifact", None
+        )
+        return bool(callable(has_artifact) and has_artifact())
+
+    def _uses_recollectium_managed_fastembed_cache(
+        self, model_cache_path: str | None
+    ) -> bool:
+        if not isinstance(self.embedding_provider, BuiltinFastEmbedProvider):
+            return False
+        provider_cache_dir = getattr(self.embedding_provider, "cache_dir", None)
+        expected_cache_path = str(self.config.model_cache_path)
+        return (
+            model_cache_path == expected_cache_path
+            and provider_cache_dir == expected_cache_path
         )
 
     def _chunk_embed_pairs(self, text: str) -> list[tuple[ContentChunk, list[float]]]:
