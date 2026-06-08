@@ -758,8 +758,17 @@ class RecollectiumCore:
             and "model_cache_path" in existing
             and existing.get("model_cache_path") == model_cache_path
         )
-        if matching_state and self._model_cache_artifact_is_present(model_cache_path):
-            return  # already prepared, nothing to do
+        if matching_state:
+            with contextlib.ExitStack() as stack:
+                if suppress_provider_output:
+                    devnull = stack.enter_context(
+                        open(os.devnull, "w", encoding="utf-8")
+                    )
+                    stack.enter_context(contextlib.redirect_stdout(devnull))
+                    stack.enter_context(contextlib.redirect_stderr(devnull))
+
+                if self._model_cache_artifact_is_present(model_cache_path):
+                    return  # already prepared, nothing to do
 
         if progress_callback is not None:
             progress_callback({"phase": "Preparing embedding model"})

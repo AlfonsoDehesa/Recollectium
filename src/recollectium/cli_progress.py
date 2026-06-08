@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
+import threading
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -15,6 +17,36 @@ except ImportError:  # pragma: no cover - exercised by monkeypatch on POSIX CI
 
 
 Clock = Callable[[], float]
+
+_ANSI_SEQUENCE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _visible_width(text: str) -> int:
+    """Return terminal-visible width for the narrow glyphs used here."""
+
+    return len(_ANSI_SEQUENCE.sub("", text))
+
+
+def _terminal_columns() -> int:
+    """Return the current terminal width, falling back to a common default."""
+
+    try:
+        return max(1, shutil.get_terminal_size(fallback=(80, 24)).columns)
+    except OSError:
+        return 80
+
+
+def _truncate_visible(text: str, width: int) -> str:
+    """Compact whitespace and truncate text to a visible width."""
+
+    compact = " ".join(text.split())
+    if width <= 0:
+        return ""
+    if len(compact) <= width:
+        return compact
+    if width == 1:
+        return "…"
+    return compact[: width - 1].rstrip() + "…"
 
 
 def _termios_error_types() -> tuple[type[BaseException], ...]:
@@ -233,10 +265,7 @@ class SingleLineProgressReporter:
         return f"\x1b[36m{short_label}\x1b[0m {bar} {percent:3d}%{count}"
 
     def _bar_width(self, label: str, completed: int | None, total: int | None) -> int:
-        try:
-            columns = shutil.get_terminal_size(fallback=(80, 24)).columns
-        except OSError:
-            columns = 80
+        columns = _terminal_columns()
         count_width = (
             len(f" {completed}/{total}")
             if completed is not None and total is not None
@@ -251,3 +280,158 @@ class SingleLineProgressReporter:
         if label is not None:
             return label, True
         return compact, False
+
+
+class SingleLineStatusSpinner:
+    """Render an honest single-line spinner for indeterminate status work."""
+
+    _clear_line = "\r\x1b[2K"
+    _frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+    def __init__(
+        self,
+        stream: Any,
+        *,
+        title: str,
+        details: tuple[str, ...],
+        clock: Clock = time.monotonic,
+        render_interval: float = 0.25,
+        autostart_thread: bool = True,
+    ) -> None:
+        self._stream = stream
+        self._title = " ".join(title.split())
+        self._details = tuple(" ".join(detail.split()) for detail in details if detail)
+        self._clock = clock
+        self._render_interval = render_interval
+        self._autostart_thread = autostart_thread
+        self._active = False
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._start_at: float | None = None
+        self._frame_index = 0
+        self._last_line_width = 0
+        self._lock = threading.Lock()
+
+    def __enter__(self) -> SingleLineStatusSpinner:
+        self.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.finish()
+
+    def start(self) -> None:
+        """Start rendering the status line."""
+
+        with self._lock:
+            if self._active:
+                return
+            self._active = True
+            self._stop_event.clear()
+            self._start_at = self._clock()
+            self._render_locked()
+            if self._autostart_thread:
+                self._thread = threading.Thread(
+                    target=self._run,
+                    name="recollectium-cli-status-spinner",
+                    daemon=True,
+                )
+                self._thread.start()
+
+    def finish(self) -> None:
+        """Stop rendering and clear the dynamic line."""
+
+        self._stop_event.set()
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=max(self._render_interval * 2, 0.1))
+        with self._lock:
+            self._thread = None
+            if self._active and self._write(self._clear_line):
+                self._last_line_width = 0
+            self._active = False
+
+    def tick(self) -> None:
+        """Render one spinner frame, primarily for deterministic tests."""
+
+        with self._lock:
+            if not self._active:
+                return
+            self._render_locked()
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._render_interval):
+            self.tick()
+
+    def _render_locked(self) -> None:
+        line = self._format_line()
+        line_width = _visible_width(line)
+        padding = " " * max(self._last_line_width - line_width, 0)
+        if self._write(f"\r{line}{padding}"):
+            self._last_line_width = line_width
+            self._frame_index += 1
+
+    def _format_line(self) -> str:
+        frame = self._frames[self._frame_index % len(self._frames)]
+        elapsed = self._elapsed_seconds()
+        detail = self._current_detail(elapsed)
+        return self._fit_line(frame, self._title, elapsed, detail)
+
+    def _fit_line(self, frame: str, title: str, elapsed: int, detail: str) -> str:
+        columns = _terminal_columns()
+        frame_prefix = f"{frame} "
+        elapsed_text = f" — {elapsed}s"
+        detail_separator = " — "
+
+        minimum_status_width = len(frame_prefix) + len(elapsed_text) + 1
+        if columns < minimum_status_width:
+            visible = _truncate_visible(f"{frame_prefix}{title}", columns)
+            return f"\x1b[36m{visible}\x1b[0m"
+
+        available = columns - len(frame_prefix) - len(elapsed_text)
+        compact_title = " ".join(title.split())
+        compact_detail = " ".join(detail.split())
+
+        if (
+            len(compact_title) + len(detail_separator) + len(compact_detail)
+            <= available
+        ):
+            rendered_title = compact_title
+            rendered_detail = compact_detail
+        elif len(compact_title) + len(detail_separator) + 1 <= available:
+            detail_width = available - len(compact_title) - len(detail_separator)
+            rendered_title = compact_title
+            rendered_detail = _truncate_visible(compact_detail, detail_width)
+        elif available >= len(detail_separator) + 2:
+            detail_width = max(1, min(len(compact_detail), available // 3))
+            title_width = available - len(detail_separator) - detail_width
+            rendered_title = _truncate_visible(compact_title, title_width)
+            rendered_detail = _truncate_visible(compact_detail, detail_width)
+        else:
+            rendered_title = _truncate_visible(compact_title, available)
+            rendered_detail = ""
+
+        colored_status = f"\x1b[36m{frame_prefix}{rendered_title}\x1b[0m{elapsed_text}"
+        if rendered_detail:
+            return f"{colored_status}{detail_separator}{rendered_detail}"
+        return colored_status
+
+    def _elapsed_seconds(self) -> int:
+        start_at = self._start_at
+        if start_at is None:
+            return 0
+        return max(0, int(self._clock() - start_at))
+
+    def _current_detail(self, elapsed: int) -> str:
+        if not self._details:
+            return "working"
+        detail_index = max(self._frame_index, elapsed) % len(self._details)
+        return self._details[detail_index]
+
+    def _write(self, text: str) -> bool:
+        try:
+            self._stream.write(text)
+            self._stream.flush()
+        except (OSError, ValueError):
+            self._active = False
+            return False
+        return True

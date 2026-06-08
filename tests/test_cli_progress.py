@@ -2,16 +2,27 @@ from __future__ import annotations
 
 import io
 import os
+import re
+from collections.abc import Callable
 
 import pytest
 
 from recollectium import cli_progress
-from recollectium.cli_progress import SingleLineProgressReporter
+from recollectium.cli_progress import (
+    SingleLineProgressReporter,
+    SingleLineStatusSpinner,
+)
 
 
 LABELS = {
     "Very long curated label that should stay whole": "Curated long label",
 }
+
+ANSI_SEQUENCE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def visible_text(text: str) -> str:
+    return ANSI_SEQUENCE.sub("", text)
 
 
 class OSErrorStream(io.StringIO):
@@ -524,3 +535,284 @@ def test_single_line_progress_uses_fallback_limit_when_terminal_size_errors(
         progress.phase("Unknown label that should compact")
 
     assert "Unknown lab…" in stream.getvalue()
+
+
+def test_single_line_status_spinner_is_indeterminate_alive_and_clears() -> None:
+    current_time = 100.0
+
+    def clock() -> float:
+        return current_time
+
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model demo — verifying cached model",
+        details=("checking local cache", "using model cache"),
+        clock=clock,
+        autostart_thread=False,
+    )
+
+    with spinner:
+        current_time = 101.2
+        spinner.tick()
+
+    output = stream.getvalue()
+    assert "demo" in output
+    assert "verifying cached model" in output
+    assert "checking local cache" in output
+    assert "using model cache" in output
+    assert "1s" in output
+    assert "%" not in output
+    assert "━" not in output
+    assert output.endswith("\r\x1b[2K")
+
+
+def test_single_line_status_spinner_narrow_terminal_truncates_to_one_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cli_progress.shutil,
+        "get_terminal_size",
+        lambda fallback: os.terminal_size((30, 24)),
+    )
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title=(
+            "Preparing embedding model sentence-transformers/"
+            "all-MiniLM-L6-v2 — downloading model files if needed"
+        ),
+        details=("this can take a minute the first time from a slow network",),
+        autostart_thread=False,
+    )
+
+    with spinner:
+        spinner.tick()
+
+    output = stream.getvalue()
+    rendered_frames = [
+        frame for frame in output.split("\r") if frame and frame != "\x1b[2K"
+    ]
+
+    assert rendered_frames
+    assert "\n" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert all(len(visible_text(frame).rstrip()) <= 30 for frame in rendered_frames)
+    assert any("…" in frame for frame in rendered_frames)
+
+
+def test_single_line_status_spinner_preserves_title_then_truncates_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cli_progress.shutil,
+        "get_terminal_size",
+        lambda fallback: os.terminal_size((28, 24)),
+    )
+    spinner = SingleLineStatusSpinner(
+        io.StringIO(),
+        title="Short title",
+        details=("long detail text",),
+        autostart_thread=False,
+    )
+
+    line = visible_text(spinner._format_line())
+
+    assert len(line) == 28
+    assert "Short title" in line
+    assert line.endswith("long d…")
+
+
+def test_single_line_status_spinner_tiny_terminal_omits_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cli_progress.shutil,
+        "get_terminal_size",
+        lambda fallback: os.terminal_size((8, 24)),
+    )
+    spinner = SingleLineStatusSpinner(
+        io.StringIO(),
+        title="Title",
+        details=("detail",),
+        autostart_thread=False,
+    )
+
+    line = visible_text(spinner._format_line())
+
+    assert line == "⠋ … — 0s"
+
+
+def test_single_line_status_spinner_too_narrow_for_elapsed_truncates_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cli_progress.shutil,
+        "get_terminal_size",
+        lambda fallback: os.terminal_size((1, 24)),
+    )
+    spinner = SingleLineStatusSpinner(
+        io.StringIO(),
+        title="Title",
+        details=("detail",),
+        autostart_thread=False,
+    )
+
+    line = visible_text(spinner._format_line())
+
+    assert line == "…"
+
+
+def test_status_spinner_truncation_helpers_handle_edge_widths() -> None:
+    assert cli_progress._truncate_visible("already compact", 20) == "already compact"
+    assert cli_progress._truncate_visible("too long", 1) == "…"
+    assert cli_progress._truncate_visible("too long", 0) == ""
+
+
+def test_single_line_status_spinner_uses_working_detail_when_empty() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="  Preparing   model  ",
+        details=(),
+        autostart_thread=False,
+    )
+
+    with spinner:
+        pass
+
+    assert "Preparing model" in stream.getvalue()
+    assert "working" in stream.getvalue()
+
+
+def test_single_line_status_spinner_ignores_ticks_after_finish() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        autostart_thread=False,
+    )
+
+    with spinner:
+        pass
+    output = stream.getvalue()
+    spinner.tick()
+
+    assert stream.getvalue() == output
+
+
+def test_single_line_status_spinner_disables_on_stream_error() -> None:
+    stream = OSErrorStream()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        autostart_thread=False,
+    )
+
+    spinner.start()
+    spinner.tick()
+    spinner.finish()
+
+    assert stream.write_calls == 1
+
+
+def test_single_line_status_spinner_start_is_idempotent() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        autostart_thread=False,
+    )
+
+    spinner.start()
+    spinner.start()
+    spinner.finish()
+
+    assert stream.getvalue().count("Preparing model") == 1
+
+
+def test_single_line_status_spinner_elapsed_is_zero_before_start() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        autostart_thread=False,
+    )
+
+    assert "0s" in spinner._format_line()
+
+
+def test_single_line_status_spinner_background_thread_ticks_deterministically(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeEvent:
+        def __init__(self) -> None:
+            self.wait_calls: list[float] = []
+            self.set_calls = 0
+
+        def clear(self) -> None:
+            self.wait_calls.clear()
+
+        def set(self) -> None:
+            self.set_calls += 1
+
+        def wait(self, timeout: float) -> bool:
+            self.wait_calls.append(timeout)
+            return len(self.wait_calls) >= 3
+
+    class FakeThread:
+        def __init__(
+            self,
+            *,
+            target: Callable[[], None],
+            name: str,
+            daemon: bool,
+        ) -> None:
+            self._target = target
+            self.name = name
+            self.daemon = daemon
+            self.join_timeout: float | None = None
+
+        def start(self) -> None:
+            pass
+
+        def run(self) -> None:
+            self._target()
+
+        def join(self, timeout: float | None = None) -> None:
+            self.join_timeout = timeout
+
+    fake_event = FakeEvent()
+    thread_holder: dict[str, FakeThread] = {}
+
+    def build_thread(
+        *,
+        target: Callable[[], None],
+        name: str,
+        daemon: bool,
+    ) -> FakeThread:
+        thread = FakeThread(target=target, name=name, daemon=daemon)
+        thread_holder["thread"] = thread
+        return thread
+
+    monkeypatch.setattr(cli_progress.threading, "Event", lambda: fake_event)
+    monkeypatch.setattr(cli_progress.threading, "Thread", build_thread)
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        render_interval=0.01,
+    )
+
+    with spinner:
+        thread_holder["thread"].run()
+
+    assert stream.getvalue().count("Preparing model") == 3
+    assert fake_event.wait_calls == [0.01, 0.01, 0.01]
+    assert fake_event.set_calls == 1
+    assert thread_holder["thread"].join_timeout == 0.1
