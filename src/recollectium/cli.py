@@ -862,34 +862,26 @@ class _ModelReadinessProgressReporter:
         self._ensure_started()
 
     def _title(self) -> str:
-        if self._cached_model_artifact is True:
-            action = "verifying cached model"
-        elif self._cached_model_artifact is False:
-            action = "downloading model files if needed"
-        else:
-            action = "checking model readiness"
-        subject = (
-            f"Preparing embedding model {self._model_name}"
-            if self._model_name
-            else "Preparing embedding model"
-        )
-        return f"{subject} — {action}"
+        if self._model_name:
+            return f"Preparing model {self._model_name}"
+        return "Preparing embedding model"
 
     def _details(self) -> tuple[str, ...]:
         if self._cached_model_artifact is True:
             return (
+                "verifying cached model",
                 "checking local cache",
                 "using Recollectium model cache",
-                "verifying cached model files",
             )
         if self._cached_model_artifact is False:
             return (
-                "checking local cache",
                 "downloading model files if needed",
+                "checking local cache",
                 "this can take a minute the first time",
                 "using Recollectium model cache",
             )
         return (
+            "checking model readiness",
             "checking local cache",
             "downloading model files if needed",
             "this can take a minute the first time",

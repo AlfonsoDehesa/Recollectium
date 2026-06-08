@@ -1117,7 +1117,6 @@ def test_model_readiness_progress_reporter_uses_spinner_status_for_tty() -> None
     assert output.endswith("\r\x1b[2K")
     assert "BAAI/bge-base-en-v1.5" in output
     assert "verifying cached model" in output
-    assert "checking local cache" in output
     assert "%" not in output
     assert "━" not in output
 

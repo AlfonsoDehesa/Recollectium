@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import threading
@@ -16,6 +17,36 @@ except ImportError:  # pragma: no cover - exercised by monkeypatch on POSIX CI
 
 
 Clock = Callable[[], float]
+
+_ANSI_SEQUENCE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _visible_width(text: str) -> int:
+    """Return terminal-visible width for the narrow glyphs used here."""
+
+    return len(_ANSI_SEQUENCE.sub("", text))
+
+
+def _terminal_columns() -> int:
+    """Return the current terminal width, falling back to a common default."""
+
+    try:
+        return max(1, shutil.get_terminal_size(fallback=(80, 24)).columns)
+    except OSError:
+        return 80
+
+
+def _truncate_visible(text: str, width: int) -> str:
+    """Compact whitespace and truncate text to a visible width."""
+
+    compact = " ".join(text.split())
+    if width <= 0:
+        return ""
+    if len(compact) <= width:
+        return compact
+    if width == 1:
+        return "…"
+    return compact[: width - 1].rstrip() + "…"
 
 
 def _termios_error_types() -> tuple[type[BaseException], ...]:
@@ -234,10 +265,7 @@ class SingleLineProgressReporter:
         return f"\x1b[36m{short_label}\x1b[0m {bar} {percent:3d}%{count}"
 
     def _bar_width(self, label: str, completed: int | None, total: int | None) -> int:
-        try:
-            columns = shutil.get_terminal_size(fallback=(80, 24)).columns
-        except OSError:
-            columns = 80
+        columns = _terminal_columns()
         count_width = (
             len(f" {completed}/{total}")
             if completed is not None and total is not None
@@ -336,16 +364,56 @@ class SingleLineStatusSpinner:
 
     def _render_locked(self) -> None:
         line = self._format_line()
-        padding = " " * max(self._last_line_width - len(line), 0)
+        line_width = _visible_width(line)
+        padding = " " * max(self._last_line_width - line_width, 0)
         if self._write(f"\r{line}{padding}"):
-            self._last_line_width = len(line)
+            self._last_line_width = line_width
             self._frame_index += 1
 
     def _format_line(self) -> str:
         frame = self._frames[self._frame_index % len(self._frames)]
         elapsed = self._elapsed_seconds()
         detail = self._current_detail(elapsed)
-        return f"\x1b[36m{frame} {self._title}\x1b[0m — {elapsed}s — {detail}"
+        return self._fit_line(frame, self._title, elapsed, detail)
+
+    def _fit_line(self, frame: str, title: str, elapsed: int, detail: str) -> str:
+        columns = _terminal_columns()
+        frame_prefix = f"{frame} "
+        elapsed_text = f" — {elapsed}s"
+        detail_separator = " — "
+
+        minimum_status_width = len(frame_prefix) + len(elapsed_text) + 1
+        if columns < minimum_status_width:
+            visible = _truncate_visible(f"{frame_prefix}{title}", columns)
+            return f"\x1b[36m{visible}\x1b[0m"
+
+        available = columns - len(frame_prefix) - len(elapsed_text)
+        compact_title = " ".join(title.split())
+        compact_detail = " ".join(detail.split())
+
+        if (
+            len(compact_title) + len(detail_separator) + len(compact_detail)
+            <= available
+        ):
+            rendered_title = compact_title
+            rendered_detail = compact_detail
+        elif len(compact_title) + len(detail_separator) + 1 <= available:
+            detail_width = available - len(compact_title) - len(detail_separator)
+            rendered_title = compact_title
+            rendered_detail = _truncate_visible(compact_detail, detail_width)
+        elif available >= len(detail_separator) + 2:
+            detail_width = max(1, min(len(compact_detail), available // 3))
+            title_width = available - len(detail_separator) - detail_width
+            rendered_title = _truncate_visible(compact_title, title_width)
+            rendered_detail = _truncate_visible(compact_detail, detail_width)
+        else:
+            rendered_title = _truncate_visible(compact_title, available)
+            rendered_detail = ""
+
+        colored_status = f"\x1b[36m{frame_prefix}{rendered_title}\x1b[0m{elapsed_text}"
+        if rendered_detail:
+            return f"{colored_status}{detail_separator}{rendered_detail}"
+        return colored_status
 
     def _elapsed_seconds(self) -> int:
         start_at = self._start_at
