@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import io
 import os
+import time
 
 import pytest
 
 from recollectium import cli_progress
-from recollectium.cli_progress import SingleLineProgressReporter
+from recollectium.cli_progress import (
+    SingleLineProgressReporter,
+    SingleLineStatusSpinner,
+)
 
 
 LABELS = {
@@ -524,3 +528,128 @@ def test_single_line_progress_uses_fallback_limit_when_terminal_size_errors(
         progress.phase("Unknown label that should compact")
 
     assert "Unknown lab…" in stream.getvalue()
+
+
+def test_single_line_status_spinner_is_indeterminate_alive_and_clears() -> None:
+    current_time = 100.0
+
+    def clock() -> float:
+        return current_time
+
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing embedding model BAAI/bge-base-en-v1.5 — verifying cached model",
+        details=("checking local cache", "using Recollectium model cache"),
+        clock=clock,
+        autostart_thread=False,
+    )
+
+    with spinner:
+        current_time = 101.2
+        spinner.tick()
+
+    output = stream.getvalue()
+    assert "BAAI/bge-base-en-v1.5" in output
+    assert "verifying cached model" in output
+    assert "checking local cache" in output
+    assert "using Recollectium model cache" in output
+    assert "1s" in output
+    assert "%" not in output
+    assert "━" not in output
+    assert output.endswith("\r\x1b[2K")
+
+
+def test_single_line_status_spinner_uses_working_detail_when_empty() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="  Preparing   model  ",
+        details=(),
+        autostart_thread=False,
+    )
+
+    with spinner:
+        pass
+
+    assert "Preparing model" in stream.getvalue()
+    assert "working" in stream.getvalue()
+
+
+def test_single_line_status_spinner_ignores_ticks_after_finish() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        autostart_thread=False,
+    )
+
+    with spinner:
+        pass
+    output = stream.getvalue()
+    spinner.tick()
+
+    assert stream.getvalue() == output
+
+
+def test_single_line_status_spinner_disables_on_stream_error() -> None:
+    stream = OSErrorStream()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        autostart_thread=False,
+    )
+
+    spinner.start()
+    spinner.tick()
+    spinner.finish()
+
+    assert stream.write_calls == 1
+
+
+def test_single_line_status_spinner_start_is_idempotent() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        autostart_thread=False,
+    )
+
+    spinner.start()
+    spinner.start()
+    spinner.finish()
+
+    assert stream.getvalue().count("Preparing model") == 1
+
+
+def test_single_line_status_spinner_elapsed_is_zero_before_start() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        autostart_thread=False,
+    )
+
+    assert "0s" in spinner._format_line()
+
+
+def test_single_line_status_spinner_background_thread_ticks() -> None:
+    stream = io.StringIO()
+    spinner = SingleLineStatusSpinner(
+        stream,
+        title="Preparing model",
+        details=("checking local cache",),
+        render_interval=0.01,
+    )
+
+    with spinner:
+        for _ in range(20):
+            if stream.getvalue().count("Preparing model") > 1:
+                break
+            time.sleep(0.01)
+
+    assert stream.getvalue().count("Preparing model") > 1

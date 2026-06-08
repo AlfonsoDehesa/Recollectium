@@ -20,7 +20,7 @@ import tempfile
 import time
 from io import StringIO
 from pathlib import Path
-from typing import Any, NoReturn, Sequence, cast
+from typing import Any, Iterator, NoReturn, Sequence, cast
 
 from rich.console import Console
 from rich.text import Text
@@ -59,7 +59,10 @@ from recollectium.config import (
     unset_config_value,
     validate_config_file,
 )
-from recollectium.cli_progress import SingleLineProgressReporter
+from recollectium.cli_progress import (
+    SingleLineProgressReporter,
+    SingleLineStatusSpinner,
+)
 from recollectium.dev_eval import (
     ExactMRRReport,
     RankedSetNDCGReport,
@@ -761,10 +764,6 @@ _REEMBEDDING_PROGRESS_LABELS = {
     "Re-embedding memories": "Re-embedding",
 }
 
-_MODEL_READINESS_PROGRESS_LABELS = {
-    "Preparing embedding model": "Preparing model",
-}
-
 _THRESHOLD_OPTIMIZATION_PROGRESS_LABELS = {
     "Checking embedding provider readiness": "Checking provider",
     "Preparing seeded development database": "Preparing dev DB",
@@ -824,14 +823,21 @@ def _human_reembedding_progress_reporter(
 
 
 class _ModelReadinessProgressReporter:
-    """Render model readiness preparation using the shared single-line UX."""
+    """Render model readiness as an indeterminate, honest status spinner."""
 
-    def __init__(self, stream: Any) -> None:
-        title_limit = _live_progress_title_limit(stream)
-        self._progress = SingleLineProgressReporter(
+    def __init__(
+        self,
+        stream: Any,
+        *,
+        model_name: str | None,
+        cached_model_artifact: bool | None,
+    ) -> None:
+        self._model_name = model_name
+        self._cached_model_artifact = cached_model_artifact
+        self._spinner = SingleLineStatusSpinner(
             stream,
-            labels=_MODEL_READINESS_PROGRESS_LABELS,
-            title_limit=12 if title_limit is None else title_limit,
+            title=self._title(),
+            details=self._details(),
         )
         self._started = False
 
@@ -843,22 +849,58 @@ class _ModelReadinessProgressReporter:
         self.finish()
 
     def finish(self) -> None:
-        self._progress.finish()
+        self._spinner.finish()
 
     def _ensure_started(self) -> None:
         if self._started:
             return
-        self._progress.__enter__()
+        self._spinner.__enter__()
         self._started = True
 
     def __call__(self, event: dict[str, Any]) -> None:
+        _ = event
         self._ensure_started()
-        label = str(event.get("phase") or "Preparing embedding model")
-        self._progress.phase(label)
+
+    def _title(self) -> str:
+        if self._cached_model_artifact is True:
+            action = "verifying cached model"
+        elif self._cached_model_artifact is False:
+            action = "downloading model files if needed"
+        else:
+            action = "checking model readiness"
+        subject = (
+            f"Preparing embedding model {self._model_name}"
+            if self._model_name
+            else "Preparing embedding model"
+        )
+        return f"{subject} — {action}"
+
+    def _details(self) -> tuple[str, ...]:
+        if self._cached_model_artifact is True:
+            return (
+                "checking local cache",
+                "using Recollectium model cache",
+                "verifying cached model files",
+            )
+        if self._cached_model_artifact is False:
+            return (
+                "checking local cache",
+                "downloading model files if needed",
+                "this can take a minute the first time",
+                "using Recollectium model cache",
+            )
+        return (
+            "checking local cache",
+            "downloading model files if needed",
+            "this can take a minute the first time",
+        )
 
 
 def _human_model_readiness_progress_reporter(
     output_format: str,
+    *,
+    model_name: str | None = None,
+    cached_model_artifact: bool | None = None,
 ) -> _ModelReadinessProgressReporter | None:
     if output_format != CLI_OUTPUT_HUMAN_READABLE:
         return None
@@ -867,21 +909,53 @@ def _human_model_readiness_progress_reporter(
             return None
     except (OSError, ValueError):
         return None
-    return _ModelReadinessProgressReporter(sys.stderr)
+    return _ModelReadinessProgressReporter(
+        sys.stderr,
+        model_name=model_name,
+        cached_model_artifact=cached_model_artifact,
+    )
+
+
+def _model_readiness_context(provider: object) -> tuple[str | None, bool | None]:
+    model_name_value = getattr(provider, "model_name", None)
+    model_name = model_name_value if isinstance(model_name_value, str) else None
+    has_cached_model_artifact = getattr(provider, "has_cached_model_artifact", None)
+    if not callable(has_cached_model_artifact):
+        return model_name, None
+    try:
+        cached_model_artifact = bool(has_cached_model_artifact())
+    except (OSError, ValueError):
+        cached_model_artifact = None
+    return model_name, cached_model_artifact
+
+
+@contextlib.contextmanager
+def _suppress_cli_readiness_provider_output() -> Iterator[None]:
+    with open(os.devnull, "w", encoding="utf-8") as devnull:
+        with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+            yield
 
 
 def _ensure_cli_model_ready(core: RecollectiumCore, *, output_format: str) -> None:
     ensure_ready = core._ensure_model_ready
-    progress_reporter = _human_model_readiness_progress_reporter(output_format)
+    model_name, cached_model_artifact = _model_readiness_context(
+        getattr(core, "embedding_provider", None)
+    )
+    progress_reporter = _human_model_readiness_progress_reporter(
+        output_format,
+        model_name=model_name,
+        cached_model_artifact=cached_model_artifact,
+    )
     if progress_reporter is None:
         if _callable_accepts_cli_readiness_keyword(
             ensure_ready, "suppress_provider_output"
         ):
             ensure_ready(suppress_provider_output=True)
         else:
-            ensure_ready()
+            with _suppress_cli_readiness_provider_output():
+                ensure_ready()
         return
-    with progress_reporter:
+    with progress_reporter, _suppress_cli_readiness_provider_output():
         if _callable_accepts_cli_readiness_keyword(ensure_ready, "progress_callback"):
             kwargs: dict[str, object] = {"progress_callback": progress_reporter}
             if _callable_accepts_cli_readiness_keyword(
@@ -911,14 +985,16 @@ def _ensure_cli_provider_ready(
 
 
 def _ensure_cli_custom_provider_ready(provider: object, *, output_format: str) -> None:
-    progress_reporter = _human_model_readiness_progress_reporter(output_format)
+    model_name, cached_model_artifact = _model_readiness_context(provider)
+    progress_reporter = _human_model_readiness_progress_reporter(
+        output_format,
+        model_name=model_name,
+        cached_model_artifact=cached_model_artifact,
+    )
     with contextlib.ExitStack() as stack:
         if progress_reporter is not None:
             stack.enter_context(progress_reporter)
-        else:
-            devnull = stack.enter_context(open(os.devnull, "w", encoding="utf-8"))
-            stack.enter_context(contextlib.redirect_stdout(devnull))
-            stack.enter_context(contextlib.redirect_stderr(devnull))
+        stack.enter_context(_suppress_cli_readiness_provider_output())
         provider_ready = getattr(provider, "ensure_ready", None)
         if callable(provider_ready):
             provider_ready()

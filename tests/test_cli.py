@@ -1091,27 +1091,84 @@ def test_human_model_readiness_progress_reporter_returns_reporter_for_tty(
     monkeypatch.setattr(cli_module.sys, "stderr", stream)
 
     reporter = cli_module._human_model_readiness_progress_reporter(
-        cli_module.CLI_OUTPUT_HUMAN_READABLE
+        cli_module.CLI_OUTPUT_HUMAN_READABLE,
+        model_name="BAAI/bge-base-en-v1.5",
+        cached_model_artifact=True,
     )
 
     assert isinstance(reporter, cli_module._ModelReadinessProgressReporter)
 
 
-def test_model_readiness_progress_reporter_uses_single_line_for_tty() -> None:
+def test_model_readiness_progress_reporter_uses_spinner_status_for_tty() -> None:
     stream = io.StringIO()
     stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
-    reporter = cli_module._ModelReadinessProgressReporter(stream)
+    reporter = cli_module._ModelReadinessProgressReporter(
+        stream,
+        model_name="BAAI/bge-base-en-v1.5",
+        cached_model_artifact=True,
+    )
 
     with reporter:
         reporter({"phase": "Preparing model"})
-        reporter({"phase": "Checking model cache"})
 
     output = stream.getvalue()
     assert "\n" not in output
     assert "Status:" not in output
     assert output.endswith("\r\x1b[2K")
-    assert "Preparing" in output
-    assert "Checking" in output
+    assert "BAAI/bge-base-en-v1.5" in output
+    assert "verifying cached model" in output
+    assert "checking local cache" in output
+    assert "%" not in output
+    assert "━" not in output
+
+
+def test_model_readiness_progress_reporter_mentions_download_when_cache_missing() -> (
+    None
+):
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    reporter = cli_module._ModelReadinessProgressReporter(
+        stream,
+        model_name="BAAI/bge-base-en-v1.5",
+        cached_model_artifact=False,
+    )
+
+    with reporter:
+        pass
+
+    output = stream.getvalue()
+    assert "BAAI/bge-base-en-v1.5" in output
+    assert "downloading model files if needed" in output
+
+
+def test_model_readiness_progress_reporter_handles_unknown_cache_state() -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    reporter = cli_module._ModelReadinessProgressReporter(
+        stream,
+        model_name=None,
+        cached_model_artifact=None,
+    )
+
+    with reporter:
+        pass
+
+    output = stream.getvalue()
+    assert "Preparing embedding model" in output
+    assert "checking model readiness" in output
+
+
+def test_model_readiness_context_treats_cache_artifact_errors_as_unknown() -> None:
+    class Provider:
+        model_name = "BAAI/bge-base-en-v1.5"
+
+        def has_cached_model_artifact(self) -> bool:
+            raise OSError("cache unavailable")
+
+    assert cli_module._model_readiness_context(Provider()) == (
+        "BAAI/bge-base-en-v1.5",
+        None,
+    )
 
 
 def test_reembedding_progress_reporter_handles_isatty_errors() -> None:
@@ -10061,6 +10118,13 @@ def test_ensure_cli_model_ready_passes_progress_callback_and_suppresses_provider
 ) -> None:
     calls: list[dict[str, object]] = []
     reporter = DummyModelReadinessProgressReporter()
+    provider_contexts: list[dict[str, object]] = []
+
+    class Provider:
+        model_name = "BAAI/bge-base-en-v1.5"
+
+        def has_cached_model_artifact(self) -> bool:
+            return True
 
     def ensure_ready(
         *, progress_callback: object, suppress_provider_output: bool = False
@@ -10072,19 +10136,33 @@ def test_ensure_cli_model_ready_passes_progress_callback_and_suppresses_provider
             }
         )
 
+    def progress_factory(output_format: str, **kwargs: object) -> object:
+        _ = output_format
+        provider_contexts.append(kwargs)
+        return reporter
+
     monkeypatch.setattr(
         cli_module,
         "_human_model_readiness_progress_reporter",
-        lambda output_format: reporter,
+        progress_factory,
     )
 
-    core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)
+    core: Any = SimpleNamespace(
+        _ensure_model_ready=ensure_ready,
+        embedding_provider=Provider(),
+    )
     cli_module._ensure_cli_model_ready(
         core,
         output_format="human",
     )
 
     assert calls == [{"progress_callback": reporter, "suppress_provider_output": True}]
+    assert provider_contexts == [
+        {
+            "model_name": "BAAI/bge-base-en-v1.5",
+            "cached_model_artifact": True,
+        }
+    ]
     assert reporter.entered
     assert reporter.exited
 
@@ -10116,27 +10194,34 @@ def test_ensure_cli_provider_ready_uses_model_state_wrapper_for_builtin(
 
 
 def test_ensure_cli_custom_provider_ready_uses_progress_and_embed_fallback(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture[str]
 ) -> None:
     reporter = DummyModelReadinessProgressReporter()
     calls: list[str] = []
 
     class EmbedOnlyProvider:
+        model_name = "custom-model"
+
         def embed(self, text: str) -> list[float]:
             calls.append(text)
+            print("provider stdout readiness noise")
+            print("provider stderr readiness noise", file=sys.stderr)
             return [1.0]
 
     monkeypatch.setattr(
         cli_module,
         "_human_model_readiness_progress_reporter",
-        lambda output_format: reporter,
+        lambda output_format, **kwargs: reporter,
     )
 
     cli_module._ensure_cli_custom_provider_ready(
         EmbedOnlyProvider(), output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE
     )
+    captured = capsys.readouterr()
 
     assert calls == ["healthcheck"]
+    assert captured.out == ""
+    assert captured.err == ""
     assert reporter.entered
     assert reporter.exited
 
@@ -10153,7 +10238,7 @@ def test_ensure_cli_model_ready_falls_back_when_progress_keyword_unsupported(
     monkeypatch.setattr(
         cli_module,
         "_human_model_readiness_progress_reporter",
-        lambda output_format: reporter,
+        lambda output_format, **kwargs: reporter,
     )
 
     core: Any = SimpleNamespace(_ensure_model_ready=ensure_ready)

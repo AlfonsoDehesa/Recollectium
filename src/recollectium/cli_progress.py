@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+import threading
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -251,3 +252,118 @@ class SingleLineProgressReporter:
         if label is not None:
             return label, True
         return compact, False
+
+
+class SingleLineStatusSpinner:
+    """Render an honest single-line spinner for indeterminate status work."""
+
+    _clear_line = "\r\x1b[2K"
+    _frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+    def __init__(
+        self,
+        stream: Any,
+        *,
+        title: str,
+        details: tuple[str, ...],
+        clock: Clock = time.monotonic,
+        render_interval: float = 0.25,
+        autostart_thread: bool = True,
+    ) -> None:
+        self._stream = stream
+        self._title = " ".join(title.split())
+        self._details = tuple(" ".join(detail.split()) for detail in details if detail)
+        self._clock = clock
+        self._render_interval = render_interval
+        self._autostart_thread = autostart_thread
+        self._active = False
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._start_at: float | None = None
+        self._frame_index = 0
+        self._last_line_width = 0
+        self._lock = threading.Lock()
+
+    def __enter__(self) -> SingleLineStatusSpinner:
+        self.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.finish()
+
+    def start(self) -> None:
+        """Start rendering the status line."""
+
+        with self._lock:
+            if self._active:
+                return
+            self._active = True
+            self._stop_event.clear()
+            self._start_at = self._clock()
+            self._render_locked()
+            if self._autostart_thread:
+                self._thread = threading.Thread(
+                    target=self._run,
+                    name="recollectium-cli-status-spinner",
+                    daemon=True,
+                )
+                self._thread.start()
+
+    def finish(self) -> None:
+        """Stop rendering and clear the dynamic line."""
+
+        self._stop_event.set()
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=max(self._render_interval * 2, 0.1))
+        with self._lock:
+            self._thread = None
+            if self._active and self._write(self._clear_line):
+                self._last_line_width = 0
+            self._active = False
+
+    def tick(self) -> None:
+        """Render one spinner frame, primarily for deterministic tests."""
+
+        with self._lock:
+            if not self._active:
+                return
+            self._render_locked()
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._render_interval):
+            self.tick()
+
+    def _render_locked(self) -> None:
+        line = self._format_line()
+        padding = " " * max(self._last_line_width - len(line), 0)
+        if self._write(f"\r{line}{padding}"):
+            self._last_line_width = len(line)
+            self._frame_index += 1
+
+    def _format_line(self) -> str:
+        frame = self._frames[self._frame_index % len(self._frames)]
+        elapsed = self._elapsed_seconds()
+        detail = self._current_detail(elapsed)
+        return f"\x1b[36m{frame} {self._title}\x1b[0m — {elapsed}s — {detail}"
+
+    def _elapsed_seconds(self) -> int:
+        start_at = self._start_at
+        if start_at is None:
+            return 0
+        return max(0, int(self._clock() - start_at))
+
+    def _current_detail(self, elapsed: int) -> str:
+        if not self._details:
+            return "working"
+        detail_index = max(self._frame_index, elapsed) % len(self._details)
+        return self._details[detail_index]
+
+    def _write(self, text: str) -> bool:
+        try:
+            self._stream.write(text)
+            self._stream.flush()
+        except (OSError, ValueError):
+            self._active = False
+            return False
+        return True
