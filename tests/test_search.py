@@ -79,27 +79,62 @@ def test_provider_cache_artifact_detection_handles_expected_cache_shapes(
 
     artifact = (
         cache_root
-        / "models--BAAI--bge-base-en-v1.5"
+        / "models--qdrant--bge-base-en-v1.5-onnx-q"
         / "snapshots"
         / "snapshot-id"
-        / "model.onnx"
+        / "model_optimized.onnx"
     )
     artifact.parent.mkdir(parents=True)
     artifact.write_bytes(b"artifact")
     assert provider.has_cached_model_artifact()
 
 
-def test_provider_cache_artifact_detection_handles_single_part_models(
+def test_provider_cache_artifact_detection_handles_bge_gcs_cache_layout(
     tmp_path: Path,
 ) -> None:
-    provider = cast(BuiltinFastEmbedProvider, object.__new__(BuiltinFastEmbedProvider))
-    provider.cache_dir = str(tmp_path)
-    provider.model_name = "local-model"
-    artifact = tmp_path / "local-model" / "model.onnx"
-    artifact.parent.mkdir()
+    provider = BuiltinFastEmbedProvider(cache_dir=tmp_path)
+    artifact = tmp_path / "fast-bge-base-en-v1.5" / "model_optimized.onnx"
+    artifact.parent.mkdir(parents=True)
     artifact.write_bytes(b"artifact")
 
     assert provider.has_cached_model_artifact()
+
+
+def test_provider_cache_artifact_detection_handles_jina_hf_cache_layout(
+    tmp_path: Path,
+) -> None:
+    provider = BuiltinFastEmbedProvider(
+        "jinaai/jina-embeddings-v2-small-en", cache_dir=tmp_path
+    )
+    artifact = (
+        tmp_path
+        / "models--xenova--jina-embeddings-v2-small-en"
+        / "snapshots"
+        / "snapshot-id"
+        / "onnx"
+        / "model.onnx"
+    )
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"artifact")
+
+    assert provider.has_cached_model_artifact()
+
+
+def test_provider_cache_artifact_detection_ignores_metadata_only_cache(
+    tmp_path: Path,
+) -> None:
+    provider = BuiltinFastEmbedProvider(cache_dir=tmp_path)
+    cache_root = tmp_path / "models--qdrant--bge-base-en-v1.5-onnx-q"
+    refs = cache_root / "refs"
+    snapshot = cache_root / "snapshots" / "snapshot-id"
+    refs.mkdir(parents=True)
+    snapshot.mkdir(parents=True)
+    (refs / "main").write_text("snapshot-id", encoding="utf-8")
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (snapshot / "model.onnx").write_bytes(b"wrong payload name")
+
+    assert not provider.has_cached_model_artifact()
 
 
 def test_model_artifact_file_detection_ignores_incomplete_and_stat_errors(
@@ -113,6 +148,8 @@ def test_model_artifact_file_detection_ignores_incomplete_and_stat_errors(
 
     assert not _cache_tree_has_model_artifact(incomplete)
     assert not _cache_tree_has_model_artifact(missing)
+    assert not _is_model_artifact_file(incomplete)
+    assert not _is_model_artifact_file(missing)
 
     original_stat = Path.stat
 

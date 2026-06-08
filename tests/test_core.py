@@ -128,10 +128,10 @@ def _write_matching_model_state(core: RecollectiumCore, state_dir: Path) -> None
 def _write_fake_fastembed_cache_artifact(cache_root: Path) -> None:
     artifact = (
         cache_root
-        / "models--BAAI--bge-base-en-v1.5"
+        / "models--qdrant--bge-base-en-v1.5-onnx-q"
         / "snapshots"
         / "test-snapshot"
-        / "model.onnx"
+        / "model_optimized.onnx"
     )
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_bytes(b"fake model artifact")

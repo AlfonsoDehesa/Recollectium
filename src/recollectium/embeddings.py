@@ -72,6 +72,12 @@ class ContentChunk:
 
 
 @dataclass(frozen=True, slots=True)
+class FastEmbedCacheLayout:
+    root: tuple[str, ...]
+    payload: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FastEmbedModelSpec:
     model_name: str
     dimensions: int
@@ -79,6 +85,7 @@ class FastEmbedModelSpec:
     max_tokens: int
     chunk_tokens: int
     chunk_overlap_tokens: int
+    cache_layouts: tuple[FastEmbedCacheLayout, ...]
     query_prompt_policy: str = "raw"
     recommended_match_threshold: float | None = None
 
@@ -94,6 +101,16 @@ BUILTIN_FASTEMBED_MODEL_SPECS: dict[str, FastEmbedModelSpec] = {
         max_tokens=512,
         chunk_tokens=384,
         chunk_overlap_tokens=64,
+        cache_layouts=(
+            FastEmbedCacheLayout(
+                root=("models--qdrant--bge-base-en-v1.5-onnx-q",),
+                payload=("model_optimized.onnx",),
+            ),
+            FastEmbedCacheLayout(
+                root=("fast-bge-base-en-v1.5",),
+                payload=("model_optimized.onnx",),
+            ),
+        ),
     ),
     JINA_SMALL_EN_MODEL: FastEmbedModelSpec(
         model_name=JINA_SMALL_EN_MODEL,
@@ -102,6 +119,12 @@ BUILTIN_FASTEMBED_MODEL_SPECS: dict[str, FastEmbedModelSpec] = {
         max_tokens=8192,
         chunk_tokens=6144,
         chunk_overlap_tokens=512,
+        cache_layouts=(
+            FastEmbedCacheLayout(
+                root=("models--xenova--jina-embeddings-v2-small-en",),
+                payload=("onnx", "model.onnx"),
+            ),
+        ),
     ),
 }
 DEFAULT_BUILTIN_FASTEMBED_MODEL = BGE_BASE_EN_V15_MODEL
@@ -188,6 +211,7 @@ class BuiltinFastEmbedProvider:
         self.max_tokens = spec.max_tokens
         self.chunk_tokens = spec.chunk_tokens
         self.chunk_overlap_tokens = spec.chunk_overlap_tokens
+        self._cache_layouts = spec.cache_layouts
         self.query_prompt_policy = spec.query_prompt_policy
         self.cache_dir = str(cache_dir) if cache_dir is not None else None
         self._embedder: Any | None = None
@@ -214,21 +238,9 @@ class BuiltinFastEmbedProvider:
         if not cache_root.is_dir():
             return False
 
-        model_parts = [part for part in self.model_name.split("/") if part]
-        candidate_roots = [cache_root / self.model_name]
-        if len(model_parts) >= 2:
-            namespace, name = model_parts[0], model_parts[-1]
-            candidate_roots.extend(
-                [
-                    cache_root / namespace / name,
-                    cache_root / f"models--{namespace}--{name}",
-                ]
-            )
-        elif model_parts:
-            candidate_roots.append(cache_root / model_parts[0])
-
-        for candidate in candidate_roots:
-            if _cache_tree_has_model_artifact(candidate):
+        for layout in self._cache_layouts:
+            candidate = cache_root.joinpath(*layout.root)
+            if _cache_tree_has_model_artifact(candidate, layout.payload):
                 return True
         return False
 
@@ -382,12 +394,25 @@ class BuiltinFastEmbedProvider:
         return [value / norm for value in vector]
 
 
-def _cache_tree_has_model_artifact(path: Path) -> bool:
+def _cache_tree_has_model_artifact(
+    path: Path, expected_relative_path: tuple[str, ...] = ("model.onnx",)
+) -> bool:
+    expected_name = expected_relative_path[-1]
     if path.is_file():
-        return _is_model_artifact_file(path)
+        return path.name == expected_name and _is_model_artifact_file(path)
     if not path.is_dir():
         return False
-    return any(_is_model_artifact_file(candidate) for candidate in path.rglob("*"))
+    return any(
+        _has_relative_path_suffix(candidate, expected_relative_path)
+        and _is_model_artifact_file(candidate)
+        for candidate in path.rglob(expected_name)
+    )
+
+
+def _has_relative_path_suffix(
+    path: Path, expected_relative_path: tuple[str, ...]
+) -> bool:
+    return path.parts[-len(expected_relative_path) :] == expected_relative_path
 
 
 def _is_model_artifact_file(path: Path) -> bool:
