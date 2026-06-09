@@ -8914,6 +8914,217 @@ def test_cli_upgrade_check_prints_non_mutating_plan(capsys, monkeypatch) -> None
     assert payload["latest_version"] == "9.9.9"
     assert payload["command"] == ["uv", "tool", "upgrade", "recollectium"]
     assert payload["services_to_restart"] == []
+    assert payload["package_action"] == "would_update"
+    assert payload["tracking_action"] == "would_update_metadata"
+
+
+def test_cli_upgrade_compact_human_outputs_sentence(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo, TrackingTarget
+
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata(
+            "uv_tool",
+            "main",
+            None,
+            None,
+            tracking_target=TrackingTarget("main", "main", ref="main"),
+        ),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("1.0.0", "v1.0.0", None),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "RecollectiumConfig",
+        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "upgrade", "--check", "--version", "latest"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    _assert_human_framed(stdout)
+    assert (
+        stdout.strip()
+        == "Recollectium would switch from main to the latest release: v1.0.0."
+    )
+    assert "Target kind" not in stdout
+
+
+def test_cli_upgrade_verbose_human_keeps_detailed_fields(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, MainRefInfo, TrackingTarget
+
+    commit = "f1d0acc" + "0" * 33
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata(
+            "uv_tool",
+            commit,
+            None,
+            None,
+            tracking_target=TrackingTarget("main", "main", ref="main"),
+            last_resolved_commit=commit,
+        ),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "resolve_main_ref",
+        lambda **kw: MainRefInfo(remote_commit=commit),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "RecollectiumConfig",
+        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--verbose", "upgrade", "--check"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    _assert_human_framed(stdout)
+    assert "Upgrade" in stdout
+    assert "Package action: none" in stdout
+    assert "Tracking action: none" in stdout
+    assert "Recollectium main is already up to date" not in stdout
+
+
+def test_cli_upgrade_main_compact_human_noop_sentence(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, MainRefInfo, TrackingTarget
+
+    commit = "f1d0acc" + "0" * 33
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata(
+            "uv_tool",
+            commit,
+            None,
+            None,
+            tracking_target=TrackingTarget("main", "main", ref="main"),
+            last_resolved_commit=commit,
+        ),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "resolve_main_ref",
+        lambda **kw: MainRefInfo(remote_commit=commit),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "RecollectiumConfig",
+        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "upgrade", "--check"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert stdout.strip() == "Recollectium main is already up to date: f1d0acc."
+
+
+def test_upgrade_compact_sentence_variants_cover_targets() -> None:
+    import recollectium.cli as cli_mod
+
+    assert (
+        cli_mod._format_upgrade_sentence(
+            {
+                "status": "up_to_date",
+                "target_kind": "latest_release",
+                "target_ref": "v1.0.0",
+            }
+        ).strip()
+        == "Recollectium is already on the latest version: v1.0.0."
+    )
+    assert (
+        cli_mod._format_upgrade_sentence(
+            {"status": "up_to_date", "target_kind": "release", "target_ref": "v1.0.0"}
+        ).strip()
+        == "Recollectium is already on version v1.0.0: v1.0.0."
+    )
+    assert (
+        cli_mod._format_upgrade_sentence(
+            {"status": "dry_run", "target_kind": "release", "target_ref": "v1.0.0"}
+        ).strip()
+        == "Recollectium would update to version v1.0.0: v1.0.0."
+    )
+    assert (
+        cli_mod._format_upgrade_sentence(
+            {
+                "status": "updated",
+                "target_kind": "latest_release",
+                "target_ref": "v1.0.0",
+            }
+        ).strip()
+        == "Recollectium was updated to the latest version: v1.0.0."
+    )
+    assert (
+        cli_mod._format_upgrade_sentence(
+            {
+                "status": "updated",
+                "target_kind": "main",
+                "target_commit": "abcdef012345",
+            }
+        ).strip()
+        == "Recollectium was updated to main: abcdef0."
+    )
+    assert (
+        cli_mod._format_upgrade_sentence(
+            {
+                "status": "updated",
+                "target_kind": "custom_ref",
+                "target_selector": "feature-x",
+            }
+        ).strip()
+        == "Recollectium was updated to feature-x."
+    )
+    assert (
+        cli_mod._format_upgrade_sentence(
+            {
+                "status": "updated",
+                "target_kind": "release",
+                "target_ref": "v1.0.0",
+                "target_source": "cli",
+                "previous_target_kind": "latest_release",
+            }
+        ).strip()
+        == "Recollectium switched from the latest release to version v1.0.0: v1.0.0."
+    )
+    assert (
+        cli_mod._format_upgrade_sentence(
+            {
+                "status": "updated",
+                "target_kind": "release",
+                "target_ref": "v1.0.0",
+                "target_source": "cli",
+                "previous_target_kind": "release",
+                "previous_target_selector": "v0.9.0",
+            }
+        ).strip()
+        == "Recollectium switched from version v0.9.0 to version v1.0.0: v1.0.0."
+    )
 
 
 def test_cli_upgrade_applies_and_reports_service_restart_failure(

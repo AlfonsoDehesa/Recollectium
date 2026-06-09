@@ -28,6 +28,18 @@ InstallMethod = Literal["bootstrap", "pip", "pipx", "uv_tool", "source", "unknow
 TargetKind = Literal["latest_release", "release", "main", "custom_ref", "unknown"]
 TargetSource = Literal["cli", "metadata", "default"]
 CommandSpec = list[str] | list[list[str]]
+PackageAction = Literal[
+    "none",
+    "update",
+    "reinstall",
+    "would_update",
+    "would_reinstall",
+]
+TrackingAction = Literal[
+    "none",
+    "update_metadata",
+    "would_update_metadata",
+]
 UpdateStatus = Literal[
     "up_to_date",
     "update_available",
@@ -112,6 +124,11 @@ class UpdatePlan:
     metadata_update: dict[str, object] | None = None
     current_commit: str | None = None
     target_commit: str | None = None
+    package_action: PackageAction = "none"
+    tracking_action: TrackingAction = "none"
+    previous_target_kind: TargetKind | None = None
+    previous_target_selector: str | None = None
+    previous_target_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -488,6 +505,7 @@ def build_update_plan(
     if target is None:
         target, target_source = select_tracking_target(metadata, repo=repo)
     selected_target = target
+    previous_target = metadata.tracking_target
 
     repo = selected_target.repo or repo
     common = {
@@ -519,7 +537,11 @@ def build_update_plan(
         will_update_metadata: bool = False,
         current_commit: str | None = None,
         target_commit: str | None = None,
+        package_action: PackageAction = "none",
+        tracking_action: TrackingAction | None = None,
     ) -> UpdatePlan:
+        if tracking_action is None:
+            tracking_action = "update_metadata" if will_update_metadata else "none"
         metadata_update = None
         if will_update_metadata:
             metadata_update = metadata_update_payload(
@@ -551,6 +573,13 @@ def build_update_plan(
             metadata_update=metadata_update,
             current_commit=current_commit,
             target_commit=target_commit,
+            package_action=package_action,
+            tracking_action=tracking_action,
+            previous_target_kind=previous_target.kind if previous_target else None,
+            previous_target_selector=previous_target.selector
+            if previous_target
+            else None,
+            previous_target_ref=previous_target.ref if previous_target else None,
         )
 
     if install_method == "unknown":
@@ -615,7 +644,12 @@ def build_update_plan(
                 reason="main_lookup_failed",
                 target_ref=latest_tag,
             )
-        if remote_commit is not None and current_commit == remote_commit and not force:
+        if (
+            remote_commit is not None
+            and current_commit == remote_commit
+            and not force
+            and target_source != "cli"
+        ):
             return make_plan(
                 "up_to_date",
                 latest_version=latest_version,
@@ -625,7 +659,7 @@ def build_update_plan(
                 current_commit=current_commit,
                 target_commit=remote_commit,
             )
-    if selected_target.kind == "release" and not force:
+    if selected_target.kind == "release" and not force and target_source != "cli":
         installed_on_pin = metadata.source_ref == latest_tag and _versions_equal(
             current_version, latest_version
         )
@@ -655,6 +689,7 @@ def build_update_plan(
         selected_target.kind == "latest_release"
         and latest_version is not None
         and not force
+        and target_source != "cli"
     ):
         try:
             if Version(latest_version) <= Version(_public_version(current_version)):
@@ -676,6 +711,7 @@ def build_update_plan(
         selected_target.kind == "custom_ref"
         and metadata.source_ref == latest_tag
         and not force
+        and target_source != "cli"
     ):
         return make_plan(
             "up_to_date",
@@ -719,6 +755,12 @@ def build_update_plan(
             _installed_main_commit(metadata) if selected_target.kind == "main" else None
         )
     )
+    is_reinstall = force or target_source == "cli"
+    package_action: PackageAction
+    if dry_run:
+        package_action = "would_reinstall" if is_reinstall else "would_update"
+    else:
+        package_action = "reinstall" if is_reinstall else "update"
     return make_plan(
         plan_status,
         latest_version=latest_version,
@@ -737,6 +779,8 @@ def build_update_plan(
         will_update_metadata=not dry_run,
         current_commit=current_commit,
         target_commit=target_commit,
+        package_action=package_action,
+        tracking_action="would_update_metadata" if dry_run else "update_metadata",
     )
 
 
@@ -882,6 +926,11 @@ def plan_to_dict(plan: UpdatePlan) -> dict[str, object]:
         "metadata_update": plan.metadata_update,
         "current_commit": plan.current_commit,
         "target_commit": plan.target_commit,
+        "package_action": plan.package_action,
+        "tracking_action": plan.tracking_action,
+        "previous_target_kind": plan.previous_target_kind,
+        "previous_target_selector": plan.previous_target_selector,
+        "previous_target_ref": plan.previous_target_ref,
     }
 
 
