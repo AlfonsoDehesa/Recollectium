@@ -298,7 +298,13 @@ def project_init(
         "status": payload.get("status", "initialized"),
         **_compact_dict(
             payload,
-            ("config_path", "database_path", "model_status", "embedding_model"),
+            (
+                "config_path",
+                "database_path",
+                "model_status",
+                "embedding_model",
+                "already_initialized",
+            ),
         ),
     }
     if "config_path" not in compact and payload.get("config") is not None:

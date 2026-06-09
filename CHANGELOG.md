@@ -25,6 +25,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 ### 🐛 Fixes
 
 - Fixed compact response parity for workspace operations, embedding job counts, config JSON mutations, and lifecycle command JSON so adapters receive consistent token-efficient payloads across CLI, API, and MCP.
+- Tightened compact human init and config UX with one-sentence success/no-op messages, config validation output, skipped config mutations, and init stale-embedding refresh coverage.
 - Re-embedding now runs inline for the triggering CLI command, API request, or MCP tool call so large refreshes finish durably instead of being stranded in a process-local background daemon queue.
 - Fixed bootstrap install metadata on macOS so `recollectium upgrade` reads installs from the same state directory the installer writes.
 - Fixed `main`-tracking bootstrap installs to record the installed commit SHA so immediate `recollectium upgrade` no-ops when remote `main` has not moved.
