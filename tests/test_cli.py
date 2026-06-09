@@ -6786,6 +6786,251 @@ def test_cli_uninstall_bootstrap_reports_package_removal_without_starting_handof
     assert run_calls[0][1]["check"] is False
 
 
+def test_cli_uninstall_compact_dry_run_preserves_data_sentence(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--dry-run"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stdout == "\nRecollectium would be uninstalled. Data would be preserved.\n\n"
+    assert stderr == ""
+    assert str(tmp_path) not in stdout
+    assert "package" not in stdout
+    assert "shell_completion" not in stdout
+
+
+def test_cli_uninstall_compact_purge_dry_run_deletes_data_sentence(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "uninstall",
+            "--purge",
+            "--yes-delete-all-recollectium-data",
+            "--dry-run",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout == (
+        "\nRecollectium would be uninstalled and all Recollectium data would be deleted.\n\n"
+    )
+    assert stderr == ""
+
+
+def test_cli_uninstall_verbose_dry_run_keeps_detailed_plan(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--verbose", "uninstall", "--dry-run"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    _assert_human_framed(stdout)
+    assert "Uninstall" in stdout
+    assert "Package:" in stdout
+    assert "Shell completion:" in stdout
+    assert "Paths:" in stdout
+    assert str(tmp_path) in stdout
+
+
+def test_cli_uninstall_compact_flag_overrides_verbose_config(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({**DEFAULTS, "response_verbosity": "verbose"}),
+        encoding="utf-8",
+    )
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--compact", "uninstall", "--dry-run"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stdout == "\nRecollectium would be uninstalled. Data would be preserved.\n\n"
+    assert stderr == ""
+
+
+def test_cli_uninstall_compact_mutating_success_reports_progress_and_sentence(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys, json_by_default=False)
+
+    assert exit_code == 0
+    assert stdout == "\nUninstalled. Data preserved.\n\n"
+    assert stderr == "Uninstall in progress...\n"
+
+
+def test_cli_uninstall_compact_purge_mutating_success_reports_deleted_data(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    data_dir = tmp_path / "data" / "recollectium"
+    cache_dir = tmp_path / "cache" / "recollectium"
+    logs_dir = tmp_path / "state" / "recollectium" / "logs"
+    runtime_dir = tmp_path / "runtime" / "recollectium"
+    for directory in (config_path.parent, data_dir, cache_dir, logs_dir, runtime_dir):
+        directory.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--purge", "--yes-delete-all-recollectium-data"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout == "\nUninstalled. All Recollectium data was deleted.\n\n"
+    assert stderr == "Uninstall in progress...\n"
+    assert str(tmp_path) not in stderr
+
+
+def test_cli_uninstall_compact_manual_removal_is_concise(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "source", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--dry-run"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stdout == (
+        "\nRecollectium could not uninstall itself from this install method. "
+        "Manual removal is required.\n\n"
+    )
+    assert stderr == ""
+
+
+def test_cli_uninstall_verbose_manual_removal_keeps_hint(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "source", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--verbose", "uninstall", "--dry-run"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Remove the source checkout from your shell PATH" in stdout
+    assert "Package:" in stdout
+
+
+def test_cli_uninstall_json_stays_structured_without_progress(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--compact", "uninstall", "--dry-run"], capsys
+    )
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload["status"] == "dry_run"
+    assert payload["package"]["uninstall"]["status"] == "dry_run"
+    assert payload["data"]["paths"]["config"]
+
+
+def test_cli_uninstall_compact_formatter_handles_status_only_manual_result() -> None:
+    from recollectium.cli import _format_uninstall_sentence
+
+    assert _format_uninstall_sentence({"status": "package_removal_unsupported"}) == (
+        "Recollectium could not uninstall itself from this install method. "
+        "Manual removal is required.\n"
+    )
+
+
+def test_cli_uninstall_compact_formatter_handles_incomplete_result() -> None:
+    from recollectium.cli import _format_uninstall_sentence
+
+    assert _format_uninstall_sentence({"status": "package_removal_failed"}) == (
+        "Uninstall did not complete. See details and errors above.\n"
+    )
+
+
 def test_cli_uninstall_dry_run_does_not_start_bootstrap_package_removal(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
