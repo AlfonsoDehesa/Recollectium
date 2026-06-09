@@ -25,6 +25,68 @@ function Write-Guidance {
     }
 }
 
+function Test-InstallerVerbose {
+    return ($env:RECOLLECTIUM_INSTALL_VERBOSE -match '^(1|true|yes)$')
+}
+
+function Clear-InstallerProgress {
+    if (-not [Console]::IsOutputRedirected) {
+        Write-Host "`r$(' ' * 100)`r" -NoNewline
+    }
+}
+
+function Invoke-NativeInstallerPhase {
+    param(
+        [string]$Status,
+        [string]$FailureMessage,
+        [string]$FilePath,
+        [string[]]$ArgumentList
+    )
+
+    if (Test-InstallerVerbose) {
+        Write-Host $Status
+        & $FilePath @ArgumentList
+        if ($LASTEXITCODE -ne 0) { throw $FailureMessage }
+        return
+    }
+
+    $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid())
+    $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid())
+    try {
+        $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru -WindowStyle Hidden
+        if (-not [Console]::IsOutputRedirected) {
+            $frames = @('|', '/', '-', '\')
+            $index = 0
+            while (-not $process.HasExited) {
+                Write-Host ("`r{0} {1}" -f $frames[$index % $frames.Count], $Status) -NoNewline
+                $index += 1
+                Start-Sleep -Milliseconds 100
+                $process.Refresh()
+            }
+            Clear-InstallerProgress
+        }
+        else {
+            $process.WaitForExit()
+        }
+
+        if ($process.ExitCode -ne 0) {
+            Clear-InstallerProgress
+            [Console]::Error.WriteLine($FailureMessage)
+            $captured = @()
+            if (Test-Path $stdoutPath) { $captured += Get-Content -Path $stdoutPath -ErrorAction SilentlyContinue }
+            if (Test-Path $stderrPath) { $captured += Get-Content -Path $stderrPath -ErrorAction SilentlyContinue }
+            if ($captured.Count -gt 0) {
+                [Console]::Error.WriteLine("Captured command output:")
+                $captured | ForEach-Object { [Console]::Error.WriteLine($_) }
+            }
+            throw $FailureMessage
+        }
+    }
+    finally {
+        Remove-Item $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
+    }
+}
+
 function Show-Banner {
     if ([Console]::IsOutputRedirected) { return }
 
@@ -274,82 +336,126 @@ function Get-RecollectiumInstallRef {
     }
 }
 
-Show-Banner
+$script:Uv = $null
+$script:Ref = $null
+$script:Package = $null
 
-$uv = Install-Uv
-$ref = Get-RecollectiumInstallRef
-$package = "git+https://github.com/$Repo.git@$ref"
-Write-Host "Installing Recollectium from $ref..."
-& $uv tool install --python 3.12 --force $package
-if ($LASTEXITCODE -ne 0) { throw "failed to install Recollectium package" }
-if (-not (Test-InstalledRecollectium)) { throw "recollectium executable was not installed in uv tool bin directory: $ToolBin" }
-Write-Host "Maintaining embeddings (config, database, model, stale memories)..."
-& $uv tool run --from $package recollectium embedding-maintenance
-if ($LASTEXITCODE -ne 0) { throw "embedding maintenance failed; retry with: recollectium embedding-maintenance" }
-if ($env:Path -notlike "*$ToolBin*") {
-    $env:Path = "$ToolBin;$env:Path"
+function Invoke-InstallUvPhase {
+    $script:Uv = Install-Uv
 }
-if ($env:GITHUB_PATH) {
-    Add-Content -Path $env:GITHUB_PATH -Value $ToolBin
+
+function Resolve-InstallTargetPhase {
+    $script:Ref = Get-RecollectiumInstallRef
+    $script:Package = "git+https://github.com/$Repo.git@$script:Ref"
 }
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if (-not $userPath) { $userPath = "" }
-if ($userPath -notlike "*$ToolBin*") {
-    [Environment]::SetEnvironmentVariable("Path", "$ToolBin;$userPath", "User")
-    $ManagedPathEdits += "User Path: $ToolBin"
+
+function Install-PackagePhase {
+    Invoke-NativeInstallerPhase `
+        -Status "Installing Recollectium from $script:Ref..." `
+        -FailureMessage "failed to install Recollectium package" `
+        -FilePath $script:Uv `
+        -ArgumentList @("tool", "install", "--python", "3.12", "--force", $script:Package)
+    if (-not (Test-InstalledRecollectium)) { throw "recollectium executable was not installed in uv tool bin directory: $ToolBin" }
 }
-$profilePath = $PROFILE.CurrentUserCurrentHost
-$env:RECOLLECTIUM_POWERSHELL_PROFILE = $profilePath
-try {
-    & $uv tool run --from $package recollectium completion --install powershell --yes | Out-Null
-    $ManagedCompletionEdits += [ordered]@{
-        shell = "powershell"
-        path = $profilePath
-        source_command = "recollectium completion --source powershell"
+
+function Invoke-MaintenancePhase {
+    Invoke-NativeInstallerPhase `
+        -Status "Maintaining embeddings (config, database, model, stale memories)..." `
+        -FailureMessage "embedding maintenance failed; retry with: recollectium embedding-maintenance" `
+        -FilePath $script:Uv `
+        -ArgumentList @("tool", "run", "--from", $script:Package, "recollectium", "embedding-maintenance")
+}
+
+function Configure-PathAndCompletionPhase {
+    if ($env:Path -notlike "*$ToolBin*") {
+        $env:Path = "$ToolBin;$env:Path"
     }
-    Write-Host "PowerShell completion configured in $profilePath."
+    if ($env:GITHUB_PATH) {
+        Add-Content -Path $env:GITHUB_PATH -Value $ToolBin
+    }
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if (-not $userPath) { $userPath = "" }
+    if ($userPath -notlike "*$ToolBin*") {
+        [Environment]::SetEnvironmentVariable("Path", "$ToolBin;$userPath", "User")
+        $script:ManagedPathEdits += "User Path: $ToolBin"
+    }
+
+    $profilePath = $PROFILE.CurrentUserCurrentHost
+    $env:RECOLLECTIUM_POWERSHELL_PROFILE = $profilePath
+    try {
+        Invoke-NativeInstallerPhase `
+            -Status "Configuring PowerShell completion..." `
+            -FailureMessage "failed to configure PowerShell completion" `
+            -FilePath $script:Uv `
+            -ArgumentList @("tool", "run", "--from", $script:Package, "recollectium", "completion", "--install", "powershell", "--yes")
+        $script:ManagedCompletionEdits += [ordered]@{
+            shell = "powershell"
+            path = $profilePath
+            source_command = "recollectium completion --source powershell"
+        }
+        Write-Host "PowerShell completion configured in $profilePath."
+    }
+    finally {
+        Remove-Item Env:RECOLLECTIUM_POWERSHELL_PROFILE -ErrorAction SilentlyContinue
+    }
 }
-finally {
-    Remove-Item Env:RECOLLECTIUM_POWERSHELL_PROFILE -ErrorAction SilentlyContinue
+
+function Write-InstallMetadataPhase {
+    $stateDir = Join-Path $env:LOCALAPPDATA "recollectium"
+    New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+    $metadataPath = Join-Path $stateDir "install.json"
+    $resolvedRefKind = if ($script:TrackingKind -eq "latest_release") { "release" } else { $script:TrackingKind }
+    $trackingTarget = [ordered]@{
+        kind = $script:TrackingKind
+        selector = $script:TrackingSelector
+        repo = $Repo
+    }
+    if ($script:TrackingVersion) {
+        $trackingTarget.version = $script:TrackingVersion
+        $trackingTarget.ref = $script:Ref
+    }
+    elseif ($script:TrackingKind -eq "main") {
+        $trackingTarget.ref = $script:TrackingSelector
+    }
+    elseif ($script:TrackingKind -ne "latest_release") {
+        $trackingTarget.ref = $script:Ref
+    }
+    $resolved = [ordered]@{
+        ref = $(if ($script:TrackingKind -eq "main") { $script:TrackingSelector } else { $script:Ref })
+        resolved_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    }
+    if ($script:TrackingVersion) { $resolved.version = $script:TrackingVersion }
+    if ($script:ResolvedCommit) { $resolved.commit = $script:ResolvedCommit }
+    $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $metadata = [ordered]@{
+        metadata_version = 2
+        install_method = "bootstrap"
+        source_ref = $script:Ref
+        source_ref_kind = $resolvedRefKind
+        source_repo = $Repo
+        installed_at = $now
+        updated_at = $now
+        tracking_target = $trackingTarget
+        last_resolved = $resolved
+        managed_path_edits = $ManagedPathEdits
+        managed_completion_edits = $ManagedCompletionEdits
+    }
+    $metadata | ConvertTo-Json | Set-Content -Path $metadataPath -Encoding utf8
 }
-$stateDir = Join-Path $env:LOCALAPPDATA "recollectium"
-New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
-$metadataPath = Join-Path $stateDir "install.json"
-$resolvedRefKind = if ($script:TrackingKind -eq "latest_release") { "release" } else { $script:TrackingKind }
-$trackingTarget = [ordered]@{
-    kind = $script:TrackingKind
-    selector = $script:TrackingSelector
-    repo = $Repo
+
+function Write-FinalGuidancePhase {
+    Write-FinalGuidance
 }
-if ($script:TrackingVersion) {
-    $trackingTarget.version = $script:TrackingVersion
-    $trackingTarget.ref = $ref
+
+function Main {
+    Show-Banner
+    Invoke-InstallUvPhase
+    Resolve-InstallTargetPhase
+    Install-PackagePhase
+    Invoke-MaintenancePhase
+    Configure-PathAndCompletionPhase
+    Write-InstallMetadataPhase
+    Write-FinalGuidancePhase
 }
-elseif ($script:TrackingKind -eq "main") {
-    $trackingTarget.ref = $script:TrackingSelector
-}
-elseif ($script:TrackingKind -ne "latest_release") {
-    $trackingTarget.ref = $ref
-}
-$resolved = [ordered]@{
-    ref = $(if ($script:TrackingKind -eq "main") { $script:TrackingSelector } else { $ref })
-    resolved_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-}
-if ($script:TrackingVersion) { $resolved.version = $script:TrackingVersion }
-if ($script:ResolvedCommit) { $resolved.commit = $script:ResolvedCommit }
-$now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$metadata = [ordered]@{
-    metadata_version = 2
-    install_method = "bootstrap"
-    source_ref = $ref
-    source_ref_kind = $resolvedRefKind
-    source_repo = $Repo
-    installed_at = $now
-    updated_at = $now
-    tracking_target = $trackingTarget
-    last_resolved = $resolved
-    managed_path_edits = $ManagedPathEdits
-    managed_completion_edits = $ManagedCompletionEdits
-}
-$metadata | ConvertTo-Json | Set-Content -Path $metadataPath -Encoding utf8
-Write-FinalGuidance
+
+Main
