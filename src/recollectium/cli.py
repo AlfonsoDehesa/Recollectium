@@ -558,6 +558,50 @@ def _format_upgrade_sentence(payload: dict[str, Any], *, color: bool = False) ->
     return _style(sentence, _RICH_SUCCESS, enabled=color) + "\n"
 
 
+def _uninstall_data_state_sentence(payload: dict[str, Any], *, dry_run: bool) -> str:
+    data = payload.get("data")
+    data_payload = data if isinstance(data, dict) else {}
+    data_preserved = bool(data_payload.get("preserved", True))
+    if data_preserved:
+        return "Data would be preserved." if dry_run else "Data preserved."
+    if dry_run:
+        return "All Recollectium data would be deleted."
+    return "All Recollectium data was deleted."
+
+
+def _format_uninstall_sentence(payload: dict[str, Any], *, color: bool = False) -> str:
+    package = payload.get("package")
+    package_payload = package if isinstance(package, dict) else {}
+    uninstall = package_payload.get("uninstall")
+    uninstall_payload = uninstall if isinstance(uninstall, dict) else {}
+    status = payload.get("status")
+    package_status = uninstall_payload.get("status")
+    data_sentence = _uninstall_data_state_sentence(payload, dry_run=status == "dry_run")
+
+    if package_status == "unsupported" or (
+        status == "dry_run" and "command" not in uninstall_payload
+    ):
+        return (
+            "Recollectium could not uninstall itself from this install method. "
+            f"Manual removal is required. {data_sentence}\n"
+        )
+
+    if status == "dry_run":
+        return f"Recollectium would be uninstalled. {data_sentence}\n"
+
+    if status in {"uninstalled", "uninstalled_with_warnings"}:
+        sentence = f"Uninstalled. {data_sentence}"
+        return _style(sentence, _RICH_SUCCESS, enabled=color) + "\n"
+
+    if status == "package_removal_unsupported":
+        return (
+            "Recollectium could not uninstall itself from this install method. "
+            f"Manual removal is required. {data_sentence}\n"
+        )
+
+    return f"Uninstall did not complete. {data_sentence} Rerun with --verbose for details.\n"
+
+
 def _format_human_output(
     payload: Any,
     *,
@@ -669,6 +713,9 @@ def _format_human_output(
 
     if command == "upgrade" and verbosity == RESPONSE_VERBOSITY_COMPACT:
         return _format_upgrade_sentence(payload, color=color)
+
+    if command == "uninstall" and verbosity == RESPONSE_VERBOSITY_COMPACT:
+        return _format_uninstall_sentence(payload, color=color)
 
     if command == "init":
         lines = [_style("Recollectium initialized", _RICH_HEADING, enabled=color)]
@@ -3346,6 +3393,7 @@ def _remove_installed_package(
     metadata: dict[str, Any] | None,
     *,
     dry_run: bool,
+    emit_progress: bool = False,
 ) -> dict[str, Any]:
     metadata = _metadata_with_detected_install_method(metadata)
     payload = _uninstall_package_instructions(metadata)
@@ -3368,6 +3416,10 @@ def _remove_installed_package(
             "hint": payload["recommended"],
         }
         return payload
+
+    if emit_progress:
+        sys.stderr.write("Uninstall in progress...\n")
+        sys.stderr.flush()
 
     if sys.platform.startswith("win"):
         try:
@@ -3670,7 +3722,14 @@ def _handle_uninstall_command(
 
     plan = _load_uninstall_plan(config_path, explicit=explicit)
     metadata = _load_install_metadata(plan.install_metadata_path)
-
+    compact_human_output = (
+        output_format == CLI_OUTPUT_HUMAN_READABLE
+        and _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_COMPACT
+    )
+    verbose_human_output = (
+        output_format == CLI_OUTPUT_HUMAN_READABLE
+        and _CURRENT_RESPONSE_VERBOSITY != RESPONSE_VERBOSITY_COMPACT
+    )
     purge_preview: dict[str, Any] | None = None
     if args.purge and not args.dry_run:
         purge_preview = _purge_targets(plan, dry_run=True)
@@ -3727,21 +3786,26 @@ def _handle_uninstall_command(
         if args.dry_run:
             data_payload["purge"] = _purge_targets(plan, dry_run=True)
         else:
-            sys.stderr.write(
-                "The following Recollectium-owned paths will be permanently deleted:\n"
-            )
-            assert purge_preview is not None
-            for target in purge_preview["targets"]:
-                if target.get("reason") != "dry_run":
-                    continue
-                sys.stderr.write(f"  {target['path']}\n")
-            sys.stderr.write("\n")
+            if verbose_human_output:
+                sys.stderr.write(
+                    "The following Recollectium-owned paths will be permanently deleted:\n"
+                )
+                assert purge_preview is not None
+                for target in purge_preview["targets"]:
+                    if target.get("reason") != "dry_run":
+                        continue
+                    sys.stderr.write(f"  {target['path']}\n")
+                sys.stderr.write("\n")
 
             logging.shutdown()
             _clear_managed_logging_handlers()
             data_payload["purge"] = _purge_targets(plan, dry_run=False)
 
-    package_payload = _remove_installed_package(metadata, dry_run=args.dry_run)
+    package_payload = _remove_installed_package(
+        metadata,
+        dry_run=args.dry_run,
+        emit_progress=compact_human_output,
+    )
     package_status = package_payload["uninstall"]["status"]
     if not args.purge:
         try:
