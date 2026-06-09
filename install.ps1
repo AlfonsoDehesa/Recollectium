@@ -71,13 +71,13 @@ function Invoke-NativeInstallerPhase {
 
         if ($process.ExitCode -ne 0) {
             Clear-InstallerProgress
-            Write-Error $FailureMessage
+            [Console]::Error.WriteLine($FailureMessage)
             $captured = @()
             if (Test-Path $stdoutPath) { $captured += Get-Content -Path $stdoutPath -ErrorAction SilentlyContinue }
             if (Test-Path $stderrPath) { $captured += Get-Content -Path $stderrPath -ErrorAction SilentlyContinue }
             if ($captured.Count -gt 0) {
-                Write-Error "Captured command output:"
-                $captured | ForEach-Object { Write-Error $_ }
+                [Console]::Error.WriteLine("Captured command output:")
+                $captured | ForEach-Object { [Console]::Error.WriteLine($_) }
             }
             throw $FailureMessage
         }

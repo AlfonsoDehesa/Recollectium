@@ -18,6 +18,14 @@ def _unix_bootstrap_helpers() -> str:
     return script.split('\nmain "$@"\n', maxsplit=1)[0]
 
 
+def _windows_native_installer_phase() -> str:
+    script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+    return script.split("function Invoke-NativeInstallerPhase {", maxsplit=1)[1].split(
+        "\nfunction Show-Banner",
+        maxsplit=1,
+    )[0]
+
+
 def test_unix_bootstrap_unknown_shell_falls_back_to_bash_completion() -> None:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
 
@@ -213,6 +221,35 @@ def test_bootstrap_installers_support_quiet_progress_and_verbose_opt_in() -> Non
     assert (
         "Maintaining embeddings (config, database, model, stale memories)..."
         in windows_script
+    )
+
+
+def test_windows_native_installer_failure_diagnostics_are_non_terminating() -> None:
+    phase = _windows_native_installer_phase()
+
+    assert "[Console]::Error.WriteLine($FailureMessage)" in phase or (
+        "Write-Error $FailureMessage -ErrorAction Continue" in phase
+    )
+    assert "Write-Error $FailureMessage\n" not in phase
+    assert 'Write-Error "Captured command output:"' not in phase
+    assert "ForEach-Object { Write-Error $_ }" not in phase
+
+
+def test_windows_native_installer_prints_captured_output_before_throwing() -> None:
+    phase = _windows_native_installer_phase()
+    failure_branch = phase.split("if ($process.ExitCode -ne 0) {", maxsplit=1)[1].split(
+        "\n        }",
+        maxsplit=1,
+    )[0]
+
+    assert failure_branch.index("Clear-InstallerProgress") < failure_branch.index(
+        "$FailureMessage"
+    )
+    assert failure_branch.index("Captured command output:") < failure_branch.index(
+        "throw $FailureMessage"
+    )
+    assert failure_branch.index("ForEach-Object") < failure_branch.index(
+        "throw $FailureMessage"
     )
 
 
