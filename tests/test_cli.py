@@ -4450,6 +4450,80 @@ def test_cli_human_formatter_colors_config_command_shapes() -> None:
     ).startswith("\x1b[1;36mConfig reset to defaults:\x1b[0m /tmp/config.json")
 
 
+def test_cli_human_formatter_covers_config_noop_and_verbose_shapes() -> None:
+    assert (
+        _format_human_output(
+            {"status": "skipped", "key": "service.port", "value": 8765},
+            command="config set",
+        )
+        == "Config already has that value. Changes were skipped.\n"
+    )
+    assert (
+        _format_human_output(
+            {"status": "skipped", "key": "service.host"}, command="config unset"
+        )
+        == "Config key is already unset. Changes were skipped.\n"
+    )
+
+    doctor_output = _format_human_output(
+        {"status": "warning", "checks": {"config": "/tmp/config.json"}},
+        command="config doctor",
+    )
+    assert doctor_output.startswith("Config doctor\n")
+    assert "Status: warning" in doctor_output
+    assert "Config: /tmp/config.json" in doctor_output
+
+    init_output = _format_human_output(
+        {"database": "/tmp/recollectium.db", "created": True},
+        command="init",
+        response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
+    )
+    assert init_output.startswith("Recollectium initialized\n")
+    assert "Database: /tmp/recollectium.db" in init_output
+    assert "Created: true" in init_output
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            {"embedding_refresh": {"refreshed": True, "stale_count": 3}},
+            "Recollectium is ready and refreshed 3 stale embeddings.\n",
+        ),
+        (
+            {"embedding_refresh": {"refreshed": True, "stale_count": "many"}},
+            "Recollectium is ready and embeddings were refreshed.\n",
+        ),
+        (
+            {"refreshed": True, "stale_count": 2},
+            "Recollectium is ready and refreshed 2 stale embeddings.\n",
+        ),
+        (
+            {"refreshed": True, "stale_count": "many"},
+            "Recollectium is ready and embeddings were refreshed.\n",
+        ),
+    ],
+)
+def test_cli_human_formatter_init_compact_refresh_messages(
+    payload: dict[str, Any], expected: str
+) -> None:
+    assert _format_human_output(payload, command="init") == expected
+
+
+def test_remove_empty_config_parents_prunes_only_empty_dict_ancestors() -> None:
+    config: dict[str, Any] = {"outer": {"inner": {}}, "keep": "value"}
+    cli_module._remove_empty_config_parents(config, "outer.inner.leaf")
+    assert config == {"keep": "value"}
+
+    config = {"outer": {"inner": {"sibling": True}}}
+    cli_module._remove_empty_config_parents(config, "outer.inner.leaf")
+    assert config == {"outer": {"inner": {"sibling": True}}}
+
+    config = {"outer": "not-a-dict"}
+    cli_module._remove_empty_config_parents(config, "outer.inner.leaf")
+    assert config == {"outer": "not-a-dict"}
+
+
 def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
     tmp_path, monkeypatch
 ) -> None:
@@ -5776,6 +5850,29 @@ class TestConfigCommand:
         assert payload["status"] == "valid"
         assert payload["config"]["service"]["port"] == DEFAULTS["service"]["port"]
 
+    def test_config_validate_json_compact_omits_config_payload(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--json",
+                "--compact",
+                "--config",
+                str(config_path),
+                "config",
+                "--validate",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout) == {"status": "valid"}
+
     def test_config_validate_failure(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
         config_path.parent.mkdir(exist_ok=True)
@@ -5965,6 +6062,24 @@ class TestConfigCommand:
         loaded = json.loads(config_path.read_text())
         assert loaded["service"]["port"] == 9090
         assert isinstance(loaded["service"]["port"], int)
+
+    def test_config_set_allows_new_custom_key(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "set", "custom.foo", "bar"],
+            capsys,
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout) == {
+            "status": "updated",
+            "key": "custom.foo",
+            "value": "bar",
+        }
+        loaded = json.loads(config_path.read_text(encoding="utf-8"))
+        assert loaded["custom"] == {"foo": "bar"}
 
     @pytest.mark.parametrize(
         "model_name",
