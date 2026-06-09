@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 from recollectium.representations import (
+    OPERATION_DEV_EVAL,
+    OPERATION_DEV_OPTIMIZE_THRESHOLD,
     OPERATION_EMBEDDING_JOBS_GET,
+    OPERATION_EMBEDDING_MAINTENANCE,
+    OPERATION_LIFECYCLE_INIT,
+    OPERATION_LIFECYCLE_UNINSTALL,
+    OPERATION_LIFECYCLE_UPGRADE,
+    OPERATION_SERVICE_DISCOVER,
+    OPERATION_SERVICE_LIFECYCLE,
     OPERATION_WORKSPACES_ALIASES_ADD,
     OPERATION_WORKSPACES_ALIASES_LIST,
     OPERATION_WORKSPACES_ALIASES_REMOVE,
@@ -270,4 +278,281 @@ def test_verbose_workspace_projection_returns_original_payload() -> None:
             payload, verbosity="verbose", operation=OPERATION_WORKSPACES_LIST
         )
         is payload
+    )
+
+
+def test_compact_init_projection_keeps_paths_and_refresh_summary() -> None:
+    payload = {
+        "status": "initialized",
+        "config": "/cfg.json",
+        "data": "/data",
+        "cache": "/cache",
+        "logs": "/logs",
+        "runtime": "/runtime",
+        "database": "/db.sqlite",
+        "embedding_model": "fake-model",
+        "embedding_profile": {"provider": "fake", "dimensions": 3},
+        "model_prepared": True,
+        "embedding_refresh": {
+            "refreshed": 2,
+            "stale_count": 0,
+            "job": {"id": "job-1", "state": "completed"},
+            "memory_ids": ["mem-1", "mem-2"],
+        },
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_LIFECYCLE_INIT
+    ) == {
+        "status": "initialized",
+        "config_path": "/cfg.json",
+        "database_path": "/db.sqlite",
+        "embedding_model": "fake-model",
+        "model_status": "ready",
+        "refreshed": 2,
+        "stale_count": 0,
+        "job_id": "job-1",
+    }
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_LIFECYCLE_INIT
+        )
+        is payload
+    )
+
+
+def test_compact_embedding_maintenance_projection_keeps_refresh_summary() -> None:
+    payload = {
+        "status": "embedding_maintenance_completed",
+        "config": "/cfg.json",
+        "database": "/db.sqlite",
+        "embedding_model": "fake-model",
+        "embedding_profile": {"provider": "fake"},
+        "model_prepared": True,
+        "embedding_refresh": {"refreshed": 1, "stale_count": 0},
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_EMBEDDING_MAINTENANCE
+    ) == {
+        "status": "embedding_maintenance_completed",
+        "embedding_model": "fake-model",
+        "model_status": "ready",
+        "refreshed": 1,
+        "stale_count": 0,
+    }
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_EMBEDDING_MAINTENANCE
+        )
+        is payload
+    )
+
+
+def test_compact_upgrade_projection_omits_plan_and_command_internals() -> None:
+    payload = {
+        "status": "updated",
+        "current_version": "0.1.0",
+        "target_ref": "v0.2.0",
+        "install_method": "pip",
+        "command": ["python", "-m", "pip", "install", "pkg"],
+        "metadata_path": "/install.json",
+        "stdout": "lots",
+        "stderr": "",
+        "embedding_maintenance": {
+            "status": "embedding_maintenance_completed",
+            "config": "/cfg.json",
+            "database": "/db.sqlite",
+            "model_prepared": True,
+            "embedding_refresh": {"refreshed": 0, "stale_count": 0},
+        },
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_LIFECYCLE_UPGRADE
+    ) == {
+        "status": "updated",
+        "current_version": "0.1.0",
+        "target_ref": "v0.2.0",
+        "install_method": "pip",
+        "embedding_maintenance": {
+            "status": "embedding_maintenance_completed",
+            "model_status": "ready",
+            "refreshed": 0,
+            "stale_count": 0,
+        },
+    }
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_LIFECYCLE_UPGRADE
+        )
+        is payload
+    )
+
+
+def test_compact_uninstall_projection_summarizes_data_and_package() -> None:
+    payload = {
+        "status": "package_removal_unsupported",
+        "package": {
+            "uninstall": {
+                "status": "unsupported",
+                "install_method": "source",
+                "command": None,
+            }
+        },
+        "service": {"status": "no_service_running"},
+        "shell_completion": {"targets": [{"path": "/rc", "removed": False}]},
+        "data": {
+            "preserved": True,
+            "paths": {"database": "/db.sqlite", "config": "/cfg.json"},
+        },
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_LIFECYCLE_UNINSTALL
+    ) == {
+        "status": "package_removal_unsupported",
+        "data": "preserved",
+        "package": {"status": "unsupported", "install_method": "source"},
+        "manual_hint": "Manual package removal is required.",
+        "service": {"status": "no_service_running"},
+    }
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_LIFECYCLE_UNINSTALL
+        )
+        is payload
+    )
+
+
+def test_compact_dev_eval_projection_keeps_metric_values_only() -> None:
+    payload = {
+        "status": "ok",
+        "database": "/dev.db",
+        "metrics": {
+            "exact_mrr": {"value": 1.0, "targets": 10},
+            "semantic_mrr": {"value": 0.9, "queries": 20},
+            "thematic_weighted_precision_at_10": {"value": 0.8, "groups": 4},
+            "thematic_weighted_recall_at_10": {"value": 0.7, "groups": 4},
+            "ranked_set_ndcg_at_5": {"value": 0.6, "cases": 3},
+        },
+        "diagnostics": {"worst_exact": [{"target_id": "mem-1"}]},
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_DEV_EVAL
+    ) == {
+        "status": "ok",
+        "metrics": {
+            "exact_mrr": {"value": 1.0},
+            "semantic_mrr": {"value": 0.9},
+            "thematic_weighted_precision_at_10": {"value": 0.8},
+            "thematic_weighted_recall_at_10": {"value": 0.7},
+            "ranked_set_ndcg_at_5": {"value": 0.6},
+        },
+    }
+    assert (
+        project_payload(payload, verbosity="verbose", operation=OPERATION_DEV_EVAL)
+        is payload
+    )
+
+
+def test_compact_dev_optimize_projection_omits_sweep_rows() -> None:
+    payload = {
+        "status": "ok",
+        "optimization": {
+            "recommended_threshold": 0.42,
+            "beta": 1.0,
+            "objective": "weighted_f_beta",
+            "rows": [
+                {
+                    "threshold": 0.42,
+                    "weighted_precision": 0.9,
+                    "weighted_recall": 0.8,
+                    "weighted_f_score": 0.85,
+                    "direct_recall": 0.7,
+                    "adjacent_recall": 0.1,
+                    "confuser_exposure": 0.1,
+                    "average_returned_count": 4.2,
+                    "recommended": True,
+                },
+                {"threshold": 0.2, "recommended": False},
+            ],
+        },
+        "artifact": {"format": "png", "path": "/sweep.png"},
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_DEV_OPTIMIZE_THRESHOLD
+    ) == {
+        "status": "ok",
+        "optimization": {
+            "recommended_threshold": 0.42,
+            "beta": 1.0,
+            "objective": "weighted_f_beta",
+        },
+        "recommendation": {
+            "threshold": 0.42,
+            "weighted_precision": 0.9,
+            "weighted_recall": 0.8,
+            "weighted_f_score": 0.85,
+            "direct_recall": 0.7,
+            "adjacent_recall": 0.1,
+            "confuser_exposure": 0.1,
+            "average_returned_count": 4.2,
+        },
+        "artifact": {"format": "png", "path": "/sweep.png"},
+    }
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_DEV_OPTIMIZE_THRESHOLD
+        )
+        is payload
+    )
+
+
+def test_compact_service_projections_keep_connection_contract() -> None:
+    discover_payload = {
+        "status": "running",
+        "running": True,
+        "type": "api",
+        "endpoint": "http://127.0.0.1:8765",
+        "pid": 123,
+        "version_url": "http://127.0.0.1:8765/v1/version",
+        "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
+        "discovery_file": "/runtime/service-discovery.json",
+        "config": "/cfg.json",
+    }
+    lifecycle_payload = {
+        "status": "started",
+        "type": "api",
+        "pid": 123,
+        "endpoint": "http://127.0.0.1:8765",
+        "debug": {"command": ["python", "-m", "recollectium"]},
+    }
+
+    assert project_payload(
+        discover_payload, verbosity="compact", operation=OPERATION_SERVICE_DISCOVER
+    ) == {
+        "status": "running",
+        "running": True,
+        "type": "api",
+        "endpoint": "http://127.0.0.1:8765",
+        "pid": 123,
+        "version_url": "http://127.0.0.1:8765/v1/version",
+        "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
+    }
+    assert project_payload(
+        lifecycle_payload, verbosity="compact", operation=OPERATION_SERVICE_LIFECYCLE
+    ) == {
+        "status": "started",
+        "type": "api",
+        "pid": 123,
+        "endpoint": "http://127.0.0.1:8765",
+    }
+    assert (
+        project_payload(
+            discover_payload, verbosity="verbose", operation=OPERATION_SERVICE_DISCOVER
+        )
+        is discover_payload
     )

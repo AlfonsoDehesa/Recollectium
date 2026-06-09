@@ -109,11 +109,17 @@ from recollectium.service_contract import (
     SERVICE_DEFAULT_PORT,
 )
 from recollectium.representations import (
+    OPERATION_DEV_EVAL,
+    OPERATION_DEV_OPTIMIZE_THRESHOLD,
     OPERATION_EMBEDDING_JOBS_CLEAR,
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_JOBS_LIST,
+    OPERATION_EMBEDDING_MAINTENANCE,
     OPERATION_EMBEDDING_REFRESH,
     OPERATION_EMBEDDING_STATUS,
+    OPERATION_LIFECYCLE_INIT,
+    OPERATION_LIFECYCLE_UNINSTALL,
+    OPERATION_LIFECYCLE_UPGRADE,
     OPERATION_MEMORIES_ADD,
     OPERATION_MEMORIES_ARCHIVE,
     OPERATION_MEMORIES_GET,
@@ -121,6 +127,8 @@ from recollectium.representations import (
     OPERATION_MEMORIES_SEARCH_USER,
     OPERATION_MEMORIES_SEARCH_WORKSPACE,
     OPERATION_MEMORIES_UPDATE,
+    OPERATION_SERVICE_DISCOVER,
+    OPERATION_SERVICE_LIFECYCLE,
     OPERATION_WORKSPACES_ALIASES_ADD,
     OPERATION_WORKSPACES_ALIASES_LIST,
     OPERATION_WORKSPACES_ALIASES_REMOVE,
@@ -776,6 +784,27 @@ def _format_human_output(
 
 
 def _operation_for_command(command: str | None, payload: Any = None) -> str | None:
+    if command == "init":
+        return OPERATION_LIFECYCLE_INIT
+    if command == "embedding-maintenance":
+        return OPERATION_EMBEDDING_MAINTENANCE
+    if command == "upgrade":
+        return OPERATION_LIFECYCLE_UPGRADE
+    if command == "uninstall":
+        return OPERATION_LIFECYCLE_UNINSTALL
+    if command == "dev eval":
+        return OPERATION_DEV_EVAL
+    if command == "dev optimize-threshold":
+        return OPERATION_DEV_OPTIMIZE_THRESHOLD
+    if command == "service discover":
+        return OPERATION_SERVICE_DISCOVER
+    if command in {
+        "service start",
+        "service stop",
+        "service status",
+        "service restart",
+    }:
+        return OPERATION_SERVICE_LIFECYCLE
     if command == "add":
         return OPERATION_MEMORIES_ADD
     if command == "update":

@@ -41,6 +41,14 @@ OPERATION_WORKSPACES_RESOLVE = "workspaces.resolve"
 OPERATION_WORKSPACES_ALIASES_LIST = "workspaces.aliases.list"
 OPERATION_WORKSPACES_ALIASES_ADD = "workspaces.aliases.add"
 OPERATION_WORKSPACES_ALIASES_REMOVE = "workspaces.aliases.remove"
+OPERATION_LIFECYCLE_INIT = "lifecycle.init"
+OPERATION_EMBEDDING_MAINTENANCE = "embedding.maintenance"
+OPERATION_LIFECYCLE_UPGRADE = "lifecycle.upgrade"
+OPERATION_LIFECYCLE_UNINSTALL = "lifecycle.uninstall"
+OPERATION_DEV_EVAL = "dev.eval"
+OPERATION_DEV_OPTIMIZE_THRESHOLD = "dev.optimize_threshold"
+OPERATION_SERVICE_DISCOVER = "service.discover"
+OPERATION_SERVICE_LIFECYCLE = "service.lifecycle"
 
 
 def validate_response_verbosity(
@@ -269,6 +277,277 @@ def project_embedding_refresh(
     return compact
 
 
+def _refresh_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    refresh = payload.get("embedding_refresh")
+    if not isinstance(refresh, dict):
+        refresh = payload
+    compact = _compact_dict(refresh, ("refreshed", "stale_count", "status_path"))
+    job = refresh.get("job")
+    if isinstance(job, dict) and job.get("id") is not None:
+        compact["job_id"] = job["id"]
+    return compact
+
+
+def project_init(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project the CLI init payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    compact = {
+        "status": payload.get("status", "initialized"),
+        **_compact_dict(
+            payload,
+            ("config_path", "database_path", "model_status", "embedding_model"),
+        ),
+    }
+    if "config_path" not in compact and payload.get("config") is not None:
+        compact["config_path"] = payload["config"]
+    if "database_path" not in compact and payload.get("database") is not None:
+        compact["database_path"] = payload["database"]
+    if "model_status" not in compact and payload.get("model_prepared") is not None:
+        compact["model_status"] = (
+            "ready" if payload.get("model_prepared") else "not_ready"
+        )
+    compact.update(_refresh_summary(payload))
+    return {key: value for key, value in compact.items() if value is not None}
+
+
+def project_embedding_maintenance(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project the CLI embedding-maintenance payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    compact = {
+        "status": payload.get("status", "embedding_maintenance_completed"),
+        **_compact_dict(payload, ("model_status", "embedding_model")),
+    }
+    if "model_status" not in compact and payload.get("model_prepared") is not None:
+        compact["model_status"] = (
+            "ready" if payload.get("model_prepared") else "not_ready"
+        )
+    compact.update(_refresh_summary(payload))
+    return {key: value for key, value in compact.items() if value is not None}
+
+
+def project_upgrade(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project the CLI upgrade payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    compact = _compact_dict(
+        payload,
+        (
+            "status",
+            "current_version",
+            "target_version",
+            "target_ref",
+            "latest_tag",
+            "current_commit",
+            "target_commit",
+            "install_method",
+        ),
+    )
+    if payload.get("reason") is not None and payload.get("status") not in {
+        "updated",
+        "up_to_date",
+        "dry_run",
+        "update_available",
+    }:
+        compact["reason"] = payload["reason"]
+    for key in ("returncode", "message", "detail"):
+        if payload.get(key) is not None:
+            compact[key] = payload[key]
+    maintenance = payload.get("embedding_maintenance")
+    if isinstance(maintenance, dict):
+        compact["embedding_maintenance"] = project_embedding_maintenance(
+            maintenance, ResponseVerbosity.COMPACT
+        )
+    if payload.get("services_to_restart"):
+        compact["services_to_restart"] = payload["services_to_restart"]
+    if payload.get("service_restart_errors"):
+        compact["service_restart_errors"] = payload["service_restart_errors"]
+    return compact
+
+
+def _data_outcome(payload: dict[str, Any]) -> str:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return "unknown"
+    dry_run = payload.get("status") in {"dry_run", "dry_run_with_warnings"}
+    if data.get("preserved") is True:
+        return "would_preserve" if dry_run else "preserved"
+    purge = data.get("purge")
+    if isinstance(purge, dict):
+        deleted = purge.get("deleted")
+        if dry_run:
+            return "would_delete"
+        if isinstance(deleted, list) and deleted:
+            return "deleted"
+    return "would_delete" if dry_run else "deleted"
+
+
+def project_uninstall(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project the CLI uninstall payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    compact: dict[str, Any] = {
+        "status": payload.get("status"),
+        "data": _data_outcome(payload),
+    }
+    package = payload.get("package")
+    if isinstance(package, dict):
+        uninstall = package.get("uninstall")
+        if isinstance(uninstall, dict):
+            compact["package"] = _compact_dict(
+                uninstall, ("status", "install_method", "returncode")
+            )
+            if uninstall.get("status") == "unsupported" or uninstall.get("manual_hint"):
+                compact["manual_hint"] = (
+                    uninstall.get("manual_hint")
+                    or uninstall.get("hint")
+                    or "Manual package removal is required."
+                )
+        else:
+            compact["package"] = _compact_dict(package, ("status", "install_method"))
+    service = payload.get("service")
+    if isinstance(service, dict):
+        compact["service"] = _compact_dict(service, ("status", "pid"))
+    elif service is not None:
+        compact["service"] = service
+    return {key: value for key, value in compact.items() if value is not None}
+
+
+def project_dev_eval(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project the CLI dev eval payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        return _compact_dict(payload, ("status",))
+    metric_keys = {
+        "exact_mrr",
+        "semantic_mrr",
+        "thematic_weighted_precision_at_10",
+        "thematic_weighted_recall_at_10",
+        "ranked_set_ndcg_at_5",
+    }
+    return {
+        "status": payload.get("status"),
+        "metrics": {
+            key: _compact_dict(value, ("value",)) if isinstance(value, dict) else value
+            for key, value in metrics.items()
+            if key in metric_keys
+        },
+    }
+
+
+def project_dev_optimize_threshold(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project the CLI dev optimize-threshold payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    compact = _compact_dict(payload, ("status",))
+    optimization = payload.get("optimization")
+    if isinstance(optimization, dict):
+        compact["optimization"] = _compact_dict(
+            optimization,
+            (
+                "recommended_threshold",
+                "beta",
+                "objective",
+                "weighted_precision",
+                "weighted_recall",
+                "weighted_f_beta",
+                "weighted_f_score",
+                "confuser_exposure",
+                "unrelated_exposure",
+                "average_returned_count",
+            ),
+        )
+        recommendation = optimization.get("recommendation")
+        if not isinstance(recommendation, dict):
+            rows = optimization.get("rows")
+            if isinstance(rows, list):
+                recommended_threshold = optimization.get("recommended_threshold")
+                recommendation = next(
+                    (
+                        row
+                        for row in rows
+                        if isinstance(row, dict) and row.get("recommended") is True
+                    ),
+                    None,
+                )
+                if not isinstance(recommendation, dict):
+                    recommendation = next(
+                        (
+                            row
+                            for row in rows
+                            if isinstance(row, dict)
+                            and row.get("threshold") == recommended_threshold
+                        ),
+                        None,
+                    )
+        if isinstance(recommendation, dict):
+            compact["recommendation"] = _compact_dict(
+                recommendation,
+                (
+                    "threshold",
+                    "weighted_precision",
+                    "weighted_recall",
+                    "weighted_f_beta",
+                    "weighted_f_score",
+                    "direct_recall",
+                    "adjacent_recall",
+                    "confuser_exposure",
+                    "unrelated_exposure",
+                    "average_returned_count",
+                ),
+            )
+    artifact = payload.get("artifact")
+    if isinstance(artifact, dict) and artifact.get("path") is not None:
+        compact["artifact"] = _compact_dict(artifact, ("format", "path"))
+    return compact
+
+
+def project_service_discover(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project service discovery payloads while retaining adapter essentials."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    return _compact_dict(
+        payload,
+        (
+            "status",
+            "running",
+            "type",
+            "endpoint",
+            "pid",
+            "version_url",
+            "capabilities_url",
+        ),
+    )
+
+
+def project_service_lifecycle(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project service lifecycle payloads."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    return _compact_dict(
+        payload, ("status", "running", "type", "endpoint", "pid", "last_service")
+    )
+
+
 def _is_memory_payload(payload: dict[str, Any]) -> bool:
     """Return whether an untagged payload has the expected memory shape."""
     return (
@@ -336,4 +615,20 @@ def project_payload(
         return project_workspace_alias_remove(data, selected)
     if operation == OPERATION_WORKSPACES_RENAME:
         return project_workspace_rename(data, selected)
+    if operation == OPERATION_LIFECYCLE_INIT:
+        return project_init(data, selected)
+    if operation == OPERATION_EMBEDDING_MAINTENANCE:
+        return project_embedding_maintenance(data, selected)
+    if operation == OPERATION_LIFECYCLE_UPGRADE:
+        return project_upgrade(data, selected)
+    if operation == OPERATION_LIFECYCLE_UNINSTALL:
+        return project_uninstall(data, selected)
+    if operation == OPERATION_DEV_EVAL:
+        return project_dev_eval(data, selected)
+    if operation == OPERATION_DEV_OPTIMIZE_THRESHOLD:
+        return project_dev_optimize_threshold(data, selected)
+    if operation == OPERATION_SERVICE_DISCOVER:
+        return project_service_discover(data, selected)
+    if operation == OPERATION_SERVICE_LIFECYCLE:
+        return project_service_lifecycle(data, selected)
     return data

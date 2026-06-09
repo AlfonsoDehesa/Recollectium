@@ -485,6 +485,172 @@ def test_module_entrypoint_delegates_to_cli_main(monkeypatch) -> None:
     assert calls == [None]
 
 
+def _emit_json_for_command(
+    payload: dict[str, Any], command: str, verbosity: str, capsys: CaptureFixture[str]
+) -> dict[str, Any]:
+    _emit_success(
+        payload,
+        output_format=cli_module.CLI_OUTPUT_JSON,
+        command=command,
+        response_verbosity=verbosity,
+    )
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    return json.loads(captured.out)
+
+
+@pytest.mark.parametrize(
+    ("command", "payload", "compact_key", "omitted_key"),
+    [
+        (
+            "init",
+            {
+                "status": "initialized",
+                "config": "/cfg.json",
+                "data": "/data",
+                "database": "/db.sqlite",
+                "embedding_profile": {"provider": "fake"},
+                "model_prepared": True,
+                "embedding_refresh": {"refreshed": 1, "stale_count": 0},
+            },
+            "config_path",
+            "data",
+        ),
+        (
+            "embedding-maintenance",
+            {
+                "status": "embedding_maintenance_completed",
+                "config": "/cfg.json",
+                "database": "/db.sqlite",
+                "embedding_profile": {"provider": "fake"},
+                "model_prepared": True,
+                "embedding_refresh": {"refreshed": 0, "stale_count": 0},
+            },
+            "model_status",
+            "embedding_profile",
+        ),
+        (
+            "upgrade",
+            {
+                "status": "dry_run",
+                "current_version": "0.1.0",
+                "target_ref": "v0.2.0",
+                "install_method": "pip",
+                "command": ["python", "-m", "pip", "install", "pkg"],
+                "metadata_path": "/install.json",
+            },
+            "status",
+            "command",
+        ),
+        (
+            "uninstall",
+            {
+                "status": "dry_run",
+                "package": {
+                    "uninstall": {"status": "dry_run", "install_method": "pip"}
+                },
+                "service": {"status": "dry_run"},
+                "shell_completion": {"targets": [{"path": "/rc"}]},
+                "data": {"preserved": True, "paths": {"database": "/db.sqlite"}},
+            },
+            "status",
+            "shell_completion",
+        ),
+        (
+            "dev eval",
+            {
+                "status": "ok",
+                "database": "/dev.db",
+                "metrics": {
+                    "exact_mrr": {"value": 1.0, "targets": 1},
+                    "semantic_mrr": {"value": 0.9, "queries": 2},
+                    "thematic_weighted_precision_at_10": {"value": 0.8},
+                    "thematic_weighted_recall_at_10": {"value": 0.7},
+                    "ranked_set_ndcg_at_5": {"value": 0.6},
+                },
+                "diagnostics": {"worst_exact": [{"target_id": "mem-1"}]},
+            },
+            "metrics",
+            "diagnostics",
+        ),
+        (
+            "dev optimize-threshold",
+            {
+                "status": "ok",
+                "optimization": {
+                    "recommended_threshold": 0.4,
+                    "beta": 1.0,
+                    "rows": [{"threshold": 0.1}],
+                    "recommendation": {"threshold": 0.4, "weighted_f_beta": 0.8},
+                },
+                "artifact": {"format": "png", "path": "/sweep.png"},
+            },
+            "recommendation",
+            "rows",
+        ),
+        (
+            "service discover",
+            {
+                "status": "running",
+                "running": True,
+                "type": "api",
+                "endpoint": "http://127.0.0.1:8765",
+                "pid": 123,
+                "discovery_file": "/runtime/service-discovery.json",
+                "config": "/cfg.json",
+            },
+            "endpoint",
+            "discovery_file",
+        ),
+    ],
+)
+def test_cli_json_compact_projects_lifecycle_dev_and_service_payloads(
+    command: str,
+    payload: dict[str, Any],
+    compact_key: str,
+    omitted_key: str,
+    capsys: CaptureFixture[str],
+) -> None:
+    compact = _emit_json_for_command(
+        payload, command, RESPONSE_VERBOSITY_COMPACT, capsys
+    )
+    verbose = _emit_json_for_command(
+        payload, command, RESPONSE_VERBOSITY_VERBOSE, capsys
+    )
+
+    assert compact != verbose
+    assert compact_key in compact
+    assert verbose == payload
+    assert f'"{omitted_key}"' not in json.dumps(compact, sort_keys=True)
+
+
+def test_cli_json_service_lifecycle_projection_keeps_small_shape(
+    capsys: CaptureFixture[str],
+) -> None:
+    payload = {
+        "status": "started",
+        "type": "api",
+        "pid": 123,
+        "endpoint": "http://127.0.0.1:8765",
+        "debug": {"command": ["python", "-m", "recollectium"]},
+    }
+
+    compact = _emit_json_for_command(
+        payload, "service start", RESPONSE_VERBOSITY_COMPACT, capsys
+    )
+    verbose = _emit_json_for_command(
+        payload, "service start", RESPONSE_VERBOSITY_VERBOSE, capsys
+    )
+
+    assert compact == {
+        "endpoint": "http://127.0.0.1:8765",
+        "pid": 123,
+        "status": "started",
+        "type": "api",
+    }
+    assert verbose == payload
+
+
 def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "serve.db"
     call: dict[str, object] = {}
