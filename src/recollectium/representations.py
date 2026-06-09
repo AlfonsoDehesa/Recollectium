@@ -372,21 +372,92 @@ def project_upgrade(
     return compact
 
 
-def _data_outcome(payload: dict[str, Any]) -> str:
+def _uninstall_is_dry_run(payload: dict[str, Any], data: dict[str, Any] | None) -> bool:
+    if isinstance(payload.get("dry_run"), bool):
+        return bool(payload["dry_run"])
+    if isinstance(data, dict):
+        for nested in (data.get("purge"), data.get("model_cache")):
+            if isinstance(nested, dict) and isinstance(nested.get("dry_run"), bool):
+                return bool(nested["dry_run"])
+    return payload.get("status") in {"dry_run", "dry_run_with_warnings"}
+
+
+def _path_summary(payload: Any, *, dry_run: bool) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    compact = _compact_dict(payload, ("dry_run",))
+    targets = payload.get("targets")
+    if isinstance(targets, list):
+        compact["target_count"] = len(targets)
+    deleted = payload.get("deleted")
+    skipped = payload.get("skipped")
+    if dry_run:
+        would_delete: list[Any] = []
+        remaining_skipped: list[Any] | None = None
+        if isinstance(deleted, list):
+            would_delete.extend(deleted)
+        if isinstance(skipped, list):
+            would_delete.extend(
+                item
+                for item in skipped
+                if isinstance(item, dict) and item.get("reason") == "dry_run"
+            )
+            remaining_skipped = [
+                item
+                for item in skipped
+                if not (isinstance(item, dict) and item.get("reason") == "dry_run")
+            ]
+        if isinstance(deleted, list) or isinstance(skipped, list):
+            compact["would_delete"] = would_delete
+            compact["would_delete_count"] = len(would_delete)
+        if remaining_skipped is not None:
+            compact["skipped"] = remaining_skipped
+            compact["skipped_count"] = len(remaining_skipped)
+    else:
+        if isinstance(deleted, list):
+            compact["deleted"] = deleted
+            compact["deleted_count"] = len(deleted)
+        if isinstance(skipped, list):
+            compact["skipped"] = skipped
+            compact["skipped_count"] = len(skipped)
+    if payload.get("status") is not None:
+        compact["status"] = payload["status"]
+    if payload.get("path") is not None:
+        compact["path"] = payload["path"]
+    return compact or None
+
+
+def _project_uninstall_data(payload: dict[str, Any]) -> dict[str, Any]:
     data = payload.get("data")
     if not isinstance(data, dict):
-        return "unknown"
-    dry_run = payload.get("status") in {"dry_run", "dry_run_with_warnings"}
-    if data.get("preserved") is True:
-        return "would_preserve" if dry_run else "preserved"
-    purge = data.get("purge")
-    if isinstance(purge, dict):
-        deleted = purge.get("deleted")
-        if dry_run:
-            return "would_delete"
-        if isinstance(deleted, list) and deleted:
-            return "deleted"
-    return "would_delete" if dry_run else "deleted"
+        return {"status": "unknown"}
+    dry_run = _uninstall_is_dry_run(payload, data)
+    preserved = data.get("preserved") is True
+    status = (
+        "would_preserve"
+        if dry_run and preserved
+        else "preserved"
+        if preserved
+        else "would_delete"
+        if dry_run
+        else "deleted"
+    )
+    compact: dict[str, Any] = {
+        "status": status,
+        "preserved": preserved,
+        "dry_run": dry_run,
+        "action": "preserve" if preserved else "delete",
+    }
+    for key in ("memories_preserved", "config_preserved", "derived_artifacts_removed"):
+        if data.get(key) is not None:
+            compact[key] = data[key]
+    purge = _path_summary(data.get("purge"), dry_run=dry_run)
+    if purge is not None:
+        compact["purge"] = purge
+    model_cache = _path_summary(data.get("model_cache"), dry_run=dry_run)
+    if model_cache is not None:
+        compact["model_cache"] = model_cache
+    return compact
 
 
 def project_uninstall(
@@ -397,14 +468,15 @@ def project_uninstall(
         return payload
     compact: dict[str, Any] = {
         "status": payload.get("status"),
-        "data": _data_outcome(payload),
+        "data": _project_uninstall_data(payload),
     }
     package = payload.get("package")
     if isinstance(package, dict):
         uninstall = package.get("uninstall")
         if isinstance(uninstall, dict):
             compact["package"] = _compact_dict(
-                uninstall, ("status", "install_method", "returncode")
+                uninstall,
+                ("status", "install_method", "returncode", "manual_hint", "hint"),
             )
             if uninstall.get("status") == "unsupported" or uninstall.get("manual_hint"):
                 compact["manual_hint"] = (
@@ -413,10 +485,12 @@ def project_uninstall(
                     or "Manual package removal is required."
                 )
         else:
-            compact["package"] = _compact_dict(package, ("status", "install_method"))
+            compact["package"] = _compact_dict(
+                package, ("status", "install_method", "returncode")
+            )
     service = payload.get("service")
     if isinstance(service, dict):
-        compact["service"] = _compact_dict(service, ("status", "pid"))
+        compact["service"] = _compact_dict(service, ("status", "pid", "running"))
     elif service is not None:
         compact["service"] = service
     return {key: value for key, value in compact.items() if value is not None}
@@ -523,18 +597,22 @@ def project_service_discover(
     """Project service discovery payloads while retaining adapter essentials."""
     if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
         return payload
-    return _compact_dict(
-        payload,
-        (
-            "status",
-            "running",
-            "type",
-            "endpoint",
-            "pid",
-            "version_url",
-            "capabilities_url",
-        ),
+    compact = _compact_dict(payload, ("status", "running"))
+    service = payload.get("service")
+    service_payload = service if isinstance(service, dict) else payload
+    compact.update(
+        _compact_dict(
+            service_payload,
+            (
+                "type",
+                "endpoint",
+                "pid",
+                "version_url",
+                "capabilities_url",
+            ),
+        )
     )
+    return compact
 
 
 def project_service_lifecycle(

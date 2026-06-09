@@ -624,6 +624,54 @@ def test_cli_json_compact_projects_lifecycle_dev_and_service_payloads(
     assert f'"{omitted_key}"' not in json.dumps(compact, sort_keys=True)
 
 
+def test_cli_compact_human_upgrade_formats_from_full_payload(
+    capsys: CaptureFixture[str],
+) -> None:
+    payload = {
+        "status": "dry_run",
+        "target_kind": "latest_release",
+        "target_ref": "v1.2.3",
+        "command": ["python", "-m", "pip", "install", "recollectium"],
+    }
+
+    _emit_success(
+        payload,
+        output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
+        command="upgrade",
+        response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert (
+        captured.out == "\nRecollectium would update to the latest release: v1.2.3.\n\n"
+    )
+
+
+def test_cli_compact_human_uninstall_formats_from_full_payload(
+    capsys: CaptureFixture[str],
+) -> None:
+    payload = {
+        "status": "dry_run",
+        "package": {"uninstall": {"status": "dry_run", "command": "uv tool uninstall"}},
+        "data": {"preserved": True, "paths": {"config": "/cfg.json"}},
+    }
+
+    _emit_success(
+        payload,
+        output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
+        command="uninstall",
+        response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert (
+        captured.out
+        == "\nRecollectium would be uninstalled. Data would be preserved.\n\n"
+    )
+
+
 def test_cli_json_service_lifecycle_projection_keeps_small_shape(
     capsys: CaptureFixture[str],
 ) -> None:
@@ -3056,6 +3104,7 @@ def test_cli_dev_eval_reports_db_override_as_regular_database(
     exit_code, stdout, stderr = _run_cli(
         [
             "--json",
+            "--verbose",
             "--db",
             str(override_regular_db),
             "--config",
@@ -3338,6 +3387,7 @@ def test_cli_dev_optimize_threshold_json_csv_stdout_emits_json_payload_only(
     exit_code, stdout, stderr = _run_cli(
         [
             "--json",
+            "--verbose",
             "--config",
             str(config_path),
             "dev",
@@ -7365,8 +7415,10 @@ def test_cli_uninstall_json_stays_structured_without_progress(
     assert exit_code == 0
     assert stderr == ""
     assert payload["status"] == "dry_run"
-    assert payload["package"]["uninstall"]["status"] == "dry_run"
-    assert payload["data"]["paths"]["config"]
+    assert payload["package"]["status"] == "dry_run"
+    assert payload["data"]["status"] == "would_preserve"
+    assert payload["data"]["dry_run"] is True
+    assert "paths" not in payload["data"]
 
 
 def test_cli_uninstall_compact_formatter_handles_status_only_manual_result() -> None:

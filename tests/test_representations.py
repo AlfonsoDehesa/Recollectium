@@ -412,7 +412,12 @@ def test_compact_uninstall_projection_summarizes_data_and_package() -> None:
         payload, verbosity="compact", operation=OPERATION_LIFECYCLE_UNINSTALL
     ) == {
         "status": "package_removal_unsupported",
-        "data": "preserved",
+        "data": {
+            "status": "preserved",
+            "preserved": True,
+            "dry_run": False,
+            "action": "preserve",
+        },
         "package": {"status": "unsupported", "install_method": "source"},
         "manual_hint": "Manual package removal is required.",
         "service": {"status": "no_service_running"},
@@ -423,6 +428,60 @@ def test_compact_uninstall_projection_summarizes_data_and_package() -> None:
         )
         is payload
     )
+
+
+def test_compact_uninstall_projection_keeps_dry_run_purge_outcomes() -> None:
+    skipped = {"path": "/data", "deleted": False, "reason": "dry_run"}
+    payload = {
+        "status": "package_removal_unsupported",
+        "package": {
+            "uninstall": {
+                "status": "unsupported",
+                "install_method": "source",
+                "manual_hint": "Remove the checkout manually.",
+            }
+        },
+        "service": {"status": "no_service_running"},
+        "data": {
+            "preserved": False,
+            "memories_preserved": False,
+            "config_preserved": False,
+            "derived_artifacts_removed": False,
+            "purge": {
+                "dry_run": True,
+                "targets": [skipped],
+                "deleted": [],
+                "skipped": [skipped],
+            },
+            "model_cache": {
+                "dry_run": True,
+                "path": "/cache/model",
+                "targets": [skipped],
+                "deleted": [],
+                "skipped": [skipped],
+            },
+        },
+    }
+
+    compact = project_payload(
+        payload, verbosity="compact", operation=OPERATION_LIFECYCLE_UNINSTALL
+    )
+
+    assert compact["status"] == "package_removal_unsupported"
+    assert compact["data"]["status"] == "would_delete"
+    assert compact["data"]["dry_run"] is True
+    assert compact["data"]["action"] == "delete"
+    assert compact["data"]["purge"]["would_delete_count"] == 1
+    assert compact["data"]["purge"]["would_delete"] == [skipped]
+    assert compact["data"]["purge"]["skipped"] == []
+    assert compact["data"]["model_cache"]["path"] == "/cache/model"
+    assert compact["package"] == {
+        "status": "unsupported",
+        "install_method": "source",
+        "manual_hint": "Remove the checkout manually.",
+    }
+    assert compact["manual_hint"] == "Remove the checkout manually."
+    assert "paths" not in compact["data"]
 
 
 def test_compact_dev_eval_projection_keeps_metric_values_only() -> None:
@@ -536,6 +595,32 @@ def test_compact_service_projections_keep_connection_contract() -> None:
     ) == {
         "status": "running",
         "running": True,
+        "type": "api",
+        "endpoint": "http://127.0.0.1:8765",
+        "pid": 123,
+        "version_url": "http://127.0.0.1:8765/v1/version",
+        "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
+    }
+    nested_discover_payload = {
+        "status": "running",
+        "versions": {"python": "3.12"},
+        "paths": {"runtime": "/runtime"},
+        "discovery_file": "/runtime/service-discovery.json",
+        "service": {
+            "type": "api",
+            "endpoint": "http://127.0.0.1:8765",
+            "pid": 123,
+            "version_url": "http://127.0.0.1:8765/v1/version",
+            "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
+            "discovery_file": "/runtime/service-discovery.json",
+        },
+    }
+    assert project_payload(
+        nested_discover_payload,
+        verbosity="compact",
+        operation=OPERATION_SERVICE_DISCOVER,
+    ) == {
+        "status": "running",
         "type": "api",
         "endpoint": "http://127.0.0.1:8765",
         "pid": 123,

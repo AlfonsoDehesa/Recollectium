@@ -575,6 +575,16 @@ def _format_upgrade_sentence(payload: dict[str, Any], *, color: bool = False) ->
 def _uninstall_data_state_sentence(payload: dict[str, Any], *, dry_run: bool) -> str:
     data = payload.get("data")
     data_payload = data if isinstance(data, dict) else {}
+    data_status = data_payload.get("status")
+    if isinstance(data_status, str):
+        if data_status in {"preserved", "would_preserve"}:
+            return "Data would be preserved." if dry_run else "Data preserved."
+        if data_status in {"deleted", "would_delete"}:
+            return (
+                "All Recollectium data would be deleted."
+                if dry_run
+                else "All Recollectium data was deleted."
+            )
     data_preserved = bool(data_payload.get("preserved", True))
     if data_preserved:
         return "Data would be preserved." if dry_run else "Data preserved."
@@ -860,6 +870,24 @@ def _set_response_verbosity(verbosity: str) -> None:
     _CURRENT_RESPONSE_VERBOSITY = verbosity
 
 
+def _should_preserve_full_payload_for_compact_human(
+    *, output_format: str, verbosity: str, command: str | None
+) -> bool:
+    """Return whether compact human formatters need the unprojected payload.
+
+    Compact JSON should still be projected, and generic compact human responses
+    (notably memory mutations/lists/searches) should retain their concise slice-1
+    behavior. Specialized lifecycle sentence renderers inspect fields omitted from
+    compact JSON, so they must format from the full payload.
+    """
+
+    return (
+        output_format == CLI_OUTPUT_HUMAN_READABLE
+        and verbosity == RESPONSE_VERBOSITY_COMPACT
+        and command in {"upgrade", "uninstall"}
+    )
+
+
 def _emit_success(
     payload: Any,
     *,
@@ -871,14 +899,17 @@ def _emit_success(
 ) -> None:
     payload = _to_payload(payload)
     verbosity = response_verbosity or _CURRENT_RESPONSE_VERBOSITY
+    operation = _operation_for_command(command, payload)
     if (
         output_format != CLI_OUTPUT_HUMAN_READABLE
         or verbosity == RESPONSE_VERBOSITY_COMPACT
+    ) and not _should_preserve_full_payload_for_compact_human(
+        output_format=output_format, verbosity=verbosity, command=command
     ):
         payload = project_payload(
             payload,
             verbosity=verbosity,
-            operation=_operation_for_command(command, payload),
+            operation=operation,
         )
     if output_format == CLI_OUTPUT_HUMAN_READABLE:
         sys.stdout.write(
