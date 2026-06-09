@@ -200,18 +200,18 @@ def test_embedding_serializers_project_with_operation_and_verbosity() -> None:
         "id": "job-1",
         "state": "completed",
         "reason": "test",
-        "total": 2,
-        "succeeded": 2,
-        "failed": 0,
+        "total_count": 2,
+        "succeeded_count": 2,
+        "failed_count": 0,
         "started_at": "verbose-only",
     }
     compact_job = {
         "id": "job-1",
         "state": "completed",
         "reason": "test",
-        "total": 2,
-        "succeeded": 2,
-        "failed": 0,
+        "total_count": 2,
+        "succeeded_count": 2,
+        "failed_count": 0,
     }
     assert (
         serialize_embedding_job(job, operation=OPERATION_EMBEDDING_JOBS_GET)
@@ -1158,26 +1158,48 @@ def test_http_workspace_alias_routes_resolve_add_list_remove(tmp_path: Path) -> 
         {"alias_uid": "Legacy", "migrate_existing": False},
     )
     assert status == 200
-    assert added["data"]["alias"]["alias_uid"] == "legacy"
+    assert added["data"] == {
+        "alias_uid": "legacy",
+        "canonical_uid": "canonical",
+        "status": "added",
+        "migrated_memories": 0,
+    }
 
     status, resolved = _request_json(client, "GET", "/v1/workspaces/resolve?uid=Legacy")
     assert status == 200
-    assert resolved["data"]["canonical_uid"] == "canonical"
-    assert resolved["data"]["resolved_by_alias"] is True
+    assert resolved["data"] == {
+        "canonical_uid": "canonical",
+        "resolved_by_alias": True,
+        "input_uid": "Legacy",
+        "normalized_uid": "legacy",
+    }
 
     status, aliases = _request_json(client, "GET", "/v1/workspaces/Canonical/aliases")
     assert status == 200
-    assert aliases["data"][0]["alias_uid"] == "legacy"
+    assert aliases["data"] == [{"alias_uid": "legacy", "canonical_uid": "canonical"}]
 
     status, workspaces = _request_json(
         client, "GET", "/v1/workspaces?include_aliases=true"
     )
     assert status == 200
-    assert workspaces["data"] == [{"workspace_uid": "canonical", "aliases": ["legacy"]}]
+    assert workspaces["data"] == [
+        {"workspace_uid": "canonical", "aliases": ["legacy"], "alias_count": 1}
+    ]
+
+    status, verbose_aliases = _request_json(
+        client, "GET", "/v1/workspaces/Canonical/aliases?verbosity=verbose"
+    )
+    assert status == 200
+    assert verbose_aliases["data"][0]["alias_uid"] == "legacy"
+    assert "created_at" in verbose_aliases["data"][0]
 
     status, removed = _request_json(client, "DELETE", "/v1/workspaces/aliases/Legacy")
     assert status == 200
-    assert removed["data"]["alias_uid"] == "legacy"
+    assert removed["data"] == {
+        "alias_uid": "legacy",
+        "canonical_uid": "canonical",
+        "status": "removed",
+    }
 
 
 def test_http_workspace_alias_conflict_returns_400(tmp_path: Path) -> None:

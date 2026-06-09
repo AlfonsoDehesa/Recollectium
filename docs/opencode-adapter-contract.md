@@ -155,6 +155,28 @@ When compact mode is used, memory search returns `id`, `content`, and `match`;
 memory list and get return `id`, `content`, `type`, `space`, and
 `workspace_uid` when present; memory mutations return `id` and `status`.
 
+Compact workspace payloads keep stable identifiers and counts without timestamps
+or nested internals:
+
+- `workspaces.list` returns UID strings when aliases are not requested. With
+  aliases, each item is `{workspace_uid, aliases, alias_count}` and `aliases`
+  contains alias UID strings.
+- `workspaces.resolve` returns `{canonical_uid, resolved_by_alias}` plus
+  `input_uid` and `normalized_uid` only when alias resolution or normalization
+  changed the input.
+- `workspaces.aliases.list` returns `{alias_uid, canonical_uid}` items.
+- `workspaces.aliases.add` returns `{canonical_uid, alias_uid, status,
+  migrated_memories}` with `status` set to `added`.
+- `workspaces.aliases.remove` returns `{alias_uid, canonical_uid, status}` with
+  `status` set to `removed`.
+- `workspaces.rename` returns `{old_uid, new_uid, memories_updated,
+  aliases_updated, status}` with `status` set to `renamed`.
+
+Compact embedding job payloads use the public count field names `total_count`,
+`succeeded_count`, and `failed_count` with `id`, `state`, and `reason` when
+present. Use verbose mode when an adapter needs `processed_count`, provider,
+model, timestamps, error messages, or full embedding profile details.
+
 ## Workspace UID contract
 
 Workspace memories are keyed by a stable workspace UID. The adapter must not

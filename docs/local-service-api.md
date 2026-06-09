@@ -167,10 +167,17 @@ Compact projections by operation:
 - Memory search: `{id, content, match}` where `match` is the search score.
 - Memory add, update, and archive: `{id, status}` with status values `saved`, `updated`, or `archived`.
 - Embedding status: `provider_status`, `embedding_profile`, `model_status`, `model_cache_path`, and `embedding_jobs_status_path`.
-- Embedding job list and get: `id`, `state`, `reason`, `total`, `succeeded`, and `failed` when present.
+- Embedding job list and get: `id`, `state`, `reason`, `total_count`, `succeeded_count`, and `failed_count` when present.
 - Embedding refresh: `refreshed`, `stale_count`, `status_path`, and `job_id` when a job exists.
 - Embedding job clear: `deleted_count` and `states`.
-- Workspace operations: unchanged workspace payloads unless a payload contains memory objects.
+- Workspace list: UID strings when `include_aliases=false`; when `include_aliases=true`, `{workspace_uid, aliases, alias_count}` where `aliases` contains alias UID strings.
+- Workspace resolve: `{canonical_uid, resolved_by_alias}` plus `input_uid` and `normalized_uid` only when alias resolution or UID normalization changed the input.
+- Workspace alias list: `{alias_uid, canonical_uid}`.
+- Workspace alias add: `{canonical_uid, alias_uid, status, migrated_memories}` with `status` set to `added`.
+- Workspace alias remove: `{alias_uid, canonical_uid, status}` with `status` set to `removed`.
+- Workspace rename: `{old_uid, new_uid, memories_updated, aliases_updated, status}` with `status` set to `renamed`.
+
+Health and version responses have the same shape for compact and verbose. Capabilities are already mostly compact; verbose adds response verbosity metadata.
 
 Request verbose data with a query parameter:
 
@@ -939,14 +946,16 @@ Unsupported route/method:
 
 ### `GET /v1/workspaces`
 
-Purpose: list distinct workspace UIDs visible through the API. With `include_aliases=true`, return workspace objects with nested alias arrays.
+Purpose: list distinct workspace UIDs visible through the API. With `include_aliases=true`, return workspace objects with alias UID arrays in compact mode.
 
 **Query parameters**
 
 | Param | Type | Default | Description |
 |---|---|---|---|
 | `include_archived` | bool | `false` | Include UIDs that appear only on archived memories. |
-| `include_aliases` | bool | `false` | Return objects shaped as `{workspace_uid, aliases}` instead of UID strings. |
+| `include_aliases` | bool | `false` | Return objects shaped as `{workspace_uid, aliases, alias_count}` instead of UID strings in compact mode. Verbose mode includes full alias records. |
+
+Compact is the default. Use `?verbosity=verbose` or the verbosity header with `include_aliases=true` for full alias records with timestamps.
 
 **Response 200**
 
@@ -956,13 +965,13 @@ Purpose: list distinct workspace UIDs visible through the API. With `include_ali
 }
 ```
 
-**Response 200 with aliases**
+**Response 200 with aliases, compact default**
 
 ```json
 {
   "data": [
-    {"workspace_uid": "recollectium", "aliases": ["recollectium-core"]},
-    {"workspace_uid": "generalist-ai", "aliases": []}
+    {"workspace_uid": "recollectium", "aliases": ["recollectium-core"], "alias_count": 1},
+    {"workspace_uid": "generalist-ai", "aliases": [], "alias_count": 0}
   ]
 }
 ```
@@ -971,21 +980,23 @@ Purpose: list distinct workspace UIDs visible through the API. With `include_ali
 
 Purpose: normalize a workspace UID candidate and resolve it to the canonical UID if it is an alias.
 
+Compact is the default and returns `{canonical_uid, resolved_by_alias}`. It also includes `input_uid` and `normalized_uid` when alias resolution happened or normalization changed the input. Verbose mode returns the full resolution payload.
+
 Example request:
 
 ```bash
 curl -sS 'http://127.0.0.1:8765/v1/workspaces/resolve?uid=Recollectium%20Core'
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
   "data": {
-    "input_uid": "Recollectium Core",
-    "normalized_uid": "recollectium-core",
     "canonical_uid": "recollectium",
-    "resolved_by_alias": true
+    "resolved_by_alias": true,
+    "input_uid": "Recollectium Core",
+    "normalized_uid": "recollectium-core"
   }
 }
 ```
@@ -994,22 +1005,22 @@ Example response:
 
 Purpose: list aliases for a canonical workspace UID. The `uid` path value is normalized and resolved before filtering.
 
+Compact is the default and returns each alias as `{alias_uid, canonical_uid}`. Use `?verbosity=verbose` or the verbosity header for timestamps.
+
 Example request:
 
 ```bash
 curl -sS http://127.0.0.1:8765/v1/workspaces/recollectium/aliases
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
   "data": [
     {
       "alias_uid": "recollectium-core",
-      "canonical_uid": "recollectium",
-      "created_at": "2026-05-28T00:00:00Z",
-      "updated_at": "2026-05-28T00:00:00Z"
+      "canonical_uid": "recollectium"
     }
   ]
 }
@@ -1019,6 +1030,8 @@ Example response:
 
 Purpose: add an alias for a canonical workspace UID. Use `migrate_existing=true` to move existing alias-owned memories into the canonical workspace in the same transaction.
 
+Compact is the default and returns `{canonical_uid, alias_uid, status, migrated_memories}` with `status: "added"`. Use `?verbosity=verbose` or the verbosity header for the nested alias record with timestamps.
+
 Example request:
 
 ```bash
@@ -1027,17 +1040,14 @@ curl -sS http://127.0.0.1:8765/v1/workspaces/recollectium/aliases \
   -d '{"alias_uid":"recollectium-core","migrate_existing":false}'
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
   "data": {
-    "alias": {
-      "alias_uid": "recollectium-core",
-      "canonical_uid": "recollectium",
-      "created_at": "2026-05-28T00:00:00Z",
-      "updated_at": "2026-05-28T00:00:00Z"
-    },
+    "canonical_uid": "recollectium",
+    "alias_uid": "recollectium-core",
+    "status": "added",
     "migrated_memories": 0
   }
 }
@@ -1059,21 +1069,22 @@ Example response:
 
 Purpose: remove an alias mapping by alias UID.
 
+Compact is the default and returns `{alias_uid, canonical_uid, status}` with `status: "removed"`. Use `?verbosity=verbose` or the verbosity header for timestamps.
+
 Example request:
 
 ```bash
 curl -sS -X DELETE http://127.0.0.1:8765/v1/workspaces/aliases/recollectium-core
 ```
 
-Example response:
+Example response: compact default
 
 ```json
 {
   "data": {
     "alias_uid": "recollectium-core",
     "canonical_uid": "recollectium",
-    "created_at": "2026-05-28T00:00:00Z",
-    "updated_at": "2026-05-28T00:00:00Z"
+    "status": "removed"
   }
 }
 ```
@@ -1084,15 +1095,16 @@ Rename a workspace. Migrates all workspace memories (including archived) from
 the old UID to a new UID. Both UIDs are normalized according to the
 `workspace.uid_normalization` config setting before the operation.
 
-**Request body**
+Compact is the default and returns `{old_uid, new_uid, memories_updated, aliases_updated, status}` with `status: "renamed"`. Verbose mode returns the same counts without the compact status field.
 
+**Request body**
 ```json
 {
   "new_uid": "recollectium"
 }
 ```
 
-**Response 200**
+**Response 200, compact default**
 
 ```json
 {
@@ -1100,7 +1112,8 @@ the old UID to a new UID. Both UIDs are normalized according to the
     "old_uid": "recollectium-core",
     "new_uid": "recollectium",
     "memories_updated": 42,
-    "aliases_updated": 3
+    "aliases_updated": 3,
+    "status": "renamed"
   }
 }
 ```

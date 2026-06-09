@@ -13,6 +13,33 @@ from platformdirs.macos import MacOS
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_install_smoke_asserts_compact_service_discover_shape() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert 'recollectium --config "$config" service discover --json' in workflow
+    assert 'discover_payload["status"] == "running"' in workflow
+    assert 'discover_payload["type"] == "api"' in workflow
+    assert 'discover_payload["pid"] > 0' in workflow
+    assert '"endpoint", "health_url", "version_url", "capabilities_url"' in workflow
+    assert 'discover_payload["service"]' not in workflow
+    assert "discover['service']" not in workflow
+
+
+def test_install_smoke_uses_verbose_uninstall_for_internal_path_assertions() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "recollectium --verbose uninstall --json" in workflow
+    assert (
+        "recollectium --verbose uninstall --purge --yes-delete-all-recollectium-data --json"
+        in workflow
+    )
+    assert '@("--verbose", "uninstall", "--json")' in workflow
+    assert (
+        '@("--verbose", "uninstall", "--purge", "--yes-delete-all-recollectium-data", "--json")'
+        in workflow
+    )
+
+
 def _unix_bootstrap_helpers() -> str:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
     return script.split('\nmain "$@"\n', maxsplit=1)[0]

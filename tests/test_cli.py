@@ -485,6 +485,263 @@ def test_module_entrypoint_delegates_to_cli_main(monkeypatch) -> None:
     assert calls == [None]
 
 
+def _emit_json_for_command(
+    payload: dict[str, Any], command: str, verbosity: str, capsys: CaptureFixture[str]
+) -> dict[str, Any]:
+    _emit_success(
+        payload,
+        output_format=cli_module.CLI_OUTPUT_JSON,
+        command=command,
+        response_verbosity=verbosity,
+    )
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    return json.loads(captured.out)
+
+
+@pytest.mark.parametrize(
+    ("command", "payload", "compact_key", "omitted_key"),
+    [
+        (
+            "init",
+            {
+                "status": "initialized",
+                "config": "/cfg.json",
+                "data": "/data",
+                "database": "/db.sqlite",
+                "embedding_profile": {"provider": "fake"},
+                "model_prepared": True,
+                "embedding_refresh": {"refreshed": 1, "stale_count": 0},
+            },
+            "config_path",
+            "data",
+        ),
+        (
+            "embedding-maintenance",
+            {
+                "status": "embedding_maintenance_completed",
+                "config": "/cfg.json",
+                "database": "/db.sqlite",
+                "embedding_profile": {"provider": "fake"},
+                "model_prepared": True,
+                "embedding_refresh": {"refreshed": 0, "stale_count": 0},
+            },
+            "model_status",
+            "embedding_profile",
+        ),
+        (
+            "upgrade",
+            {
+                "status": "dry_run",
+                "current_version": "0.1.0",
+                "target_ref": "v0.2.0",
+                "install_method": "pip",
+                "command": ["python", "-m", "pip", "install", "pkg"],
+                "metadata_path": "/install.json",
+            },
+            "status",
+            "command",
+        ),
+        (
+            "uninstall",
+            {
+                "status": "dry_run",
+                "package": {
+                    "uninstall": {"status": "dry_run", "install_method": "pip"}
+                },
+                "service": {"status": "dry_run"},
+                "shell_completion": {"targets": [{"path": "/rc"}]},
+                "data": {"preserved": True, "paths": {"database": "/db.sqlite"}},
+            },
+            "status",
+            "shell_completion",
+        ),
+        (
+            "dev eval",
+            {
+                "status": "ok",
+                "database": "/dev.db",
+                "metrics": {
+                    "exact_mrr": {"value": 1.0, "targets": 1},
+                    "semantic_mrr": {"value": 0.9, "queries": 2},
+                    "thematic_weighted_precision_at_10": {"value": 0.8},
+                    "thematic_weighted_recall_at_10": {"value": 0.7},
+                    "ranked_set_ndcg_at_5": {"value": 0.6},
+                },
+                "diagnostics": {"worst_exact": [{"target_id": "mem-1"}]},
+            },
+            "metrics",
+            "diagnostics",
+        ),
+        (
+            "dev optimize-threshold",
+            {
+                "status": "ok",
+                "optimization": {
+                    "recommended_threshold": 0.4,
+                    "beta": 1.0,
+                    "rows": [{"threshold": 0.1}],
+                    "recommendation": {"threshold": 0.4, "weighted_f_beta": 0.8},
+                },
+                "artifact": {"format": "png", "path": "/sweep.png"},
+            },
+            "recommendation",
+            "rows",
+        ),
+        (
+            "service discover",
+            {
+                "status": "running",
+                "running": True,
+                "type": "api",
+                "endpoint": "http://127.0.0.1:8765",
+                "pid": 123,
+                "health_url": "http://127.0.0.1:8765/v1/health",
+                "discovery_file": "/runtime/service-discovery.json",
+                "config": "/cfg.json",
+            },
+            "health_url",
+            "discovery_file",
+        ),
+    ],
+)
+def test_cli_json_compact_projects_lifecycle_dev_and_service_payloads(
+    command: str,
+    payload: dict[str, Any],
+    compact_key: str,
+    omitted_key: str,
+    capsys: CaptureFixture[str],
+) -> None:
+    compact = _emit_json_for_command(
+        payload, command, RESPONSE_VERBOSITY_COMPACT, capsys
+    )
+    verbose = _emit_json_for_command(
+        payload, command, RESPONSE_VERBOSITY_VERBOSE, capsys
+    )
+
+    assert compact != verbose
+    assert compact_key in compact
+    assert verbose == payload
+    assert f'"{omitted_key}"' not in json.dumps(compact, sort_keys=True)
+
+
+def test_cli_compact_human_upgrade_formats_from_full_payload(
+    capsys: CaptureFixture[str],
+) -> None:
+    payload = {
+        "status": "dry_run",
+        "target_kind": "latest_release",
+        "target_ref": "v1.2.3",
+        "command": ["python", "-m", "pip", "install", "recollectium"],
+    }
+
+    _emit_success(
+        payload,
+        output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
+        command="upgrade",
+        response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert (
+        captured.out == "\nRecollectium would update to the latest release: v1.2.3.\n\n"
+    )
+
+
+def test_cli_compact_human_uninstall_formats_from_full_payload(
+    capsys: CaptureFixture[str],
+) -> None:
+    payload = {
+        "status": "dry_run",
+        "package": {"uninstall": {"status": "dry_run", "command": "uv tool uninstall"}},
+        "data": {"preserved": True, "paths": {"config": "/cfg.json"}},
+    }
+
+    _emit_success(
+        payload,
+        output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
+        command="uninstall",
+        response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert (
+        captured.out
+        == "\nRecollectium would be uninstalled. Data would be preserved.\n\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            {"status": "uninstalled", "data": {"status": "preserved"}},
+            "Uninstalled. Data preserved.",
+        ),
+        (
+            {"status": "uninstalled", "data": {"status": "deleted"}},
+            "Uninstalled. All Recollectium data was deleted.",
+        ),
+    ],
+)
+def test_cli_compact_human_uninstall_uses_explicit_data_status(
+    payload: dict[str, Any], expected: str
+) -> None:
+    assert (
+        _format_human_output(
+            payload,
+            command="uninstall",
+            response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+        )
+        == f"{expected}\n"
+    )
+
+
+def test_cli_operation_for_workspace_alias_infers_legacy_shapes() -> None:
+    assert cli_module._operation_for_command("workspace alias", []) == (
+        cli_module.OPERATION_WORKSPACES_ALIASES_LIST
+    )
+    assert (
+        cli_module._operation_for_command(
+            "workspace alias", {"alias_uid": "short", "migrated_memories": 1}
+        )
+        == cli_module.OPERATION_WORKSPACES_ALIASES_ADD
+    )
+    assert (
+        cli_module._operation_for_command("workspace alias", {"alias_uid": "short"})
+        == cli_module.OPERATION_WORKSPACES_ALIASES_REMOVE
+    )
+
+
+def test_cli_json_service_lifecycle_projection_keeps_small_shape(
+    capsys: CaptureFixture[str],
+) -> None:
+    payload = {
+        "status": "started",
+        "type": "api",
+        "pid": 123,
+        "endpoint": "http://127.0.0.1:8765",
+        "debug": {"command": ["python", "-m", "recollectium"]},
+    }
+
+    compact = _emit_json_for_command(
+        payload, "service start", RESPONSE_VERBOSITY_COMPACT, capsys
+    )
+    verbose = _emit_json_for_command(
+        payload, "service start", RESPONSE_VERBOSITY_VERBOSE, capsys
+    )
+
+    assert compact == {
+        "endpoint": "http://127.0.0.1:8765",
+        "pid": 123,
+        "status": "started",
+        "type": "api",
+    }
+    assert verbose == payload
+
+
 def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "serve.db"
     call: dict[str, object] = {}
@@ -2890,6 +3147,7 @@ def test_cli_dev_eval_reports_db_override_as_regular_database(
     exit_code, stdout, stderr = _run_cli(
         [
             "--json",
+            "--verbose",
             "--db",
             str(override_regular_db),
             "--config",
@@ -3172,6 +3430,7 @@ def test_cli_dev_optimize_threshold_json_csv_stdout_emits_json_payload_only(
     exit_code, stdout, stderr = _run_cli(
         [
             "--json",
+            "--verbose",
             "--config",
             str(config_path),
             "dev",
@@ -4089,7 +4348,7 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     # Compact archive projection (id + status only, no content) → short output
     assert (
         _format_human_output({"id": 456, "status": "archived"}, command="archive")
-        == "Memory archived.\n"
+        == "Memory archived: 456\n"
     )
     # Compact archive with just status (no id, no content) → short output
     assert (
@@ -4105,12 +4364,12 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     # Compact add projection → short output
     assert (
         _format_human_output({"id": 789, "status": "saved"}, command="add")
-        == "Memory saved!\n"
+        == "Memory saved: 789\n"
     )
     # Compact update projection → short output
     assert (
         _format_human_output({"id": 789, "status": "updated"}, command="update")
-        == "Memory updated.\n"
+        == "Memory updated: 789\n"
     )
     assert "cli_output: human_readable" in _format_human_output(
         "human_readable", command="config get", label="cli_output"
@@ -4357,9 +4616,9 @@ def test_cli_json_verbosity_compact_vs_verbose_memory_shapes(tmp_path, capsys) -
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
-        ("add", "\nMemory saved!\n\n"),
-        ("update", "\nMemory updated.\n\n"),
-        ("archive", "\nMemory archived.\n\n"),
+        ("add", "\nMemory saved: mem-1\n\n"),
+        ("update", "\nMemory updated: mem-1\n\n"),
+        ("archive", "\nMemory archived: mem-1\n\n"),
     ],
 )
 def test_cli_human_compact_projects_mutations_to_short_messages(
@@ -5208,8 +5467,48 @@ def test_cli_parse_config_value_plain_string(tmp_path, capsys) -> None:
         capsys,
     )
     assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == {
+        "key": "logging.level",
+        "status": "updated",
+        "value": "debug",
+    }
     loaded = json.loads(config_path.read_text())
     assert loaded["logging"]["level"] == "debug"
+
+
+def test_cli_config_mutations_emit_json_success_payloads(tmp_path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+
+    init_code, init_stdout, init_stderr = _run_cli(
+        ["--config", str(config_path), "config", "init"], capsys
+    )
+    assert init_code == 0
+    assert init_stderr == ""
+    assert json.loads(init_stdout) == {
+        "path": str(config_path),
+        "status": "initialized",
+    }
+
+    set_code, set_stdout, set_stderr = _run_cli(
+        ["--config", str(config_path), "config", "set", "cli_output", "json"],
+        capsys,
+    )
+    assert set_code == 0
+    assert set_stderr == ""
+    assert json.loads(set_stdout) == {
+        "key": "cli_output",
+        "status": "updated",
+        "value": "json",
+    }
+
+    unset_code, unset_stdout, unset_stderr = _run_cli(
+        ["--config", str(config_path), "config", "unset", "cli_output"],
+        capsys,
+    )
+    assert unset_code == 0
+    assert unset_stderr == ""
+    assert json.loads(unset_stdout) == {"key": "cli_output", "status": "removed"}
 
 
 def test_builtin_fastembed_provider_from_config_resolves_cache_dir(
@@ -7159,8 +7458,10 @@ def test_cli_uninstall_json_stays_structured_without_progress(
     assert exit_code == 0
     assert stderr == ""
     assert payload["status"] == "dry_run"
-    assert payload["package"]["uninstall"]["status"] == "dry_run"
-    assert payload["data"]["paths"]["config"]
+    assert payload["package"]["status"] == "dry_run"
+    assert payload["data"]["status"] == "would_preserve"
+    assert payload["data"]["dry_run"] is True
+    assert "paths" not in payload["data"]
 
 
 def test_cli_uninstall_compact_formatter_handles_status_only_manual_result() -> None:
@@ -9028,6 +9329,117 @@ def test_workspace_alias_cli_migrate_existing_conflict(tmp_path, capsys) -> None
     )
     assert exit_code == 0
     assert json.loads(stdout)["migrated_memories"] == 1
+
+
+def test_workspace_alias_cli_compact_projection(tmp_path, capsys) -> None:
+    db_path = tmp_path / "workspace-alias-cli-compact.db"
+    RecollectiumCore(
+        db_path=db_path,
+        embedding_provider=FakeEmbeddingProvider(),
+    ).add_memory(space="workspace", type="fact", content="a", workspace_uid="Canonical")
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "workspace",
+            "alias",
+            "add",
+            "Canonical",
+            "Legacy",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == {
+        "alias_uid": "legacy",
+        "canonical_uid": "canonical",
+        "status": "added",
+        "migrated_memories": 0,
+    }
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "workspace",
+            "list",
+            "--include-aliases",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == [
+        {"workspace_uid": "canonical", "aliases": ["legacy"], "alias_count": 1}
+    ]
+
+
+def test_cli_human_compact_memory_mutations_include_id(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "human-compact-mutation-ids.db"
+
+    add_code, add_stdout, add_stderr = _run_cli(
+        [
+            "--human-readable",
+            "--compact",
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            "user",
+            "--type",
+            "fact",
+            "--content",
+            "human compact mutation ids",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+    assert add_code == 0
+    assert add_stderr == ""
+    memory_id = add_stdout.strip().split(": ", 1)[1]
+    assert add_stdout == f"\nMemory saved: {memory_id}\n\n"
+
+    update_code, update_stdout, update_stderr = _run_cli(
+        [
+            "--human-readable",
+            "--compact",
+            "--db",
+            str(db_path),
+            "update",
+            memory_id,
+            "--content",
+            "updated human compact mutation ids",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+    assert update_code == 0
+    assert update_stderr == ""
+    assert update_stdout == f"\nMemory updated: {memory_id}\n\n"
+
+    archive_code, archive_stdout, archive_stderr = _run_cli(
+        [
+            "--human-readable",
+            "--compact",
+            "--db",
+            str(db_path),
+            "archive",
+            memory_id,
+        ],
+        capsys,
+        json_by_default=False,
+    )
+    assert archive_code == 0
+    assert archive_stderr == ""
+    assert archive_stdout == f"\nMemory archived: {memory_id}\n\n"
 
 
 def test_cli_uninstall_package_applies_success_and_failure_details(
