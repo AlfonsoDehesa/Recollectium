@@ -558,44 +558,48 @@ def _format_upgrade_sentence(payload: dict[str, Any], *, color: bool = False) ->
     return _style(sentence, _RICH_SUCCESS, enabled=color) + "\n"
 
 
+def _uninstall_data_state_sentence(payload: dict[str, Any], *, dry_run: bool) -> str:
+    data = payload.get("data")
+    data_payload = data if isinstance(data, dict) else {}
+    data_preserved = bool(data_payload.get("preserved", True))
+    if data_preserved:
+        return "Data would be preserved." if dry_run else "Data preserved."
+    if dry_run:
+        return "All Recollectium data would be deleted."
+    return "All Recollectium data was deleted."
+
+
 def _format_uninstall_sentence(payload: dict[str, Any], *, color: bool = False) -> str:
     package = payload.get("package")
     package_payload = package if isinstance(package, dict) else {}
     uninstall = package_payload.get("uninstall")
     uninstall_payload = uninstall if isinstance(uninstall, dict) else {}
-    data = payload.get("data")
-    data_payload = data if isinstance(data, dict) else {}
     status = payload.get("status")
     package_status = uninstall_payload.get("status")
-    data_preserved = bool(data_payload.get("preserved", True))
+    data_sentence = _uninstall_data_state_sentence(payload, dry_run=status == "dry_run")
 
     if package_status == "unsupported" or (
         status == "dry_run" and "command" not in uninstall_payload
     ):
         return (
             "Recollectium could not uninstall itself from this install method. "
-            "Manual removal is required.\n"
+            f"Manual removal is required. {data_sentence}\n"
         )
 
     if status == "dry_run":
-        if data_preserved:
-            return "Recollectium would be uninstalled. Data would be preserved.\n"
-        return "Recollectium would be uninstalled and all Recollectium data would be deleted.\n"
+        return f"Recollectium would be uninstalled. {data_sentence}\n"
 
     if status in {"uninstalled", "uninstalled_with_warnings"}:
-        if data_preserved:
-            sentence = "Uninstalled. Data preserved."
-        else:
-            sentence = "Uninstalled. All Recollectium data was deleted."
+        sentence = f"Uninstalled. {data_sentence}"
         return _style(sentence, _RICH_SUCCESS, enabled=color) + "\n"
 
     if status == "package_removal_unsupported":
         return (
             "Recollectium could not uninstall itself from this install method. "
-            "Manual removal is required.\n"
+            f"Manual removal is required. {data_sentence}\n"
         )
 
-    return "Uninstall did not complete. See details and errors above.\n"
+    return f"Uninstall did not complete. {data_sentence} Rerun with --verbose for details.\n"
 
 
 def _format_human_output(

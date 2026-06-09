@@ -6833,7 +6833,8 @@ def test_cli_uninstall_compact_purge_dry_run_deletes_data_sentence(
 
     assert exit_code == 0
     assert stdout == (
-        "\nRecollectium would be uninstalled and all Recollectium data would be deleted.\n\n"
+        "\nRecollectium would be uninstalled. "
+        "All Recollectium data would be deleted.\n\n"
     )
     assert stderr == ""
 
@@ -6965,7 +6966,7 @@ def test_cli_uninstall_compact_manual_removal_is_concise(
     assert exit_code == 0
     assert stdout == (
         "\nRecollectium could not uninstall itself from this install method. "
-        "Manual removal is required.\n\n"
+        "Manual removal is required. Data would be preserved.\n\n"
     )
     assert stderr == ""
 
@@ -7001,10 +7002,86 @@ def test_cli_uninstall_compact_unsupported_mutating_has_no_progress(
     assert exit_code == 0
     assert stdout == (
         "\nRecollectium could not uninstall itself from this install method. "
-        "Manual removal is required.\n\n"
+        "Manual removal is required. Data preserved.\n\n"
     )
     assert stderr == ""
     assert stopped
+
+
+@pytest.mark.parametrize("install_method", ["source", "unknown", "manual"])
+def test_cli_uninstall_compact_unsupported_dry_run_purge_reports_would_delete(
+    install_method: str,
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: pytest.fail("package removal should not run"),
+    )
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": install_method, "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--dry-run", "--purge"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout == (
+        "\nRecollectium could not uninstall itself from this install method. "
+        "Manual removal is required. "
+        "All Recollectium data would be deleted.\n\n"
+    )
+    assert stderr == ""
+
+
+@pytest.mark.parametrize("install_method", ["source", "unknown", "manual"])
+def test_cli_uninstall_compact_unsupported_mutating_purge_reports_deleted(
+    install_method: str,
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: pytest.fail("package removal should not run"),
+    )
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    data_dir = tmp_path / "data" / "recollectium"
+    cache_dir = tmp_path / "cache" / "recollectium"
+    logs_dir = tmp_path / "state" / "recollectium" / "logs"
+    runtime_dir = tmp_path / "runtime" / "recollectium"
+    for directory in (config_path.parent, data_dir, cache_dir, logs_dir, runtime_dir):
+        directory.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.write_text(
+        json.dumps({"install_method": install_method, "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--purge", "--yes-delete-all-recollectium-data"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout == (
+        "\nRecollectium could not uninstall itself from this install method. "
+        "Manual removal is required. "
+        "All Recollectium data was deleted.\n\n"
+    )
+    assert stderr == ""
 
 
 def test_cli_uninstall_verbose_manual_removal_keeps_hint(
@@ -7056,15 +7133,28 @@ def test_cli_uninstall_compact_formatter_handles_status_only_manual_result() -> 
 
     assert _format_uninstall_sentence({"status": "package_removal_unsupported"}) == (
         "Recollectium could not uninstall itself from this install method. "
-        "Manual removal is required.\n"
+        "Manual removal is required. Data preserved.\n"
     )
 
 
-def test_cli_uninstall_compact_formatter_handles_incomplete_result() -> None:
+@pytest.mark.parametrize(
+    ("payload", "expected_data_sentence"),
+    [
+        ({"status": "package_removal_failed"}, "Data preserved."),
+        (
+            {"status": "package_removal_failed", "data": {"preserved": False}},
+            "All Recollectium data was deleted.",
+        ),
+    ],
+)
+def test_cli_uninstall_compact_formatter_handles_incomplete_result(
+    payload: dict[str, Any], expected_data_sentence: str
+) -> None:
     from recollectium.cli import _format_uninstall_sentence
 
-    assert _format_uninstall_sentence({"status": "package_removal_failed"}) == (
-        "Uninstall did not complete. See details and errors above.\n"
+    assert _format_uninstall_sentence(payload) == (
+        f"Uninstall did not complete. {expected_data_sentence} "
+        "Rerun with --verbose for details.\n"
     )
 
 
