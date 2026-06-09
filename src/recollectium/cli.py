@@ -511,6 +511,8 @@ def _upgrade_target_value(payload: dict[str, Any]) -> str | None:
     if payload.get("target_kind") == "main":
         commit = payload.get("target_commit") or payload.get("current_commit")
         return str(commit)[:7] if isinstance(commit, str) and commit else None
+    if payload.get("target_kind") == "release":
+        return None
     value = payload.get("target_ref") or payload.get("latest_tag")
     return str(value) if value else None
 
@@ -537,7 +539,7 @@ def _format_upgrade_sentence(payload: dict[str, Any], *, color: bool = False) ->
         if payload.get("target_kind") == "main":
             sentence = f"Recollectium main is already up to date{suffix}"
         elif payload.get("target_kind") == "latest_release":
-            sentence = f"Recollectium is already on the latest version{suffix}"
+            sentence = f"Recollectium is already on the latest release{suffix}"
         else:
             sentence = f"Recollectium is already on {target_phrase}{suffix}"
         return _style(sentence, _RICH_HINT, enabled=color) + "\n"
@@ -548,7 +550,7 @@ def _format_upgrade_sentence(payload: dict[str, Any], *, color: bool = False) ->
     elif status == "dry_run":
         sentence = f"Recollectium would update to {target_phrase}{suffix}"
     elif payload.get("target_kind") == "latest_release":
-        sentence = f"Recollectium was updated to the latest version{suffix}"
+        sentence = f"Recollectium was updated to the latest release{suffix}"
     elif payload.get("target_kind") == "main":
         sentence = f"Recollectium was updated to main{suffix}"
     else:

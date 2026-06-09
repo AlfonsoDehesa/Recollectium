@@ -8849,6 +8849,8 @@ def test_cli_upgrade_version_latest_check_is_non_mutating(capsys, monkeypatch) -
     payload = json.loads(stdout)
     assert payload["status"] == "dry_run"
     assert payload["target_kind"] == "latest_release"
+    assert payload["command"] == ["uv", "tool", "install", "--force", "recollectium"]
+    assert payload["package_action"] == "would_reinstall"
     assert payload["will_update_metadata"] is False
 
 
@@ -9056,19 +9058,19 @@ def test_upgrade_compact_sentence_variants_cover_targets() -> None:
                 "target_ref": "v1.0.0",
             }
         ).strip()
-        == "Recollectium is already on the latest version: v1.0.0."
+        == "Recollectium is already on the latest release: v1.0.0."
     )
     assert (
         cli_mod._format_upgrade_sentence(
             {"status": "up_to_date", "target_kind": "release", "target_ref": "v1.0.0"}
         ).strip()
-        == "Recollectium is already on version v1.0.0: v1.0.0."
+        == "Recollectium is already on version v1.0.0."
     )
     assert (
         cli_mod._format_upgrade_sentence(
             {"status": "dry_run", "target_kind": "release", "target_ref": "v1.0.0"}
         ).strip()
-        == "Recollectium would update to version v1.0.0: v1.0.0."
+        == "Recollectium would update to version v1.0.0."
     )
     assert (
         cli_mod._format_upgrade_sentence(
@@ -9078,7 +9080,7 @@ def test_upgrade_compact_sentence_variants_cover_targets() -> None:
                 "target_ref": "v1.0.0",
             }
         ).strip()
-        == "Recollectium was updated to the latest version: v1.0.0."
+        == "Recollectium was updated to the latest release: v1.0.0."
     )
     assert (
         cli_mod._format_upgrade_sentence(
@@ -9110,7 +9112,7 @@ def test_upgrade_compact_sentence_variants_cover_targets() -> None:
                 "previous_target_kind": "latest_release",
             }
         ).strip()
-        == "Recollectium switched from the latest release to version v1.0.0: v1.0.0."
+        == "Recollectium switched from the latest release to version v1.0.0."
     )
     assert (
         cli_mod._format_upgrade_sentence(
@@ -9123,7 +9125,7 @@ def test_upgrade_compact_sentence_variants_cover_targets() -> None:
                 "previous_target_selector": "v0.9.0",
             }
         ).strip()
-        == "Recollectium switched from version v0.9.0 to version v1.0.0: v1.0.0."
+        == "Recollectium switched from version v0.9.0 to version v1.0.0."
     )
 
 

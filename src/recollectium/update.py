@@ -722,6 +722,7 @@ def build_update_plan(
             target_version=latest_version,
         )
 
+    is_reinstall = force or target_source == "cli"
     install_ref = (
         main_ref.remote_commit
         if selected_target.kind == "main" and main_ref is not None
@@ -734,6 +735,7 @@ def build_update_plan(
         platform_name=platform_name,
         source_root=source_root,
         target=selected_target,
+        force_install=is_reinstall,
     )
     if command is None:
         return make_plan(
@@ -755,7 +757,6 @@ def build_update_plan(
             _installed_main_commit(metadata) if selected_target.kind == "main" else None
         )
     )
-    is_reinstall = force or target_source == "cli"
     package_action: PackageAction
     if dry_run:
         package_action = "would_reinstall" if is_reinstall else "would_update"
@@ -1047,35 +1048,38 @@ def _command_for_method(
     platform_name: str | None,
     source_root: Path | None,
     target: TrackingTarget | None = None,
+    force_install: bool = False,
 ) -> tuple[CommandSpec | None, Path | None]:
     target_kind = target.kind if target else "latest_release"
     target_version = target.version if target else _version_from_tag(latest_tag)
     if install_method == "pip":
+        pip_command = [sys.executable, "-m", "pip", "install", "--upgrade"]
+        if force_install:
+            pip_command.append("--force-reinstall")
         if target_kind in {"main", "custom_ref"}:
-            return [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                _package_spec_for_target(target_kind, target_version, latest_tag, repo),
+            return pip_command + [
+                _package_spec_for_target(target_kind, target_version, latest_tag, repo)
             ], None
         package = "recollectium"
         if target_kind == "release" and target_version is not None:
             package = f"recollectium=={target_version}"
-        return [sys.executable, "-m", "pip", "install", "--upgrade", package], None
+        return pip_command + [package], None
     if install_method == "pipx":
-        if target_kind == "latest_release":
+        if target_kind == "latest_release" and not force_install:
             return ["pipx", "upgrade", "recollectium"], None
-        package = _package_spec_for_target(
-            target_kind, target_version, latest_tag, repo
+        package = (
+            "recollectium"
+            if target_kind == "latest_release"
+            else _package_spec_for_target(target_kind, target_version, latest_tag, repo)
         )
         return ["pipx", "install", "--force", package], None
     if install_method == "uv_tool":
-        if target_kind == "latest_release":
+        if target_kind == "latest_release" and not force_install:
             return ["uv", "tool", "upgrade", "recollectium"], None
-        package = _package_spec_for_target(
-            target_kind, target_version, latest_tag, repo
+        package = (
+            "recollectium"
+            if target_kind == "latest_release"
+            else _package_spec_for_target(target_kind, target_version, latest_tag, repo)
         )
         return ["uv", "tool", "install", "--force", package], None
     if install_method == "source":
