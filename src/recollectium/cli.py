@@ -1106,6 +1106,20 @@ def _human_model_readiness_progress_reporter(
     )
 
 
+def _human_upgrade_progress_context(
+    output_format: str,
+) -> contextlib.AbstractContextManager[object]:
+    if output_format != CLI_OUTPUT_HUMAN_READABLE:
+        return contextlib.nullcontext()
+    if not _stderr_supports_live_progress():
+        return contextlib.nullcontext()
+    return SingleLineStatusSpinner(
+        sys.stderr,
+        title="Upgrade in progress",
+        details=("running package update",),
+    )
+
+
 def _model_readiness_context(provider: object) -> tuple[str | None, bool | None]:
     model_name_value = getattr(provider, "model_name", None)
     model_name = model_name_value if isinstance(model_name_value, str) else None
@@ -2760,13 +2774,10 @@ def _handle_upgrade_command(
             event="upgrade.service_stop_failed",
         )
 
-    if output_format == CLI_OUTPUT_HUMAN_READABLE:
-        sys.stderr.write("Upgrade in progress...\n")
-        sys.stderr.flush()
-
-    result = apply_update(
-        plan, runner=SubprocessCommandRunner(), timeout_seconds=args.timeout
-    )
+    with _human_upgrade_progress_context(output_format):
+        result = apply_update(
+            plan, runner=SubprocessCommandRunner(), timeout_seconds=args.timeout
+        )
     payload["stdout"] = result.stdout
     payload["stderr"] = result.stderr
     service_restart_errors: list[dict[str, str]] = []
