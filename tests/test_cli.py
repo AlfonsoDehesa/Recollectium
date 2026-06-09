@@ -9361,6 +9361,135 @@ def test_cli_upgrade_check_prints_non_mutating_plan(capsys, monkeypatch) -> None
     assert payload["tracking_action"] == "would_update_metadata"
 
 
+def test_cli_upgrade_compact_human_mutating_emits_progress_to_stderr(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "RecollectiumConfig",
+        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+    monkeypatch.setattr(cli_mod, "write_install_metadata_update", lambda plan: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "_run_installed_embedding_maintenance",
+        lambda **kw: CommandResult(0, '{"status":"ok"}', ""),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "upgrade"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == "Upgrade in progress...\n"
+    assert stdout.strip() == "Recollectium was updated to the latest release: v9.9.9."
+    assert "Target kind" not in stdout
+
+
+def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    apply_calls = 0
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+
+    def _apply_update(*args, **kwargs):
+        nonlocal apply_calls
+        apply_calls += 1
+        return CommandResult(0, "done", "")
+
+    monkeypatch.setattr(cli_mod, "apply_update", _apply_update)
+    monkeypatch.setattr(cli_mod, "write_install_metadata_update", lambda plan: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "_run_installed_embedding_maintenance",
+        lambda **kw: CommandResult(0, '{"status":"ok"}', ""),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["--json", "upgrade"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert apply_calls == 1
+    assert json.loads(stdout)["status"] == "updated"
+
+
+@pytest.mark.parametrize("flag", ["--check", "--dry-run"])
+def test_cli_upgrade_human_non_mutating_does_not_emit_progress_or_apply(
+    flag, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, ReleaseInfo
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "RecollectiumConfig",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError(f"{flag} must not create or load default config")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "apply_update",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError(f"{flag} must not apply updates")
+        ),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "upgrade", flag],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert stdout.strip() == "Recollectium would update to the latest release: v9.9.9."
+
+
 def test_cli_upgrade_compact_human_outputs_sentence(capsys, monkeypatch) -> None:
     import recollectium.cli as cli_mod
     from recollectium.update import InstallMetadata, ReleaseInfo, TrackingTarget
