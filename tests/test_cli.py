@@ -765,6 +765,7 @@ def test_cli_human_search_emits_reembedding_progress_to_stderr(
     monkeypatch.setattr(
         "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
     )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
     db_path = tmp_path / "human-search-progress.db"
 
     add_code, add_out, add_err = _run_cli(
@@ -815,6 +816,7 @@ def test_cli_human_embedding_refresh_emits_reembedding_progress_to_stderr(
     monkeypatch.setattr(
         "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
     )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
     db_path = tmp_path / "human-refresh-progress.db"
 
     add_code, add_out, _ = _run_cli(
@@ -999,6 +1001,7 @@ def test_cli_human_workspace_search_emits_reembedding_progress_to_stderr(
     monkeypatch.setattr(
         "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
     )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
     db_path = tmp_path / "human-workspace-search-progress.db"
 
     add_code, add_out, _ = _run_cli(
@@ -1193,6 +1196,49 @@ def test_reembedding_progress_reporter_handles_isatty_errors() -> None:
     assert output.endswith("\r\x1b[2K")
     assert "Re-embedding" in output
     assert "1/2" in output
+
+
+def test_dev_seed_progress_reporter_context_manager_clears_line() -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    reporter = cli_module._DevSeedProgressReporter(stream)
+
+    with reporter:
+        reporter(
+            {
+                "label": "Seeded user memories",
+                "completed": 1,
+                "total": 2,
+            }
+        )
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Seed user memories" in output
+    assert "1/2" in output
+
+
+def test_human_dev_seed_progress_context_handles_isatty_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module.sys, "stderr", _OSErrorIsattyStream())
+
+    with cli_module._human_dev_seed_progress_context(
+        cli_module.CLI_OUTPUT_HUMAN_READABLE
+    ) as reporter:
+        assert reporter is None
+
+
+def test_human_dev_seed_progress_context_handles_isatty_value_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module.sys, "stderr", _ValueErrorIsattyStream())
+
+    with cli_module._human_dev_seed_progress_context(
+        cli_module.CLI_OUTPUT_HUMAN_READABLE
+    ) as reporter:
+        assert reporter is None
 
 
 def test_reembedding_progress_reporter_uses_single_line_for_tty() -> None:
@@ -2067,6 +2113,117 @@ def test_cli_dev_json_readiness_suppresses_provider_output(
     assert payload["status"] == expected_status
 
 
+def test_cli_dev_true_human_tty_shows_counted_seed_progress(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--human-readable", "dev", "true"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert "Seed user memories" in stderr
+    assert "1/100" in stderr
+    assert "100/100" in stderr
+    assert "Seed workspace memories" in stderr
+    assert "90/90" in stderr
+    assert stderr.endswith("\r\x1b[2K")
+    assert "\n" not in stderr
+    assert "Dev" in stdout
+    assert "Status:" not in stderr
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_reset_human_tty_shows_counted_seed_progress(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--human-readable", "dev", "reset"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert "Seed user memories" in stderr
+    assert "100/100" in stderr
+    assert "Seed workspace memories" in stderr
+    assert "90/90" in stderr
+    assert stderr.endswith("\r\x1b[2K")
+    assert "\n" not in stderr
+    assert "Dev" in stdout
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_reset_human_non_tty_keeps_seed_progress_quiet(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--human-readable", "dev", "reset"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Seed user memories" not in stdout
+    assert "Seed workspace memories" not in stdout
+    assert "Dev" in stdout
+
+
 def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -2083,6 +2240,7 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         ["--config", str(config_path), "dev", "eval", "--human-readable"],
@@ -2122,6 +2280,43 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     assert not regular_db.exists()
 
 
+def test_cli_dev_eval_human_non_tty_keeps_seeded_progress_quiet(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "dev", "eval", "--human-readable"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Seed user memories" not in stdout
+    assert "Seed workspace memories" not in stdout
+    assert "Preparing seeded development database" not in stdout
+    assert "Preparing dev DB" not in stdout
+    assert "Recollectium dev eval" in stdout
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
 def test_cli_dev_eval_human_output_verbose_progress_uses_concise_label(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -2138,6 +2333,7 @@ def test_cli_dev_eval_human_output_verbose_progress_uses_concise_label(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -2407,6 +2603,7 @@ def test_cli_dev_eval_human_progress_omits_reembedding_progress_when_unavailable
     )
 
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
         cli_module, "_human_reembedding_progress_reporter", lambda _: None
     )
@@ -2852,6 +3049,7 @@ def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -2895,6 +3093,61 @@ def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     assert "Apply:" not in stderr
     assert "Objective:" not in stderr
     assert "Current config:" not in stderr
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_optimize_threshold_human_non_tty_keeps_seeded_progress_quiet(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "csv",
+            "--start",
+            "0",
+            "--end",
+            "0.1",
+            "--step",
+            "0.1",
+            "--human-readable",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout.startswith("threshold,weighted_precision")
+    assert "\r\x1b[2K" not in stderr
+    assert "Seed user memories" not in stderr
+    assert "Seed workspace memories" not in stderr
+    assert "Preparing seeded development database" not in stderr
+    assert "Preparing dev DB" not in stderr
+    assert "Seed user memories" not in stdout
+    assert "Seed workspace memories" not in stdout
+    assert "Preparing seeded development database" not in stdout
+    assert "Preparing dev DB" not in stdout
     assert dev_db.exists()
     assert not regular_db.exists()
 
@@ -3017,6 +3270,7 @@ def test_cli_dev_optimize_threshold_human_readable_csv_writes_summary_and_artifa
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -3076,6 +3330,7 @@ def test_cli_dev_optimize_threshold_human_readable_png_writes_summary_and_artifa
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         [

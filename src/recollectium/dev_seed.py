@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 
 from recollectium.embeddings import EmbeddingProvider, chunk_text_for_profile
@@ -16,6 +17,7 @@ DEV_SEED_TOPIC_COUNT = 10
 DEV_SEED_TOTAL_WORKSPACE_MEMORIES = (
     DEV_SEED_WORKSPACE_COUNT * DEV_SEED_WORKSPACE_MEMORY_COUNT
 )
+DevSeedProgressCallback = Callable[[dict[str, object]], None]
 DEV_SEED_TIMESTAMP = "2026-01-01T00:00:00Z"
 DEV_SEED_USER_TOPICS: tuple[str, ...] = (
     "travel",
@@ -493,6 +495,7 @@ def seeded_dev_database_is_initialized(db_path: Path | str) -> bool:
 def reset_seeded_dev_database(
     db_path: Path | str,
     embedding_provider: EmbeddingProvider,
+    progress_callback: DevSeedProgressCallback | None = None,
 ) -> dict[str, object]:
     """Replace *db_path* with the canonical seeded development database."""
     resolved_db_path = Path(db_path).expanduser()
@@ -502,6 +505,15 @@ def reset_seeded_dev_database(
 
     for index in range(DEV_SEED_USER_MEMORY_COUNT):
         _insert_seed_memory(store, embedding_provider, _user_seed_memory(index))
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "phase": "user_memories",
+                    "label": "Seeded user memories",
+                    "completed": index + 1,
+                    "total": DEV_SEED_USER_MEMORY_COUNT,
+                }
+            )
 
     for workspace_index in range(DEV_SEED_WORKSPACE_COUNT):
         for memory_index in range(DEV_SEED_WORKSPACE_MEMORY_COUNT):
@@ -510,6 +522,19 @@ def reset_seeded_dev_database(
                 embedding_provider,
                 _workspace_seed_memory(workspace_index, memory_index),
             )
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "phase": "workspace_memories",
+                        "label": "Seeded workspace memories",
+                        "completed": (
+                            workspace_index * DEV_SEED_WORKSPACE_MEMORY_COUNT
+                            + memory_index
+                            + 1
+                        ),
+                        "total": DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+                    }
+                )
 
     return {
         "status": "reset",
@@ -524,9 +549,14 @@ def reset_seeded_dev_database(
 def ensure_seeded_dev_database(
     db_path: Path | str,
     embedding_provider: EmbeddingProvider,
+    progress_callback: DevSeedProgressCallback | None = None,
 ) -> dict[str, object] | None:
     """Create or refresh the seeded development database when it is missing/stale."""
     resolved_db_path = Path(db_path).expanduser()
     if seeded_dev_database_is_initialized(resolved_db_path):
         return None
-    return reset_seeded_dev_database(resolved_db_path, embedding_provider)
+    return reset_seeded_dev_database(
+        resolved_db_path,
+        embedding_provider,
+        progress_callback=progress_callback,
+    )
