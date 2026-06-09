@@ -765,6 +765,7 @@ def test_cli_human_search_emits_reembedding_progress_to_stderr(
     monkeypatch.setattr(
         "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
     )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
     db_path = tmp_path / "human-search-progress.db"
 
     add_code, add_out, add_err = _run_cli(
@@ -815,6 +816,7 @@ def test_cli_human_embedding_refresh_emits_reembedding_progress_to_stderr(
     monkeypatch.setattr(
         "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
     )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
     db_path = tmp_path / "human-refresh-progress.db"
 
     add_code, add_out, _ = _run_cli(
@@ -999,6 +1001,7 @@ def test_cli_human_workspace_search_emits_reembedding_progress_to_stderr(
     monkeypatch.setattr(
         "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
     )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
     db_path = tmp_path / "human-workspace-search-progress.db"
 
     add_code, add_out, _ = _run_cli(
@@ -2237,6 +2240,7 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         ["--config", str(config_path), "dev", "eval", "--human-readable"],
@@ -2276,6 +2280,43 @@ def test_cli_dev_eval_human_output_defaults_to_concise_progress(
     assert not regular_db.exists()
 
 
+def test_cli_dev_eval_human_non_tty_keeps_seeded_progress_quiet(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "dev", "eval", "--human-readable"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Seed user memories" not in stdout
+    assert "Seed workspace memories" not in stdout
+    assert "Preparing seeded development database" not in stdout
+    assert "Preparing dev DB" not in stdout
+    assert "Recollectium dev eval" in stdout
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
 def test_cli_dev_eval_human_output_verbose_progress_uses_concise_label(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -2292,6 +2333,7 @@ def test_cli_dev_eval_human_output_verbose_progress_uses_concise_label(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -2561,6 +2603,7 @@ def test_cli_dev_eval_human_progress_omits_reembedding_progress_when_unavailable
     )
 
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
         cli_module, "_human_reembedding_progress_reporter", lambda _: None
     )
@@ -3006,6 +3049,7 @@ def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -3049,6 +3093,61 @@ def test_cli_dev_optimize_threshold_csv_stdout_is_pure_and_reports_summary(
     assert "Apply:" not in stderr
     assert "Objective:" not in stderr
     assert "Current config:" not in stderr
+    assert dev_db.exists()
+    assert not regular_db.exists()
+
+
+def test_cli_dev_optimize_threshold_human_non_tty_keeps_seeded_progress_quiet(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "dev",
+            "optimize-threshold",
+            "--format",
+            "csv",
+            "--start",
+            "0",
+            "--end",
+            "0.1",
+            "--step",
+            "0.1",
+            "--human-readable",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout.startswith("threshold,weighted_precision")
+    assert "\r\x1b[2K" not in stderr
+    assert "Seed user memories" not in stderr
+    assert "Seed workspace memories" not in stderr
+    assert "Preparing seeded development database" not in stderr
+    assert "Preparing dev DB" not in stderr
+    assert "Seed user memories" not in stdout
+    assert "Seed workspace memories" not in stdout
+    assert "Preparing seeded development database" not in stdout
+    assert "Preparing dev DB" not in stdout
     assert dev_db.exists()
     assert not regular_db.exists()
 
@@ -3171,6 +3270,7 @@ def test_cli_dev_optimize_threshold_human_readable_csv_writes_summary_and_artifa
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -3230,6 +3330,7 @@ def test_cli_dev_optimize_threshold_human_readable_png_writes_summary_and_artifa
         encoding="utf-8",
     )
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
 
     exit_code, stdout, stderr = _run_cli(
         [

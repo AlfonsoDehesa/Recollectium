@@ -823,10 +823,19 @@ class _ReembeddingProgressReporter:
         )
 
 
+def _stderr_supports_live_progress() -> bool:
+    try:
+        return bool(sys.stderr.isatty())
+    except (OSError, ValueError):
+        return False
+
+
 def _human_reembedding_progress_reporter(
     output_format: str,
 ) -> _ReembeddingProgressReporter | None:
     if output_format != CLI_OUTPUT_HUMAN_READABLE:
+        return None
+    if not _stderr_supports_live_progress():
         return None
     return _ReembeddingProgressReporter(sys.stderr)
 
@@ -881,10 +890,7 @@ class _DevSeedProgressContext:
 def _human_dev_seed_progress_context(output_format: str) -> _DevSeedProgressContext:
     if output_format != CLI_OUTPUT_HUMAN_READABLE:
         return _DevSeedProgressContext(None)
-    try:
-        if not sys.stderr.isatty():
-            return _DevSeedProgressContext(None)
-    except (OSError, ValueError):
+    if not _stderr_supports_live_progress():
         return _DevSeedProgressContext(None)
     return _DevSeedProgressContext(_DevSeedProgressReporter(sys.stderr))
 
@@ -975,10 +981,7 @@ def _human_model_readiness_progress_reporter(
 ) -> _ModelReadinessProgressReporter | None:
     if output_format != CLI_OUTPUT_HUMAN_READABLE:
         return None
-    try:
-        if not sys.stderr.isatty():
-            return None
-    except (OSError, ValueError):
+    if not _stderr_supports_live_progress():
         return None
     return _ModelReadinessProgressReporter(
         sys.stderr,
@@ -4918,6 +4921,7 @@ def _handle_dev_command(
             progress_reporter = (
                 _DevEvalProgressReporter(sys.stderr)
                 if output_format == CLI_OUTPUT_HUMAN_READABLE
+                and _stderr_supports_live_progress()
                 else None
             )
             if progress_reporter is not None:
@@ -5020,7 +5024,10 @@ def _handle_dev_command(
             validate_threshold_sweep_parameters(
                 start=args.start, end=args.end, step=args.step, beta=args.beta
             )
-            if output_format == CLI_OUTPUT_HUMAN_READABLE:
+            if (
+                output_format == CLI_OUTPUT_HUMAN_READABLE
+                and _stderr_supports_live_progress()
+            ):
                 progress_reporter = _ThresholdOptimizationProgressReporter(sys.stderr)
                 with progress_reporter:
                     progress_reporter.phase("Checking embedding provider readiness")
