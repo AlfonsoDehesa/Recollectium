@@ -9361,13 +9361,28 @@ def test_cli_upgrade_check_prints_non_mutating_plan(capsys, monkeypatch) -> None
     assert payload["tracking_action"] == "would_update_metadata"
 
 
-def test_cli_upgrade_compact_human_mutating_emits_progress_to_stderr(
+def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
     capsys, monkeypatch
 ) -> None:
     import recollectium.cli as cli_mod
     from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
 
+    spinner_events: list[tuple[str, object]] = []
+
+    class FakeStatusSpinner:
+        def __init__(self, stream, *, title, details):
+            spinner_events.append(("init", (stream, title, details)))
+
+        def __enter__(self):
+            spinner_events.append(("enter", None))
+            return self
+
+        def __exit__(self, *_):
+            spinner_events.append(("exit", None))
+
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    monkeypatch.setattr(cli_mod, "SingleLineStatusSpinner", FakeStatusSpinner)
     monkeypatch.setattr(
         cli_mod,
         "load_install_metadata",
@@ -9401,7 +9416,11 @@ def test_cli_upgrade_compact_human_mutating_emits_progress_to_stderr(
     )
 
     assert exit_code == 0
-    assert stderr == "Upgrade in progress...\n"
+    assert stderr == ""
+    assert [event for event, _ in spinner_events] == ["init", "enter", "exit"]
+    init_payload = spinner_events[0][1]
+    assert isinstance(init_payload, tuple)
+    assert init_payload[1:] == ("Upgrade in progress", ("running package update",))
     assert stdout.strip() == "Recollectium was updated to the latest release: v9.9.9."
     assert "Target kind" not in stdout
 
@@ -9412,6 +9431,14 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
 
     apply_calls = 0
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    monkeypatch.setattr(
+        cli_mod,
+        "SingleLineStatusSpinner",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("JSON upgrade must not start spinner")
+        ),
+    )
     monkeypatch.setattr(
         cli_mod,
         "load_install_metadata",
@@ -9453,6 +9480,14 @@ def test_cli_upgrade_human_non_mutating_does_not_emit_progress_or_apply(
     from recollectium.update import InstallMetadata, ReleaseInfo
 
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    monkeypatch.setattr(
+        cli_mod,
+        "SingleLineStatusSpinner",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError(f"{flag} must not start spinner")
+        ),
+    )
     monkeypatch.setattr(
         cli_mod,
         "load_install_metadata",
@@ -10014,6 +10049,67 @@ def test_cli_upgrade_apply_failure_returns_command_exit(capsys, monkeypatch) -> 
     payload = json.loads(stderr)
     assert payload["status"] == "update_failed"
     assert payload["stderr"] == "bad"
+
+
+def test_cli_upgrade_human_apply_failure_finishes_spinner_before_payload(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    events: list[str] = []
+
+    class FakeStatusSpinner:
+        def __init__(self, *args, **kwargs):
+            events.append("init")
+
+        def __enter__(self):
+            events.append("enter")
+            return self
+
+        def __exit__(self, *_):
+            events.append("finish")
+
+    original_emit_failure_payload = cli_mod._emit_failure_payload
+
+    def _emit_failure_payload(payload):
+        events.append("emit_failure_payload")
+        original_emit_failure_payload(payload)
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    monkeypatch.setattr(cli_mod, "SingleLineStatusSpinner", FakeStatusSpinner)
+    monkeypatch.setattr(cli_mod, "_emit_failure_payload", _emit_failure_payload)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "RecollectiumConfig",
+        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(7, "", "bad")
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "upgrade"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 7
+    assert stdout == ""
+    assert "Recollectium package upgrade failed." in stderr
+    assert events == ["init", "enter", "finish", "emit_failure_payload"]
 
 
 def test_cli_upgrade_success_restarts_running_service(capsys, monkeypatch) -> None:
