@@ -2760,6 +2760,10 @@ def _handle_upgrade_command(
             event="upgrade.service_stop_failed",
         )
 
+    if output_format == CLI_OUTPUT_HUMAN_READABLE:
+        sys.stderr.write("Upgrade in progress...\n")
+        sys.stderr.flush()
+
     result = apply_update(
         plan, runner=SubprocessCommandRunner(), timeout_seconds=args.timeout
     )
