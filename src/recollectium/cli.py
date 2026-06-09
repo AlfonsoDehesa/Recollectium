@@ -121,6 +121,12 @@ from recollectium.representations import (
     OPERATION_MEMORIES_SEARCH_USER,
     OPERATION_MEMORIES_SEARCH_WORKSPACE,
     OPERATION_MEMORIES_UPDATE,
+    OPERATION_WORKSPACES_ALIASES_ADD,
+    OPERATION_WORKSPACES_ALIASES_LIST,
+    OPERATION_WORKSPACES_ALIASES_REMOVE,
+    OPERATION_WORKSPACES_LIST,
+    OPERATION_WORKSPACES_RENAME,
+    OPERATION_WORKSPACES_RESOLVE,
     project_payload,
     validate_response_verbosity,
 )
@@ -618,21 +624,37 @@ def _format_human_output(
         and payload.get("status") == "saved"
         and "content" not in payload
     ):
-        return _style("Memory saved!", _RICH_SUCCESS, enabled=color) + "\n"
+        memory_id = payload.get("id")
+        message = (
+            f"Memory saved: {memory_id}" if memory_id is not None else "Memory saved!"
+        )
+        return _style(message, _RICH_SUCCESS, enabled=color) + "\n"
     if (
         command == "update"
         and isinstance(payload, dict)
         and payload.get("status") == "updated"
         and "content" not in payload
     ):
-        return _style("Memory updated.", _RICH_SUCCESS, enabled=color) + "\n"
+        memory_id = payload.get("id")
+        message = (
+            f"Memory updated: {memory_id}"
+            if memory_id is not None
+            else "Memory updated."
+        )
+        return _style(message, _RICH_SUCCESS, enabled=color) + "\n"
     if (
         command == "archive"
         and isinstance(payload, dict)
         and payload.get("status") == "archived"
         and "content" not in payload
     ):
-        return _style("Memory archived.", _RICH_SUCCESS, enabled=color) + "\n"
+        memory_id = payload.get("id")
+        message = (
+            f"Memory archived: {memory_id}"
+            if memory_id is not None
+            else "Memory archived."
+        )
+        return _style(message, _RICH_SUCCESS, enabled=color) + "\n"
     if payload is None:
         return "Done\n"
     if isinstance(payload, list):
@@ -780,6 +802,24 @@ def _operation_for_command(command: str | None, payload: Any = None) -> str | No
             if isinstance(payload, dict)
             else OPERATION_EMBEDDING_JOBS_LIST
         )
+    if command == "workspace list":
+        return OPERATION_WORKSPACES_LIST
+    if command == "workspace resolve":
+        return OPERATION_WORKSPACES_RESOLVE
+    if command == "workspace alias add":
+        return OPERATION_WORKSPACES_ALIASES_ADD
+    if command == "workspace alias list":
+        return OPERATION_WORKSPACES_ALIASES_LIST
+    if command == "workspace alias remove":
+        return OPERATION_WORKSPACES_ALIASES_REMOVE
+    if command == "workspace alias":
+        if isinstance(payload, list):
+            return OPERATION_WORKSPACES_ALIASES_LIST
+        if isinstance(payload, dict) and "migrated_memories" in payload:
+            return OPERATION_WORKSPACES_ALIASES_ADD
+        return OPERATION_WORKSPACES_ALIASES_REMOVE
+    if command == "workspace rename":
+        return OPERATION_WORKSPACES_RENAME
     return None
 
 
@@ -1569,12 +1609,11 @@ def _handle_config_command(
         except ValidationError as exc:
             return _config_invalid_error(exc, command="config set")
         config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
-        if output_format == CLI_OUTPUT_HUMAN_READABLE:
-            _emit_success(
-                {"key": args.key, "value": value},
-                output_format=output_format,
-                command="config set",
-            )
+        _emit_success(
+            {"status": "updated", "key": args.key, "value": value},
+            output_format=output_format,
+            command="config set",
+        )
         return 0
 
     if args.config_action == "unset":
@@ -1589,12 +1628,11 @@ def _handle_config_command(
         except KeyError as exc:
             return _not_found_error(exc, command="config unset")
         config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
-        if output_format == CLI_OUTPUT_HUMAN_READABLE:
-            _emit_success(
-                {"key": args.key},
-                output_format=output_format,
-                command="config unset",
-            )
+        _emit_success(
+            {"status": "removed", "key": args.key},
+            output_format=output_format,
+            command="config unset",
+        )
         return 0
 
     if args.config_action == "init":
@@ -1611,12 +1649,11 @@ def _handle_config_command(
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
         config_path.chmod(0o600)
-        if output_format == CLI_OUTPUT_HUMAN_READABLE:
-            _emit_success(
-                {"path": str(config_path)},
-                output_format=output_format,
-                command="config init",
-            )
+        _emit_success(
+            {"status": "initialized", "path": str(config_path)},
+            output_format=output_format,
+            command="config init",
+        )
         return 0
 
     if args.config_action == "doctor":
@@ -3916,17 +3953,18 @@ def _handle_workspace_command(
                     alias_uid=args.alias_uid,
                     migrate_existing=getattr(args, "migrate_existing", False),
                 )
+                command = "workspace alias add"
             elif args.alias_action == "list":
                 result = core.list_workspace_aliases(
                     canonical_uid=getattr(args, "workspace", None)
                 )
+                command = "workspace alias list"
             elif args.alias_action == "remove":
                 result = core.remove_workspace_alias(args.alias_uid)
+                command = "workspace alias remove"
             else:  # pragma: no cover — parser enforces valid actions
                 return 1
-            _emit_success(
-                result, output_format=output_format, command="workspace alias"
-            )
+            _emit_success(result, output_format=output_format, command=command)
             return 0
         except ValidationError as exc:
             return _workspace_validation_error(exc, command="workspace alias")

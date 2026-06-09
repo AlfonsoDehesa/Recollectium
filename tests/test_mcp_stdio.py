@@ -424,10 +424,26 @@ def test_mcp_workspace_alias_tools_round_trip(tmp_path: Path) -> None:
     remove_fn = mcp._tool_manager._tools["remove_workspace_alias"].fn
 
     added = json.loads(add_fn(canonical_uid="canonical", alias_uid="legacy"))
-    assert added["alias"]["alias_uid"] == "legacy"
+    assert added == {
+        "alias_uid": "legacy",
+        "canonical_uid": "canonical",
+        "status": "added",
+        "migrated_memories": 0,
+    }
     assert json.loads(resolve_fn(uid="legacy"))["canonical_uid"] == "canonical"
-    assert json.loads(list_fn(canonical_uid="canonical"))[0]["alias_uid"] == "legacy"
-    assert json.loads(remove_fn(alias_uid="legacy"))["alias_uid"] == "legacy"
+    assert json.loads(list_fn(canonical_uid="canonical")) == [
+        {"alias_uid": "legacy", "canonical_uid": "canonical"}
+    ]
+    verbose_aliases = json.loads(
+        list_fn(canonical_uid="canonical", verbosity="verbose")
+    )
+    assert verbose_aliases[0]["alias_uid"] == "legacy"
+    assert "created_at" in verbose_aliases[0]
+    assert json.loads(remove_fn(alias_uid="legacy")) == {
+        "alias_uid": "legacy",
+        "canonical_uid": "canonical",
+        "status": "removed",
+    }
 
 
 def test_mcp_workspace_alias_error_paths(tmp_path: Path) -> None:

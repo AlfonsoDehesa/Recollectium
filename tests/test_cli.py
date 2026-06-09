@@ -4089,7 +4089,7 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     # Compact archive projection (id + status only, no content) → short output
     assert (
         _format_human_output({"id": 456, "status": "archived"}, command="archive")
-        == "Memory archived.\n"
+        == "Memory archived: 456\n"
     )
     # Compact archive with just status (no id, no content) → short output
     assert (
@@ -4105,12 +4105,12 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     # Compact add projection → short output
     assert (
         _format_human_output({"id": 789, "status": "saved"}, command="add")
-        == "Memory saved!\n"
+        == "Memory saved: 789\n"
     )
     # Compact update projection → short output
     assert (
         _format_human_output({"id": 789, "status": "updated"}, command="update")
-        == "Memory updated.\n"
+        == "Memory updated: 789\n"
     )
     assert "cli_output: human_readable" in _format_human_output(
         "human_readable", command="config get", label="cli_output"
@@ -4357,9 +4357,9 @@ def test_cli_json_verbosity_compact_vs_verbose_memory_shapes(tmp_path, capsys) -
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
-        ("add", "\nMemory saved!\n\n"),
-        ("update", "\nMemory updated.\n\n"),
-        ("archive", "\nMemory archived.\n\n"),
+        ("add", "\nMemory saved: mem-1\n\n"),
+        ("update", "\nMemory updated: mem-1\n\n"),
+        ("archive", "\nMemory archived: mem-1\n\n"),
     ],
 )
 def test_cli_human_compact_projects_mutations_to_short_messages(
@@ -5208,8 +5208,48 @@ def test_cli_parse_config_value_plain_string(tmp_path, capsys) -> None:
         capsys,
     )
     assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == {
+        "key": "logging.level",
+        "status": "updated",
+        "value": "debug",
+    }
     loaded = json.loads(config_path.read_text())
     assert loaded["logging"]["level"] == "debug"
+
+
+def test_cli_config_mutations_emit_json_success_payloads(tmp_path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+
+    init_code, init_stdout, init_stderr = _run_cli(
+        ["--config", str(config_path), "config", "init"], capsys
+    )
+    assert init_code == 0
+    assert init_stderr == ""
+    assert json.loads(init_stdout) == {
+        "path": str(config_path),
+        "status": "initialized",
+    }
+
+    set_code, set_stdout, set_stderr = _run_cli(
+        ["--config", str(config_path), "config", "set", "cli_output", "json"],
+        capsys,
+    )
+    assert set_code == 0
+    assert set_stderr == ""
+    assert json.loads(set_stdout) == {
+        "key": "cli_output",
+        "status": "updated",
+        "value": "json",
+    }
+
+    unset_code, unset_stdout, unset_stderr = _run_cli(
+        ["--config", str(config_path), "config", "unset", "cli_output"],
+        capsys,
+    )
+    assert unset_code == 0
+    assert unset_stderr == ""
+    assert json.loads(unset_stdout) == {"key": "cli_output", "status": "removed"}
 
 
 def test_builtin_fastembed_provider_from_config_resolves_cache_dir(
@@ -9028,6 +9068,117 @@ def test_workspace_alias_cli_migrate_existing_conflict(tmp_path, capsys) -> None
     )
     assert exit_code == 0
     assert json.loads(stdout)["migrated_memories"] == 1
+
+
+def test_workspace_alias_cli_compact_projection(tmp_path, capsys) -> None:
+    db_path = tmp_path / "workspace-alias-cli-compact.db"
+    RecollectiumCore(
+        db_path=db_path,
+        embedding_provider=FakeEmbeddingProvider(),
+    ).add_memory(space="workspace", type="fact", content="a", workspace_uid="Canonical")
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "workspace",
+            "alias",
+            "add",
+            "Canonical",
+            "Legacy",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == {
+        "alias_uid": "legacy",
+        "canonical_uid": "canonical",
+        "status": "added",
+        "migrated_memories": 0,
+    }
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "workspace",
+            "list",
+            "--include-aliases",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == [
+        {"workspace_uid": "canonical", "aliases": ["legacy"], "alias_count": 1}
+    ]
+
+
+def test_cli_human_compact_memory_mutations_include_id(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "human-compact-mutation-ids.db"
+
+    add_code, add_stdout, add_stderr = _run_cli(
+        [
+            "--human-readable",
+            "--compact",
+            "--db",
+            str(db_path),
+            "add",
+            "--space",
+            "user",
+            "--type",
+            "fact",
+            "--content",
+            "human compact mutation ids",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+    assert add_code == 0
+    assert add_stderr == ""
+    memory_id = add_stdout.strip().split(": ", 1)[1]
+    assert add_stdout == f"\nMemory saved: {memory_id}\n\n"
+
+    update_code, update_stdout, update_stderr = _run_cli(
+        [
+            "--human-readable",
+            "--compact",
+            "--db",
+            str(db_path),
+            "update",
+            memory_id,
+            "--content",
+            "updated human compact mutation ids",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+    assert update_code == 0
+    assert update_stderr == ""
+    assert update_stdout == f"\nMemory updated: {memory_id}\n\n"
+
+    archive_code, archive_stdout, archive_stderr = _run_cli(
+        [
+            "--human-readable",
+            "--compact",
+            "--db",
+            str(db_path),
+            "archive",
+            memory_id,
+        ],
+        capsys,
+        json_by_default=False,
+    )
+    assert archive_code == 0
+    assert archive_stderr == ""
+    assert archive_stdout == f"\nMemory archived: {memory_id}\n\n"
 
 
 def test_cli_uninstall_package_applies_success_and_failure_details(

@@ -138,9 +138,122 @@ def project_embedding_job(
     """Project an embedding job payload."""
     if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
         return payload
-    return _compact_dict(
-        payload, ("id", "state", "reason", "total", "succeeded", "failed")
+    compact = _compact_dict(
+        payload,
+        (
+            "id",
+            "state",
+            "reason",
+            "total_count",
+            "succeeded_count",
+            "failed_count",
+        ),
     )
+    legacy_count_keys = {
+        "total_count": "total",
+        "succeeded_count": "succeeded",
+        "failed_count": "failed",
+    }
+    for public_key, legacy_key in legacy_count_keys.items():
+        if public_key not in compact and payload.get(legacy_key) is not None:
+            compact[public_key] = payload[legacy_key]
+    return compact
+
+
+def _compact_workspace_alias(alias: dict[str, Any]) -> dict[str, Any]:
+    return _compact_dict(alias, ("alias_uid", "canonical_uid"))
+
+
+def project_workspace_list_item(
+    payload: Any, verbosity: str | ResponseVerbosity | None
+) -> Any:
+    """Project one workspace list item."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    if isinstance(payload, str):
+        return payload
+    if not isinstance(payload, dict):
+        return payload
+    compact = _compact_dict(payload, ("workspace_uid",))
+    aliases = payload.get("aliases")
+    if isinstance(aliases, list):
+        alias_uids: list[str] = []
+        for alias in aliases:
+            if isinstance(alias, str):
+                alias_uids.append(alias)
+            elif isinstance(alias, dict) and isinstance(alias.get("alias_uid"), str):
+                alias_uids.append(alias["alias_uid"])
+        compact["aliases"] = alias_uids
+        compact["alias_count"] = len(alias_uids)
+    elif isinstance(aliases, int) and not isinstance(aliases, bool):
+        compact["alias_count"] = aliases
+    return compact
+
+
+def project_workspace_resolve(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project a workspace resolution payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    compact = _compact_dict(payload, ("canonical_uid", "resolved_by_alias"))
+    if payload.get("resolved_by_alias"):
+        compact.update(_compact_dict(payload, ("input_uid", "normalized_uid")))
+    elif payload.get("input_uid") != payload.get("normalized_uid"):
+        compact.update(_compact_dict(payload, ("input_uid", "normalized_uid")))
+    return compact
+
+
+def project_workspace_alias(
+    payload: Any, verbosity: str | ResponseVerbosity | None
+) -> Any:
+    """Project a workspace alias payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        return _compact_workspace_alias(payload)
+    return payload
+
+
+def project_workspace_alias_add(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project a workspace alias creation payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    alias = payload.get("alias")
+    alias_payload = alias if isinstance(alias, dict) else payload
+    compact = _compact_dict(alias_payload, ("canonical_uid", "alias_uid"))
+    compact["status"] = "added"
+    if payload.get("migrated_memories") is not None:
+        compact["migrated_memories"] = payload["migrated_memories"]
+    return compact
+
+
+def project_workspace_alias_remove(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project a workspace alias removal payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    compact = _compact_dict(payload, ("alias_uid", "canonical_uid"))
+    compact["status"] = "removed"
+    return compact
+
+
+def project_workspace_rename(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project a workspace rename payload."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    compact = _compact_dict(
+        payload, ("old_uid", "new_uid", "memories_updated", "aliases_updated")
+    )
+    compact["status"] = "renamed"
+    return compact
 
 
 def project_embedding_refresh(
@@ -211,4 +324,16 @@ def project_payload(
         return project_embedding_refresh(data, selected)
     if operation == OPERATION_EMBEDDING_JOBS_CLEAR:
         return _compact_dict(data, ("deleted_count", "states"))
+    if operation == OPERATION_WORKSPACES_LIST:
+        return project_workspace_list_item(data, selected)
+    if operation == OPERATION_WORKSPACES_RESOLVE:
+        return project_workspace_resolve(data, selected)
+    if operation == OPERATION_WORKSPACES_ALIASES_LIST:
+        return project_workspace_alias(data, selected)
+    if operation == OPERATION_WORKSPACES_ALIASES_ADD:
+        return project_workspace_alias_add(data, selected)
+    if operation == OPERATION_WORKSPACES_ALIASES_REMOVE:
+        return project_workspace_alias_remove(data, selected)
+    if operation == OPERATION_WORKSPACES_RENAME:
+        return project_workspace_rename(data, selected)
     return data
