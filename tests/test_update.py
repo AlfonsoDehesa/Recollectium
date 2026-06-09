@@ -89,7 +89,66 @@ def test_build_update_plan_force_builds_command_when_equal() -> None:
     )
 
     assert plan.status == "update_available"
-    assert plan.command == ["pipx", "upgrade", "recollectium"]
+    assert plan.command == ["pipx", "install", "--force", "recollectium"]
+
+
+@pytest.mark.parametrize(
+    ("install_method", "expected"),
+    [
+        (
+            "pip",
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                "--force-reinstall",
+                "recollectium",
+            ],
+        ),
+        ("pipx", ["pipx", "install", "--force", "recollectium"]),
+        ("uv_tool", ["uv", "tool", "install", "--force", "recollectium"]),
+    ],
+)
+def test_explicit_latest_release_reinstall_uses_force_install_command(
+    install_method: str, expected: list[str]
+) -> None:
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=ReleaseInfo(version="1.0.0", tag="v1.0.0", url=None),
+        install_method=install_method,  # type: ignore[arg-type]
+        metadata=_metadata(install_method),
+        target=TrackingTarget("latest_release", "latest"),
+        target_source="cli",
+    )
+
+    assert plan.status == "update_available"
+    assert plan.package_action == "reinstall"
+    assert plan.command == expected
+
+
+def test_explicit_pinned_release_pip_reinstall_uses_force_reinstall() -> None:
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="pip",
+        metadata=_metadata("pip"),
+        target=TrackingTarget("release", "v1.2.3", version="1.2.3", ref="v1.2.3"),
+        target_source="cli",
+    )
+
+    assert plan.status == "update_available"
+    assert plan.package_action == "reinstall"
+    assert plan.command == [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "--force-reinstall",
+        "recollectium==1.2.3",
+    ]
 
 
 def test_build_update_plan_rejects_unknown_method() -> None:
@@ -987,6 +1046,7 @@ def test_cli_selector_release_builds_pinned_command_and_metadata_update() -> Non
         "pip",
         "install",
         "--upgrade",
+        "--force-reinstall",
         "recollectium==1.2.3",
     ]
     assert plan.will_update_metadata is True
@@ -1200,7 +1260,7 @@ def test_source_main_target_compares_local_head_to_remote() -> None:
         metadata=_metadata("source"),
         source_root=Path("/repo"),
         target=TrackingTarget("main", "main", ref="main"),
-        target_source="cli",
+        target_source="metadata",
         main_ref=MainRefInfo(remote_commit=commit, current_commit=commit),
     )
 
@@ -1208,6 +1268,128 @@ def test_source_main_target_compares_local_head_to_remote() -> None:
     assert plan.command is None
     assert plan.current_commit == commit
     assert plan.target_commit == commit
+
+
+def test_cli_main_target_reinstalls_even_when_current_commit_matches() -> None:
+    commit = "c" * 40
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="uv_tool",
+        metadata=InstallMetadata(
+            "uv_tool",
+            commit,
+            None,
+            None,
+            tracking_target=TrackingTarget("main", "main", ref="main"),
+            last_resolved_commit=commit,
+        ),
+        target=TrackingTarget("main", "main", ref="main"),
+        target_source="cli",
+        main_ref=MainRefInfo(remote_commit=commit),
+    )
+
+    assert plan.status == "update_available"
+    assert plan.package_action == "reinstall"
+    assert plan.tracking_action == "update_metadata"
+    assert plan.command == [
+        "uv",
+        "tool",
+        "install",
+        "--force",
+        f"git+https://github.com/AlfonsoDehesa/recollectium.git@{commit}",
+    ]
+
+
+def test_cli_latest_target_reinstalls_when_version_matches_main_metadata() -> None:
+    metadata = InstallMetadata(
+        "uv_tool",
+        "main",
+        None,
+        None,
+        tracking_target=TrackingTarget("main", "main", ref="main"),
+    )
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=ReleaseInfo("1.0.0", "v1.0.0", None),
+        install_method="uv_tool",
+        metadata=metadata,
+        target=TrackingTarget("latest_release", "latest"),
+        target_source="cli",
+    )
+
+    assert plan.status == "update_available"
+    assert plan.command == ["uv", "tool", "install", "--force", "recollectium"]
+    assert plan.package_action == "reinstall"
+    assert plan.previous_target_kind == "main"
+    assert plan.metadata_update is not None
+    assert plan.metadata_update["tracking_target"] == {
+        "kind": "latest_release",
+        "selector": "latest",
+        "repo": "AlfonsoDehesa/recollectium",
+    }
+
+
+def test_cli_pinned_release_reinstalls_when_version_matches() -> None:
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=None,
+        install_method="uv_tool",
+        metadata=InstallMetadata(
+            "uv_tool",
+            "main",
+            None,
+            None,
+            tracking_target=TrackingTarget("main", "main", ref="main"),
+        ),
+        target=normalize_version_selector("1.0.0"),
+        target_source="cli",
+    )
+
+    assert plan.status == "update_available"
+    assert plan.package_action == "reinstall"
+    assert plan.command == ["uv", "tool", "install", "--force", "recollectium==1.0.0"]
+    assert plan.metadata_update is not None
+    assert plan.metadata_update["source_ref"] == "v1.0.0"
+
+
+def test_cli_latest_target_check_previews_without_metadata_update() -> None:
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=ReleaseInfo("1.0.0", "v1.0.0", None),
+        install_method="uv_tool",
+        metadata=InstallMetadata(
+            "uv_tool",
+            "main",
+            None,
+            None,
+            tracking_target=TrackingTarget("main", "main", ref="main"),
+        ),
+        target=TrackingTarget("latest_release", "latest"),
+        target_source="cli",
+        dry_run=True,
+    )
+
+    assert plan.status == "dry_run"
+    assert plan.command == ["uv", "tool", "install", "--force", "recollectium"]
+    assert plan.package_action == "would_reinstall"
+    assert plan.tracking_action == "would_update_metadata"
+    assert plan.will_update_metadata is False
+    assert plan.metadata_update is None
+
+
+def test_force_without_target_reinstalls_existing_selected_target() -> None:
+    plan = build_update_plan(
+        current_version="1.0.0",
+        latest_release=ReleaseInfo("1.0.0", "v1.0.0", None),
+        install_method="pipx",
+        metadata=_metadata("pipx"),
+        force=True,
+    )
+
+    assert plan.status == "update_available"
+    assert plan.package_action == "reinstall"
+    assert plan.command == ["pipx", "install", "--force", "recollectium"]
 
 
 def test_resolve_main_ref_uses_ls_remote_for_non_source() -> None:

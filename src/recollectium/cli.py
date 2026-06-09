@@ -492,6 +492,72 @@ def _format_dev_eval_output(
     return "\n".join(lines) + "\n\n"
 
 
+def _upgrade_target_phrase(payload: dict[str, Any]) -> str:
+    kind = payload.get("target_kind")
+    if kind == "main":
+        return "main"
+    if kind == "latest_release":
+        return "the latest release"
+    if kind == "release":
+        return f"version {payload.get('target_ref') or payload.get('latest_tag') or payload.get('target_selector')}"
+    return str(
+        payload.get("target_ref")
+        or payload.get("target_selector")
+        or "the selected target"
+    )
+
+
+def _upgrade_target_value(payload: dict[str, Any]) -> str | None:
+    if payload.get("target_kind") == "main":
+        commit = payload.get("target_commit") or payload.get("current_commit")
+        return str(commit)[:7] if isinstance(commit, str) and commit else None
+    if payload.get("target_kind") == "release":
+        return None
+    value = payload.get("target_ref") or payload.get("latest_tag")
+    return str(value) if value else None
+
+
+def _upgrade_previous_phrase(payload: dict[str, Any]) -> str | None:
+    kind = payload.get("previous_target_kind")
+    if kind == "main":
+        return "main"
+    if kind == "latest_release":
+        return "the latest release"
+    if kind == "release":
+        return f"version {payload.get('previous_target_ref') or payload.get('previous_target_selector')}"
+    return None
+
+
+def _format_upgrade_sentence(payload: dict[str, Any], *, color: bool = False) -> str:
+    status = payload.get("status")
+    target_phrase = _upgrade_target_phrase(payload)
+    target_value = _upgrade_target_value(payload)
+    suffix = f": {target_value}." if target_value else "."
+    previous = _upgrade_previous_phrase(payload)
+
+    if status == "up_to_date":
+        if payload.get("target_kind") == "main":
+            sentence = f"Recollectium main is already up to date{suffix}"
+        elif payload.get("target_kind") == "latest_release":
+            sentence = f"Recollectium is already on the latest release{suffix}"
+        else:
+            sentence = f"Recollectium is already on {target_phrase}{suffix}"
+        return _style(sentence, _RICH_HINT, enabled=color) + "\n"
+
+    verb = "would switch" if status == "dry_run" else "switched"
+    if previous and previous != target_phrase and payload.get("target_source") == "cli":
+        sentence = f"Recollectium {verb} from {previous} to {target_phrase}{suffix}"
+    elif status == "dry_run":
+        sentence = f"Recollectium would update to {target_phrase}{suffix}"
+    elif payload.get("target_kind") == "latest_release":
+        sentence = f"Recollectium was updated to the latest release{suffix}"
+    elif payload.get("target_kind") == "main":
+        sentence = f"Recollectium was updated to main{suffix}"
+    else:
+        sentence = f"Recollectium was updated to {target_phrase}{suffix}"
+    return _style(sentence, _RICH_SUCCESS, enabled=color) + "\n"
+
+
 def _format_human_output(
     payload: Any,
     *,
@@ -600,6 +666,9 @@ def _format_human_output(
         if verbosity == RESPONSE_VERBOSITY_VERBOSE:
             return _format_dev_eval_output(payload, color=color, verbose=True)
         return _format_dev_eval_output(payload, color=color, verbose=False)
+
+    if command == "upgrade" and verbosity == RESPONSE_VERBOSITY_COMPACT:
+        return _format_upgrade_sentence(payload, color=color)
 
     if command == "init":
         lines = [_style("Recollectium initialized", _RICH_HEADING, enabled=color)]
@@ -4255,15 +4324,15 @@ def _build_parser() -> argparse.ArgumentParser:
     upgrade_parser.add_argument(
         "--force",
         action="store_true",
-        help="Build and apply an upgrade plan even when versions appear current.",
+        help="Reinstall the already-selected target when a metadata-driven upgrade appears current.",
     )
     target_group = upgrade_parser.add_mutually_exclusive_group()
     target_group.add_argument(
         "--version",
         metavar="VERSION",
         help=(
-            "Target a release. Use 'latest' to track the latest GitHub release, "
-            "or a release version/tag such as '1.0.2' or 'v1.0.2'."
+            "Target and reinstall from a release without --force. Use 'latest' to track "
+            "the latest GitHub release, or a release version/tag such as '1.0.2' or 'v1.0.2'."
         ),
     )
     target_group.add_argument(
@@ -4275,7 +4344,7 @@ def _build_parser() -> argparse.ArgumentParser:
     target_group.add_argument(
         "--main",
         action="store_true",
-        help="Track/install from the main branch. Mutually exclusive with --version.",
+        help="Track and reinstall from the main branch without --force. Mutually exclusive with --version.",
     )
     upgrade_parser.add_argument(
         "--install-method",
