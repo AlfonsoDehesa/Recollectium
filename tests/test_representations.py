@@ -394,11 +394,11 @@ def test_compact_uninstall_projection_summarizes_data_and_package() -> None:
     payload = {
         "status": "package_removal_unsupported",
         "package": {
+            "install_method": "source",
             "uninstall": {
                 "status": "unsupported",
-                "install_method": "source",
                 "command": None,
-            }
+            },
         },
         "service": {"status": "no_service_running"},
         "shell_completion": {"targets": [{"path": "/rc", "removed": False}]},
@@ -428,6 +428,39 @@ def test_compact_uninstall_projection_summarizes_data_and_package() -> None:
         )
         is payload
     )
+
+
+def test_compact_uninstall_projection_uses_parent_package_install_method() -> None:
+    payload = {
+        "status": "dry_run",
+        "package": {
+            "install_method": "bootstrap",
+            "uninstall": {
+                "status": "dry_run",
+                "command": "python -m pip uninstall recollectium",
+                "argv": ["python", "-m", "pip", "uninstall", "recollectium"],
+                "hint": "Dry run only.",
+            },
+        },
+        "data": {"preserved": True, "dry_run": True},
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_LIFECYCLE_UNINSTALL
+    ) == {
+        "status": "dry_run",
+        "data": {
+            "status": "would_preserve",
+            "preserved": True,
+            "dry_run": True,
+            "action": "preserve",
+        },
+        "package": {
+            "status": "dry_run",
+            "install_method": "bootstrap",
+            "hint": "Dry run only.",
+        },
+    }
 
 
 def test_compact_uninstall_projection_keeps_dry_run_purge_outcomes() -> None:

@@ -474,10 +474,16 @@ def project_uninstall(
     if isinstance(package, dict):
         uninstall = package.get("uninstall")
         if isinstance(uninstall, dict):
-            compact["package"] = _compact_dict(
+            compact_package = _compact_dict(
                 uninstall,
                 ("status", "install_method", "returncode", "manual_hint", "hint"),
             )
+            if (
+                compact_package.get("install_method") is None
+                and package.get("install_method") is not None
+            ):
+                compact_package["install_method"] = package["install_method"]
+            compact["package"] = compact_package
             if uninstall.get("status") == "unsupported" or uninstall.get("manual_hint"):
                 compact["manual_hint"] = (
                     uninstall.get("manual_hint")
