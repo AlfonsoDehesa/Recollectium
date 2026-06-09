@@ -15,6 +15,71 @@ info() {
   printf '%s\n' "$1"
 }
 
+installer_verbose() {
+  [ "${RECOLLECTIUM_INSTALL_VERBOSE:-}" = "1" ] || [ "${RECOLLECTIUM_INSTALL_VERBOSE:-}" = "true" ] || [ "${RECOLLECTIUM_INSTALL_VERBOSE:-}" = "yes" ]
+}
+
+run_with_progress() {
+  status="$1"
+  failure="$2"
+  shift 2
+
+  if installer_verbose; then
+    info "$status"
+    "$@" || fail "$failure"
+    return
+  fi
+
+  output_file=$(mktemp "${TMPDIR:-/tmp}/recollectium-install.XXXXXX") || fail "failed to create installer log"
+  if recollectium_stdout_is_tty; then
+    (
+      "$@"
+    ) >"$output_file" 2>&1 &
+    command_pid=$!
+    (
+      frames='|/-\\'
+      frame_index=0
+      while kill -0 "$command_pid" 2>/dev/null; do
+        frame_index=$((frame_index + 1))
+        frame=$(printf '%s' "$frames" | cut -c $((frame_index % 4 + 1)))
+        printf '\r%s %s' "$frame" "$status"
+        sleep 0.1
+      done
+    ) &
+    spinner_pid=$!
+    if wait "$command_pid"; then
+      command_status=0
+    else
+      command_status=$?
+    fi
+    kill "$spinner_pid" 2>/dev/null || true
+    wait "$spinner_pid" 2>/dev/null || true
+    printf '\r\033[K'
+    if [ "$command_status" -eq 0 ]; then
+      rm -f "$output_file"
+      return
+    fi
+  else
+    if "$@" >"$output_file" 2>&1; then
+      rm -f "$output_file"
+      return
+    else
+      command_status=$?
+    fi
+  fi
+
+  if recollectium_stdout_is_tty; then
+    printf '\r\033[K' >&2
+  fi
+  printf 'error: %s\n' "$failure" >&2
+  if [ -s "$output_file" ]; then
+    printf '%s\n' "Captured command output:" >&2
+    cat "$output_file" >&2
+  fi
+  rm -f "$output_file"
+  exit "${command_status:-1}"
+}
+
 show_banner() {
   [ -t 1 ] || return 0
 
@@ -492,28 +557,65 @@ configure_shell_completion() {
     *)    shell="bash"; rc="${HOME}/.bashrc" ;;  # default to bash per spec
   esac
 
-  PATH="${TOOL_BIN_DIR}:${INSTALL_DIR}:$PATH" "$UV_BIN" tool run --from "$package" recollectium completion --install "$shell" --yes >/dev/null \
-    || fail "failed to configure shell completion"
+  run_with_progress "Configuring shell completion..." "failed to configure shell completion" configure_shell_completion_command "$shell"
   COMPLETION_RC="$rc"
   COMPLETION_SHELL="$shell"
   info "Shell completion configured in ${rc}."
 }
 
-show_banner
+configure_shell_completion_command() {
+  shell="$1"
+  PATH="${TOOL_BIN_DIR}:${INSTALL_DIR}:$PATH" "$UV_BIN" tool run --from "$package" recollectium completion --install "$shell" --yes
+}
 
-install_uv
-resolve_ref
-ref="$RESOLVED_REF"
-package="git+https://github.com/${REPO}.git@${ref}"
-resolve_tool_bin_dir
-PATH="${TOOL_BIN_DIR}:${ORIGINAL_PATH}"
-export PATH
-info "Installing Recollectium from ${ref}..."
-"$UV_BIN" tool install --python 3.12 --force "$package"
-verify_installed_tool
-info "Maintaining embeddings (config, database, model, stale memories)..."
-"$UV_BIN" tool run --from "$package" recollectium embedding-maintenance
-ensure_path_hint
-configure_shell_completion
-record_install_metadata
-print_final_guidance
+phase_install_uv() {
+  install_uv
+}
+
+phase_resolve_target() {
+  resolve_ref
+  ref="$RESOLVED_REF"
+  package="git+https://github.com/${REPO}.git@${ref}"
+}
+
+install_package_command() {
+  "$UV_BIN" tool install --python 3.12 --force "$package"
+}
+
+phase_install_package() {
+  resolve_tool_bin_dir
+  PATH="${TOOL_BIN_DIR}:${ORIGINAL_PATH}"
+  export PATH
+  run_with_progress "Installing Recollectium from ${ref}..." "failed to install Recollectium package" install_package_command
+  verify_installed_tool
+}
+
+run_embedding_maintenance_command() {
+  "$UV_BIN" tool run --from "$package" recollectium embedding-maintenance
+}
+
+phase_run_maintenance() {
+  run_with_progress "Maintaining embeddings (config, database, model, stale memories)..." "embedding maintenance failed; retry with: recollectium embedding-maintenance" run_embedding_maintenance_command
+}
+
+phase_configure_path_and_completion() {
+  ensure_path_hint
+  configure_shell_completion
+}
+
+phase_write_metadata_and_guidance() {
+  record_install_metadata
+  print_final_guidance
+}
+
+main() {
+  show_banner
+  phase_install_uv
+  phase_resolve_target
+  phase_install_package
+  phase_run_maintenance
+  phase_configure_path_and_completion
+  phase_write_metadata_and_guidance
+}
+
+main "$@"

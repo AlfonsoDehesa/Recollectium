@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _unix_bootstrap_helpers() -> str:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
-    return script.split("\ninstall_uv\n", maxsplit=1)[0]
+    return script.split('\nmain "$@"\n', maxsplit=1)[0]
 
 
 def test_unix_bootstrap_unknown_shell_falls_back_to_bash_completion() -> None:
@@ -171,12 +171,47 @@ def test_bootstrap_installers_run_embedding_maintenance_strictly() -> None:
     assert "recollectium embedding-maintenance" in unix_script
     assert "recollectium init || true" not in unix_script
     assert "recollectium embedding-maintenance" in windows_script
+    assert "failed to install Recollectium package" in windows_script
     assert (
-        'if ($LASTEXITCODE -ne 0) { throw "failed to install Recollectium package" }'
+        "embedding maintenance failed; retry with: recollectium embedding-maintenance"
         in windows_script
     )
+
+
+def test_bootstrap_installers_have_main_phase_orchestration() -> None:
+    unix_script = (ROOT / "install.sh").read_text(encoding="utf-8")
+    windows_script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert "main()" in unix_script
+    assert "phase_install_package" in unix_script
+    assert "phase_run_maintenance" in unix_script
+    assert "phase_configure_path_and_completion" in unix_script
+    assert 'main "$@"' in unix_script
+    assert "function Main" in windows_script
+    assert "Install-PackagePhase" in windows_script
+    assert "Invoke-MaintenancePhase" in windows_script
+    assert "Configure-PathAndCompletionPhase" in windows_script
+    assert "Main\n" in windows_script
+
+
+def test_bootstrap_installers_support_quiet_progress_and_verbose_opt_in() -> None:
+    unix_script = (ROOT / "install.sh").read_text(encoding="utf-8")
+    windows_script = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert "RECOLLECTIUM_INSTALL_VERBOSE" in unix_script
+    assert "run_with_progress" in unix_script
+    assert "Captured command output:" in unix_script
+    assert "Installing Recollectium from ${ref}..." in unix_script
     assert (
-        'if ($LASTEXITCODE -ne 0) { throw "embedding maintenance failed; retry with: recollectium embedding-maintenance" }'
+        "Maintaining embeddings (config, database, model, stale memories)..."
+        in unix_script
+    )
+    assert "RECOLLECTIUM_INSTALL_VERBOSE" in windows_script
+    assert "Invoke-NativeInstallerPhase" in windows_script
+    assert "Captured command output:" in windows_script
+    assert "Installing Recollectium from $script:Ref..." in windows_script
+    assert (
+        "Maintaining embeddings (config, database, model, stale memories)..."
         in windows_script
     )
 
@@ -185,7 +220,8 @@ def test_unix_bootstrap_resolves_tracking_metadata_in_current_shell() -> None:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
 
     assert "ref=$(resolve_ref)" not in script
-    assert 'resolve_ref\nref="$RESOLVED_REF"' in script
+    assert "resolve_ref" in script
+    assert 'ref="$RESOLVED_REF"' in script
     assert "RESOLVED_REF=$(resolve_main_commit)" in script
     assert 'RESOLVED_REF="$ref"' in script
 
@@ -685,10 +721,8 @@ def test_unix_final_guidance_color_supported_path_includes_ansi(
 def test_unix_bootstrap_resolves_uv_tool_bin_before_tool_install() -> None:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
 
-    main_block = script.split(
-        'package="git+https://github.com/${REPO}.git@${ref}"', maxsplit=1
-    )[1]
-    install_index = main_block.index('"$UV_BIN" tool install')
+    main_block = script.split("phase_install_package() {", maxsplit=1)[1]
+    install_index = main_block.index("run_with_progress")
     resolve_index = main_block.index("resolve_tool_bin_dir")
     assert resolve_index < install_index
     assert 'PATH="${TOOL_BIN_DIR}:${ORIGINAL_PATH}"' in main_block
@@ -865,7 +899,7 @@ def test_windows_bootstrap_installs_powershell_current_user_current_host_complet
 
     assert "$PROFILE.CurrentUserCurrentHost" in script
     assert "RECOLLECTIUM_POWERSHELL_PROFILE" in script
-    assert "recollectium completion --install powershell --yes" in script
+    assert '"recollectium", "completion", "--install", "powershell", "--yes"' in script
     assert "managed_completion_edits" in script
 
 
