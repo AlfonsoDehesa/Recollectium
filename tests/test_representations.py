@@ -624,6 +624,7 @@ def test_compact_service_projections_keep_connection_contract() -> None:
         "type": "api",
         "endpoint": "http://127.0.0.1:8765",
         "pid": 123,
+        "health_url": "http://127.0.0.1:8765/v1/health",
         "version_url": "http://127.0.0.1:8765/v1/version",
         "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
         "discovery_file": "/runtime/service-discovery.json",
@@ -645,6 +646,7 @@ def test_compact_service_projections_keep_connection_contract() -> None:
         "type": "api",
         "endpoint": "http://127.0.0.1:8765",
         "pid": 123,
+        "health_url": "http://127.0.0.1:8765/v1/health",
         "version_url": "http://127.0.0.1:8765/v1/version",
         "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
     }
@@ -657,6 +659,7 @@ def test_compact_service_projections_keep_connection_contract() -> None:
             "type": "api",
             "endpoint": "http://127.0.0.1:8765",
             "pid": 123,
+            "health_url": "http://127.0.0.1:8765/v1/health",
             "version_url": "http://127.0.0.1:8765/v1/version",
             "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
             "discovery_file": "/runtime/service-discovery.json",
@@ -671,6 +674,7 @@ def test_compact_service_projections_keep_connection_contract() -> None:
         "type": "api",
         "endpoint": "http://127.0.0.1:8765",
         "pid": 123,
+        "health_url": "http://127.0.0.1:8765/v1/health",
         "version_url": "http://127.0.0.1:8765/v1/version",
         "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
     }

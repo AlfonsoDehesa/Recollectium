@@ -613,6 +613,7 @@ def project_service_discover(
                 "type",
                 "endpoint",
                 "pid",
+                "health_url",
                 "version_url",
                 "capabilities_url",
             ),
