@@ -8,6 +8,8 @@ from pathlib import Path
 from recollectium.dev_seed import (
     DEV_SEED_PROJECT_THEMES_BY_UID,
     DEV_SEED_PROJECTS,
+    DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+    DEV_SEED_USER_MEMORY_COUNT,
     DEV_SEED_USER_TOPICS,
     PROJECT_MEMORIES_BY_UID,
     ensure_seeded_dev_database,
@@ -127,6 +129,58 @@ def test_reset_seeded_dev_database_recreates_seed_state(tmp_path: Path) -> None:
     assert len(workspaces) == 3
     assert len(topics) == 10
     assert seeded_dev_database_is_initialized(db_path)
+
+
+def test_reset_seeded_dev_database_reports_user_and_workspace_progress(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "dev.db"
+    provider = FakeEmbeddingProvider()
+    events: list[dict[str, object]] = []
+
+    reset_seeded_dev_database(db_path, provider, progress_callback=events.append)
+
+    assert len(events) == DEV_SEED_USER_MEMORY_COUNT + DEV_SEED_TOTAL_WORKSPACE_MEMORIES
+    assert events[0] == {
+        "phase": "user_memories",
+        "label": "Seeded user memories",
+        "completed": 1,
+        "total": DEV_SEED_USER_MEMORY_COUNT,
+    }
+    assert events[DEV_SEED_USER_MEMORY_COUNT - 1] == {
+        "phase": "user_memories",
+        "label": "Seeded user memories",
+        "completed": DEV_SEED_USER_MEMORY_COUNT,
+        "total": DEV_SEED_USER_MEMORY_COUNT,
+    }
+    assert events[DEV_SEED_USER_MEMORY_COUNT] == {
+        "phase": "workspace_memories",
+        "label": "Seeded workspace memories",
+        "completed": 1,
+        "total": DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+    }
+    assert events[-1] == {
+        "phase": "workspace_memories",
+        "label": "Seeded workspace memories",
+        "completed": DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+        "total": DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+    }
+
+
+def test_ensure_seeded_dev_database_skips_progress_when_seed_is_current(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "dev.db"
+    provider = FakeEmbeddingProvider()
+    reset_seeded_dev_database(db_path, provider)
+    events: list[dict[str, object]] = []
+
+    result = ensure_seeded_dev_database(
+        db_path, provider, progress_callback=events.append
+    )
+
+    assert result is None
+    assert events == []
 
 
 def test_seeded_dev_database_uses_unique_public_safe_fictional_memories(

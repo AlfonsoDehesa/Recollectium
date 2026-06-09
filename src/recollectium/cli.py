@@ -745,6 +745,8 @@ _DEV_EVAL_PROGRESS_LABELS = {
     "Checking embedding provider readiness": "Checking provider",
     "Checking provider": "Checking provider",
     "Preparing seeded development database": "Preparing dev DB",
+    "Seeded user memories": "Seed user memories",
+    "Seeded workspace memories": "Seed workspace memories",
     "Loading eval fixtures": "Loading fixtures",
     "Running exact MRR": "Exact MRR",
     "Running semantic MRR": "Semantic MRR",
@@ -767,6 +769,8 @@ _REEMBEDDING_PROGRESS_LABELS = {
 _THRESHOLD_OPTIMIZATION_PROGRESS_LABELS = {
     "Checking embedding provider readiness": "Checking provider",
     "Preparing seeded development database": "Preparing dev DB",
+    "Seeded user memories": "Seed user memories",
+    "Seeded workspace memories": "Seed workspace memories",
     "Loading fixtures": "Loading fixtures",
     "Loading candidate pools": "Loading candidates",
     "Scoring thresholds": "Scoring thresholds",
@@ -774,6 +778,11 @@ _THRESHOLD_OPTIMIZATION_PROGRESS_LABELS = {
     "Writing PNG artifact": "Writing PNG",
     "Writing CSV artifact": "Writing CSV",
     "Writing CSV sweep to stdout": "Writing CSV stdout",
+}
+
+_DEV_SEED_PROGRESS_LABELS = {
+    "Seeded user memories": "Seed user memories",
+    "Seeded workspace memories": "Seed workspace memories",
 }
 
 
@@ -820,6 +829,76 @@ def _human_reembedding_progress_reporter(
     if output_format != CLI_OUTPUT_HUMAN_READABLE:
         return None
     return _ReembeddingProgressReporter(sys.stderr)
+
+
+class _DevSeedProgressReporter:
+    """Translate seeded dev database insertion progress to a single-line renderer."""
+
+    def __init__(self, stream: Any) -> None:
+        title_limit = _live_progress_title_limit(stream)
+        self._progress = SingleLineProgressReporter(
+            stream,
+            labels=_DEV_SEED_PROGRESS_LABELS,
+            title_limit=12 if title_limit is None else title_limit,
+        )
+
+    def __enter__(self) -> _DevSeedProgressReporter:
+        self._progress.__enter__()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.finish()
+
+    def finish(self) -> None:
+        self._progress.finish()
+
+    def __call__(self, event: dict[str, object]) -> None:
+        completed = event.get("completed")
+        total = event.get("total")
+        self._progress.update(
+            str(event.get("label") or "Seeded dev memories"),
+            completed=completed if isinstance(completed, int) else 0,
+            total=total if isinstance(total, int) else 0,
+        )
+
+
+class _DevSeedProgressContext:
+    """No-op context wrapper for optional seeded dev database progress."""
+
+    def __init__(self, reporter: _DevSeedProgressReporter | None) -> None:
+        self.reporter = reporter
+
+    def __enter__(self) -> _DevSeedProgressReporter | None:
+        if self.reporter is not None:
+            self.reporter.__enter__()
+        return self.reporter
+
+    def __exit__(self, *_: object) -> None:
+        if self.reporter is not None:
+            self.reporter.finish()
+
+
+def _human_dev_seed_progress_context(output_format: str) -> _DevSeedProgressContext:
+    if output_format != CLI_OUTPUT_HUMAN_READABLE:
+        return _DevSeedProgressContext(None)
+    try:
+        if not sys.stderr.isatty():
+            return _DevSeedProgressContext(None)
+    except (OSError, ValueError):
+        return _DevSeedProgressContext(None)
+    return _DevSeedProgressContext(_DevSeedProgressReporter(sys.stderr))
+
+
+def _call_with_optional_progress_callback(
+    callback: Any,
+    *args: object,
+    progress_callback: object | None,
+) -> Any:
+    if progress_callback is None or not _callable_accepts_cli_readiness_keyword(
+        callback, "progress_callback"
+    ):
+        return callback(*args)
+    return callback(*args, progress_callback=progress_callback)
 
 
 class _ModelReadinessProgressReporter:
@@ -1052,6 +1131,16 @@ class _ThresholdOptimizationProgressReporter:
             "Scoring thresholds",
             completed=completed,
             total=self._scoring_total,
+        )
+
+    def __call__(self, event: dict[str, object]) -> None:
+        completed = event.get("completed")
+        total = event.get("total")
+        self._ensure_started()
+        self._progress.update(
+            str(event.get("label") or "Seeded dev memories"),
+            completed=completed if isinstance(completed, int) else 0,
+            total=total if isinstance(total, int) else 0,
         )
 
     def _phase_label(self, message: str) -> str:
@@ -2054,7 +2143,12 @@ def _run_seeded_dev_eval(
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
     if eval_progress_reporter is not None:
         eval_progress_reporter.phase("Preparing seeded development database")
-    seed_result = ensure_seeded_dev_database(dev_db_path, provider)
+    seed_result = _call_with_optional_progress_callback(
+        ensure_seeded_dev_database,
+        dev_db_path,
+        provider,
+        progress_callback=eval_progress_reporter,
+    )
     if eval_progress_reporter is not None:
         eval_progress_reporter.phase("Loading eval fixtures")
     core = RecollectiumCore(
@@ -2155,7 +2249,12 @@ def _run_seeded_dev_optimize_threshold(
     dev_db_path = _resolve_seeded_dev_database_path(cfg)
     if progress is not None:
         progress.phase(f"Preparing seeded development database: {dev_db_path}")
-    seed_result = ensure_seeded_dev_database(dev_db_path, provider)
+    seed_result = _call_with_optional_progress_callback(
+        ensure_seeded_dev_database,
+        dev_db_path,
+        provider,
+        progress_callback=progress,
+    )
     if progress is not None:
         progress.phase("Loading fixtures")
     cases = threshold_cases_from_fixture()
@@ -4995,9 +5094,15 @@ def _handle_dev_command(
                     log_level=args.log_level,
                     output_format=output_format,
                 )
-                seed_result = ensure_seeded_dev_database(
-                    _resolve_seeded_dev_database_path(cfg), provider
-                )
+                with _human_dev_seed_progress_context(
+                    output_format
+                ) as progress_reporter:
+                    seed_result = _call_with_optional_progress_callback(
+                        ensure_seeded_dev_database,
+                        _resolve_seeded_dev_database_path(cfg),
+                        provider,
+                        progress_callback=progress_reporter,
+                    )
             else:
                 seed_result = None
             config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -5033,9 +5138,13 @@ def _handle_dev_command(
                 log_level=args.log_level,
                 output_format=output_format,
             )
-            result = reset_seeded_dev_database(
-                _resolve_seeded_dev_database_path(cfg), provider
-            )
+            with _human_dev_seed_progress_context(output_format) as progress_reporter:
+                result = _call_with_optional_progress_callback(
+                    reset_seeded_dev_database,
+                    _resolve_seeded_dev_database_path(cfg),
+                    provider,
+                    progress_callback=progress_reporter,
+                )
     except FileNotFoundError as exc:
         return _config_missing_error(exc, command="dev")
     except ValidationError as exc:
