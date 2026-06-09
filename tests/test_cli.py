@@ -6586,13 +6586,48 @@ def test_cli_uninstall_purge_closes_log_handlers_before_deleting_logs(
     )
 
     exit_code, stdout, stderr = _run_cli(
-        ["uninstall", "--purge", "--yes-delete-all-recollectium-data"], capsys
+        [
+            "--verbose",
+            "uninstall",
+            "--purge",
+            "--yes-delete-all-recollectium-data",
+        ],
+        capsys,
+        json_by_default=False,
     )
 
     assert exit_code == 0
     assert "permanently deleted" in stderr
-    assert json.loads(stdout)["data"]["purge"]["deleted"]
+    assert str(config_path) in stderr
+    assert "Uninstall" in stdout
     assert shutdown_called
+
+
+def test_cli_uninstall_json_purge_yes_delete_keeps_stderr_structured(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    data_dir = tmp_path / "data" / "recollectium"
+    cache_dir = tmp_path / "cache" / "recollectium"
+    logs_dir = tmp_path / "state" / "recollectium" / "logs"
+    runtime_dir = tmp_path / "runtime" / "recollectium"
+    for directory in (config_path.parent, data_dir, cache_dir, logs_dir, runtime_dir):
+        directory.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "uninstall", "--purge", "--yes-delete-all-recollectium-data"],
+        capsys,
+    )
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert "The following Recollectium-owned paths" not in stderr
+    assert str(tmp_path) not in stderr
+    assert payload["data"]["purge"]["deleted"]
 
 
 def test_cli_uninstall_removes_managed_completion_block(
@@ -7643,8 +7678,8 @@ def test_cli_uninstall_purge_accepts_interactive_confirmation(
 
     payload = json.loads(stdout)
     assert exit_code == 0
-    assert "permanently deleted" in stderr
-    assert str(config_path) in stderr
+    assert stderr == ""
+    assert str(config_path) not in stderr
     assert payload["data"]["purge"]["deleted"]
 
 
@@ -7671,7 +7706,7 @@ def test_cli_uninstall_purge_deletes_recollectium_owned_paths(
 
     payload = json.loads(stdout)
     assert exit_code == 0
-    assert "permanently deleted" in stderr
+    assert stderr == ""
     assert payload["data"]["purge"]["deleted"]
     assert not config_path.parent.exists()
     assert not data_dir.exists()
@@ -7720,7 +7755,7 @@ def test_cli_uninstall_purge_deletes_macos_application_support_install_metadata(
     payload = json.loads(stdout)
     skipped = payload["data"]["purge"]["skipped"]
     assert exit_code == 0
-    assert "permanently deleted" in stderr
+    assert stderr == ""
     assert not metadata_path.exists()
     assert (
         sum(
@@ -7777,9 +7812,9 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     payload = json.loads(stdout)
     skipped = payload["data"]["purge"]["skipped"]
     assert exit_code == 0
-    assert "permanently deleted" in stderr
+    assert stderr == ""
     assert f"  {shared_cache}\n" not in stderr
-    assert str(model_cache) in stderr
+    assert str(model_cache) not in stderr
     assert shared_cache.exists()
     assert not model_cache.exists()
     assert any(
@@ -7811,7 +7846,7 @@ def test_cli_uninstall_purge_skips_explicit_config_outside_recollectium_dir(
 
     payload = json.loads(stdout)
     assert exit_code == 0
-    assert "permanently deleted" in stderr
+    assert stderr == ""
     assert str(config_path) not in stderr
     assert config_path.exists()
     assert any(

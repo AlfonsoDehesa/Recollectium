@@ -3726,6 +3726,10 @@ def _handle_uninstall_command(
         output_format == CLI_OUTPUT_HUMAN_READABLE
         and _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_COMPACT
     )
+    verbose_human_output = (
+        output_format == CLI_OUTPUT_HUMAN_READABLE
+        and _CURRENT_RESPONSE_VERBOSITY != RESPONSE_VERBOSITY_COMPACT
+    )
     purge_preview: dict[str, Any] | None = None
     if args.purge and not args.dry_run:
         purge_preview = _purge_targets(plan, dry_run=True)
@@ -3782,7 +3786,7 @@ def _handle_uninstall_command(
         if args.dry_run:
             data_payload["purge"] = _purge_targets(plan, dry_run=True)
         else:
-            if not compact_human_output:
+            if verbose_human_output:
                 sys.stderr.write(
                     "The following Recollectium-owned paths will be permanently deleted:\n"
                 )
