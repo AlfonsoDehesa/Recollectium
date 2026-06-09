@@ -672,6 +672,48 @@ def test_cli_compact_human_uninstall_formats_from_full_payload(
     )
 
 
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            {"status": "uninstalled", "data": {"status": "preserved"}},
+            "Uninstalled. Data preserved.",
+        ),
+        (
+            {"status": "uninstalled", "data": {"status": "deleted"}},
+            "Uninstalled. All Recollectium data was deleted.",
+        ),
+    ],
+)
+def test_cli_compact_human_uninstall_uses_explicit_data_status(
+    payload: dict[str, Any], expected: str
+) -> None:
+    assert (
+        _format_human_output(
+            payload,
+            command="uninstall",
+            response_verbosity=RESPONSE_VERBOSITY_COMPACT,
+        )
+        == f"{expected}\n"
+    )
+
+
+def test_cli_operation_for_workspace_alias_infers_legacy_shapes() -> None:
+    assert cli_module._operation_for_command("workspace alias", []) == (
+        cli_module.OPERATION_WORKSPACES_ALIASES_LIST
+    )
+    assert (
+        cli_module._operation_for_command(
+            "workspace alias", {"alias_uid": "short", "migrated_memories": 1}
+        )
+        == cli_module.OPERATION_WORKSPACES_ALIASES_ADD
+    )
+    assert (
+        cli_module._operation_for_command("workspace alias", {"alias_uid": "short"})
+        == cli_module.OPERATION_WORKSPACES_ALIASES_REMOVE
+    )
+
+
 def test_cli_json_service_lifecycle_projection_keeps_small_shape(
     capsys: CaptureFixture[str],
 ) -> None:

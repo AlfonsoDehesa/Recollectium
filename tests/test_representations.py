@@ -19,15 +19,29 @@ from recollectium.representations import (
     OPERATION_WORKSPACES_RENAME,
     OPERATION_WORKSPACES_RESOLVE,
     ResponseVerbosity,
+    project_dev_eval,
+    project_dev_optimize_threshold,
     project_embedding_job,
+    project_embedding_maintenance,
     project_embedding_refresh,
     project_embedding_status,
+    project_init,
     project_memories,
     project_memory,
     project_mutation,
     project_payload,
     project_search_result,
     project_search_results,
+    project_service_discover,
+    project_service_lifecycle,
+    project_uninstall,
+    project_upgrade,
+    project_workspace_alias,
+    project_workspace_alias_add,
+    project_workspace_alias_remove,
+    project_workspace_list_item,
+    project_workspace_rename,
+    project_workspace_resolve,
 )
 
 
@@ -674,3 +688,161 @@ def test_compact_service_projections_keep_connection_contract() -> None:
         )
         is discover_payload
     )
+
+
+def test_verbose_specialized_projection_helpers_return_original_payloads() -> None:
+    payload = {"status": "ok", "workspace_uid": "core", "metrics": {}}
+
+    helpers = (
+        project_workspace_list_item,
+        project_workspace_resolve,
+        project_workspace_alias,
+        project_workspace_alias_add,
+        project_workspace_alias_remove,
+        project_workspace_rename,
+        project_init,
+        project_embedding_maintenance,
+        project_upgrade,
+        project_uninstall,
+        project_dev_eval,
+        project_dev_optimize_threshold,
+        project_service_discover,
+        project_service_lifecycle,
+    )
+
+    for helper in helpers:
+        assert helper(payload, "verbose") is payload
+
+
+def test_compact_workspace_projection_scalar_and_fallback_variants() -> None:
+    assert project_workspace_list_item("core", "compact") == "core"
+    assert project_workspace_list_item(42, "compact") == 42
+    assert project_workspace_list_item(
+        {"workspace_uid": "core", "aliases": 3, "created_at": "omitted"},
+        "compact",
+    ) == {"workspace_uid": "core", "alias_count": 3}
+    assert project_workspace_resolve(
+        {"canonical_uid": "core", "input_uid": "Core", "normalized_uid": "core"},
+        "compact",
+    ) == {"canonical_uid": "core", "input_uid": "Core", "normalized_uid": "core"}
+    assert project_workspace_alias("core", "compact") == "core"
+    assert project_workspace_alias(42, "compact") == 42
+
+
+def test_compact_workspace_mutation_fallback_shapes() -> None:
+    assert project_workspace_alias_add(
+        {"canonical_uid": "core", "alias_uid": "short"}, "compact"
+    ) == {"canonical_uid": "core", "alias_uid": "short", "status": "added"}
+    assert project_workspace_alias_remove(
+        {"alias_uid": "short", "canonical_uid": "core"}, "compact"
+    ) == {"alias_uid": "short", "canonical_uid": "core", "status": "removed"}
+    assert project_workspace_rename(
+        {"old_uid": "old", "new_uid": "new"}, "compact"
+    ) == {"old_uid": "old", "new_uid": "new", "status": "renamed"}
+
+
+def test_compact_upgrade_projection_optional_fields_and_reason() -> None:
+    payload = {
+        "status": "failed",
+        "reason": "network unavailable",
+        "returncode": 1,
+        "message": "install failed",
+        "detail": "pip returned non-zero",
+        "services_to_restart": ["recollectium"],
+        "service_restart_errors": ["service unavailable"],
+    }
+
+    assert project_upgrade(payload, "compact") == payload
+
+
+def test_compact_uninstall_projection_fallbacks_and_non_dry_run_paths() -> None:
+    payload = {
+        "status": "uninstalled",
+        "package": {"status": "removed", "install_method": "pip", "returncode": 0},
+        "service": "not-installed",
+        "data": {
+            "preserved": False,
+            "purge": {
+                "status": "deleted",
+                "path": "/data",
+                "targets": [{"path": "/data/db.sqlite"}],
+                "deleted": [{"path": "/data/db.sqlite"}],
+                "skipped": [{"path": "/data/cache", "reason": "missing"}],
+            },
+        },
+    }
+
+    assert project_uninstall(payload, "compact") == {
+        "status": "uninstalled",
+        "data": {
+            "status": "deleted",
+            "preserved": False,
+            "dry_run": False,
+            "action": "delete",
+            "purge": {
+                "target_count": 1,
+                "deleted": [{"path": "/data/db.sqlite"}],
+                "deleted_count": 1,
+                "skipped": [{"path": "/data/cache", "reason": "missing"}],
+                "skipped_count": 1,
+                "status": "deleted",
+                "path": "/data",
+            },
+        },
+        "package": {"status": "removed", "install_method": "pip", "returncode": 0},
+        "service": "not-installed",
+    }
+    assert project_uninstall({"status": "unknown", "data": None}, "compact") == {
+        "status": "unknown",
+        "data": {"status": "unknown"},
+    }
+    assert (
+        project_uninstall(
+            {"status": "ok", "dry_run": True, "data": {"preserved": False}},
+            "compact",
+        )["data"]["status"]
+        == "would_delete"
+    )
+
+
+def test_compact_dev_projection_fallbacks_and_recommendation_threshold_match() -> None:
+    assert project_dev_eval({"status": "ok", "metrics": None}, "compact") == {
+        "status": "ok"
+    }
+
+    payload = {
+        "status": "ok",
+        "optimization": {
+            "recommended_threshold": 0.7,
+            "rows": [
+                {"threshold": 0.2, "recommended": False},
+                {"threshold": 0.7, "weighted_f_beta": 0.9},
+            ],
+        },
+    }
+
+    assert project_dev_optimize_threshold(payload, "compact") == {
+        "status": "ok",
+        "optimization": {"recommended_threshold": 0.7},
+        "recommendation": {"threshold": 0.7, "weighted_f_beta": 0.9},
+    }
+
+
+def test_compact_service_lifecycle_projection_verbose_branch_helper() -> None:
+    assert project_service_lifecycle(
+        {
+            "status": "stopped",
+            "running": False,
+            "type": "api",
+            "endpoint": None,
+            "pid": None,
+            "last_service": "api",
+            "debug": "omitted",
+        },
+        "compact",
+    ) == {
+        "status": "stopped",
+        "running": False,
+        "type": "api",
+        "last_service": "api",
+    }
