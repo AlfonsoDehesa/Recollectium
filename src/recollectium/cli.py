@@ -3389,6 +3389,7 @@ def _remove_installed_package(
     metadata: dict[str, Any] | None,
     *,
     dry_run: bool,
+    emit_progress: bool = False,
 ) -> dict[str, Any]:
     metadata = _metadata_with_detected_install_method(metadata)
     payload = _uninstall_package_instructions(metadata)
@@ -3411,6 +3412,10 @@ def _remove_installed_package(
             "hint": payload["recommended"],
         }
         return payload
+
+    if emit_progress:
+        sys.stderr.write("Uninstall in progress...\n")
+        sys.stderr.flush()
 
     if sys.platform.startswith("win"):
         try:
@@ -3717,10 +3722,6 @@ def _handle_uninstall_command(
         output_format == CLI_OUTPUT_HUMAN_READABLE
         and _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_COMPACT
     )
-    if compact_human_output and not args.dry_run:
-        sys.stderr.write("Uninstall in progress...\n")
-        sys.stderr.flush()
-
     purge_preview: dict[str, Any] | None = None
     if args.purge and not args.dry_run:
         purge_preview = _purge_targets(plan, dry_run=True)
@@ -3792,7 +3793,11 @@ def _handle_uninstall_command(
             _clear_managed_logging_handlers()
             data_payload["purge"] = _purge_targets(plan, dry_run=False)
 
-    package_payload = _remove_installed_package(metadata, dry_run=args.dry_run)
+    package_payload = _remove_installed_package(
+        metadata,
+        dry_run=args.dry_run,
+        emit_progress=compact_human_output,
+    )
     package_status = package_payload["uninstall"]["status"]
     if not args.purge:
         try:

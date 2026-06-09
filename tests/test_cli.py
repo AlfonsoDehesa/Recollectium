@@ -6970,6 +6970,43 @@ def test_cli_uninstall_compact_manual_removal_is_concise(
     assert stderr == ""
 
 
+@pytest.mark.parametrize("install_method", ["source", "unknown", "manual"])
+def test_cli_uninstall_compact_unsupported_mutating_has_no_progress(
+    install_method: str,
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    stopped = False
+
+    def _stop_service(_config: Any) -> None:
+        nonlocal stopped
+        stopped = True
+
+    monkeypatch.setattr("recollectium.cli.stop_service", _stop_service)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: pytest.fail("package removal should not run"),
+    )
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": install_method, "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys, json_by_default=False)
+
+    assert exit_code == 0
+    assert stdout == (
+        "\nRecollectium could not uninstall itself from this install method. "
+        "Manual removal is required.\n\n"
+    )
+    assert stderr == ""
+    assert stopped
+
+
 def test_cli_uninstall_verbose_manual_removal_keeps_hint(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -7466,6 +7503,40 @@ def test_cli_uninstall_purge_cancelled_by_confirmation(
     assert "recollectium completion --source bash" in bashrc.read_text(encoding="utf-8")
 
     _stop_service(object())
+
+
+def test_cli_uninstall_compact_purge_cancelled_has_no_progress(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    stopped = False
+
+    def _stop_service(_config: Any) -> None:
+        nonlocal stopped
+        stopped = True
+
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("recollectium.cli.stop_service", _stop_service)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: pytest.fail("package removal should not run"),
+    )
+    monkeypatch.setattr("sys.stdin.readline", lambda: "no\n")
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--purge"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "purge cancelled" in stderr
+    assert "Uninstall in progress" not in stderr
+    assert not stopped
 
 
 def test_cli_uninstall_purge_accepts_interactive_confirmation(
