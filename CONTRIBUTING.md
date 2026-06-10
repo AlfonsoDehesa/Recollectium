@@ -156,7 +156,7 @@ One or two sentences describing the change.
 - [ ] This PR does not change the SQLite schema.
 - [ ] If it changes the SQLite schema, the migration plan is documented below.
 
-## Verification
+## Quality gates
 
 - [ ] `git diff --check` passed.
 - [ ] `uv run ruff format --check .` passed, or not applicable because ...
@@ -165,6 +165,14 @@ One or two sentences describing the change.
 - [ ] `uv run pytest` passed, or not applicable because ...
 - [ ] `uv run pytest --cov=src/recollectium --cov-report=term-missing` passed, or accepted coverage misses are documented.
 - [ ] CI passed, or is pending at ...
+
+## Formatting notes
+
+None, or describe formatter-only churn, intentionally skipped formatting, or file sets excluded from formatting checks.
+
+## Broad PR / CI iteration notes
+
+Not applicable, or explain why broad scope is still reviewable and summarize any CI iteration between runs.
 
 ## Risks and follow-up
 
