@@ -100,7 +100,18 @@ jobs:
           if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
-          expected_tool_bin="$(uv tool dir --bin)"
+          uv_bin="$(command -v uv || true)"
+          if [ -z "$uv_bin" ]; then
+            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
+            if [ -x "$uv_fallback" ]; then
+              uv_bin="$uv_fallback"
+            fi
+          fi
+          if [ -z "$uv_bin" ]; then
+            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            exit 1
+          fi
+          expected_tool_bin="$("$uv_bin" tool dir --bin)"
           if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export PATH="$expected_tool_bin:$PATH"
           fi
@@ -171,7 +182,19 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
-          export PATH="$(uv tool dir --bin):$PATH"
+          uv_bin="$(command -v uv || true)"
+          if [ -z "$uv_bin" ]; then
+            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
+            if [ -x "$uv_fallback" ]; then
+              uv_bin="$uv_fallback"
+            fi
+          fi
+          if [ -z "$uv_bin" ]; then
+            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            exit 1
+          fi
+          tool_bin="$("$uv_bin" tool dir --bin)"
+          export PATH="$tool_bin:$PATH"
           recollectium --version
           recollectium upgrade --check --install-method bootstrap --repo "$GITHUB_REPOSITORY" --json > upgrade-check.json
           recollectium upgrade --dry-run --install-method bootstrap --repo "$GITHUB_REPOSITORY" --json > upgrade-dry-run.json
@@ -219,7 +242,19 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
-          export PATH="$(uv tool dir --bin):$PATH"
+          uv_bin="$(command -v uv || true)"
+          if [ -z "$uv_bin" ]; then
+            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
+            if [ -x "$uv_fallback" ]; then
+              uv_bin="$uv_fallback"
+            fi
+          fi
+          if [ -z "$uv_bin" ]; then
+            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            exit 1
+          fi
+          tool_bin="$("$uv_bin" tool dir --bin)"
+          export PATH="$tool_bin:$PATH"
           smoke_root="$(mktemp -d)"
           trap 'recollectium --config "$smoke_root/config/config.json" service stop --json >/dev/null 2>&1 || true; rm -rf "$smoke_root"' EXIT
           port="$(python - <<'PY'
@@ -330,6 +365,7 @@ jobs:
           PY
           recollectium --config "$config" service stop --json > service-stop.json
           recollectium --config "$config" service status --json > service-stopped.json
+          recollectium --verbose --config "$config" service status --json > service-stopped-verbose.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -338,6 +374,17 @@ jobs:
           assert stop_payload["status"] == "stopped", stop_payload
           stopped_payload = json.loads(Path("service-stopped.json").read_text(encoding="utf-8"))
           assert stopped_payload["running"] is False, stopped_payload
+          verbose_stopped = json.loads(Path("service-stopped-verbose.json").read_text(encoding="utf-8"))
+          assert verbose_stopped["status"] == "not_running", verbose_stopped
+          assert verbose_stopped["service"] is None, verbose_stopped
+          assert "running" not in verbose_stopped, verbose_stopped
+          assert isinstance(verbose_stopped["versions"], dict), verbose_stopped
+          assert verbose_stopped["versions"]["service_api_version"] == "1", verbose_stopped
+          assert isinstance(verbose_stopped["paths"], dict), verbose_stopped
+          assert "service start api" in verbose_stopped["next_step"], verbose_stopped
+          if "last_service" in verbose_stopped:
+              assert verbose_stopped["last_service"]["type"] == "api", verbose_stopped
+              assert verbose_stopped["last_service"]["pid"] > 0, verbose_stopped
           PY
 
       - name: Verify uninstall on Unix
@@ -348,7 +395,19 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
-          export PATH="$(uv tool dir --bin):$PATH"
+          uv_bin="$(command -v uv || true)"
+          if [ -z "$uv_bin" ]; then
+            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
+            if [ -x "$uv_fallback" ]; then
+              uv_bin="$uv_fallback"
+            fi
+          fi
+          if [ -z "$uv_bin" ]; then
+            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            exit 1
+          fi
+          tool_bin="$("$uv_bin" tool dir --bin)"
+          export PATH="$tool_bin:$PATH"
 
           python - <<'PY'
           import json
@@ -433,7 +492,19 @@ jobs:
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
           RECOLLECTIUM_INSTALL_REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}" sh ./install.sh
-          export PATH="$(uv tool dir --bin):$PATH"
+          uv_bin="$(command -v uv || true)"
+          if [ -z "$uv_bin" ]; then
+            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
+            if [ -x "$uv_fallback" ]; then
+              uv_bin="$uv_fallback"
+            fi
+          fi
+          if [ -z "$uv_bin" ]; then
+            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            exit 1
+          fi
+          tool_bin="$("$uv_bin" tool dir --bin)"
+          export PATH="$tool_bin:$PATH"
           hash -r
           recollectium init
           recollectium add --space user --type note --content "CI purge uninstall smoke sentinel" --json > add-purge.json
@@ -505,7 +576,8 @@ jobs:
             python -c "import json, pathlib, urllib.request`ndef load(p): return json.loads(pathlib.Path(p).read_text(encoding='utf-8-sig'))`ndef get(url):`n    response=urllib.request.urlopen(url, timeout=5); assert response.status == 200, (url, response.status); return json.loads(response.read().decode('utf-8'))`nstart=load('service-start.json'); assert start['status'] == 'started', start; assert start['type'] == 'api', start; assert start['pid'] > 0, start`nstatus=load('service-status.json'); assert set(status) == {'running','type','endpoint','pid'}, status; assert status['running'] is True, status; assert status['type'] == 'api', status; assert status['pid'] > 0, status; assert status['endpoint'].startswith('http://'), status`ndiscover=load('service-discover.json'); assert set(discover) == {'status','type','endpoint','pid','health_url','version_url','capabilities_url'}, discover; assert discover['status'] == 'running', discover; assert discover['type'] == 'api', discover; assert discover['pid'] > 0, discover; [(_ for _ in ()).throw(AssertionError(discover)) for key in ('endpoint','health_url','version_url','capabilities_url') if not (isinstance(discover.get(key), str) and discover[key].startswith('http://'))]; [(_ for _ in ()).throw(AssertionError((status, discover))) for key in ('service','versions','paths') if key in status or key in discover]`nverbose_status=load('service-status-verbose.json'); verbose_discover=load('service-discover-verbose.json')`nfor payload in (verbose_status, verbose_discover):`n    assert payload['status'] == 'running', payload; assert isinstance(payload['service'], dict), payload; assert payload['service']['type'] == 'api', payload; assert payload['service']['pid'] > 0, payload; assert payload['service']['endpoint'] == discover['endpoint'], payload; assert payload['service']['api_prefix'] == '/v1', payload; assert payload['versions']['service_api_version'] == '1', payload; assert isinstance(payload['versions']['recollectium_version'], str), payload; assert isinstance(payload['paths'], dict), payload`nhealth=get(discover['health_url']); assert health['data']['status'] == 'ok', health`nversion=get(discover['version_url']); assert version['data']['service_api_version'] == '1', version; assert isinstance(version['data']['recollectium_version'], str), version`ncapabilities=get(discover['capabilities_url']); assert capabilities['data']['service_api_version'] == '1', capabilities; assert isinstance(capabilities['data']['capabilities'], list), capabilities; assert 'health.read' in capabilities['data']['capabilities'], capabilities"
             recollectium --config $config service stop --json | Out-File -Encoding utf8 service-stop.json
             recollectium --config $config service status --json | Out-File -Encoding utf8 service-stopped.json
-            python -c "import json, pathlib; stop=json.loads(pathlib.Path('service-stop.json').read_text(encoding='utf-8-sig')); assert stop['status'] == 'stopped', stop; stopped=json.loads(pathlib.Path('service-stopped.json').read_text(encoding='utf-8-sig')); assert stopped['running'] is False, stopped"
+            recollectium --verbose --config $config service status --json | Out-File -Encoding utf8 service-stopped-verbose.json
+            python -c "import json, pathlib`ndef load(p): return json.loads(pathlib.Path(p).read_text(encoding='utf-8-sig'))`nstop=load('service-stop.json'); assert stop['status'] == 'stopped', stop`nstopped=load('service-stopped.json'); assert stopped['running'] is False, stopped`nverbose_stopped=load('service-stopped-verbose.json'); assert verbose_stopped['status'] == 'not_running', verbose_stopped; assert verbose_stopped['service'] is None, verbose_stopped; assert 'running' not in verbose_stopped, verbose_stopped; assert isinstance(verbose_stopped['versions'], dict), verbose_stopped; assert verbose_stopped['versions']['service_api_version'] == '1', verbose_stopped; assert isinstance(verbose_stopped['paths'], dict), verbose_stopped; assert 'service start api' in verbose_stopped['next_step'], verbose_stopped`nif 'last_service' in verbose_stopped:`n    assert verbose_stopped['last_service']['type'] == 'api', verbose_stopped; assert verbose_stopped['last_service']['pid'] > 0, verbose_stopped"
           }
           finally {
             recollectium --config $config service stop --json *> $null

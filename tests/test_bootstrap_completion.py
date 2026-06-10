@@ -22,6 +22,7 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
     )
     assert "service-discover-verbose.json" in workflow
     assert "service-status-verbose.json" in workflow
+    assert "service-stopped-verbose.json" in workflow
     assert 'discover_payload["status"] == "running"' in workflow
     assert "set(discover_payload) == {" in workflow
     assert 'discover_payload["type"] == "api"' in workflow
@@ -31,6 +32,10 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
     assert 'verbose_payload["service"]["api_prefix"] == "/v1"' in workflow
     assert 'assert_http_json(discover_payload["version_url"])' in workflow
     assert 'assert_http_json(discover_payload["capabilities_url"])' in workflow
+    assert 'verbose_stopped["status"] == "not_running"' in workflow
+    assert 'verbose_stopped["service"] is None' in workflow
+    assert '"running" not in verbose_stopped' in workflow
+    assert '"last_service" in verbose_stopped' in workflow
     assert 'discover_payload["service"]' not in workflow
     assert "discover['service']" not in workflow
 
@@ -38,8 +43,10 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
 def test_install_smoke_uses_uv_tool_dir_and_explicit_macos_path_cases() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert 'tool_bin="$(uv tool dir --bin)"' in workflow
-    assert 'expected_tool_bin="$(uv tool dir --bin)"' in workflow
+    assert 'uv_bin="$(command -v uv || true)"' in workflow
+    assert 'uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"' in workflow
+    assert 'expected_tool_bin="$("$uv_bin" tool dir --bin)"' in workflow
+    assert 'tool_bin="$("$uv_bin" tool dir --bin)"' in workflow
     assert 'export PATH="$tool_bin:$PATH"' in workflow
     assert 'TOOL_BIN="$tool_bin" python3' in workflow
     assert 'test "$command_path" = "$expected_tool_bin/recollectium"' in workflow
