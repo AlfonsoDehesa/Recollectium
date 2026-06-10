@@ -7,6 +7,7 @@ import math
 import multiprocessing
 import os
 import re
+import time
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
@@ -298,12 +299,50 @@ class BuiltinFastEmbedProvider:
         return self._normalize_vector(vector)
 
     def ensure_ready(
-        self, *, timeout_seconds: float = 60.0, suppress_output: bool = False
+        self,
+        *,
+        timeout_seconds: float = 60.0,
+        suppress_output: bool = False,
+        max_attempts: int = 3,
     ) -> None:
         if timeout_seconds <= 0:
             raise EmbeddingReadinessTimeoutError(
                 "FastEmbed provider startup timed out after 0 seconds"
             )
+
+        last_exception: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._ensure_ready_once(
+                    timeout_seconds=timeout_seconds,
+                    suppress_output=suppress_output,
+                )
+                return
+            except EmbeddingReadinessTimeoutError:
+                raise
+            except EmbeddingProviderUnavailableError:
+                raise
+            except EmbeddingDimensionMismatchError:
+                raise
+            except (
+                EmbeddingModelUnavailableError,
+                EmbeddingGenerationError,
+            ) as exc:
+                last_exception = exc
+                if attempt == max_attempts:
+                    raise
+                delay = 2.0 * (2 ** (attempt - 1))
+                time.sleep(delay)
+
+        assert last_exception is not None  # reachable only from explicit raise above
+        raise last_exception
+
+    def _ensure_ready_once(
+        self,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
 
         context = multiprocessing.get_context("spawn")
         parent_connection, child_connection = context.Pipe(duplex=False)

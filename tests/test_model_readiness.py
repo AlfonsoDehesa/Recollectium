@@ -13,7 +13,12 @@ from recollectium.core import RecollectiumCore
 import recollectium.core as core_module
 import recollectium.embeddings as embeddings_module
 from recollectium.embeddings import BuiltinFastEmbedProvider
-from recollectium.errors import EmbeddingModelUnavailableError
+from recollectium.errors import (
+    EmbeddingDimensionMismatchError,
+    EmbeddingGenerationError,
+    EmbeddingModelUnavailableError,
+    EmbeddingReadinessTimeoutError,
+)
 from recollectium.model_state import read_model_state, write_model_state
 
 # The default model name config validation accepts.
@@ -439,3 +444,101 @@ def test_model_readiness_keyword_detection_returns_false_for_opaque_callable(
         raise AssertionError("callback should not be invoked")
 
     assert not core_module._callable_accepts_keyword(callback, "progress_callback")
+
+
+def test_builtin_fastembed_ensure_ready_retries_transient_failure_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    call_count = [0]
+
+    def fail_twice_then_succeed(
+        self: BuiltinFastEmbedProvider,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
+        call_count[0] += 1
+        if call_count[0] < 3:
+            raise EmbeddingModelUnavailableError("model download failed")
+
+    monkeypatch.setattr(
+        BuiltinFastEmbedProvider, "_ensure_ready_once", fail_twice_then_succeed
+    )
+
+    provider.ensure_ready(timeout_seconds=5.0, max_attempts=3)
+
+    assert call_count[0] == 3
+
+
+def test_builtin_fastembed_ensure_ready_raises_after_max_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    call_count = [0]
+
+    def always_fail(
+        self: BuiltinFastEmbedProvider,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
+        call_count[0] += 1
+        raise EmbeddingGenerationError("persistent transient failure")
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "_ensure_ready_once", always_fail)
+
+    with pytest.raises(EmbeddingGenerationError, match="persistent transient failure"):
+        provider.ensure_ready(timeout_seconds=5.0, max_attempts=3)
+
+    assert call_count[0] == 3
+
+
+def test_builtin_fastembed_ensure_ready_does_not_retry_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    call_count = [0]
+
+    def timeout_once(
+        self: BuiltinFastEmbedProvider,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
+        call_count[0] += 1
+        raise EmbeddingReadinessTimeoutError("startup timed out after 0 seconds")
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "_ensure_ready_once", timeout_once)
+
+    with pytest.raises(EmbeddingReadinessTimeoutError):
+        provider.ensure_ready(timeout_seconds=5.0, max_attempts=3)
+
+    assert call_count[0] == 1
+
+
+def test_builtin_fastembed_ensure_ready_does_not_retry_dimension_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    call_count = [0]
+
+    def mismatch_once(
+        self: BuiltinFastEmbedProvider,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
+        call_count[0] += 1
+        raise EmbeddingDimensionMismatchError("expected 768 dimensions but got 512")
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "_ensure_ready_once", mismatch_once)
+
+    with pytest.raises(EmbeddingDimensionMismatchError):
+        provider.ensure_ready(timeout_seconds=5.0, max_attempts=3)
+
+    assert call_count[0] == 1
