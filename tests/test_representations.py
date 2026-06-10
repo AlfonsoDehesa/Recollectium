@@ -810,6 +810,18 @@ def test_compact_workspace_projection_scalar_and_fallback_variants() -> None:
         {"workspace_uid": "core", "aliases": 3, "created_at": "omitted"},
         "compact",
     ) == {"workspace_uid": "core", "alias_count": 3}
+    assert project_workspace_list_item(
+        {
+            "workspace_uid": "core",
+            "alias_records": [
+                {"alias_uid": "legacy", "created_at": "omitted"},
+                {"alias_uid": 42},
+                "not-a-record",
+            ],
+            "created_at": "omitted",
+        },
+        "compact",
+    ) == {"workspace_uid": "core", "aliases": ["legacy"], "alias_count": 1}
     assert project_workspace_resolve(
         {"canonical_uid": "core", "input_uid": "Core", "normalized_uid": "core"},
         "compact",

@@ -4592,6 +4592,21 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     assert "Config reset to defaults:" in _format_human_output(
         {"path": "/tmp/config.json"}, command="config reset"
     )
+    assert _format_human_output(
+        {
+            "path": "/tmp/config.json",
+            "database": {"path": "/tmp/recollectium.db"},
+            "cli_output": "human_readable",
+        },
+        command="config reset",
+        response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
+    ) == (
+        "Config reset to defaults: /tmp/config.json\n"
+        "  Path: /tmp/config.json\n"
+        "  Database:\n"
+        "    Path: /tmp/recollectium.db\n"
+        "  Cli output: human_readable\n"
+    )
     assert "Config doctor found no problems." in _format_human_output(
         {"status": "ok", "checks": {"config": "/tmp/config.json"}},
         command="config doctor",
@@ -4642,6 +4657,19 @@ def test_cli_human_formatter_colors_config_command_shapes() -> None:
     assert _format_human_output(
         {"path": "/tmp/config.json"}, command="config reset", color=True
     ).startswith("\x1b[1;36mConfig reset to defaults:\x1b[0m /tmp/config.json")
+
+
+def test_log_file_warning_noops_when_recollectium_warning_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = cli_module.logging.getLogger("recollectium")
+    handler = cli_module.logging.NullHandler()
+    logger.addHandler(handler)
+    monkeypatch.setattr(logger, "level", cli_module.logging.CRITICAL + 1)
+
+    cli_module._log_file_warning("hidden warning", event="test.warning")
+
+    logger.removeHandler(handler)
 
 
 def test_cli_human_formatter_covers_config_noop_and_verbose_shapes() -> None:
