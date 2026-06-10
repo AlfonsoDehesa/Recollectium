@@ -158,13 +158,13 @@ One or two sentences describing the change.
 
 ## Quality gates
 
-- [ ] `git diff --check` passed.
-- [ ] `uv run ruff format --check .` passed, or not applicable because ...
-- [ ] `uv run ruff check .` passed.
-- [ ] `uv run pyright` passed.
-- [ ] `uv run pytest` passed, or not applicable because ...
-- [ ] `uv run pytest --cov=src/recollectium --cov-report=term-missing` passed, or accepted coverage misses are documented.
-- [ ] CI passed, or is pending at ...
+- [ ] `git diff --check` passes
+- [ ] `uv run ruff format --check .` passes, or not applicable because ...
+- [ ] `uv run ruff check .` passes
+- [ ] `uv run pyright` passes
+- [ ] `uv run pytest` passes, or not applicable because ...
+- [ ] `uv run pytest --cov=src/recollectium --cov-report=term-missing` targets 100% on changed code, or accepted misses are documented
+- [ ] CI passes, or is pending at ...
 
 ## Formatting notes
 
