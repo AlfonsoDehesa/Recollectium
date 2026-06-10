@@ -4411,7 +4411,7 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
         command="config",
     )
     assert (
-        "Recollectium is ready. No embeddings needed refresh."
+        "Recollectium is ready with no embeddings needing refresh."
         in _format_human_output({"database": "/tmp/recollectium.db"}, command="init")
     )
     assert "Workspace result" in _format_human_output(
@@ -4497,6 +4497,10 @@ def test_cli_human_formatter_covers_config_noop_and_verbose_shapes() -> None:
         (
             {"refreshed": True, "stale_count": 2},
             "Recollectium is ready and refreshed 2 stale embeddings.\n",
+        ),
+        (
+            {"refreshed": True, "stale_count": 1},
+            "Recollectium is ready and refreshed 1 stale embedding.\n",
         ),
         (
             {"refreshed": True, "stale_count": "many"},
@@ -5369,7 +5373,7 @@ def test_cli_init_human_compact_is_one_sentence(tmp_path, capsys, monkeypatch) -
     )
 
     assert exit_code == 0
-    assert stdout == "\nRecollectium is already initialized. No changes needed.\n\n"
+    assert stdout == "\nRecollectium is already initialized with no changes needed.\n\n"
     assert stderr == ""
 
 
@@ -5482,7 +5486,7 @@ def test_cli_human_init_non_tty_suppresses_readiness_progress_and_provider_noise
 
     assert exit_code == 0
     assert stderr == ""
-    assert "Recollectium is ready. No embeddings needed refresh." in stdout
+    assert "Recollectium is ready with no embeddings needing refresh." in stdout
     assert "Preparing model" not in stdout
     assert "provider stdout readiness noise" not in stdout
     assert "provider stderr readiness noise" not in stdout
@@ -6304,11 +6308,10 @@ class TestConfigCommand:
         assert stderr == ""
         assert fail_code == 1
         assert fail_stdout == ""
-        assert "\nConfig file already exists.\n" in fail_stderr
-        assert (
-            "Hint: Use recollectium config init --force to overwrite it." in fail_stderr
+        assert fail_stderr == (
+            "\nConfig file already exists; use recollectium config init --force "
+            "to overwrite it.\n\n"
         )
-        assert "Detail:" not in fail_stderr
 
     def test_config_init_without_force_existing(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -6322,6 +6325,33 @@ class TestConfigCommand:
         # File should NOT be overwritten
         loaded = json.loads(config_path.read_text())
         assert loaded.get("custom") == "data"
+
+    def test_config_init_existing_human_verbose_preserves_detail(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1, "custom": "data"}', encoding="utf-8")
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--human-readable",
+                "--verbose",
+                "--config",
+                str(config_path),
+                "config",
+                "init",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert "Config file already exists." in stderr
+        assert "Status: operation_failed" in stderr
+        assert f"Detail: config file already exists: {config_path}" in stderr
+        assert "Hint: Use recollectium config init --force to overwrite it." in stderr
 
     def test_config_init_force_overwrites(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -6455,6 +6485,63 @@ class TestConfigCommand:
         assert exit_code == 0
         assert stdout == "\nConfig doctor found no problems.\n\n"
         assert stderr == ""
+
+    def test_config_doctor_human_compact_failure_is_one_sentence(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        fake_cfg = SimpleNamespace(
+            config_file_path=tmp_path / "config.json",
+            xdg_dirs={
+                "data": tmp_path / "missing-data",
+                "cache": tmp_path / "missing-cache",
+                "logs": tmp_path / "missing-logs",
+                "runtime": tmp_path / "missing-runtime",
+            },
+            resolved_database_path=tmp_path / "missing-db-parent" / "recollectium.db",
+        )
+        monkeypatch.setattr(
+            "recollectium.cli._load_effective_config", lambda _path, explicit: fake_cfg
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--human-readable", "--compact", "config", "doctor"],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert stderr == "\nConfig doctor found filesystem problems.\n\n"
+
+    def test_config_doctor_human_verbose_failure_preserves_details(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        fake_cfg = SimpleNamespace(
+            config_file_path=tmp_path / "config.json",
+            xdg_dirs={
+                "data": tmp_path / "missing-data",
+                "cache": tmp_path,
+                "logs": tmp_path,
+                "runtime": tmp_path,
+            },
+            resolved_database_path=tmp_path / "recollectium.db",
+        )
+        monkeypatch.setattr(
+            "recollectium.cli._load_effective_config", lambda _path, explicit: fake_cfg
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--human-readable", "--verbose", "config", "doctor"],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert "Config doctor found filesystem problems." in stderr
+        assert "Status: operation_failed" in stderr
+        assert "Detail: FAIL data directory missing:" in stderr
+        assert "Failures:" in stderr
 
     def test_config_doctor_explicit_missing_file_errors(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "missing" / "config.json"

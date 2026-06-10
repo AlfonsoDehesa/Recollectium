@@ -627,6 +627,10 @@ def _format_uninstall_sentence(payload: dict[str, Any], *, color: bool = False) 
     return f"Uninstall did not complete. {data_sentence} Rerun with --verbose for details.\n"
 
 
+def _embedding_count_noun(count: int) -> str:
+    return "embedding" if count == 1 else "embeddings"
+
+
 def _format_human_output(
     payload: Any,
     *,
@@ -800,25 +804,29 @@ def _format_human_output(
     if command == "init":
         if verbosity == RESPONSE_VERBOSITY_COMPACT:
             if payload.get("already_initialized") is True:
-                message = "Recollectium is already initialized. No changes needed."
+                message = "Recollectium is already initialized with no changes needed."
             else:
                 refresh = payload.get("embedding_refresh")
                 if isinstance(refresh, dict) and refresh.get("refreshed") is True:
                     stale_count = refresh.get("stale_count")
                     message = (
-                        f"Recollectium is ready and refreshed {stale_count} stale embeddings."
+                        "Recollectium is ready and refreshed "
+                        f"{stale_count} stale {_embedding_count_noun(stale_count)}."
                         if isinstance(stale_count, int)
                         else "Recollectium is ready and embeddings were refreshed."
                     )
                 elif payload.get("refreshed") is True:
                     stale_count = payload.get("stale_count")
                     message = (
-                        f"Recollectium is ready and refreshed {stale_count} stale embeddings."
+                        "Recollectium is ready and refreshed "
+                        f"{stale_count} stale {_embedding_count_noun(stale_count)}."
                         if isinstance(stale_count, int)
                         else "Recollectium is ready and embeddings were refreshed."
                     )
                 else:
-                    message = "Recollectium is ready. No embeddings needed refresh."
+                    message = (
+                        "Recollectium is ready with no embeddings needing refresh."
+                    )
             return _style(message, _RICH_SUCCESS, enabled=color) + "\n"
         lines = [_style("Recollectium initialized", _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
@@ -1826,6 +1834,10 @@ def _handle_config_command(
                 command="config init",
                 event="config.exists",
                 compact_human=True,
+                compact_message=(
+                    "Config file already exists; use recollectium config init --force "
+                    "to overwrite it."
+                ),
             )
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
@@ -1882,6 +1894,7 @@ def _handle_config_command(
                 command="config doctor",
                 event="config.doctor_failed",
                 failures=failures,
+                compact_human=True,
             )
 
         _emit_success(
@@ -2088,21 +2101,16 @@ def _set_cli_output_format(output_format: str) -> None:
 
 
 def _format_human_error(payload: dict[str, object], *, color: bool = False) -> str:
-    if payload.get("compact_human") is True:
-        lines = [
-            _style(
-                str(payload.get("message") or "Command failed."),
-                _RICH_ERROR,
-                enabled=color,
-            )
-        ]
-        hint = payload.get("hint")
-        if hint is not None:
-            lines.append(
-                f"  {_format_label('Hint', color=color)} "
-                f"{_style(_json_scalar(hint), _RICH_HINT, enabled=color)}"
-            )
-        return "\n".join(lines)
+    if (
+        payload.get("compact_human") is True
+        and _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_COMPACT
+    ):
+        compact_message = payload.get("compact_message") or payload.get("message")
+        return _style(
+            str(compact_message or "Command failed."),
+            _RICH_ERROR,
+            enabled=color,
+        )
     lines = [
         _style(
             str(payload.get("message") or "Command failed."), _RICH_ERROR, enabled=color
@@ -2138,7 +2146,9 @@ def _emit_failure_payload(payload: dict[str, object]) -> None:
         )
         return
     json_payload = {
-        key: value for key, value in payload.items() if key != "compact_human"
+        key: value
+        for key, value in payload.items()
+        if key not in {"compact_human", "compact_message"}
     }
     _print_json_stderr(json_payload)
 
