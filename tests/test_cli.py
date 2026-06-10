@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -5355,6 +5355,217 @@ def test_cli_init_runs_stale_embedding_refresh(tmp_path, capsys, monkeypatch) ->
         "job": None,
     }
     assert calls == ["model_state", "refresh:True"]
+
+
+def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
+    monkeypatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    calls: list[dict[str, object]] = []
+
+    class FakeCore:
+        def refresh_stale_embeddings(self, **kwargs):
+            calls.append(kwargs)
+            return {"refreshed": False, "stale_count": 0, "job": None}
+
+    class FakeProgress:
+        entered = False
+        exited = False
+
+        def __enter__(self) -> "FakeProgress":
+            self.entered = True
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            self.exited = True
+
+        def __call__(self, event: dict[str, object]) -> None:
+            pass
+
+    monkeypatch.setattr(cli_mod.sys.stderr, "isatty", lambda: False)
+    non_tty_result = cli_mod._refresh_stale_embeddings_with_progress(
+        cast(RecollectiumCore, FakeCore()),
+        space=SPACE_WORKSPACE,
+        workspace_uid="team-a",
+        include_archived=True,
+        output_format=cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+    )
+
+    assert non_tty_result["refreshed"] is False
+    assert calls == [
+        {
+            "space": SPACE_WORKSPACE,
+            "workspace_uid": "team-a",
+            "include_archived": True,
+        }
+    ]
+
+    progress = FakeProgress()
+    monkeypatch.setattr(cli_mod.sys.stderr, "isatty", lambda: True)
+    monkeypatch.setattr(
+        cli_mod, "_ReembeddingProgressReporter", lambda stream: progress
+    )
+    tty_result = cli_mod._refresh_stale_embeddings_with_progress(
+        cast(RecollectiumCore, FakeCore()),
+        space=SPACE_USER,
+        workspace_uid=None,
+        include_archived=False,
+        output_format=cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+    )
+
+    assert tty_result["stale_count"] == 0
+    assert progress.entered is True
+    assert progress.exited is True
+    assert calls[-1] == {
+        "space": SPACE_USER,
+        "workspace_uid": None,
+        "include_archived": False,
+        "progress_callback": progress,
+    }
+
+
+def test_cli_init_human_tty_refreshes_stale_embeddings_with_progress(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    calls: list[str] = []
+    config_path = tmp_path / "config.json"
+    db_path = tmp_path / "init-progress.db"
+
+    class FakeProvider:
+        embedding_profile = {
+            "provider": "fake",
+            "model": "fake-model",
+            "dimensions": 3,
+            "version": "1",
+            "profile": "fake-profile",
+            "max_tokens": 16,
+            "chunk_tokens": 4,
+            "chunk_overlap_tokens": 0,
+            "query_prompt_policy": "raw",
+        }
+
+    class FakeCore:
+        def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
+            self.config = cli_mod.RecollectiumConfig(config_path, log_level=log_level)
+            self.store = type("FakeStore", (), {"db_path": db_path})()
+            self.embedding_provider = FakeProvider()
+
+        def _ensure_model_ready(
+            self, *, suppress_provider_output: bool = False, progress_callback=None
+        ) -> None:
+            assert suppress_provider_output is True
+            assert progress_callback is readiness_progress
+            calls.append("model_state")
+            assert progress_callback is not None
+            progress_callback({"phase": "Preparing embedding model"})
+
+        def refresh_stale_embeddings(
+            self, *, include_archived=False, progress_callback=None, **kwargs
+        ):
+            assert include_archived is True
+            assert progress_callback is reembedding_progress
+            calls.append("refresh:True")
+            assert progress_callback is not None
+            progress_callback(
+                {
+                    "event": "started",
+                    "total": 2,
+                    "processed": 0,
+                    "succeeded": 0,
+                    "failed": 0,
+                }
+            )
+            progress_callback(
+                {
+                    "event": "progress",
+                    "total": 2,
+                    "processed": 1,
+                    "succeeded": 1,
+                    "failed": 0,
+                }
+            )
+            return {
+                "refreshed": True,
+                "stale_count": 2,
+                "job": {"id": "job-1", "state": "completed"},
+            }
+
+    class FakeProgress:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.entered = False
+            self.exited = False
+            self.events: list[dict[str, object]] = []
+
+        def __enter__(self) -> FakeProgress:
+            self.entered = True
+            calls.append(f"enter:{self.name}")
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            self.exited = True
+            calls.append(f"exit:{self.name}")
+
+        def __call__(self, event: dict[str, object]) -> None:
+            self.events.append(event)
+            calls.append(
+                f"event:{self.name}:{event.get('event') or event.get('phase')}"
+            )
+
+    readiness_progress = FakeProgress("readiness")
+    reembedding_progress = FakeProgress("reembedding")
+    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", lambda path: None)
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", FakeCore)
+    monkeypatch.setattr(
+        cli_mod,
+        "_human_model_readiness_progress_reporter",
+        lambda *a, **kw: readiness_progress,
+    )
+    monkeypatch.setattr(cli_mod.sys.stderr, "isatty", lambda: True)
+    monkeypatch.setattr(
+        cli_mod,
+        "_ReembeddingProgressReporter",
+        lambda stream: reembedding_progress,
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--human-readable",
+            "--config",
+            str(config_path),
+            "--db",
+            str(db_path),
+            "init",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "refreshed 2 stale embeddings" in stdout
+    assert readiness_progress.entered is True
+    assert readiness_progress.exited is True
+    assert reembedding_progress.entered is True
+    assert reembedding_progress.exited is True
+    assert [event["event"] for event in reembedding_progress.events] == [
+        "started",
+        "progress",
+    ]
+    assert calls == [
+        "enter:readiness",
+        "model_state",
+        "event:readiness:Preparing embedding model",
+        "exit:readiness",
+        "enter:reembedding",
+        "refresh:True",
+        "event:reembedding:started",
+        "event:reembedding:progress",
+        "exit:reembedding",
+    ]
 
 
 def test_cli_init_human_compact_is_one_sentence(tmp_path, capsys, monkeypatch) -> None:

@@ -40,6 +40,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Fixed `recollectium dev eval` human-readable TTY progress so it updates one pretty stderr line and clears before the final summary instead of printing a line per progress update.
 - Fixed human-readable CLI output framing so final output and argparse help start with a blank line and end with a trailing blank line while JSON, CSV, completion, and protocol output stay byte-clean.
 - Fixed model readiness progress so human-readable CLI model preparation uses an honest spinner/status line with model and cache state instead of a determinate-looking progress bar, while still clearing before final output.
+- Fixed `recollectium init` so interactive runs show transient re-embedding progress after model readiness while JSON and non-TTY output stay quiet.
 - Fixed CLI embedding readiness so stale model state no longer hides missing FastEmbed cache artifacts and development commands no longer leak raw provider download output.
 - Fixed human-readable memory result lists so the result count and each memory entry are separated by a blank line.
 
