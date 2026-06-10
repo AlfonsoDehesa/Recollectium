@@ -34,15 +34,24 @@ class EmbeddingProvider(Protocol):
 @contextlib.contextmanager
 def _redirect_file_descriptor_to_devnull(fd: int) -> Iterator[None]:
     """Temporarily redirect an OS file descriptor to ``os.devnull``."""
-    saved_fd = os.dup(fd)
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    saved_fd: int | None = None
+    devnull_fd: int | None = None
+    redirected = False
     try:
+        saved_fd = os.dup(fd)
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull_fd, fd)
+        redirected = True
         yield
     finally:
-        os.dup2(saved_fd, fd)
-        os.close(devnull_fd)
-        os.close(saved_fd)
+        try:
+            if redirected and saved_fd is not None:
+                os.dup2(saved_fd, fd)
+        finally:
+            if devnull_fd is not None:
+                os.close(devnull_fd)
+            if saved_fd is not None:
+                os.close(saved_fd)
 
 
 @contextlib.contextmanager

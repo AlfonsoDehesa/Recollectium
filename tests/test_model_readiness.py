@@ -333,6 +333,47 @@ def test_builtin_fastembed_readiness_suppresses_child_fd2_on_failure(
     assert captured.err == ""
 
 
+def test_redirect_file_descriptor_to_devnull_closes_saved_fd_when_open_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Saved fd is not leaked if opening os.devnull fails after os.dup()."""
+    real_dup = embeddings_module.os.dup
+    real_open = embeddings_module.os.open
+    real_close = embeddings_module.os.close
+    saved_fds: list[int] = []
+    closed_fds: list[int] = []
+    target_fd = real_open(os.devnull, os.O_WRONLY)
+
+    def track_dup(fd: int) -> int:
+        saved_fd = real_dup(fd)
+        saved_fds.append(saved_fd)
+        return saved_fd
+
+    def fail_open(path: str, flags: int) -> int:
+        assert path == os.devnull
+        assert flags == os.O_WRONLY
+        raise OSError("devnull unavailable")
+
+    def track_close(fd: int) -> None:
+        closed_fds.append(fd)
+        real_close(fd)
+
+    try:
+        with monkeypatch.context() as patch_context:
+            patch_context.setattr(embeddings_module.os, "dup", track_dup)
+            patch_context.setattr(embeddings_module.os, "open", fail_open)
+            patch_context.setattr(embeddings_module.os, "close", track_close)
+
+            with pytest.raises(OSError, match="devnull unavailable"):
+                with embeddings_module._redirect_file_descriptor_to_devnull(target_fd):
+                    raise AssertionError("context body should not execute")
+    finally:
+        real_close(target_fd)
+
+    assert len(saved_fds) == 1
+    assert saved_fds[0] in closed_fds
+
+
 def test_ensure_model_ready_writes_state_with_provider_dimensions(tmp_path: Path):
     """State file uses the provider's actual dimensions from embedding_profile."""
     state_dir = tmp_path / "state"
