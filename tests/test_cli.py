@@ -5373,7 +5373,7 @@ def test_cli_init_human_compact_is_one_sentence(tmp_path, capsys, monkeypatch) -
     )
 
     assert exit_code == 0
-    assert stdout == "\nRecollectium is already initialized with no changes needed.\n\n"
+    assert stdout == "\nRecollectium is already initialized: No changes needed.\n\n"
     assert stderr == ""
 
 
