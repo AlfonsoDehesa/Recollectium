@@ -168,11 +168,15 @@ One or two sentences describing the change.
 
 ## Formatting notes
 
-None, or describe formatter-only churn, intentionally skipped formatting, or file sets excluded from formatting checks.
+- [ ] Formatter output from `uv run ruff format .` is committed, or no formatter changes were needed
+- [ ] Optional local hook considered: `git config core.hooksPath .githooks`
 
-## Broad PR / CI iteration notes
+## Broad PR / CI iteration notes, if applicable
 
-Not applicable, or explain why broad scope is still reviewable and summarize any CI iteration between runs.
+- Failing job and first relevant error:
+- Root cause:
+- Local reproduction or focused check:
+- Strict fix applied without path filters, `continue-on-error`, matrix reductions, draft skips, warning suppression, or deleted tests:
 
 ## Risks and follow-up
 
