@@ -68,6 +68,7 @@ This creates the project virtual environment, installs Recollectium in editable 
 Verify the environment:
 
 ```bash
+uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 uv run pytest
@@ -75,6 +76,14 @@ uv run recollectium --help
 ```
 
 Always run project commands through `uv run` while developing from a source checkout so tools use the managed environment instead of a global Python install.
+
+Optional local push guardrail: install the repo-local pre-push hook to catch formatter and lint failures before CI:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook runs `uv run ruff format --check .` and `uv run ruff check .`. If formatting fails, it prints `uv run ruff format --diff .` plus fix guidance. CI still runs the same strict checks, so commit formatter output from `uv run ruff format .` before pushing.
 
 ### Branches and commits
 
@@ -164,6 +173,27 @@ One or two sentences describing the change.
 ```
 
 For docs-only PRs, still list every gate as passed, skipped with a reason, or not applicable. Do not make the reviewer infer that a gate was skipped.
+
+### Broad PR and red-to-green CI iteration
+
+Prefer small PRs. When a broad PR is unavoidable, keep CI red-to-green work disciplined:
+
+- Keep every required gate enabled. Do not add path filters, `continue-on-error`, matrix reductions, draft skips, warning suppression, or deleted tests to get a green check.
+- Push focused commits that each address one root cause, then rerun the failed local gate before pushing again.
+- Let superseded PR CI runs cancel; do not use cancellation to avoid investigating the newest failing run.
+- Record which CI job failed, the first relevant error, the suspected root cause, and the local command that reproduced or ruled it out.
+- If CI fails only on one OS or architecture, preserve the matrix and isolate the platform-specific assumption.
+
+Common red-to-green root causes:
+
+| Symptom | Likely root cause | Keep-strict fix |
+| --- | --- | --- |
+| `uv run ruff format --check .` fails | Formatter output was not committed | Run `uv run ruff format .`, review the diff, commit it, and rerun the check. |
+| `uv run ruff check .` fails | New lint issue or unsafe auto-fix left unreviewed | Fix the reported rule, or run `uv run ruff check --fix .` and review the result. |
+| `uv run pyright` fails | Type contract drift, missing narrowing, or stale test fixture typing | Fix the type surface or fixture annotations without weakening type checking. |
+| `uv run pytest` fails | Behavior regression, missing fixture update, or order/platform assumption | Reproduce the focused test locally and fix the code or test expectation. |
+| Install smoke fails on one matrix leg | Shell, PATH, platform, or architecture-specific install assumption | Keep the matrix intact and add a targeted cross-platform fix plus coverage. |
+| Release workflow fails | Changelog/tag contract or release action input drift | Fix the release contract or workflow input while preserving release validation. |
 
 ### PR submittal gates
 
@@ -414,6 +444,8 @@ Before merging a PR, confirm:
 CI runs on every push and PR. The matrix covers lint, type checking, tests, coverage, and cross-platform bootstrap install smoke tests on Linux, macOS, and Windows.
 
 CI is defined in `.github/workflows/`. If a PR changes how Recollectium builds, installs, upgrades, uninstalls, runs services, validates completions, or publishes releases, update CI in the same PR.
+
+Pull request workflow runs use concurrency cancellation for superseded PR commits only. Main branch and tag runs must not be canceled or skipped as a substitute for fixing failures.
 
 ### Release procedure
 

@@ -33,6 +33,18 @@
 - [ ] `uv run pytest --cov=src/recollectium --cov-report=term-missing` targets 100% on changed code, or accepted misses are documented
 - [ ] CI passes, or is pending at ...
 
+Formatting notes:
+
+- [ ] Formatter output from `uv run ruff format .` is committed, or no formatter changes were needed
+- [ ] Optional local hook considered: `git config core.hooksPath .githooks`
+
+Broad PR / CI iteration notes, if applicable:
+
+- Failing job and first relevant error:
+- Root cause:
+- Local reproduction or focused check:
+- Strict fix applied without path filters, `continue-on-error`, matrix reductions, draft skips, warning suppression, or deleted tests:
+
 ## Risks and follow-up
 
 <!-- Compatibility notes, known risks, deferred work, or manual release steps. -->
