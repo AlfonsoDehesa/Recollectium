@@ -5357,6 +5357,74 @@ def test_cli_init_runs_stale_embedding_refresh(tmp_path, capsys, monkeypatch) ->
     assert calls == ["model_state", "refresh:True"]
 
 
+def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
+    monkeypatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    calls: list[dict[str, object]] = []
+
+    class FakeCore:
+        def refresh_stale_embeddings(self, **kwargs):
+            calls.append(kwargs)
+            return {"refreshed": False, "stale_count": 0, "job": None}
+
+    class FakeProgress:
+        entered = False
+        exited = False
+
+        def __enter__(self) -> "FakeProgress":
+            self.entered = True
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            self.exited = True
+
+        def __call__(self, event: dict[str, object]) -> None:
+            pass
+
+    monkeypatch.setattr(cli_mod.sys.stderr, "isatty", lambda: False)
+    non_tty_result = cli_mod._refresh_stale_embeddings_with_progress(
+        FakeCore(),
+        space=SPACE_WORKSPACE,
+        workspace_uid="team-a",
+        include_archived=True,
+        output_format=cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+    )
+
+    assert non_tty_result["refreshed"] is False
+    assert calls == [
+        {
+            "space": SPACE_WORKSPACE,
+            "workspace_uid": "team-a",
+            "include_archived": True,
+        }
+    ]
+
+    progress = FakeProgress()
+    monkeypatch.setattr(cli_mod.sys.stderr, "isatty", lambda: True)
+    monkeypatch.setattr(
+        cli_mod, "_ReembeddingProgressReporter", lambda stream: progress
+    )
+    tty_result = cli_mod._refresh_stale_embeddings_with_progress(
+        FakeCore(),
+        space=SPACE_USER,
+        workspace_uid=None,
+        include_archived=False,
+        output_format=cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+    )
+
+    assert tty_result["stale_count"] == 0
+    assert progress.entered is True
+    assert progress.exited is True
+    assert calls[-1] == {
+        "space": SPACE_USER,
+        "workspace_uid": None,
+        "include_archived": False,
+        "progress_callback": progress,
+    }
+
+
 def test_cli_init_human_tty_refreshes_stale_embeddings_with_progress(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -5456,10 +5524,11 @@ def test_cli_init_human_tty_refreshes_stale_embeddings_with_progress(
         "_human_model_readiness_progress_reporter",
         lambda *a, **kw: readiness_progress,
     )
+    monkeypatch.setattr(cli_mod.sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
         cli_mod,
-        "_human_reembedding_progress_reporter",
-        lambda output_format: reembedding_progress,
+        "_ReembeddingProgressReporter",
+        lambda stream: reembedding_progress,
     )
 
     exit_code, stdout, stderr = _run_cli(

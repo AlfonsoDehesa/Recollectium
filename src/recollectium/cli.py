@@ -1196,16 +1196,23 @@ def _call_with_optional_progress_callback(
 def _refresh_stale_embeddings_with_progress(
     core: RecollectiumCore,
     *,
+    space: str | None = None,
+    workspace_uid: str | None = None,
     include_archived: bool,
     output_format: str,
 ) -> dict[str, Any]:
-    """Run lifecycle stale-embedding refresh with optional human TTY progress."""
+    """Run stale-embedding refresh with optional human TTY progress."""
+    refresh_kwargs: dict[str, Any] = {
+        "space": space,
+        "workspace_uid": workspace_uid,
+        "include_archived": include_archived,
+    }
     progress_reporter = _human_reembedding_progress_reporter(output_format)
     if progress_reporter is None:
-        return core.refresh_stale_embeddings(include_archived=include_archived)
+        return core.refresh_stale_embeddings(**refresh_kwargs)
     with progress_reporter:
         return core.refresh_stale_embeddings(
-            include_archived=include_archived,
+            **refresh_kwargs,
             progress_callback=progress_reporter,
         )
 
@@ -6263,21 +6270,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 result = core.list_embedding_jobs(state=args.state, limit=args.limit)
         elif args.command == "embedding-refresh":
-            progress_reporter = _human_reembedding_progress_reporter(output_format)
-            if progress_reporter is None:
-                result = core.refresh_stale_embeddings(
-                    space=args.space,
-                    workspace_uid=args.workspace_uid,
-                    include_archived=args.include_archived,
-                )
-            else:
-                with progress_reporter:
-                    result = core.refresh_stale_embeddings(
-                        space=args.space,
-                        workspace_uid=args.workspace_uid,
-                        include_archived=args.include_archived,
-                        progress_callback=progress_reporter,
-                    )
+            result = _refresh_stale_embeddings_with_progress(
+                core,
+                space=args.space,
+                workspace_uid=args.workspace_uid,
+                include_archived=args.include_archived,
+                output_format=output_format,
+            )
         elif args.command == "embedding-jobs-clear":
             if not args.yes:
                 return _emit_cli_failure(
