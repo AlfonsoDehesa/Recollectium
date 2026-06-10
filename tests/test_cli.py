@@ -4466,10 +4466,42 @@ def test_completion_source_rejects_json_output_flag(capsys) -> None:
         json.loads(human_stdout)
 
 
+def test_completion_source_rejects_explicit_json_verbose(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "completion", "--source", "bash"], capsys
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "selected_format_error"
+    assert "omit --json" in payload["detail"]
+
+
 def test_completion_complete_line_rejects_json_output_flag(capsys) -> None:
     exit_code, stdout, stderr = _run_cli(
         [
             "--json",
+            "completion",
+            "--complete-line",
+            "recollectium c",
+            "--point",
+            "14",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "selected_format_error"
+
+
+def test_completion_complete_line_rejects_explicit_json_verbose(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--verbose",
             "completion",
             "--complete-line",
             "recollectium c",
@@ -6123,6 +6155,52 @@ def test_cli_config_reset_verbose_reports_reset_details(tmp_path, capsys) -> Non
     assert payload["reset_to_defaults"] is True
     assert "logging" in payload["reset_keys"]
     assert "logging" in payload["previous_keys"]
+    assert payload["previous_unknown_keys"] == []
+
+
+def test_cli_config_reset_verbose_reports_missing_config_context(tmp_path, capsys) -> None:
+    config_path = tmp_path / "missing" / "config.json"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "--config", str(config_path), "config", "reset"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["path"] == str(config_path)
+    assert payload["status"] == "reset"
+    assert payload["existed"] is False
+    assert payload["changed"] is True
+    assert payload["reset_to_defaults"] is True
+    assert "logging" in payload["reset_keys"]
+    assert payload["previous_keys"] == []
+    assert payload["previous_unknown_keys"] == []
+
+
+def test_cli_config_reset_verbose_reports_unknown_previous_keys(tmp_path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "logging": {"level": "debug"}, "custom": "data"}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "--config", str(config_path), "config", "reset"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["path"] == str(config_path)
+    assert payload["status"] == "reset"
+    assert payload["existed"] is True
+    assert payload["changed"] is True
+    assert payload["reset_to_defaults"] is True
+    assert "custom" in payload["previous_keys"]
+    assert payload["previous_unknown_keys"] == ["custom"]
 
 
 def test_builtin_fastembed_provider_from_config_resolves_cache_dir(
@@ -7429,7 +7507,8 @@ class TestConfigCommand:
         config_path = tmp_path / "recollectium" / "config.json"
 
         exit_code, stdout, stderr = _run_cli(
-            ["--config", str(config_path), "config", "reset"], capsys
+            ["--json", "--compact", "--config", str(config_path), "config", "reset"],
+            capsys,
         )
 
         assert exit_code == 0
@@ -7449,7 +7528,8 @@ class TestConfigCommand:
         )
 
         exit_code, stdout, stderr = _run_cli(
-            ["--config", str(config_path), "config", "reset"], capsys
+            ["--json", "--compact", "--config", str(config_path), "config", "reset"],
+            capsys,
         )
 
         assert exit_code == 0
@@ -7463,7 +7543,8 @@ class TestConfigCommand:
         config_path = tmp_path / "config.json"
 
         exit_code, stdout, stderr = _run_cli(
-            ["--config", str(config_path), "config", "reset"], capsys
+            ["--json", "--compact", "--config", str(config_path), "config", "reset"],
+            capsys,
         )
 
         assert exit_code == 0

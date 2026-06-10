@@ -2017,14 +2017,9 @@ def _handle_config_command(
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
         config_path.chmod(0o600)
         payload: dict[str, Any] = {"path": str(config_path)}
-        known_previous_keys = isinstance(previous_raw, dict) and set(
-            previous_raw.keys()
-        ).issubset(set(DEFAULTS.keys()))
-        if (
-            _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE
-            and existed
-            and known_previous_keys
-        ):
+        if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE:
+            previous_keys = sorted(previous_raw.keys()) if isinstance(previous_raw, dict) else []
+            previous_unknown_keys = sorted(set(previous_keys) - set(DEFAULTS.keys()))
             payload.update(
                 {
                     "status": "reset",
@@ -2032,9 +2027,8 @@ def _handle_config_command(
                     "reset_to_defaults": True,
                     "changed": previous_raw != DEFAULTS,
                     "reset_keys": sorted(DEFAULTS.keys()),
-                    "previous_keys": sorted(previous_raw.keys())
-                    if isinstance(previous_raw, dict)
-                    else [],
+                    "previous_keys": previous_keys,
+                    "previous_unknown_keys": previous_unknown_keys,
                 }
             )
         _emit_success(
@@ -5797,12 +5791,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             command="verbosity",
         )
     args = parser.parse_args(effective_argv)
-    setattr(
-        args,
-        "_explicit_json",
-        output_override == CLI_OUTPUT_JSON
-        and verbosity_override != RESPONSE_VERBOSITY_VERBOSE,
-    )
+    setattr(args, "_explicit_json", output_override == CLI_OUTPUT_JSON)
 
     if getattr(args, "command", None) is None and getattr(args, "version", False):
         try:
