@@ -110,7 +110,9 @@ from recollectium.service_contract import (
 )
 from recollectium.representations import (
     OPERATION_DEV_EVAL,
+    OPERATION_DEV_MODE,
     OPERATION_DEV_OPTIMIZE_THRESHOLD,
+    OPERATION_DEV_RESET,
     OPERATION_EMBEDDING_JOBS_CLEAR,
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_JOBS_LIST,
@@ -872,6 +874,10 @@ def _operation_for_command(command: str | None, payload: Any = None) -> str | No
         return OPERATION_LIFECYCLE_UPGRADE
     if command == "uninstall":
         return OPERATION_LIFECYCLE_UNINSTALL
+    if command in {"dev true", "dev false"}:
+        return OPERATION_DEV_MODE
+    if command == "dev reset":
+        return OPERATION_DEV_RESET
     if command == "dev eval":
         return OPERATION_DEV_EVAL
     if command == "dev optimize-threshold":
@@ -5592,8 +5598,10 @@ def _handle_dev_command(
             updated_cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             result = {
                 "status": "enabled" if use_seeded_database else "disabled",
+                "action": dev_action,
                 "use_seeded_database": use_seeded_database,
                 "database": str(updated_cfg.resolved_database_path),
+                "config": str(config_path),
             }
             if use_seeded_database:
                 result.update(
@@ -5608,6 +5616,7 @@ def _handle_dev_command(
                     }
                 )
         else:
+            dev_reset_config_path = str(config_path)
             provider = _builtin_fastembed_provider_from_config(
                 cfg.effective_config, model_cache_path=cfg.model_cache_path
             )
@@ -5624,6 +5633,8 @@ def _handle_dev_command(
                     provider,
                     progress_callback=progress_reporter,
                 )
+            result["action"] = "reset"
+            result["config"] = dev_reset_config_path
     except FileNotFoundError as exc:
         return _config_missing_error(exc, command="dev")
     except ValidationError as exc:
@@ -5646,7 +5657,10 @@ def _handle_dev_command(
         EmbeddingGenerationError,
     ) as exc:
         return _embedding_error(exc, command="dev")
-    _emit_success(result, output_format=output_format, command="dev")
+    command_name = (
+        f"dev {dev_action}" if dev_action in {"true", "false", "reset"} else "dev"
+    )
+    _emit_success(result, output_format=output_format, command=command_name)
     return 0
 
 

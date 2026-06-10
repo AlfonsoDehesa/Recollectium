@@ -2187,7 +2187,7 @@ def test_cli_dev_reset_resets_configured_seed_database(
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
 
     exit_code, stdout, stderr = _run_cli(
-        ["--config", str(config_path), "dev", "reset"],
+        ["--json", "--verbose", "--config", str(config_path), "dev", "reset"],
         capsys,
     )
 
@@ -2220,7 +2220,7 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
 
     exit_code, stdout, stderr = _run_cli(
-        ["--config", str(config_path), "dev", "true"],
+        ["--json", "--verbose", "--config", str(config_path), "dev", "true"],
         capsys,
     )
 
@@ -2237,7 +2237,57 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     assert loaded["development"]["use_seeded_database"] is True
 
     exit_code, stdout, stderr = _run_cli(
-        ["--config", str(config_path), "dev", "false"],
+        ["--json", "--verbose", "--config", str(config_path), "dev", "false"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "disabled"
+    assert payload["action"] == "false"
+    assert payload["use_seeded_database"] is False
+    assert payload["database"] == str(regular_db)
+    assert payload["config"] == str(config_path)
+    loaded = json.loads(config_path.read_text(encoding="utf-8"))
+    assert loaded["development"]["use_seeded_database"] is False
+    assert not regular_db.exists()
+
+
+def test_cli_dev_true_false_and_reset_compact_json_project_essentials(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--compact", "--config", str(config_path), "dev", "true"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload == {
+        "status": "enabled",
+        "use_seeded_database": True,
+        "database": str(dev_db),
+        "seed_status": "reset",
+    }
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--compact", "--config", str(config_path), "dev", "false"],
         capsys,
     )
 
@@ -2249,9 +2299,16 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
         "use_seeded_database": False,
         "database": str(regular_db),
     }
-    loaded = json.loads(config_path.read_text(encoding="utf-8"))
-    assert loaded["development"]["use_seeded_database"] is False
-    assert not regular_db.exists()
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--compact", "--config", str(config_path), "dev", "reset"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload == {"status": "reset", "database": str(dev_db)}
 
 
 def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
@@ -7250,9 +7307,7 @@ class TestConfigCommand:
 def test_cli_version_prints_package_version(capsys, monkeypatch) -> None:
     monkeypatch.setattr("recollectium.cli.package_version", lambda _name: "1.2.3")
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--version"], capsys, json_by_default=False
-    )
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys, json_by_default=False)
 
     assert exit_code == 0
     assert stdout == "\nrecollectium 1.2.3\n\n"
@@ -7278,9 +7333,7 @@ def test_cli_version_uses_source_fallback(capsys, monkeypatch) -> None:
     monkeypatch.setattr("recollectium.cli.package_version", _missing_package)
     monkeypatch.setattr("recollectium.cli.__version__", "0.1.0-dev")
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--version"], capsys, json_by_default=False
-    )
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys, json_by_default=False)
 
     assert exit_code == 0
     assert stdout == "\nrecollectium 0.1.0-dev\n\n"
@@ -7289,9 +7342,7 @@ def test_cli_version_uses_source_fallback(capsys, monkeypatch) -> None:
 
 
 def test_cli_version_without_command_does_not_require_subcommand(capsys) -> None:
-    exit_code, stdout, stderr = _run_cli(
-        ["--version"], capsys, json_by_default=False
-    )
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys, json_by_default=False)
 
     assert exit_code == 0
     assert stdout.startswith("\nrecollectium ")
