@@ -2160,6 +2160,27 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["up_to_date"] is True
 
 
+def test_cli_db_status_verbose_reports_migration_internals(tmp_path, capsys) -> None:
+    db_path = tmp_path / "db-status.db"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "--db", str(db_path), "db-status"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["db_path"] == str(db_path)
+    assert payload["up_to_date"] is True
+    assert payload["internals"]["user_version"] == payload["current_version"]
+    assert payload["internals"]["migration_count"] >= 1
+    assert payload["internals"]["applied_count"] >= 1
+    assert payload["internals"]["pending_count"] == 0
+    assert payload["internals"]["migrations"]
+    assert payload["internals"]["applied_migrations"]
+
+
 def test_cli_dev_help_documents_actions(capsys) -> None:
     dev_help = _run_help(["dev", "--help"], capsys)
     assert "seeded development" in dev_help
@@ -2226,6 +2247,9 @@ def test_cli_dev_reset_resets_configured_seed_database(
     assert payload["user_memories"] == 100
     assert payload["workspace_memories"] == 90
     assert payload["workspaces"] == 3
+    assert payload["seeded_database"]["database"] == str(dev_db)
+    assert payload["seeded_database"]["initialized"] is True
+    assert payload["seeded_database"]["expected_topics"] == 10
     assert dev_db.exists()
     assert not regular_db.exists()
 
@@ -2259,6 +2283,9 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     assert payload["use_seeded_database"] is True
     assert payload["database"] == str(dev_db)
     assert payload["workspace_memories"] == 90
+    assert payload["seeded_database"]["database"] == str(dev_db)
+    assert payload["seeded_database"]["initialized"] is True
+    assert payload["seeded_database"]["expected_workspace_memories"] == 90
     assert dev_db.exists()
     assert not regular_db.exists()
     loaded = json.loads(config_path.read_text(encoding="utf-8"))
@@ -2277,6 +2304,9 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     assert payload["use_seeded_database"] is False
     assert payload["database"] == str(regular_db)
     assert payload["config"] == str(config_path)
+    assert payload["seeded_database"]["database"] == str(dev_db)
+    assert payload["seeded_database"]["initialized"] is True
+    assert payload["seeded_database"]["expected_user_memories"] == 100
     loaded = json.loads(config_path.read_text(encoding="utf-8"))
     assert loaded["development"]["use_seeded_database"] is False
     assert not regular_db.exists()
@@ -4408,13 +4438,14 @@ def test_completion_help_documents_raw_output_json_exception(capsys) -> None:
     completion_help = _run_help(["completion", "--help"], capsys)
 
     _assert_human_framed(completion_help)
+    normalized_help = " ".join(completion_help.split())
     assert "raw completion output" in completion_help
-    assert "not changed by --json" in completion_help
+    assert "--json is supported only with --install" in normalized_help
     assert "emitted as-is" in completion_help
-    assert "ignores --json" in completion_help
+    assert "omit --json" in completion_help
 
 
-def test_completion_source_ignores_json_output_flag(capsys) -> None:
+def test_completion_source_rejects_json_output_flag(capsys) -> None:
     json_code, json_stdout, json_stderr = _run_cli(
         ["--json", "completion", "--source", "bash"], capsys
     )
@@ -4422,15 +4453,36 @@ def test_completion_source_ignores_json_output_flag(capsys) -> None:
         ["--human-readable", "completion", "--source", "bash"], capsys
     )
 
-    assert json_code == 0
-    assert json_stderr == ""
+    assert json_code == 2
+    assert json_stdout == ""
+    error_payload = json.loads(json_stderr)
+    assert error_payload["status"] == "selected_format_error"
+    assert "omit --json" in error_payload["detail"]
     assert human_code == 0
     assert human_stderr == ""
-    assert json_stdout == human_stdout
-    assert "#compdef recollectium" in json_stdout
-    assert "__python_argcomplete" in json_stdout
+    assert "#compdef recollectium" in human_stdout
+    assert "__python_argcomplete" in human_stdout
     with pytest.raises(json.JSONDecodeError):
-        json.loads(json_stdout)
+        json.loads(human_stdout)
+
+
+def test_completion_complete_line_rejects_json_output_flag(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "completion",
+            "--complete-line",
+            "recollectium c",
+            "--point",
+            "14",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "selected_format_error"
 
 
 def test_completion_complete_line_stays_json_under_human_output_config(
@@ -4452,6 +4504,7 @@ def test_completion_complete_line_stays_json_under_human_output_config(
             "14",
         ],
         capsys,
+        json_by_default=False,
     )
 
     assert exit_code == 0
@@ -6018,6 +6071,30 @@ def test_cli_config_mutations_emit_json_success_payloads(tmp_path, capsys) -> No
     assert unset_code == 0
     assert unset_stderr == ""
     assert json.loads(unset_stdout) == {"key": "cli_output", "status": "removed"}
+
+
+def test_cli_config_reset_verbose_reports_reset_details(tmp_path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json", "logging": {"level": "debug"}}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "--config", str(config_path), "config", "reset"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["path"] == str(config_path)
+    assert payload["status"] == "reset"
+    assert payload["existed"] is True
+    assert payload["changed"] is True
+    assert payload["reset_to_defaults"] is True
+    assert "logging" in payload["reset_keys"]
+    assert "logging" in payload["previous_keys"]
 
 
 def test_builtin_fastembed_provider_from_config_resolves_cache_dir(

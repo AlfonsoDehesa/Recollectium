@@ -20,14 +20,14 @@ Implement all red findings and all yellow decisions Alfonso accepted, while keep
 | S2 / C46 / A13 / A14 / M17 / M18 | ✅ | CLI/API/MCP | Compact embedding job rows omit failure reason. | Map failed job `error_message` to compact `reason`. |
 | S3 / A5 / A6 | 🔴 | API docs | Search docs say default `limit=10`, implementation uses `20`. | Align docs with implementation default `20`. |
 | C6 | 🟡 | CLI | `config --defaults` compact/verbose are the same. | Keep compact showing full config defaults. No change. |
-| C15 | 🟡 | CLI | `config reset` verbose could include what changed. | Add verbose changed/reset detail. |
-| C31 | 🟡 | CLI | `db-status` verbose could include migration internals. | Add verbose migration/internal detail. |
-| C32 | 🟡 | CLI | `dev true` verbose could include seeded DB counts/details. | Add verbose seeded DB counts/details. |
-| C33 | 🟡 | CLI | `dev false` verbose could include seeded DB state/context. | Add verbose seeded DB state/context. |
-| C34 | 🟡 | CLI | `dev reset` verbose could include reset/seed counts/details. | Add verbose reset/seed counts/details. |
+| C15 | ✅ | CLI | `config reset` verbose could include what changed. | Add verbose changed/reset detail. |
+| C31 | ✅ | CLI | `db-status` verbose could include migration internals. | Add verbose migration/internal detail. |
+| C32 | ✅ | CLI | `dev true` verbose could include seeded DB counts/details. | Add verbose seeded DB counts/details. |
+| C33 | ✅ | CLI | `dev false` verbose could include seeded DB state/context. | Add verbose seeded DB state/context. |
+| C34 | ✅ | CLI | `dev reset` verbose could include reset/seed counts/details. | Add verbose reset/seed counts/details. |
 | C39 / A19 / M11 | ✅ | CLI/API/MCP | Compact workspace resolve includes input/normalized context. | Remove extra `input_uid` / `normalized_uid` from compact resolve. |
 | C48 / A16 / M20 | ✅ | CLI/API/MCP | Verbose embedding job clear could include deleted job IDs. | Add deleted job IDs in verbose clear output. |
-| C50 | 🟡 | CLI | `--json completion` raw behavior could error instead of being ignored. | Make `--json completion` without `--install` fail with selected-format error. |
+| C50 | ✅ | CLI | `--json completion` raw behavior could error instead of being ignored. | Make `--json completion` without `--install` fail with selected-format error. |
 
 ## Verification plan
 

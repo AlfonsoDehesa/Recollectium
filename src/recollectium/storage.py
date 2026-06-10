@@ -46,6 +46,9 @@ class SQLiteMemoryStore:
     def migration_status(self) -> dict[str, object]:
         return self._migration_runner.status().to_dict()
 
+    def detailed_migration_status(self) -> dict[str, object]:
+        return self._migration_runner.detailed_status()
+
     def insert_memory(
         self,
         memory: Memory,

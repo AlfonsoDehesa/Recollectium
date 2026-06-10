@@ -88,7 +88,15 @@ from recollectium.dev_optimize_threshold import (
     write_threshold_csv,
     write_threshold_png,
 )
-from recollectium.dev_seed import ensure_seeded_dev_database, reset_seeded_dev_database
+from recollectium.dev_seed import (
+    DEV_SEED_TOPIC_COUNT,
+    DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+    DEV_SEED_USER_MEMORY_COUNT,
+    DEV_SEED_WORKSPACE_COUNT,
+    ensure_seeded_dev_database,
+    reset_seeded_dev_database,
+    seeded_dev_database_is_initialized,
+)
 import recollectium.embeddings as embeddings_module
 from recollectium.embeddings import BuiltinFastEmbedProvider
 from recollectium.logging import setup_logging
@@ -761,7 +769,11 @@ def _format_human_output(
         return f"{heading} {payload.get('path')}\n"
     if command == "config reset":
         heading = _style("Config reset to defaults:", _RICH_HEADING, enabled=color)
-        return f"{heading} {payload.get('path')}\n"
+        if verbosity == RESPONSE_VERBOSITY_COMPACT:
+            return f"{heading} {payload.get('path')}\n"
+        lines = [f"{heading} {payload.get('path')}"]
+        lines.extend(_format_mapping_lines(payload, indent=2, color=color))
+        return "\n".join(lines) + "\n"
     if command == "config doctor":
         if verbosity == RESPONSE_VERBOSITY_COMPACT and payload.get("status") == "ok":
             return (
@@ -1976,11 +1988,29 @@ def _handle_config_command(
             )
 
     if args.config_action == "reset":
+        existed = config_path.exists()
+        previous_raw: dict[str, Any] | None = None
+        if existed:
+            previous_raw = load_config_file(config_path)
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
         config_path.chmod(0o600)
+        payload: dict[str, Any] = {"path": str(config_path)}
+        if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE:
+            payload.update(
+                {
+                    "status": "reset",
+                    "existed": existed,
+                    "reset_to_defaults": True,
+                    "changed": previous_raw != DEFAULTS,
+                    "reset_keys": sorted(DEFAULTS.keys()),
+                    "previous_keys": sorted(previous_raw.keys())
+                    if isinstance(previous_raw, dict)
+                    else [],
+                }
+            )
         _emit_success(
-            {"path": str(config_path)},
+            payload,
             output_format=output_format,
             command="config reset",
         )
@@ -2425,6 +2455,17 @@ def _resolve_regular_database_path(
 
 def _paths_equal(first: Path, second: Path) -> bool:
     return first.resolve(strict=False) == second.resolve(strict=False)
+
+
+def _seeded_dev_context(db_path: Path) -> dict[str, object]:
+    return {
+        "database": str(db_path),
+        "initialized": seeded_dev_database_is_initialized(db_path),
+        "expected_user_memories": DEV_SEED_USER_MEMORY_COUNT,
+        "expected_workspace_memories": DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+        "expected_workspaces": DEV_SEED_WORKSPACE_COUNT,
+        "expected_topics": DEV_SEED_TOPIC_COUNT,
+    }
 
 
 def _metric_value(value: float) -> float:
@@ -3359,6 +3400,16 @@ def _completion_candidates(line: str, point: int | None) -> list[str]:
 
 
 def _handle_completion_command(args: argparse.Namespace, *, output_format: str) -> int:
+    if output_format == CLI_OUTPUT_JSON and not args.install:
+        return _emit_cli_failure(
+            status="selected_format_error",
+            message="Completion raw output is not available with --json.",
+            detail="Use completion --install with --json, or omit --json for raw completion source, instructions, or candidates.",
+            hint="Run recollectium completion --source <shell> without --json for shell source output.",
+            exit_code=2,
+            command="completion",
+            event="completion.selected_format_error",
+        )
     if args.complete_line is not None:
         candidates = _completion_candidates(args.complete_line, args.point)
         print(json.dumps(candidates, sort_keys=True))
@@ -5292,8 +5343,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "Print shell completion setup instructions for bash, zsh, fish, or PowerShell. "
             "With --source, prints only the raw completion function definition "
             "for eval consumption. Setup instructions, --source shell code, and "
-            "the hidden completion protocol are raw completion output and are not "
-            "changed by --json."
+            "the hidden completion protocol are raw completion output; --json is "
+            "supported only with --install."
         ),
     )
     completion_parser.add_argument(
@@ -5308,7 +5359,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Print only the raw completion function definition for eval "
-            "consumption. This shell code is emitted as-is and ignores --json."
+            "consumption. This shell code is emitted as-is; omit --json."
         ),
     )
     action_group.add_argument(
@@ -5559,6 +5610,7 @@ def _handle_dev_command(
             )
         if dev_action in {"true", "false"}:
             use_seeded_database = dev_action == "true"
+            seeded_db_path = _resolve_seeded_dev_database_path(cfg)
             set_config_value(
                 raw_config,
                 "development.use_seeded_database",
@@ -5582,7 +5634,7 @@ def _handle_dev_command(
                 ) as progress_reporter:
                     seed_result = _call_with_optional_progress_callback(
                         ensure_seeded_dev_database,
-                        _resolve_seeded_dev_database_path(cfg),
+                        seeded_db_path,
                         provider,
                         progress_callback=progress_reporter,
                     )
@@ -5600,6 +5652,7 @@ def _handle_dev_command(
                 "use_seeded_database": use_seeded_database,
                 "database": str(updated_cfg.resolved_database_path),
                 "config": str(config_path),
+                "seeded_database": _seeded_dev_context(seeded_db_path),
             }
             if use_seeded_database:
                 result.update(
@@ -5607,10 +5660,10 @@ def _handle_dev_command(
                         "seed_status": "ready"
                         if seed_result is None
                         else seed_result["status"],
-                        "user_memories": 100,
-                        "workspace_memories": 90,
-                        "workspaces": 3,
-                        "topics": 10,
+                        "user_memories": DEV_SEED_USER_MEMORY_COUNT,
+                        "workspace_memories": DEV_SEED_TOTAL_WORKSPACE_MEMORIES,
+                        "workspaces": DEV_SEED_WORKSPACE_COUNT,
+                        "topics": DEV_SEED_TOPIC_COUNT,
                     }
                 )
         else:
@@ -5633,6 +5686,9 @@ def _handle_dev_command(
                 )
             result["action"] = "reset"
             result["config"] = dev_reset_config_path
+            result["seeded_database"] = _seeded_dev_context(
+                _resolve_seeded_dev_database_path(cfg)
+            )
     except FileNotFoundError as exc:
         return _config_missing_error(exc, command="dev")
     except ValidationError as exc:
@@ -5719,7 +5775,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "completion" and (args.source or args.complete_line is not None):
-        return _handle_completion_command(args, output_format=CLI_OUTPUT_JSON)
+        if output_override == CLI_OUTPUT_JSON:
+            _set_cli_output_format(CLI_OUTPUT_JSON)
+            return _handle_completion_command(args, output_format=CLI_OUTPUT_JSON)
+        return _handle_completion_command(args, output_format=CLI_OUTPUT_HUMAN_READABLE)
 
     # Resolve config path
     config_path = _resolve_config_path(args.config_path)
@@ -5892,8 +5951,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _config_invalid_error(exc, command=args.command)
         try:
             store = SQLiteMemoryStore(db_path)
+            status_payload = (
+                store.detailed_migration_status()
+                if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE
+                else store.migration_status()
+            )
             _emit_success(
-                store.migration_status(),
+                status_payload,
                 output_format=output_format,
                 command="db-status",
             )
