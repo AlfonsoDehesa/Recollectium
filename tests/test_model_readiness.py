@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
 from pathlib import Path
 
 import pytest
 
 from recollectium.core import RecollectiumCore
 import recollectium.core as core_module
+import recollectium.embeddings as embeddings_module
+from recollectium.embeddings import BuiltinFastEmbedProvider
+from recollectium.errors import EmbeddingModelUnavailableError
 from recollectium.model_state import read_model_state, write_model_state
 
 # The default model name config validation accepts.
@@ -258,10 +263,74 @@ def test_ensure_model_ready_raises_on_provider_failure(tmp_path: Path):
         config_path=config,
         embedding_provider=provider,
     )
-    from recollectium.errors import EmbeddingModelUnavailableError
-
     with pytest.raises(EmbeddingModelUnavailableError, match="model download failed"):
         core._ensure_model_ready(state_dir=state_dir)
+
+    assert read_model_state(state_dir) is None
+
+
+def test_builtin_fastembed_readiness_suppresses_child_fd2_on_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """FastEmbed readiness child fd-level stderr is contained on success."""
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("fd-level child readiness suppression test requires fork")
+
+    fork_context = multiprocessing.get_context("fork")
+    monkeypatch.setattr(
+        embeddings_module.multiprocessing,
+        "get_context",
+        lambda method: fork_context,
+    )
+
+    def noisy_success(self: BuiltinFastEmbedProvider) -> None:
+        _ = self
+        os.write(2, b"native fd2 readiness noise\n")
+
+    monkeypatch.setattr(
+        BuiltinFastEmbedProvider, "_ensure_ready_unbounded", noisy_success
+    )
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL, cache_dir=tmp_path)
+
+    provider.ensure_ready(timeout_seconds=5.0, suppress_output=True)
+
+    captured = capfd.readouterr()
+    assert captured.err == ""
+
+
+def test_builtin_fastembed_readiness_suppresses_child_fd2_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """FastEmbed readiness child fd-level stderr is contained on strict failure."""
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("fd-level child readiness suppression test requires fork")
+
+    fork_context = multiprocessing.get_context("fork")
+    monkeypatch.setattr(
+        embeddings_module.multiprocessing,
+        "get_context",
+        lambda method: fork_context,
+    )
+
+    def noisy_failure(self: BuiltinFastEmbedProvider) -> None:
+        _ = self
+        os.write(2, b"native fd2 readiness failure noise\n")
+        raise EmbeddingModelUnavailableError("model download failed")
+
+    monkeypatch.setattr(
+        BuiltinFastEmbedProvider, "_ensure_ready_unbounded", noisy_failure
+    )
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL, cache_dir=tmp_path)
+
+    with pytest.raises(EmbeddingModelUnavailableError, match="model download failed"):
+        provider.ensure_ready(timeout_seconds=5.0, suppress_output=True)
+
+    captured = capfd.readouterr()
+    assert captured.err == ""
 
 
 def test_ensure_model_ready_writes_state_with_provider_dimensions(tmp_path: Path):

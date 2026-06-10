@@ -7,7 +7,7 @@ import math
 import multiprocessing
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -31,6 +31,36 @@ class EmbeddingProvider(Protocol):
     def similarity(self, first: list[float], second: list[float]) -> float: ...
 
 
+@contextlib.contextmanager
+def _redirect_file_descriptor_to_devnull(fd: int) -> Iterator[None]:
+    """Temporarily redirect an OS file descriptor to ``os.devnull``."""
+    saved_fd = os.dup(fd)
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull_fd, fd)
+        yield
+    finally:
+        os.dup2(saved_fd, fd)
+        os.close(devnull_fd)
+        os.close(saved_fd)
+
+
+@contextlib.contextmanager
+def _suppress_fastembed_readiness_output(
+    *, suppress_stdout: bool = False
+) -> Iterator[None]:
+    """Contain native-library readiness output from the FastEmbed child process."""
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(_redirect_file_descriptor_to_devnull(2))
+        if suppress_stdout:
+            stack.enter_context(_redirect_file_descriptor_to_devnull(1))
+        with open(os.devnull, "w", encoding="utf-8") as devnull:
+            if suppress_stdout:
+                stack.enter_context(contextlib.redirect_stdout(devnull))
+            stack.enter_context(contextlib.redirect_stderr(devnull))
+            yield
+
+
 def _fastembed_readiness_worker(
     result_connection: Connection,
     model_name: str,
@@ -39,14 +69,7 @@ def _fastembed_readiness_worker(
 ) -> None:
     try:
         provider = BuiltinFastEmbedProvider(model_name, cache_dir=cache_dir)
-        if suppress_output:
-            with open(os.devnull, "w", encoding="utf-8") as devnull:
-                with (
-                    contextlib.redirect_stdout(devnull),
-                    contextlib.redirect_stderr(devnull),
-                ):
-                    provider._ensure_ready_unbounded()
-        else:
+        with _suppress_fastembed_readiness_output(suppress_stdout=suppress_output):
             provider._ensure_ready_unbounded()
     except Exception as exc:  # pragma: no cover - exercised through parent process
         result_connection.send(
