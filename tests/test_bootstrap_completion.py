@@ -17,12 +17,37 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert 'recollectium --config "$config" service discover --json' in workflow
+    assert (
+        'recollectium --verbose --config "$config" service discover --json' in workflow
+    )
+    assert "service-discover-verbose.json" in workflow
+    assert "service-status-verbose.json" in workflow
     assert 'discover_payload["status"] == "running"' in workflow
+    assert "set(discover_payload) == {" in workflow
     assert 'discover_payload["type"] == "api"' in workflow
     assert 'discover_payload["pid"] > 0' in workflow
     assert '"endpoint", "health_url", "version_url", "capabilities_url"' in workflow
+    assert 'for omitted_key in ("service", "versions", "paths")' in workflow
+    assert 'verbose_payload["service"]["api_prefix"] == "/v1"' in workflow
+    assert 'assert_http_json(discover_payload["version_url"])' in workflow
+    assert 'assert_http_json(discover_payload["capabilities_url"])' in workflow
     assert 'discover_payload["service"]' not in workflow
     assert "discover['service']" not in workflow
+
+
+def test_install_smoke_uses_uv_tool_dir_and_explicit_macos_path_cases() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert 'tool_bin="$(uv tool dir --bin)"' in workflow
+    assert 'expected_tool_bin="$(uv tool dir --bin)"' in workflow
+    assert 'export PATH="$tool_bin:$PATH"' in workflow
+    assert 'TOOL_BIN="$tool_bin" python3' in workflow
+    assert 'test "$command_path" = "$expected_tool_bin/recollectium"' in workflow
+    assert "assert managed_path_edits == set(), metadata" in workflow
+    assert "expected_path_edits.issubset(managed_path_edits)" in workflow
+    assert "from platformdirs.macos import MacOS" in workflow
+    assert 'Path(MacOS("recollectium").user_state_dir) / "install.json"' in workflow
+    assert 'Path(xdg_state) / "recollectium" / "install.json"' in workflow
 
 
 def test_install_smoke_uses_verbose_uninstall_for_internal_path_assertions() -> None:
@@ -38,6 +63,11 @@ def test_install_smoke_uses_verbose_uninstall_for_internal_path_assertions() -> 
         '@("--verbose", "uninstall", "--purge", "--yes-delete-all-recollectium-data", "--json")'
         in workflow
     )
+    assert "windows_x86" not in workflow
+    assert "assert stderr == '', stderr" in workflow
+    assert "assert uninstall['status'] == 'scheduled', payload" in workflow
+    assert "assert isinstance(uninstall['helper_pid'], int)" in workflow
+    assert "assert 'handed off' in uninstall['hint'], payload" in workflow
 
 
 def _unix_bootstrap_helpers() -> str:

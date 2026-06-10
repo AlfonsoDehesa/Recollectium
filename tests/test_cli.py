@@ -12229,7 +12229,14 @@ def test_cli_service_command_success_and_runtime_errors(
         state["running"] = {"type": "service-a", "pid": 42}
         code, stdout, stderr = invoke(["status"])
         assert code == 0
-        assert "running" in stdout
+        payload = json.loads(stdout)
+        assert payload == {
+            "running": True,
+            "type": "service-a",
+            "pid": 42,
+            "endpoint": "http://127.0.0.1:8765",
+        }
+        assert stderr == ""
         state["running"] = None
         state["raw_pid_info"] = {"type": "service-a", "pid": 42}
         code, stdout, stderr = invoke(["status"])
@@ -12273,6 +12280,76 @@ def test_cli_service_command_success_and_runtime_errors(
     assert code == 2
     assert stdout == ""
     assert "validation_error" in stderr
+
+
+def test_cli_service_status_verbose_returns_nested_diagnostics(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(cli_module, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_module, "RecollectiumConfig", _FakeServiceConfig)
+    monkeypatch.setattr(
+        cli_module, "get_pid_file_path", lambda cfg: tmp_path / "service.pid"
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "read_pid_file",
+        lambda path: {"type": "api", "pid": 42},
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "check_running_service",
+        lambda cfg: {"type": "api", "pid": 42, "process_start_time": 123},
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "service_discovery_payload",
+        lambda cfg, running: {
+            "status": "running",
+            "service": {
+                "type": running["type"],
+                "pid": running["pid"],
+                "process_start_time": running["process_start_time"],
+                "endpoint": "http://127.0.0.1:8765",
+                "api_prefix": "/v1",
+                "health_url": "http://127.0.0.1:8765/v1/health",
+                "version_url": "http://127.0.0.1:8765/v1/version",
+                "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
+            },
+            "versions": {"service_api_version": "1", "recollectium_version": "test"},
+            "paths": {
+                "pid_file": str(tmp_path / "service.pid"),
+                "discovery_file": str(tmp_path / "service-discovery.json"),
+                "log_file": str(tmp_path / "service.log"),
+            },
+        },
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--verbose", "--json", "service", "status"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "running"
+    assert payload["service"] == {
+        "type": "api",
+        "pid": 42,
+        "process_start_time": 123,
+        "endpoint": "http://127.0.0.1:8765",
+        "api_prefix": "/v1",
+        "health_url": "http://127.0.0.1:8765/v1/health",
+        "version_url": "http://127.0.0.1:8765/v1/version",
+        "capabilities_url": "http://127.0.0.1:8765/v1/capabilities",
+    }
+    assert payload["versions"]["service_api_version"] == "1"
+    assert isinstance(payload["versions"]["recollectium_version"], str)
+    assert set(payload["paths"]) == {"pid_file", "discovery_file", "log_file"}
 
 
 def test_ensure_cli_model_ready_non_tty_stays_quiet_and_suppresses_provider_noise(

@@ -71,13 +71,21 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = "macOS" ]; then
-            export PATH="$(python3 - <<'PY'
+            if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
+              export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
+            fi
+            tool_bin="$(uv tool dir --bin)"
+            if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
+              export PATH="$tool_bin:$PATH"
+            else
+              export PATH="$(TOOL_BIN="$tool_bin" python3 - <<'PY'
           import os
 
-          tool_bin = os.path.join(os.environ["HOME"], ".local", "bin")
+          tool_bin = os.environ["TOOL_BIN"]
           print(":".join(part for part in os.environ["PATH"].split(":") if part != tool_bin))
           PY
           )"
+            fi
           fi
           sh ./install.sh
         env:
@@ -89,17 +97,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          zsh -lc 'command -v recollectium && recollectium --version'
-          python - <<'PY'
+          if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
+            export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
+          fi
+          expected_tool_bin="$(uv tool dir --bin)"
+          if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
+            export PATH="$expected_tool_bin:$PATH"
+          fi
+          command_path="$(zsh -lc 'command -v recollectium')"
+          test "$command_path" = "$expected_tool_bin/recollectium"
+          zsh -lc 'recollectium --version'
+          EXPECTED_TOOL_BIN="$expected_tool_bin" python - <<'PY'
           import json
           import os
           import re
           from pathlib import Path
+          try:
+              from platformdirs.macos import MacOS
+          except ModuleNotFoundError:
+              MacOS = None
 
-          if os.environ.get("RUNNER_OS") == "macOS":
-              metadata_path = Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
-          else:
-              metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
+          def install_metadata_path() -> Path:
+              if os.environ.get("RUNNER_OS") == "macOS":
+                  xdg_state = os.environ.get("XDG_STATE_HOME")
+                  if xdg_state:
+                      return Path(xdg_state) / "recollectium" / "install.json"
+                  if MacOS is not None:
+                      return Path(MacOS("recollectium").user_state_dir) / "install.json"
+                  return Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
+              return Path.home() / ".local" / "state" / "recollectium" / "install.json"
+
+          metadata_path = install_metadata_path()
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
           tracking_target = metadata.get("tracking_target", {})
           assert tracking_target.get("selector"), metadata
@@ -111,15 +139,20 @@ jobs:
           else:
               expected_kind = "custom_ref"
           assert tracking_target.get("kind") == expected_kind, metadata
-          expected = {
+          expected_path_edits = {
               str(Path.home() / ".zprofile"),
               str(Path.home() / ".zshrc"),
           }
-          assert expected.issubset(set(metadata.get("managed_path_edits", []))), metadata
-          for path_text in expected:
-              content = Path(path_text).read_text(encoding="utf-8")
-              assert "# >>> recollectium path >>>" in content, content
-              assert "# <<< recollectium path <<<" in content, content
+          managed_path_edits = set(metadata.get("managed_path_edits", []))
+          if os.environ.get("XDG_STATE_HOME"):
+              assert managed_path_edits == set(), metadata
+          else:
+              assert expected_path_edits.issubset(managed_path_edits), metadata
+              for path_text in expected_path_edits:
+                  content = Path(path_text).read_text(encoding="utf-8")
+                  assert "# >>> recollectium path >>>" in content, content
+                  assert f'export PATH="{os.environ["EXPECTED_TOOL_BIN"]}:$PATH"' in content, content
+                  assert "# <<< recollectium path <<<" in content, content
           PY
 
       - name: Install Recollectium on Windows
@@ -135,7 +168,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
+          if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
+            export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
+          fi
+          export PATH="$(uv tool dir --bin):$PATH"
           recollectium --version
           recollectium upgrade --check --install-method bootstrap --repo "$GITHUB_REPOSITORY" --json > upgrade-check.json
           recollectium upgrade --dry-run --install-method bootstrap --repo "$GITHUB_REPOSITORY" --json > upgrade-dry-run.json
@@ -144,12 +180,22 @@ jobs:
           import os
           import re
           from pathlib import Path
+          try:
+              from platformdirs.macos import MacOS
+          except ModuleNotFoundError:
+              MacOS = None
           for path in ["upgrade-check.json", "upgrade-dry-run.json"]:
               payload = json.loads(Path(path).read_text())
               assert payload["status"] in {"up_to_date", "dry_run"}, payload
               assert payload["install_method"] == "bootstrap", payload
           if os.environ.get("RUNNER_OS") == "macOS":
-              metadata_path = Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
+              xdg_state = os.environ.get("XDG_STATE_HOME")
+              if xdg_state:
+                  metadata_path = Path(xdg_state) / "recollectium" / "install.json"
+              elif MacOS is not None:
+                  metadata_path = Path(MacOS("recollectium").user_state_dir) / "install.json"
+              else:
+                  metadata_path = Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
           else:
               metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -170,7 +216,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$HOME/.local/bin:$PATH"
+          if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
+            export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
+          fi
+          export PATH="$(uv tool dir --bin):$PATH"
           smoke_root="$(mktemp -d)"
           trap 'recollectium --config "$smoke_root/config/config.json" service stop --json >/dev/null 2>&1 || true; rm -rf "$smoke_root"' EXIT
           port="$(python - <<'PY'
@@ -211,9 +260,17 @@ jobs:
           PY
           recollectium --config "$config" service status --json > service-status.json
           recollectium --config "$config" service discover --json > service-discover.json
+          recollectium --verbose --config "$config" service status --json > service-status-verbose.json
+          recollectium --verbose --config "$config" service discover --json > service-discover-verbose.json
           python - <<'PY'
           import json
+          import urllib.request
           from pathlib import Path
+
+          def assert_http_json(url: str) -> dict:
+              with urllib.request.urlopen(url, timeout=5) as response:
+                  assert response.status == 200, (url, response.status)
+                  return json.loads(response.read().decode("utf-8"))
 
           start_payload = json.loads(Path("service-start.json").read_text(encoding="utf-8"))
           assert start_payload["status"] == "started", start_payload
@@ -221,17 +278,55 @@ jobs:
           assert start_payload["pid"] > 0, start_payload
 
           status_payload = json.loads(Path("service-status.json").read_text(encoding="utf-8"))
+          assert set(status_payload) == {"running", "type", "endpoint", "pid"}, status_payload
           assert status_payload["running"] is True, status_payload
           assert status_payload["type"] == "api", status_payload
           assert status_payload["pid"] > 0, status_payload
+          assert status_payload["endpoint"].startswith("http://"), status_payload
 
           discover_payload = json.loads(Path("service-discover.json").read_text(encoding="utf-8"))
+          assert set(discover_payload) == {
+              "status",
+              "type",
+              "endpoint",
+              "pid",
+              "health_url",
+              "version_url",
+              "capabilities_url",
+          }, discover_payload
           assert discover_payload["status"] == "running", discover_payload
           assert discover_payload["type"] == "api", discover_payload
           assert discover_payload["pid"] > 0, discover_payload
           for key in ("endpoint", "health_url", "version_url", "capabilities_url"):
               value = discover_payload.get(key)
               assert isinstance(value, str) and value.startswith("http://"), discover_payload
+          for omitted_key in ("service", "versions", "paths"):
+              assert omitted_key not in discover_payload, discover_payload
+              assert omitted_key not in status_payload, status_payload
+
+          verbose_status = json.loads(Path("service-status-verbose.json").read_text(encoding="utf-8"))
+          verbose_discover = json.loads(Path("service-discover-verbose.json").read_text(encoding="utf-8"))
+          for verbose_payload in (verbose_status, verbose_discover):
+              assert verbose_payload["status"] == "running", verbose_payload
+              assert isinstance(verbose_payload["service"], dict), verbose_payload
+              assert verbose_payload["service"]["type"] == "api", verbose_payload
+              assert verbose_payload["service"]["pid"] > 0, verbose_payload
+              assert verbose_payload["service"]["endpoint"] == discover_payload["endpoint"], verbose_payload
+              assert verbose_payload["service"]["api_prefix"] == "/v1", verbose_payload
+              assert isinstance(verbose_payload["versions"], dict), verbose_payload
+              assert verbose_payload["versions"]["service_api_version"] == "1", verbose_payload
+              assert isinstance(verbose_payload["versions"]["recollectium_version"], str), verbose_payload
+              assert isinstance(verbose_payload["paths"], dict), verbose_payload
+
+          health = assert_http_json(discover_payload["health_url"])
+          assert health["data"]["status"] == "ok", health
+          version = assert_http_json(discover_payload["version_url"])
+          assert version["data"]["service_api_version"] == "1", version
+          assert isinstance(version["data"]["recollectium_version"], str), version
+          capabilities = assert_http_json(discover_payload["capabilities_url"])
+          assert capabilities["data"]["service_api_version"] == "1", capabilities
+          assert isinstance(capabilities["data"]["capabilities"], list), capabilities
+          assert "health.read" in capabilities["data"]["capabilities"], capabilities
           PY
           recollectium --config "$config" service stop --json > service-stop.json
           recollectium --config "$config" service status --json > service-stopped.json
@@ -250,15 +345,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$HOME/.local/bin:$PATH"
+          if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
+            export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
+          fi
+          export PATH="$(uv tool dir --bin):$PATH"
 
           python - <<'PY'
           import json
           import os
           from pathlib import Path
+          try:
+              from platformdirs.macos import MacOS
+          except ModuleNotFoundError:
+              MacOS = None
 
           if os.environ.get("RUNNER_OS") == "macOS":
-              metadata_path = Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
+              xdg_state = os.environ.get("XDG_STATE_HOME")
+              if xdg_state:
+                  metadata_path = Path(xdg_state) / "recollectium" / "install.json"
+              elif MacOS is not None:
+                  metadata_path = Path(MacOS("recollectium").user_state_dir) / "install.json"
+              else:
+                  metadata_path = Path.home() / "Library" / "Application Support" / "recollectium" / "install.json"
           else:
               metadata_path = Path.home() / ".local" / "state" / "recollectium" / "install.json"
           metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -321,8 +429,11 @@ jobs:
             exit 1
           fi
 
+          if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
+            export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
+          fi
           RECOLLECTIUM_INSTALL_REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}" sh ./install.sh
-          export PATH="$HOME/.local/bin:$PATH"
+          export PATH="$(uv tool dir --bin):$PATH"
           hash -r
           recollectium init
           recollectium add --space user --type note --content "CI purge uninstall smoke sentinel" --json > add-purge.json
@@ -389,7 +500,9 @@ jobs:
             python -c "import json, sys, time, urllib.request`nport=int(sys.argv[1]); url=f'http://127.0.0.1:{port}/v1/health'; deadline=time.monotonic()+30; last=None`nwhile time.monotonic() < deadline:`n    try:`n        payload=json.loads(urllib.request.urlopen(url, timeout=2).read().decode('utf-8'))`n        assert payload['data']['status'] == 'ok', payload`n        break`n    except Exception as exc:`n        last=exc; time.sleep(1)`nelse:`n    raise AssertionError(f'health check did not become ok: {last!r}')" $port
             recollectium --config $config service status --json | Out-File -Encoding utf8 service-status.json
             recollectium --config $config service discover --json | Out-File -Encoding utf8 service-discover.json
-            python -c "import json, pathlib; start=json.loads(pathlib.Path('service-start.json').read_text(encoding='utf-8-sig')); assert start['status'] == 'started', start; assert start['type'] == 'api', start; assert start['pid'] > 0, start; status=json.loads(pathlib.Path('service-status.json').read_text(encoding='utf-8-sig')); assert status['running'] is True, status; assert status['type'] == 'api', status; assert status['pid'] > 0, status; discover=json.loads(pathlib.Path('service-discover.json').read_text(encoding='utf-8-sig')); assert discover['status'] == 'running', discover; assert discover['type'] == 'api', discover; assert discover['pid'] > 0, discover; [(_ for _ in ()).throw(AssertionError(discover)) for key in ('endpoint','health_url','version_url','capabilities_url') if not (isinstance(discover.get(key), str) and discover[key].startswith('http://'))]"
+            recollectium --verbose --config $config service status --json | Out-File -Encoding utf8 service-status-verbose.json
+            recollectium --verbose --config $config service discover --json | Out-File -Encoding utf8 service-discover-verbose.json
+            python -c "import json, pathlib, urllib.request`ndef load(p): return json.loads(pathlib.Path(p).read_text(encoding='utf-8-sig'))`ndef get(url):`n    response=urllib.request.urlopen(url, timeout=5); assert response.status == 200, (url, response.status); return json.loads(response.read().decode('utf-8'))`nstart=load('service-start.json'); assert start['status'] == 'started', start; assert start['type'] == 'api', start; assert start['pid'] > 0, start`nstatus=load('service-status.json'); assert set(status) == {'running','type','endpoint','pid'}, status; assert status['running'] is True, status; assert status['type'] == 'api', status; assert status['pid'] > 0, status; assert status['endpoint'].startswith('http://'), status`ndiscover=load('service-discover.json'); assert set(discover) == {'status','type','endpoint','pid','health_url','version_url','capabilities_url'}, discover; assert discover['status'] == 'running', discover; assert discover['type'] == 'api', discover; assert discover['pid'] > 0, discover; [(_ for _ in ()).throw(AssertionError(discover)) for key in ('endpoint','health_url','version_url','capabilities_url') if not (isinstance(discover.get(key), str) and discover[key].startswith('http://'))]; [(_ for _ in ()).throw(AssertionError((status, discover))) for key in ('service','versions','paths') if key in status or key in discover]`nverbose_status=load('service-status-verbose.json'); verbose_discover=load('service-discover-verbose.json')`nfor payload in (verbose_status, verbose_discover):`n    assert payload['status'] == 'running', payload; assert isinstance(payload['service'], dict), payload; assert payload['service']['type'] == 'api', payload; assert payload['service']['pid'] > 0, payload; assert payload['service']['endpoint'] == discover['endpoint'], payload; assert payload['service']['api_prefix'] == '/v1', payload; assert payload['versions']['service_api_version'] == '1', payload; assert isinstance(payload['versions']['recollectium_version'], str), payload; assert isinstance(payload['paths'], dict), payload`nhealth=get(discover['health_url']); assert health['data']['status'] == 'ok', health`nversion=get(discover['version_url']); assert version['data']['service_api_version'] == '1', version; assert isinstance(version['data']['recollectium_version'], str), version`ncapabilities=get(discover['capabilities_url']); assert capabilities['data']['service_api_version'] == '1', capabilities; assert isinstance(capabilities['data']['capabilities'], list), capabilities; assert 'health.read' in capabilities['data']['capabilities'], capabilities"
             recollectium --config $config service stop --json | Out-File -Encoding utf8 service-stop.json
             recollectium --config $config service status --json | Out-File -Encoding utf8 service-stopped.json
             python -c "import json, pathlib; stop=json.loads(pathlib.Path('service-stop.json').read_text(encoding='utf-8-sig')); assert stop['status'] == 'stopped', stop; stopped=json.loads(pathlib.Path('service-stopped.json').read_text(encoding='utf-8-sig')); assert stopped['running'] is False, stopped"
@@ -402,8 +515,6 @@ jobs:
       - name: Verify uninstall on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          WINDOWS_SMOKE_VARIANT: ${{ matrix.name }}
         run: |
           function Invoke-RecollectiumSmokeCommand {
             param(
@@ -430,7 +541,7 @@ jobs:
           Invoke-RecollectiumSmokeCommand -Arguments @("add", "--space", "user", "--type", "note", "--content", "CI uninstall smoke sentinel", "--json") -StdoutPath add-default.json -StderrPath add-default.stderr
           Invoke-RecollectiumSmokeCommand -Arguments @("--verbose", "uninstall", "--json") -StdoutPath uninstall-default.json -StderrPath uninstall-default.stderr
 
-          Invoke-PythonSmokeCheck -Command "import json, os, pathlib; add=json.loads(pathlib.Path('add-default.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; stderr=pathlib.Path('uninstall-default.stderr').read_text(encoding='utf-8-sig'); windows_x86=os.environ.get('WINDOWS_SMOKE_VARIANT') == 'windows-x86_64'; assert windows_x86 or stderr == '', stderr; payload=json.loads(pathlib.Path('uninstall-default.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'uninstalled', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; uninstall=payload['package']['uninstall']; assert uninstall['status'] in {'removed', 'scheduled'}, payload; assert payload['data']['preserved'] is True, payload; paths=payload['data']['paths']; assert pathlib.Path(paths['config']).exists(), paths; assert pathlib.Path(paths['database']).exists(), paths"
+          Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-default.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; stderr=pathlib.Path('uninstall-default.stderr').read_text(encoding='utf-8-sig'); assert stderr == '', stderr; payload=json.loads(pathlib.Path('uninstall-default.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'uninstalled', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; uninstall=payload['package']['uninstall']; assert uninstall['status'] == 'scheduled', payload; assert uninstall['argv'][-3:] == ['tool', 'uninstall', 'recollectium'], payload; assert isinstance(uninstall['helper_pid'], int) and uninstall['helper_pid'] > 0, payload; assert 'handed off' in uninstall['hint'], payload; assert payload['data']['preserved'] is True, payload; paths=payload['data']['paths']; assert pathlib.Path(paths['config']).exists(), paths; assert pathlib.Path(paths['database']).exists(), paths"
           Start-Sleep -Seconds 5
 
           $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
@@ -445,4 +556,4 @@ jobs:
           Invoke-RecollectiumSmokeCommand -Arguments @("add", "--space", "user", "--type", "note", "--content", "CI purge uninstall smoke sentinel", "--json") -StdoutPath add-purge.json -StderrPath add-purge.stderr
           Invoke-RecollectiumSmokeCommand -Arguments @("--verbose", "uninstall", "--purge", "--yes-delete-all-recollectium-data", "--json") -StdoutPath uninstall-purge.json -StderrPath uninstall-purge.stderr
 
-          Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-purge.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; purge_stderr=pathlib.Path('uninstall-purge.stderr').read_text(encoding='utf-8-sig'); assert purge_stderr == '', purge_stderr; payload=json.loads(pathlib.Path('uninstall-purge.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'uninstalled', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; uninstall=payload['package']['uninstall']; assert uninstall['status'] in {'removed', 'scheduled'}, payload; assert payload['data']['preserved'] is False, payload; purge=payload['data']['purge']; assert purge['dry_run'] is False, payload; assert purge['deleted'], payload; paths=payload['data']['paths']; assert not pathlib.Path(paths['config']).exists(), paths; assert not pathlib.Path(paths['database']).exists(), paths"
+          Invoke-PythonSmokeCheck -Command "import json, pathlib; add=json.loads(pathlib.Path('add-purge.json').read_text(encoding='utf-8-sig')); assert add.get('id'), add; purge_stderr=pathlib.Path('uninstall-purge.stderr').read_text(encoding='utf-8-sig'); assert purge_stderr == '', purge_stderr; payload=json.loads(pathlib.Path('uninstall-purge.json').read_text(encoding='utf-8-sig')); assert payload['status'] == 'uninstalled', payload; assert payload['package']['install_method'] == 'bootstrap', payload; assert payload['package']['recommended'] == 'uv tool uninstall recollectium', payload; uninstall=payload['package']['uninstall']; assert uninstall['status'] == 'scheduled', payload; assert uninstall['argv'][-3:] == ['tool', 'uninstall', 'recollectium'], payload; assert isinstance(uninstall['helper_pid'], int) and uninstall['helper_pid'] > 0, payload; assert 'handed off' in uninstall['hint'], payload; assert payload['data']['preserved'] is False, payload; purge=payload['data']['purge']; assert purge['dry_run'] is False, payload; assert purge['deleted'], payload; paths=payload['data']['paths']; assert not pathlib.Path(paths['config']).exists(), paths; assert not pathlib.Path(paths['database']).exists(), paths"
