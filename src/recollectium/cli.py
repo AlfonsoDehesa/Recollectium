@@ -1768,6 +1768,27 @@ def _directory_writable(path: Path) -> bool:
         return False
 
 
+def _log_file_warning(message: str, *, event: str) -> None:
+    """Write a warning record to managed file logs without emitting to stderr."""
+
+    logger = logging.getLogger("recollectium")
+    if not logger.isEnabledFor(logging.WARNING):
+        return
+    record = _log.makeRecord(
+        _log.name,
+        logging.WARNING,
+        __file__,
+        0,
+        message,
+        (),
+        None,
+        extra={"event": event},
+    )
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler) and record.levelno >= handler.level:
+            handler.handle(record)
+
+
 def _builtin_fastembed_provider_from_config(
     config: dict[str, Any],
     *,
@@ -1943,7 +1964,7 @@ def _handle_config_command(
 
         if failures:
             for failure in failures:
-                _log.info(failure, extra={"event": "config.doctor_failed"})
+                _log_file_warning(failure, event="config.doctor_failed")
             return _emit_cli_failure(
                 status="operation_failed",
                 message="Config doctor found filesystem problems.",
@@ -1996,7 +2017,14 @@ def _handle_config_command(
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
         config_path.chmod(0o600)
         payload: dict[str, Any] = {"path": str(config_path)}
-        if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE:
+        known_previous_keys = isinstance(previous_raw, dict) and set(
+            previous_raw.keys()
+        ).issubset(set(DEFAULTS.keys()))
+        if (
+            _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE
+            and existed
+            and known_previous_keys
+        ):
             payload.update(
                 {
                     "status": "reset",
@@ -3400,7 +3428,8 @@ def _completion_candidates(line: str, point: int | None) -> list[str]:
 
 
 def _handle_completion_command(args: argparse.Namespace, *, output_format: str) -> int:
-    if output_format == CLI_OUTPUT_JSON and not args.install:
+    explicit_json = bool(getattr(args, "_explicit_json", False))
+    if explicit_json and args.complete_line is not None:
         return _emit_cli_failure(
             status="selected_format_error",
             message="Completion raw output is not available with --json.",
@@ -3426,6 +3455,17 @@ def _handle_completion_command(args: argparse.Namespace, *, output_format: str) 
             exit_code=2,
             command="completion",
             event="completion.unknown_shell",
+        )
+
+    if explicit_json and not args.install:
+        return _emit_cli_failure(
+            status="selected_format_error",
+            message="Completion raw output is not available with --json.",
+            detail="Use completion --install with --json, or omit --json for raw completion source, instructions, or candidates.",
+            hint="Run recollectium completion --source <shell> without --json for shell source output.",
+            exit_code=2,
+            command="completion",
+            event="completion.selected_format_error",
         )
 
     if args.source:
@@ -4271,6 +4311,10 @@ def _handle_workspace_command(
         uids = core.list_workspaces(
             include_archived=getattr(args, "include_archived", False),
             include_aliases=getattr(args, "include_aliases", False),
+            include_alias_records=(
+                getattr(args, "include_aliases", False)
+                and _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE
+            ),
         )
         _emit_success(uids, output_format=output_format, command="workspace list")
         return 0
@@ -5753,6 +5797,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             command="verbosity",
         )
     args = parser.parse_args(effective_argv)
+    setattr(
+        args,
+        "_explicit_json",
+        output_override == CLI_OUTPUT_JSON
+        and verbosity_override != RESPONSE_VERBOSITY_VERBOSE,
+    )
 
     if getattr(args, "command", None) is None and getattr(args, "version", False):
         try:

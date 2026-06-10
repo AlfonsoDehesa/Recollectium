@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from recollectium.config import RESPONSE_VERBOSITY_COMPACT
+from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
 from recollectium.core import RecollectiumCore
 from recollectium.retrieval import UNSET
 from recollectium.errors import (
@@ -869,6 +869,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             include_aliases=parsed_include_aliases
             if parsed_include_aliases is not None
             else False,
+            include_alias_records=bool(parsed_include_aliases)
+            and resolved == RESPONSE_VERBOSITY_VERBOSE,
         )
         _log.info(
             "list_workspaces completed",
