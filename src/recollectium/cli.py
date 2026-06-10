@@ -804,7 +804,7 @@ def _format_human_output(
     if command == "init":
         if verbosity == RESPONSE_VERBOSITY_COMPACT:
             if payload.get("already_initialized") is True:
-                message = "Recollectium is already initialized with no changes needed."
+                message = "Recollectium is already initialized: No changes needed."
             else:
                 refresh = payload.get("embedding_refresh")
                 if isinstance(refresh, dict) and refresh.get("refreshed") is True:
