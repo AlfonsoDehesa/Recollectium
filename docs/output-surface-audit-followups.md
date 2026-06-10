@@ -18,8 +18,8 @@ Implement all red findings and all yellow decisions Alfonso accepted, while keep
 |---|---:|---|---|---|
 | S1 / C38 / A18 / M10 | ✅ | CLI/API/MCP | `workspace list --include-aliases` verbose output is less informative than compact. | Make verbose preserve compact essentials and include full alias records/timestamps. |
 | S2 / C46 / A13 / A14 / M17 / M18 | ✅ | CLI/API/MCP | Compact embedding job rows omit failure reason. | Map failed job `error_message` to compact `reason`. |
-| S3 / A5 / A6 | 🔴 | API docs | Search docs say default `limit=10`, implementation uses `20`. | Align docs with implementation default `20`. |
-| C6 | 🟡 | CLI | `config --defaults` compact/verbose are the same. | Keep compact showing full config defaults. No change. |
+| S3 / A5 / A6 | ✅ | API docs | Search docs said default `limit=10`, implementation uses `20`. | Aligned docs with implementation default `20`. |
+| C6 | ✅ | CLI | `config --defaults` compact/verbose are the same. | No-change decision confirmed: compact still shows full config defaults. |
 | C15 | ✅ | CLI | `config reset` verbose could include what changed. | Add verbose changed/reset detail. |
 | C31 | ✅ | CLI | `db-status` verbose could include migration internals. | Add verbose migration/internal detail. |
 | C32 | ✅ | CLI | `dev true` verbose could include seeded DB counts/details. | Add verbose seeded DB counts/details. |

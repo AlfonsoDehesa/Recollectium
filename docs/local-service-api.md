@@ -320,7 +320,7 @@ All successful endpoint responses currently return HTTP `200` with a `{"data": .
   - `query` (string, non-empty)
 - Optional inputs:
   - `type` (string bucket filter; optional)
-  - `limit` (positive integer, default `10`)
+  - `limit` (positive integer, default `20`)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
 - Successful response: HTTP `200` with compact `data` list of search results (`id`, `content`, `match`) by default. Use `?verbosity=verbose` or the verbosity header for full search result objects (`memory`, `score`, `rank`, `matched_text`, `snippet`, `chunk_index`).
@@ -391,7 +391,7 @@ Verbose response includes full search result fields:
   - `workspace_uid` (string, non-empty)
 - Optional inputs:
   - `type` (string bucket filter; optional)
-  - `limit` (positive integer, default `10`)
+  - `limit` (positive integer, default `20`)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
 - Successful response: HTTP `200` with compact `data` list of search results (`id`, `content`, `match`) by default. Use `?verbosity=verbose` or the verbosity header for full search result objects.
