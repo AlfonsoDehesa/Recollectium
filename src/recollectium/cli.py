@@ -4397,8 +4397,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--defaults",
         action="store_true",
         help=(
-            "Print built-in default values without creating a file. Uses JSON "
-            "by default, or human-readable text when requested."
+            "Print built-in default values without creating a file. Uses the selected output format."
         ),
     )
 
@@ -4535,7 +4534,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "search-user",
         help="search global user memories",
         description=(
-            "Search active user memories semantically and return ranked JSON results. "
+            "Search active user memories semantically and return ranked results in the selected output format. "
             "Searches default to all user buckets unless --type narrows the scope."
         ),
     )
@@ -4582,8 +4581,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "search-workspace",
         help="search memories for one workspace UID",
         description=(
-            "Search active memories for a specific workspace UID and return ranked "
-            "JSON results. Searches default to all workspace buckets unless --type narrows the scope."
+            "Search active memories for a specific workspace UID and return ranked results in the selected output format. Searches default to all workspace buckets unless --type narrows the scope."
         ),
     )
     search_workspace_parser.add_argument(
@@ -4634,7 +4632,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "list",
         help="list memories with optional filters across all buckets by default",
         description=(
-            "List memories as JSON, optionally filtered by space, type, status, "
+            "List memories in the selected output format, optionally filtered by space, type, status, "
             "workspace UID, or result limit. Archived memories are hidden unless "
             "requested."
         ),
@@ -4666,7 +4664,7 @@ def _build_parser() -> argparse.ArgumentParser:
     get_parser = subparsers.add_parser(
         "get",
         help="retrieve one memory by ID",
-        description="Retrieve one memory by its ID and print it as JSON.",
+        description="Retrieve one memory by its ID and print it in the selected output format.",
     )
     get_parser.add_argument("memory_id", help="Memory ID to retrieve.")
 
@@ -4904,8 +4902,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "status",
         help="show running service details",
         description=(
-            "Report managed service state as running, stale, or not running. Output "
-            "includes service details in JSON by default or human-readable text when requested."
+            "Report managed service state as running, stale, or not running. Output uses the selected output format."
         ),
     )
 
@@ -4914,7 +4911,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "discover",
         help="print machine-readable connection details for the running service",
         description=(
-            "Print machine-readable connection details for local adapters as JSON. "
+            "Print connection details for local adapters in the selected output format. "
             "The command reports the running endpoint, version and capability URLs, "
             "PID path, and discovery file path without creating a config file."
         ),
@@ -4943,7 +4940,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "db-status",
         help="show database schema migration status",
         description=(
-            "Show SQLite migration status as JSON for the selected database path. "
+            "Show SQLite migration status in the selected output format for the selected database path. "
             "This command initializes the database if needed and reports current "
             "and pending schema versions."
         ),
@@ -5104,7 +5101,7 @@ def _build_parser() -> argparse.ArgumentParser:
     list_ws_parser = workspace_sub.add_parser(
         "list",
         help="list known workspace UIDs",
-        description="List distinct workspace UIDs from the database as a sorted JSON array.",
+        description="List distinct workspace UIDs from the database in the selected output format.",
     )
     list_ws_parser.add_argument(
         "--include-archived",

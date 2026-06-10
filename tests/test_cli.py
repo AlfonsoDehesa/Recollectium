@@ -251,7 +251,13 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "@path/to/file.json" in add_help
     assert "confidence score from 0.0 to 1.0" in add_help
 
+    search_user_help = _run_help(["search-user", "--help"], capsys)
+    assert "selected output format" in search_user_help
+    assert "ranked JSON" not in search_user_help
+
     search_help = _run_help(["search-workspace", "--help"], capsys)
+    assert "selected output format" in search_help
+    assert "ranked JSON" not in search_help
     assert "Stable workspace UID" in search_help
     assert "searched" in search_help
     assert "Defaults to 20" in search_help
@@ -371,7 +377,28 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--state" in embedding_jobs_clear_help
     assert "--yes" in embedding_jobs_clear_help
 
+    config_defaults_help = _run_help(["config", "--defaults", "--help"], capsys)
+    assert "selected output format" in config_defaults_help
+    assert "JSON by default" not in config_defaults_help
+
+    list_help = _run_help(["list", "--help"], capsys)
+    assert "selected output format" in list_help
+    assert "List memories as JSON" not in list_help
+
+    get_help = _run_help(["get", "--help"], capsys)
+    assert "selected output format" in get_help
+    assert "print it as JSON" not in get_help
+
+    workspace_list_help = _run_help(["workspace", "list", "--help"], capsys)
+    assert "selected output format" in workspace_list_help
+    assert "sorted JSON array" not in workspace_list_help
+
+    service_status_help = _run_help(["service", "status", "--help"], capsys)
+    assert "selected output format" in service_status_help
+    assert "JSON by default" not in service_status_help
+
     db_status_help = _run_help(["db-status", "--help"], capsys)
+    assert "selected output format" in db_status_help
     assert "migration status" in db_status_help
     assert "pending" in db_status_help
     assert "schema versions" in db_status_help
@@ -383,7 +410,8 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--dry-run" in uninstall_help
 
     service_discover_help = _run_help(["service", "discover", "--help"], capsys)
-    assert "machine-readable connection details" in service_discover_help
+    assert "selected output format" in service_discover_help
+    assert "machine-readable connection details" not in service_discover_help
     assert "without creating a config file" in service_discover_help
 
 
