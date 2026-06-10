@@ -5921,6 +5921,40 @@ class TestConfigCommand:
         assert not state_home.exists()
         assert not runtime_home.exists()
 
+    def test_config_validate_default_existing_config_is_read_only(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        configured_dirs = {
+            "data": tmp_path / "default-data",
+            "cache": tmp_path / "default-cache",
+            "logs": tmp_path / "default-logs",
+            "runtime": tmp_path / "default-runtime",
+        }
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        config_path = config_home / "recollectium" / "config.json"
+        config_path.parent.mkdir(parents=True)
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "directories": {
+                        key: str(path) for key, path in configured_dirs.items()
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(["config", "--validate"], capsys)
+
+        payload = json.loads(stdout)
+        assert exit_code == 0
+        assert stderr == ""
+        assert payload["status"] == "valid"
+        assert payload["config"]["directories"]["data"] == str(configured_dirs["data"])
+        assert all(not path.exists() for path in configured_dirs.values())
+
     def test_config_validate_human_compact_and_verbose_success(
         self, tmp_path, capsys
     ) -> None:
