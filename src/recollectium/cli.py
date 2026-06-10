@@ -2001,7 +2001,11 @@ def _handle_config_command(
         if output_format == CLI_OUTPUT_HUMAN_READABLE:
             sys.stdout.write(_frame_human_output(str(config_path)))
         else:
-            print(str(config_path))
+            _emit_success(
+                {"path": str(config_path)},
+                output_format=output_format,
+                command="config --path",
+            )
         return 0
 
     if args.defaults:

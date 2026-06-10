@@ -446,6 +446,20 @@ def test_cli_log_level_applies_to_missing_config_fallback(
     assert "config.json" in stdout
 
 
+def test_cli_config_path_json_output_is_structured(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    exit_code, stdout, stderr = _run_cli(["config", "--path"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == {
+        "path": str(tmp_path / "config" / "recollectium" / "config.json")
+    }
+
+
 def test_cli_config_path_human_output_is_framed(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
