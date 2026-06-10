@@ -6158,7 +6158,9 @@ def test_cli_config_reset_verbose_reports_reset_details(tmp_path, capsys) -> Non
     assert payload["previous_unknown_keys"] == []
 
 
-def test_cli_config_reset_verbose_reports_missing_config_context(tmp_path, capsys) -> None:
+def test_cli_config_reset_verbose_reports_missing_config_context(
+    tmp_path, capsys
+) -> None:
     config_path = tmp_path / "missing" / "config.json"
 
     exit_code, stdout, stderr = _run_cli(
@@ -6179,7 +6181,9 @@ def test_cli_config_reset_verbose_reports_missing_config_context(tmp_path, capsy
     assert payload["previous_unknown_keys"] == []
 
 
-def test_cli_config_reset_verbose_reports_unknown_previous_keys(tmp_path, capsys) -> None:
+def test_cli_config_reset_verbose_reports_unknown_previous_keys(
+    tmp_path, capsys
+) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps({"version": 1, "logging": {"level": "debug"}, "custom": "data"}),

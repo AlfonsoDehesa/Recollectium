@@ -2018,7 +2018,9 @@ def _handle_config_command(
         config_path.chmod(0o600)
         payload: dict[str, Any] = {"path": str(config_path)}
         if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE:
-            previous_keys = sorted(previous_raw.keys()) if isinstance(previous_raw, dict) else []
+            previous_keys = (
+                sorted(previous_raw.keys()) if isinstance(previous_raw, dict) else []
+            )
             previous_unknown_keys = sorted(set(previous_keys) - set(DEFAULTS.keys()))
             payload.update(
                 {
