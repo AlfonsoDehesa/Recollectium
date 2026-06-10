@@ -12049,8 +12049,11 @@ def test_cli_upgrade_latest_uses_metadata_target_repo(capsys, monkeypatch) -> No
 class _FakeServiceConfig:
     def __init__(self, config_path: Path, log_level: str | None = None) -> None:
         self.config_path = config_path
+        self.config_file_path = config_path
         self.log_level = log_level
         self.effective_config = {"service": {"host": "127.0.0.1", "port": 8765}}
+        runtime_dir = config_path.parent / "run"
+        self.xdg_dirs = {"runtime": runtime_dir}
 
 
 @pytest.mark.parametrize("service_action", ["start", "stop", "status", "restart"])
@@ -12350,6 +12353,75 @@ def test_cli_service_status_verbose_returns_nested_diagnostics(
     assert payload["versions"]["service_api_version"] == "1"
     assert isinstance(payload["versions"]["recollectium_version"], str)
     assert set(payload["paths"]) == {"pid_file", "discovery_file", "log_file"}
+
+
+def test_cli_service_status_verbose_not_running_returns_discovery_shape(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(cli_module, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_module, "RecollectiumConfig", _FakeServiceConfig)
+    monkeypatch.setattr(
+        cli_module, "get_pid_file_path", lambda cfg: tmp_path / "run" / "service.pid"
+    )
+    monkeypatch.setattr(cli_module, "read_pid_file", lambda path: None)
+    monkeypatch.setattr(cli_module, "check_running_service", lambda cfg: None)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--verbose", "--json", "service", "status"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "not_running"
+    assert payload["service"] is None
+    assert payload["versions"]["service_api_version"]
+    assert payload["versions"]["recollectium_version"]
+    assert payload["paths"] == {
+        "config": str(config_path),
+        "runtime_dir": str(tmp_path / "run"),
+        "pid_file": str(tmp_path / "run" / "service.pid"),
+        "discovery_file": str(tmp_path / "run" / "service-discovery.json"),
+    }
+    assert "service start api" in payload["next_step"]
+    assert "running" not in payload
+
+
+def test_cli_service_status_verbose_not_running_keeps_last_service_context(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(cli_module, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_module, "RecollectiumConfig", _FakeServiceConfig)
+    monkeypatch.setattr(
+        cli_module, "get_pid_file_path", lambda cfg: tmp_path / "run" / "service.pid"
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "read_pid_file",
+        lambda path: {"type": "api", "pid": 42},
+    )
+    monkeypatch.setattr(cli_module, "check_running_service", lambda cfg: None)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--verbose", "--json", "service", "status"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "not_running"
+    assert payload["service"] is None
+    assert payload["last_service"] == {"type": "api", "pid": 42}
 
 
 def test_ensure_cli_model_ready_non_tty_stays_quiet_and_suppresses_provider_noise(

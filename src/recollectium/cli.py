@@ -6005,6 +6005,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     command="service status",
                 )
             else:
+                if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE:
+                    status_info = service_discovery_payload(cfg, None)
+                    if raw_pid_info is not None:
+                        status_info["last_service"] = {
+                            "type": raw_pid_info["type"],
+                            "pid": raw_pid_info["pid"],
+                        }
+                    _emit_success(
+                        status_info,
+                        output_format=output_format,
+                        command="service status",
+                    )
+                    return 0
                 status_info: dict[str, object] = {"running": False}
                 if raw_pid_info is not None:
                     status_info["last_service"] = {

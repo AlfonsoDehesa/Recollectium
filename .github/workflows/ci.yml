@@ -74,7 +74,7 @@ jobs:
             if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
               export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
             fi
-            tool_bin="$(uv tool dir --bin)"
+            tool_bin="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}"
             if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
               export PATH="$tool_bin:$PATH"
             else
