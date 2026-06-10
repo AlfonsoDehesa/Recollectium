@@ -1193,6 +1193,23 @@ def _call_with_optional_progress_callback(
     return callback(*args, progress_callback=progress_callback)
 
 
+def _refresh_stale_embeddings_with_progress(
+    core: RecollectiumCore,
+    *,
+    include_archived: bool,
+    output_format: str,
+) -> dict[str, Any]:
+    """Run lifecycle stale-embedding refresh with optional human TTY progress."""
+    progress_reporter = _human_reembedding_progress_reporter(output_format)
+    if progress_reporter is None:
+        return core.refresh_stale_embeddings(include_archived=include_archived)
+    with progress_reporter:
+        return core.refresh_stale_embeddings(
+            include_archived=include_archived,
+            progress_callback=progress_reporter,
+        )
+
+
 class _ModelReadinessProgressReporter:
     """Render model readiness as an indeterminate, honest status spinner."""
 
@@ -2036,7 +2053,11 @@ def _run_embedding_maintenance(
         extra={"event": "embedding_maintenance.start"},
     )
     _ensure_cli_model_ready(core, output_format=output_format)
-    refresh = core.refresh_stale_embeddings(include_archived=True)
+    refresh = _refresh_stale_embeddings_with_progress(
+        core,
+        include_archived=True,
+        output_format=output_format,
+    )
     profile = core.embedding_provider.embedding_profile
     return {
         "status": "embedding_maintenance_completed",
