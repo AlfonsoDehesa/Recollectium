@@ -153,8 +153,8 @@ One or two sentences describing the change.
 
 ## Database migrations
 
-- [ ] This PR does not change the SQLite schema.
-- [ ] If it changes the SQLite schema, the migration plan is documented below.
+- [ ] This PR does not change the SQLite schema
+- [ ] If it changes the SQLite schema, the PR includes the migration module, existing-row population/default/nullability plan, lazy-migration safety notes, any required background backfill or re-embedding plan, and upgrade tests from the previous schema version
 
 ## Quality gates
 
