@@ -110,7 +110,9 @@ from recollectium.service_contract import (
 )
 from recollectium.representations import (
     OPERATION_DEV_EVAL,
+    OPERATION_DEV_MODE,
     OPERATION_DEV_OPTIMIZE_THRESHOLD,
+    OPERATION_DEV_RESET,
     OPERATION_EMBEDDING_JOBS_CLEAR,
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_JOBS_LIST,
@@ -872,6 +874,10 @@ def _operation_for_command(command: str | None, payload: Any = None) -> str | No
         return OPERATION_LIFECYCLE_UPGRADE
     if command == "uninstall":
         return OPERATION_LIFECYCLE_UNINSTALL
+    if command in {"dev true", "dev false"}:
+        return OPERATION_DEV_MODE
+    if command == "dev reset":
+        return OPERATION_DEV_RESET
     if command == "dev eval":
         return OPERATION_DEV_EVAL
     if command == "dev optimize-threshold":
@@ -2001,7 +2007,11 @@ def _handle_config_command(
         if output_format == CLI_OUTPUT_HUMAN_READABLE:
             sys.stdout.write(_frame_human_output(str(config_path)))
         else:
-            print(str(config_path))
+            _emit_success(
+                {"path": str(config_path)},
+                output_format=output_format,
+                command="config --path",
+            )
         return 0
 
     if args.defaults:
@@ -4387,8 +4397,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--defaults",
         action="store_true",
         help=(
-            "Print built-in default values without creating a file. Uses JSON "
-            "by default, or human-readable text when requested."
+            "Print built-in default values without creating a file. Uses the selected output format."
         ),
     )
 
@@ -4525,7 +4534,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "search-user",
         help="search global user memories",
         description=(
-            "Search active user memories semantically and return ranked JSON results. "
+            "Search active user memories semantically and return ranked results in the selected output format. "
             "Searches default to all user buckets unless --type narrows the scope."
         ),
     )
@@ -4572,8 +4581,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "search-workspace",
         help="search memories for one workspace UID",
         description=(
-            "Search active memories for a specific workspace UID and return ranked "
-            "JSON results. Searches default to all workspace buckets unless --type narrows the scope."
+            "Search active memories for a specific workspace UID and return ranked results in the selected output format. Searches default to all workspace buckets unless --type narrows the scope."
         ),
     )
     search_workspace_parser.add_argument(
@@ -4624,7 +4632,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "list",
         help="list memories with optional filters across all buckets by default",
         description=(
-            "List memories as JSON, optionally filtered by space, type, status, "
+            "List memories in the selected output format, optionally filtered by space, type, status, "
             "workspace UID, or result limit. Archived memories are hidden unless "
             "requested."
         ),
@@ -4656,7 +4664,7 @@ def _build_parser() -> argparse.ArgumentParser:
     get_parser = subparsers.add_parser(
         "get",
         help="retrieve one memory by ID",
-        description="Retrieve one memory by its ID and print it as JSON.",
+        description="Retrieve one memory by its ID and print it in the selected output format.",
     )
     get_parser.add_argument("memory_id", help="Memory ID to retrieve.")
 
@@ -4894,8 +4902,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "status",
         help="show running service details",
         description=(
-            "Report managed service state as running, stale, or not running. Output "
-            "includes service details in JSON by default or human-readable text when requested."
+            "Report managed service state as running, stale, or not running. Output uses the selected output format."
         ),
     )
 
@@ -4904,7 +4911,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "discover",
         help="print machine-readable connection details for the running service",
         description=(
-            "Print machine-readable connection details for local adapters as JSON. "
+            "Print connection details for local adapters in the selected output format. "
             "The command reports the running endpoint, version and capability URLs, "
             "PID path, and discovery file path without creating a config file."
         ),
@@ -4933,7 +4940,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "db-status",
         help="show database schema migration status",
         description=(
-            "Show SQLite migration status as JSON for the selected database path. "
+            "Show SQLite migration status in the selected output format for the selected database path. "
             "This command initializes the database if needed and reports current "
             "and pending schema versions."
         ),
@@ -5094,7 +5101,7 @@ def _build_parser() -> argparse.ArgumentParser:
     list_ws_parser = workspace_sub.add_parser(
         "list",
         help="list known workspace UIDs",
-        description="List distinct workspace UIDs from the database as a sorted JSON array.",
+        description="List distinct workspace UIDs from the database in the selected output format.",
     )
     list_ws_parser.add_argument(
         "--include-archived",
@@ -5283,7 +5290,9 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Print shell completion setup instructions for bash, zsh, fish, or PowerShell. "
             "With --source, prints only the raw completion function definition "
-            "for eval consumption."
+            "for eval consumption. Setup instructions, --source shell code, and "
+            "the hidden completion protocol are raw completion output and are not "
+            "changed by --json."
         ),
     )
     completion_parser.add_argument(
@@ -5298,7 +5307,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Print only the raw completion function definition for eval "
-            "consumption. No instructions or human-readable output."
+            "consumption. This shell code is emitted as-is and ignores --json."
         ),
     )
     action_group.add_argument(
@@ -5586,8 +5595,10 @@ def _handle_dev_command(
             updated_cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
             result = {
                 "status": "enabled" if use_seeded_database else "disabled",
+                "action": dev_action,
                 "use_seeded_database": use_seeded_database,
                 "database": str(updated_cfg.resolved_database_path),
+                "config": str(config_path),
             }
             if use_seeded_database:
                 result.update(
@@ -5602,6 +5613,7 @@ def _handle_dev_command(
                     }
                 )
         else:
+            dev_reset_config_path = str(config_path)
             provider = _builtin_fastembed_provider_from_config(
                 cfg.effective_config, model_cache_path=cfg.model_cache_path
             )
@@ -5618,6 +5630,8 @@ def _handle_dev_command(
                     provider,
                     progress_callback=progress_reporter,
                 )
+            result["action"] = "reset"
+            result["config"] = dev_reset_config_path
     except FileNotFoundError as exc:
         return _config_missing_error(exc, command="dev")
     except ValidationError as exc:
@@ -5640,7 +5654,10 @@ def _handle_dev_command(
         EmbeddingGenerationError,
     ) as exc:
         return _embedding_error(exc, command="dev")
-    _emit_success(result, output_format=output_format, command="dev")
+    command_name = (
+        f"dev {dev_action}" if dev_action in {"true", "false", "reset"} else "dev"
+    )
+    _emit_success(result, output_format=output_format, command=command_name)
     return 0
 
 
@@ -5685,6 +5702,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             installed_version = package_version("recollectium")
         except PackageNotFoundError:
             installed_version = __version__
+        if output_override == CLI_OUTPUT_JSON:
+            print(
+                json.dumps(
+                    {"name": "recollectium", "version": installed_version},
+                    sort_keys=True,
+                )
+            )
+            return 0
         sys.stdout.write(_frame_human_output(f"recollectium {installed_version}"))
         return 0
 

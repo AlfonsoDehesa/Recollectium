@@ -45,6 +45,8 @@ OPERATION_LIFECYCLE_INIT = "lifecycle.init"
 OPERATION_EMBEDDING_MAINTENANCE = "embedding.maintenance"
 OPERATION_LIFECYCLE_UPGRADE = "lifecycle.upgrade"
 OPERATION_LIFECYCLE_UNINSTALL = "lifecycle.uninstall"
+OPERATION_DEV_MODE = "dev.mode"
+OPERATION_DEV_RESET = "dev.reset"
 OPERATION_DEV_EVAL = "dev.eval"
 OPERATION_DEV_OPTIMIZE_THRESHOLD = "dev.optimize_threshold"
 OPERATION_SERVICE_DISCOVER = "service.discover"
@@ -603,6 +605,27 @@ def project_dev_optimize_threshold(
     return compact
 
 
+def project_dev_mode(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project seeded development database toggle payloads."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    return _compact_dict(
+        payload,
+        ("status", "use_seeded_database", "database", "seed_status"),
+    )
+
+
+def project_dev_reset(
+    payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
+) -> dict[str, Any]:
+    """Project seeded development database reset payloads."""
+    if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
+        return payload
+    return _compact_dict(payload, ("status", "database"))
+
+
 def project_service_discover(
     payload: dict[str, Any], verbosity: str | ResponseVerbosity | None
 ) -> dict[str, Any]:
@@ -714,6 +737,10 @@ def project_payload(
         return project_upgrade(data, selected)
     if operation == OPERATION_LIFECYCLE_UNINSTALL:
         return project_uninstall(data, selected)
+    if operation == OPERATION_DEV_MODE:
+        return project_dev_mode(data, selected)
+    if operation == OPERATION_DEV_RESET:
+        return project_dev_reset(data, selected)
     if operation == OPERATION_DEV_EVAL:
         return project_dev_eval(data, selected)
     if operation == OPERATION_DEV_OPTIMIZE_THRESHOLD:

@@ -148,7 +148,7 @@ Error responses use:
 
 ## Response verbosity
 
-Most endpoints accept an optional `verbosity` query parameter or `X-Recollectium-Verbosity` header. Supported values are `compact` and `verbose`.
+All implemented API endpoints accept an optional `verbosity` query parameter or `X-Recollectium-Verbosity` header. Supported values are `compact` and `verbose`.
 
 The same response projection is used by the CLI and MCP surfaces. CLI callers use `--compact` or `--verbose`; MCP callers pass the optional `verbosity` tool argument. The config key for the default is `response_verbosity`.
 
@@ -1091,20 +1091,29 @@ Example response: compact default
 
 ### `POST /v1/workspaces/{uid}/rename`
 
-Rename a workspace. Migrates all workspace memories (including archived) from
+Purpose: rename a workspace by migrating all workspace memories (including archived) from
 the old UID to a new UID. Both UIDs are normalized according to the
 `workspace.uid_normalization` config setting before the operation.
 
 Compact is the default and returns `{old_uid, new_uid, memories_updated, aliases_updated, status}` with `status: "renamed"`. Verbose mode returns the same counts without the compact status field.
 
-**Request body**
+Example request:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8765/v1/workspaces/recollectium-core/rename \
+  -H 'Content-Type: application/json' \
+  -d '{"new_uid":"recollectium"}'
+```
+
+Request body:
+
 ```json
 {
   "new_uid": "recollectium"
 }
 ```
 
-**Response 200, compact default**
+Example response: compact default
 
 ```json
 {

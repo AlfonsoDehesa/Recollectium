@@ -251,7 +251,13 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "@path/to/file.json" in add_help
     assert "confidence score from 0.0 to 1.0" in add_help
 
+    search_user_help = _run_help(["search-user", "--help"], capsys)
+    assert "selected output format" in search_user_help
+    assert "ranked JSON" not in search_user_help
+
     search_help = _run_help(["search-workspace", "--help"], capsys)
+    assert "selected output format" in search_help
+    assert "ranked JSON" not in search_help
     assert "Stable workspace UID" in search_help
     assert "searched" in search_help
     assert "Defaults to 20" in search_help
@@ -371,7 +377,28 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--state" in embedding_jobs_clear_help
     assert "--yes" in embedding_jobs_clear_help
 
+    config_defaults_help = _run_help(["config", "--defaults", "--help"], capsys)
+    assert "selected output format" in config_defaults_help
+    assert "JSON by default" not in config_defaults_help
+
+    list_help = _run_help(["list", "--help"], capsys)
+    assert "selected output format" in list_help
+    assert "List memories as JSON" not in list_help
+
+    get_help = _run_help(["get", "--help"], capsys)
+    assert "selected output format" in get_help
+    assert "print it as JSON" not in get_help
+
+    workspace_list_help = _run_help(["workspace", "list", "--help"], capsys)
+    assert "selected output format" in workspace_list_help
+    assert "sorted JSON array" not in workspace_list_help
+
+    service_status_help = _run_help(["service", "status", "--help"], capsys)
+    assert "selected output format" in service_status_help
+    assert "JSON by default" not in service_status_help
+
     db_status_help = _run_help(["db-status", "--help"], capsys)
+    assert "selected output format" in db_status_help
     assert "migration status" in db_status_help
     assert "pending" in db_status_help
     assert "schema versions" in db_status_help
@@ -383,7 +410,8 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--dry-run" in uninstall_help
 
     service_discover_help = _run_help(["service", "discover", "--help"], capsys)
-    assert "machine-readable connection details" in service_discover_help
+    assert "selected output format" in service_discover_help
+    assert "machine-readable connection details" not in service_discover_help
     assert "without creating a config file" in service_discover_help
 
 
@@ -444,6 +472,20 @@ def test_cli_log_level_applies_to_missing_config_fallback(
     assert exit_code == 0
     assert stderr == ""
     assert "config.json" in stdout
+
+
+def test_cli_config_path_json_output_is_structured(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    exit_code, stdout, stderr = _run_cli(["config", "--path"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == {
+        "path": str(tmp_path / "config" / "recollectium" / "config.json")
+    }
 
 
 def test_cli_config_path_human_output_is_framed(
@@ -2173,7 +2215,7 @@ def test_cli_dev_reset_resets_configured_seed_database(
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
 
     exit_code, stdout, stderr = _run_cli(
-        ["--config", str(config_path), "dev", "reset"],
+        ["--json", "--verbose", "--config", str(config_path), "dev", "reset"],
         capsys,
     )
 
@@ -2206,7 +2248,7 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
 
     exit_code, stdout, stderr = _run_cli(
-        ["--config", str(config_path), "dev", "true"],
+        ["--json", "--verbose", "--config", str(config_path), "dev", "true"],
         capsys,
     )
 
@@ -2223,7 +2265,57 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     assert loaded["development"]["use_seeded_database"] is True
 
     exit_code, stdout, stderr = _run_cli(
-        ["--config", str(config_path), "dev", "false"],
+        ["--json", "--verbose", "--config", str(config_path), "dev", "false"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "disabled"
+    assert payload["action"] == "false"
+    assert payload["use_seeded_database"] is False
+    assert payload["database"] == str(regular_db)
+    assert payload["config"] == str(config_path)
+    loaded = json.loads(config_path.read_text(encoding="utf-8"))
+    assert loaded["development"]["use_seeded_database"] is False
+    assert not regular_db.exists()
+
+
+def test_cli_dev_true_false_and_reset_compact_json_project_essentials(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    dev_db = tmp_path / "dev.db"
+    regular_db = tmp_path / "regular.db"
+    config_path.write_text(
+        json.dumps(
+            {
+                "database": {"path": str(regular_db)},
+                "development": {"seeded_database_path": str(dev_db)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "BuiltinFastEmbedProvider", FakeEmbeddingProvider)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--compact", "--config", str(config_path), "dev", "true"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload == {
+        "status": "enabled",
+        "use_seeded_database": True,
+        "database": str(dev_db),
+        "seed_status": "reset",
+    }
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--compact", "--config", str(config_path), "dev", "false"],
         capsys,
     )
 
@@ -2235,9 +2327,16 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
         "use_seeded_database": False,
         "database": str(regular_db),
     }
-    loaded = json.loads(config_path.read_text(encoding="utf-8"))
-    assert loaded["development"]["use_seeded_database"] is False
-    assert not regular_db.exists()
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--compact", "--config", str(config_path), "dev", "reset"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload == {"status": "reset", "database": str(dev_db)}
 
 
 def test_cli_dev_eval_json_reports_all_metrics_without_touching_regular_db(
@@ -4303,6 +4402,35 @@ def test_cli_output_flags_are_mutually_exclusive(capsys) -> None:
     assert stderr.startswith("\nChoose either --json or --human-readable, not both.\n")
     _assert_human_framed(stderr)
     assert "Status: validation_error" in stderr
+
+
+def test_completion_help_documents_raw_output_json_exception(capsys) -> None:
+    completion_help = _run_help(["completion", "--help"], capsys)
+
+    _assert_human_framed(completion_help)
+    assert "raw completion output" in completion_help
+    assert "not changed by --json" in completion_help
+    assert "emitted as-is" in completion_help
+    assert "ignores --json" in completion_help
+
+
+def test_completion_source_ignores_json_output_flag(capsys) -> None:
+    json_code, json_stdout, json_stderr = _run_cli(
+        ["--json", "completion", "--source", "bash"], capsys
+    )
+    human_code, human_stdout, human_stderr = _run_cli(
+        ["--human-readable", "completion", "--source", "bash"], capsys
+    )
+
+    assert json_code == 0
+    assert json_stderr == ""
+    assert human_code == 0
+    assert human_stderr == ""
+    assert json_stdout == human_stdout
+    assert "#compdef recollectium" in json_stdout
+    assert "__python_argcomplete" in json_stdout
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(json_stdout)
 
 
 def test_completion_complete_line_stays_json_under_human_output_config(
@@ -7207,11 +7335,22 @@ class TestConfigCommand:
 def test_cli_version_prints_package_version(capsys, monkeypatch) -> None:
     monkeypatch.setattr("recollectium.cli.package_version", lambda _name: "1.2.3")
 
-    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys, json_by_default=False)
 
     assert exit_code == 0
     assert stdout == "\nrecollectium 1.2.3\n\n"
     _assert_human_framed(stdout)
+    assert stderr == ""
+
+
+def test_cli_version_honors_json_output(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("recollectium.cli.package_version", lambda _name: "1.2.3")
+
+    exit_code, stdout, stderr = _run_cli(["--json", "--version"], capsys)
+
+    assert exit_code == 0
+    assert json.loads(stdout) == {"name": "recollectium", "version": "1.2.3"}
+    assert not stdout.startswith("\n")
     assert stderr == ""
 
 
@@ -7222,7 +7361,7 @@ def test_cli_version_uses_source_fallback(capsys, monkeypatch) -> None:
     monkeypatch.setattr("recollectium.cli.package_version", _missing_package)
     monkeypatch.setattr("recollectium.cli.__version__", "0.1.0-dev")
 
-    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys, json_by_default=False)
 
     assert exit_code == 0
     assert stdout == "\nrecollectium 0.1.0-dev\n\n"
@@ -7231,7 +7370,7 @@ def test_cli_version_uses_source_fallback(capsys, monkeypatch) -> None:
 
 
 def test_cli_version_without_command_does_not_require_subcommand(capsys) -> None:
-    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys, json_by_default=False)
 
     assert exit_code == 0
     assert stdout.startswith("\nrecollectium ")

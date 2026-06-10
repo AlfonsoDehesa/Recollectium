@@ -532,6 +532,112 @@ def test_mcp_refresh_and_clear_embedding_jobs_return_json(tmp_path: Path) -> Non
     assert clear_result == {"deleted_count": 1, "states": ["pending"]}
 
 
+def test_mcp_memory_read_tools_compact_and_verbose(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    user = core.add_memory(
+        space="user",
+        type="fact",
+        content="MCP compact memory read",
+        metadata={"source": "test"},
+        confidence=0.8,
+    )
+    workspace = core.add_memory(
+        space="workspace",
+        type="fact",
+        content="MCP workspace compact search",
+        workspace_uid="ws-compact",
+        metadata={"source": "workspace-test"},
+    )
+    mcp = create_mcp_server(core)
+
+    get_fn = mcp._tool_manager._tools["get_memory"].fn
+    compact_get = json.loads(get_fn(id=user.id, verbosity="compact"))
+    verbose_get = json.loads(get_fn(id=user.id, verbosity="verbose"))
+    assert set(compact_get) == {"id", "content", "type", "space"}
+    assert verbose_get["metadata"] == {"source": "test"}
+    assert verbose_get["confidence"] == 0.8
+
+    list_fn = mcp._tool_manager._tools["list_memories"].fn
+    compact_list = json.loads(list_fn(space="user", verbosity="compact"))
+    verbose_list = json.loads(list_fn(space="user", verbosity="verbose"))
+    assert set(compact_list[0]) == {"id", "content", "type", "space"}
+    assert "metadata" in verbose_list[0]
+
+    search_fn = mcp._tool_manager._tools["search_workspace_memory"].fn
+    compact_search = json.loads(
+        search_fn(
+            query="compact search", workspace_uid="ws-compact", verbosity="compact"
+        )
+    )
+    verbose_search = json.loads(
+        search_fn(
+            query="compact search", workspace_uid="ws-compact", verbosity="verbose"
+        )
+    )
+    assert compact_search[0]["id"] == workspace.id
+    assert set(compact_search[0]) == {"id", "content", "match"}
+    assert verbose_search[0]["memory"]["id"] == workspace.id
+    assert "score" in verbose_search[0]
+
+
+def test_mcp_embedding_tools_compact_and_verbose(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    core.store.create_embedding_job(
+        job_id="job-verbosity",
+        state="completed",
+        total_count=2,
+        processed_count=2,
+        succeeded_count=2,
+        failed_count=0,
+        provider="fake",
+        model="fake-model",
+        embedding_profile=core.embedding_provider.embedding_profile,
+    )
+    mcp = create_mcp_server(core)
+
+    status_fn = mcp._tool_manager._tools["embedding_status"].fn
+    compact_status = json.loads(status_fn(verbosity="compact"))
+    verbose_status = json.loads(status_fn(verbosity="verbose"))
+    assert "provider_status" in compact_status
+    assert "runtime" not in compact_status
+    assert "runtime" in verbose_status
+
+    jobs_fn = mcp._tool_manager._tools["embedding_jobs"].fn
+    compact_jobs = json.loads(jobs_fn(verbosity="compact"))
+    verbose_jobs = json.loads(jobs_fn(verbosity="verbose"))
+    assert compact_jobs[0]["id"] == "job-verbosity"
+    assert set(compact_jobs[0]) <= {
+        "id",
+        "state",
+        "reason",
+        "total_count",
+        "succeeded_count",
+        "failed_count",
+    }
+    assert "embedding_profile" in verbose_jobs[0]
+
+    get_job_fn = mcp._tool_manager._tools["get_embedding_job"].fn
+    compact_job = json.loads(get_job_fn(job_id="job-verbosity", verbosity="compact"))
+    verbose_job = json.loads(get_job_fn(job_id="job-verbosity", verbosity="verbose"))
+    assert compact_job["id"] == "job-verbosity"
+    assert "embedding_profile" not in compact_job
+    assert "embedding_profile" in verbose_job
+
+    refresh_fn = mcp._tool_manager._tools["refresh_embeddings"].fn
+    compact_refresh = json.loads(refresh_fn(space="user", verbosity="compact"))
+    verbose_refresh = json.loads(refresh_fn(space="user", verbosity="verbose"))
+    assert compact_refresh["refreshed"] is False
+    assert compact_refresh["stale_count"] == 0
+    assert "status_path" in compact_refresh
+    assert verbose_refresh["refreshed"] is False
+
+    clear_fn = mcp._tool_manager._tools["clear_embedding_jobs"].fn
+    clear_result = json.loads(clear_fn(states=["completed"], verbosity="verbose"))
+    assert clear_result == {"deleted_count": 1, "states": ["completed"]}
+
+
 def test_mcp_get_embedding_job_missing_returns_error(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)

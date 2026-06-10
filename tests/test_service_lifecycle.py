@@ -223,7 +223,7 @@ def test_service_stop_help(capsys: CaptureFixture[str]) -> None:
 def test_service_status_help(capsys: CaptureFixture[str]) -> None:
     help_text = _run_help(["service", "status", "--help"], capsys)
     assert "running, stale, or not running" in help_text
-    assert "JSON by default or human-readable text" in help_text
+    assert "selected output format" in help_text
 
 
 def test_service_restart_help(capsys: CaptureFixture[str]) -> None:

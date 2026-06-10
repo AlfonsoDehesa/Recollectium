@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from recollectium.representations import (
     OPERATION_DEV_EVAL,
+    OPERATION_DEV_MODE,
     OPERATION_DEV_OPTIMIZE_THRESHOLD,
+    OPERATION_DEV_RESET,
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_MAINTENANCE,
     OPERATION_LIFECYCLE_INIT,
@@ -20,7 +22,9 @@ from recollectium.representations import (
     OPERATION_WORKSPACES_RESOLVE,
     ResponseVerbosity,
     project_dev_eval,
+    project_dev_mode,
     project_dev_optimize_threshold,
+    project_dev_reset,
     project_embedding_job,
     project_embedding_maintenance,
     project_embedding_refresh,
@@ -82,6 +86,23 @@ def test_verbose_projection_helpers_return_original_payloads() -> None:
     assert project_embedding_status(embedding_status, "verbose") is embedding_status
     assert project_embedding_job(embedding_job, "verbose") is embedding_job
     assert project_embedding_refresh(embedding_refresh, "verbose") is embedding_refresh
+    dev_mode = {
+        "status": "enabled",
+        "use_seeded_database": True,
+        "database": "/tmp/dev.db",
+        "config": "/tmp/config.json",
+    }
+    dev_reset = {"status": "reset", "database": "/tmp/dev.db", "topics": 10}
+    assert project_dev_mode(dev_mode, "verbose") is dev_mode
+    assert (
+        project_payload(dev_mode, verbosity="verbose", operation=OPERATION_DEV_MODE)
+        is dev_mode
+    )
+    assert project_dev_reset(dev_reset, "verbose") is dev_reset
+    assert (
+        project_payload(dev_reset, verbosity="verbose", operation=OPERATION_DEV_RESET)
+        is dev_reset
+    )
 
 
 def test_list_projection_helpers_apply_compact_projection() -> None:
