@@ -7221,11 +7221,24 @@ class TestConfigCommand:
 def test_cli_version_prints_package_version(capsys, monkeypatch) -> None:
     monkeypatch.setattr("recollectium.cli.package_version", lambda _name: "1.2.3")
 
-    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+    exit_code, stdout, stderr = _run_cli(
+        ["--version"], capsys, json_by_default=False
+    )
 
     assert exit_code == 0
     assert stdout == "\nrecollectium 1.2.3\n\n"
     _assert_human_framed(stdout)
+    assert stderr == ""
+
+
+def test_cli_version_honors_json_output(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("recollectium.cli.package_version", lambda _name: "1.2.3")
+
+    exit_code, stdout, stderr = _run_cli(["--json", "--version"], capsys)
+
+    assert exit_code == 0
+    assert json.loads(stdout) == {"name": "recollectium", "version": "1.2.3"}
+    assert not stdout.startswith("\n")
     assert stderr == ""
 
 
@@ -7236,7 +7249,9 @@ def test_cli_version_uses_source_fallback(capsys, monkeypatch) -> None:
     monkeypatch.setattr("recollectium.cli.package_version", _missing_package)
     monkeypatch.setattr("recollectium.cli.__version__", "0.1.0-dev")
 
-    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+    exit_code, stdout, stderr = _run_cli(
+        ["--version"], capsys, json_by_default=False
+    )
 
     assert exit_code == 0
     assert stdout == "\nrecollectium 0.1.0-dev\n\n"
@@ -7245,7 +7260,9 @@ def test_cli_version_uses_source_fallback(capsys, monkeypatch) -> None:
 
 
 def test_cli_version_without_command_does_not_require_subcommand(capsys) -> None:
-    exit_code, stdout, stderr = _run_cli(["--version"], capsys)
+    exit_code, stdout, stderr = _run_cli(
+        ["--version"], capsys, json_by_default=False
+    )
 
     assert exit_code == 0
     assert stdout.startswith("\nrecollectium ")
