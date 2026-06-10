@@ -24,6 +24,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### 🐛 Fixes
 
+- Fixed `recollectium config --validate --help` to describe effective read-only config validation instead of stale exit-code details.
 - Fixed compact response parity for workspace operations, embedding job counts, config JSON mutations, and lifecycle command JSON so adapters receive consistent token-efficient payloads across CLI, API, and MCP.
 - Tightened compact human init and config UX with one-sentence success/no-op messages, config validation output, skipped config mutations, and init stale-embedding refresh coverage.
 - Re-embedding now runs inline for the triggering CLI command, API request, or MCP tool call so large refreshes finish durably instead of being stranded in a process-local background daemon queue.

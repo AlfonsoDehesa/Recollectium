@@ -4376,7 +4376,7 @@ def _build_parser() -> argparse.ArgumentParser:
     config_parser.add_argument(
         "--validate",
         action="store_true",
-        help="Validate the config file and exit 0 on success, 1 when a file is missing, or 2 when invalid.",
+        help="Validate the effective config without creating a file.",
     )
     config_parser.add_argument(
         "--path",
