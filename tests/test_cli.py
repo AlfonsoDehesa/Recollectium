@@ -10210,7 +10210,12 @@ def test_workspace_alias_cli_commands_round_trip(tmp_path, capsys) -> None:
         ["--db", str(db_path), "workspace", "list", "--include-aliases"], capsys
     )
     assert exit_code == 0
-    assert json.loads(stdout) == [{"workspace_uid": "canonical", "aliases": ["legacy"]}]
+    workspace_rows = json.loads(stdout)
+    assert workspace_rows[0]["workspace_uid"] == "canonical"
+    assert workspace_rows[0]["aliases"] == ["legacy"]
+    assert workspace_rows[0]["alias_count"] == 1
+    assert workspace_rows[0]["alias_records"][0]["alias_uid"] == "legacy"
+    assert "created_at" in workspace_rows[0]["alias_records"][0]
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -10325,6 +10330,25 @@ def test_workspace_alias_cli_compact_projection(tmp_path, capsys) -> None:
     assert json.loads(stdout) == [
         {"workspace_uid": "canonical", "aliases": ["legacy"], "alias_count": 1}
     ]
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "workspace",
+            "resolve",
+            "Legacy",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == {
+        "canonical_uid": "canonical",
+        "resolved_by_alias": True,
+    }
 
 
 def test_cli_human_compact_memory_mutations_include_id(

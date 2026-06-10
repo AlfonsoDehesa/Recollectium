@@ -160,10 +160,10 @@ or nested internals:
 
 - `workspaces.list` returns UID strings when aliases are not requested. With
   aliases, each item is `{workspace_uid, aliases, alias_count}` and `aliases`
-  contains alias UID strings.
-- `workspaces.resolve` returns `{canonical_uid, resolved_by_alias}` plus
-  `input_uid` and `normalized_uid` only when alias resolution or normalization
-  changed the input.
+  contains alias UID strings. Verbose alias-inclusive responses also include
+  `alias_records` with full alias records and timestamps.
+- `workspaces.resolve` returns `{canonical_uid, resolved_by_alias}` in compact
+  mode. Verbose mode includes `input_uid` and `normalized_uid` context.
 - `workspaces.aliases.list` returns `{alias_uid, canonical_uid}` items.
 - `workspaces.aliases.add` returns `{canonical_uid, alias_uid, status,
   migrated_memories}` with `status` set to `added`.

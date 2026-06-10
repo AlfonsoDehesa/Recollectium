@@ -420,6 +420,7 @@ def test_mcp_workspace_alias_tools_round_trip(tmp_path: Path) -> None:
 
     add_fn = mcp._tool_manager._tools["add_workspace_alias"].fn
     resolve_fn = mcp._tool_manager._tools["resolve_workspace"].fn
+    list_workspaces_fn = mcp._tool_manager._tools["list_workspaces"].fn
     list_fn = mcp._tool_manager._tools["list_workspace_aliases"].fn
     remove_fn = mcp._tool_manager._tools["remove_workspace_alias"].fn
 
@@ -430,7 +431,21 @@ def test_mcp_workspace_alias_tools_round_trip(tmp_path: Path) -> None:
         "status": "added",
         "migrated_memories": 0,
     }
-    assert json.loads(resolve_fn(uid="legacy"))["canonical_uid"] == "canonical"
+    assert json.loads(resolve_fn(uid="legacy")) == {
+        "canonical_uid": "canonical",
+        "resolved_by_alias": True,
+    }
+    compact_workspaces = json.loads(list_workspaces_fn(include_aliases=True))
+    assert compact_workspaces == [
+        {"workspace_uid": "canonical", "aliases": ["legacy"], "alias_count": 1}
+    ]
+    verbose_workspaces = json.loads(
+        list_workspaces_fn(include_aliases=True, verbosity="verbose")
+    )
+    assert verbose_workspaces[0]["aliases"] == ["legacy"]
+    assert verbose_workspaces[0]["alias_count"] == 1
+    assert verbose_workspaces[0]["alias_records"][0]["alias_uid"] == "legacy"
+    assert "created_at" in verbose_workspaces[0]["alias_records"][0]
     assert json.loads(list_fn(canonical_uid="canonical")) == [
         {"alias_uid": "legacy", "canonical_uid": "canonical"}
     ]

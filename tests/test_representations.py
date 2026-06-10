@@ -219,7 +219,32 @@ def test_compact_workspace_list_keeps_uid_alias_strings_and_count() -> None:
     ]
 
 
-def test_compact_workspace_resolve_keeps_canonical_and_alias_context() -> None:
+def test_verbose_workspace_list_keeps_compact_alias_essentials_and_records() -> None:
+    payload = [
+        {
+            "workspace_uid": "core",
+            "aliases": ["recollectium-core"],
+            "alias_count": 1,
+            "alias_records": [
+                {
+                    "alias_uid": "recollectium-core",
+                    "canonical_uid": "core",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        }
+    ]
+
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_WORKSPACES_LIST
+        )
+        == payload
+    )
+
+
+def test_compact_workspace_resolve_keeps_only_canonical_and_alias_flag() -> None:
     payload = {
         "input_uid": "Recollectium",
         "normalized_uid": "recollectium",
@@ -233,8 +258,6 @@ def test_compact_workspace_resolve_keeps_canonical_and_alias_context() -> None:
     ) == {
         "canonical_uid": "core",
         "resolved_by_alias": True,
-        "input_uid": "Recollectium",
-        "normalized_uid": "recollectium",
     }
 
 
@@ -749,7 +772,7 @@ def test_compact_workspace_projection_scalar_and_fallback_variants() -> None:
     assert project_workspace_resolve(
         {"canonical_uid": "core", "input_uid": "Core", "normalized_uid": "core"},
         "compact",
-    ) == {"canonical_uid": "core", "input_uid": "Core", "normalized_uid": "core"}
+    ) == {"canonical_uid": "core"}
     assert project_workspace_alias("core", "compact") == "core"
     assert project_workspace_alias(42, "compact") == 42
 

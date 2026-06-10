@@ -170,8 +170,8 @@ Compact projections by operation:
 - Embedding job list and get: `id`, `state`, `reason`, `total_count`, `succeeded_count`, and `failed_count` when present.
 - Embedding refresh: `refreshed`, `stale_count`, `status_path`, and `job_id` when a job exists.
 - Embedding job clear: `deleted_count` and `states`.
-- Workspace list: UID strings when `include_aliases=false`; when `include_aliases=true`, `{workspace_uid, aliases, alias_count}` where `aliases` contains alias UID strings.
-- Workspace resolve: `{canonical_uid, resolved_by_alias}` plus `input_uid` and `normalized_uid` only when alias resolution or UID normalization changed the input.
+- Workspace list: UID strings when `include_aliases=false`; when `include_aliases=true`, `{workspace_uid, aliases, alias_count}` where `aliases` contains alias UID strings. Verbose `include_aliases=true` responses also include `alias_records` with full alias records and timestamps.
+- Workspace resolve: `{canonical_uid, resolved_by_alias}`.
 - Workspace alias list: `{alias_uid, canonical_uid}`.
 - Workspace alias add: `{canonical_uid, alias_uid, status, migrated_memories}` with `status` set to `added`.
 - Workspace alias remove: `{alias_uid, canonical_uid, status}` with `status` set to `removed`.
@@ -946,7 +946,7 @@ Unsupported route/method:
 
 ### `GET /v1/workspaces`
 
-Purpose: list distinct workspace UIDs visible through the API. With `include_aliases=true`, return workspace objects with alias UID arrays in compact mode.
+Purpose: list distinct workspace UIDs visible through the API. With `include_aliases=true`, return workspace objects with alias UID arrays and alias counts in compact mode. Verbose mode preserves those essentials and adds full alias records with timestamps.
 
 **Query parameters**
 
@@ -980,7 +980,7 @@ Compact is the default. Use `?verbosity=verbose` or the verbosity header with `i
 
 Purpose: normalize a workspace UID candidate and resolve it to the canonical UID if it is an alias.
 
-Compact is the default and returns `{canonical_uid, resolved_by_alias}`. It also includes `input_uid` and `normalized_uid` when alias resolution happened or normalization changed the input. Verbose mode returns the full resolution payload.
+Compact is the default and returns only `{canonical_uid, resolved_by_alias}`. Verbose mode returns the full resolution payload, including `input_uid` and `normalized_uid`.
 
 Example request:
 
@@ -994,9 +994,7 @@ Example response: compact default
 {
   "data": {
     "canonical_uid": "recollectium",
-    "resolved_by_alias": true,
-    "input_uid": "Recollectium Core",
-    "normalized_uid": "recollectium-core"
+    "resolved_by_alias": true
   }
 }
 ```

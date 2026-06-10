@@ -363,15 +363,28 @@ class SQLiteMemoryStore:
         self, *, include_archived: bool = False
     ) -> list[dict[str, object]]:
         workspaces = self.list_workspace_uids(include_archived=include_archived)
-        aliases_by_canonical: dict[str, list[str]] = {uid: [] for uid in workspaces}
+        aliases_by_canonical: dict[str, list[dict[str, str]]] = {
+            uid: [] for uid in workspaces
+        }
         for alias in self.list_workspace_aliases():
             canonical_uid = alias["canonical_uid"]
             if canonical_uid in aliases_by_canonical:
-                aliases_by_canonical[canonical_uid].append(alias["alias_uid"])
-        return [
-            {"workspace_uid": uid, "aliases": sorted(aliases_by_canonical[uid])}
-            for uid in workspaces
-        ]
+                aliases_by_canonical[canonical_uid].append(alias)
+        inventory: list[dict[str, object]] = []
+        for uid in workspaces:
+            alias_records = sorted(
+                aliases_by_canonical[uid], key=lambda alias: alias["alias_uid"]
+            )
+            alias_uids = [alias["alias_uid"] for alias in alias_records]
+            inventory.append(
+                {
+                    "workspace_uid": uid,
+                    "aliases": alias_uids,
+                    "alias_count": len(alias_uids),
+                    "alias_records": alias_records,
+                }
+            )
+        return inventory
 
     def rename_workspace(self, old_uid: str, new_uid: str) -> dict[str, int]:
         """Rename all workspace memories and preserve aliases for the canonical UID."""
