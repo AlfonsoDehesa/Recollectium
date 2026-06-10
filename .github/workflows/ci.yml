@@ -88,6 +88,17 @@ jobs:
             fi
           fi
           sh ./install.sh
+          uv_bin="$(command -v uv 2>/dev/null || true)"
+          if [ -z "$uv_bin" ] && [ -n "${UV_TOOL_BIN_DIR:-}" ] && [ -x "${UV_TOOL_BIN_DIR}/uv" ]; then
+            uv_bin="${UV_TOOL_BIN_DIR}/uv"
+          fi
+          if [ -z "$uv_bin" ] && [ -x "$HOME/.local/bin/uv" ]; then
+            uv_bin="$HOME/.local/bin/uv"
+          fi
+          [ -n "$uv_bin" ] || { echo "uv command not found after install" >&2; exit 1; }
+          tool_bin_dir="$("$uv_bin" tool dir --bin)"
+          [ -x "$tool_bin_dir/recollectium" ] || { echo "recollectium executable was not installed in uv tool bin directory: $tool_bin_dir" >&2; exit 1; }
+          printf '%s\n' "$tool_bin_dir" >> "$GITHUB_PATH"
         env:
           RECOLLECTIUM_INSTALL_REF: ${{ github.head_ref || github.ref_name }}
           SHELL: ${{ runner.os == 'macOS' && '/bin/zsh' || '' }}
@@ -100,15 +111,15 @@ jobs:
           if [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
-          uv_bin="$(command -v uv || true)"
-          if [ -z "$uv_bin" ]; then
-            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
-            if [ -x "$uv_fallback" ]; then
-              uv_bin="$uv_fallback"
-            fi
+          uv_bin="$(command -v uv 2>/dev/null || true)"
+          if [ -z "$uv_bin" ] && [ -n "${UV_TOOL_BIN_DIR:-}" ] && [ -x "${UV_TOOL_BIN_DIR}/uv" ]; then
+            uv_bin="${UV_TOOL_BIN_DIR}/uv"
+          fi
+          if [ -z "$uv_bin" ] && [ -x "$HOME/.local/bin/uv" ]; then
+            uv_bin="$HOME/.local/bin/uv"
           fi
           if [ -z "$uv_bin" ]; then
-            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            echo "uv command not found after install" >&2
             exit 1
           fi
           expected_tool_bin="$("$uv_bin" tool dir --bin)"
@@ -182,19 +193,23 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
-          uv_bin="$(command -v uv || true)"
-          if [ -z "$uv_bin" ]; then
-            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
-            if [ -x "$uv_fallback" ]; then
-              uv_bin="$uv_fallback"
-            fi
+          uv_bin="$(command -v uv 2>/dev/null || true)"
+          if [ -z "$uv_bin" ] && [ -n "${UV_TOOL_BIN_DIR:-}" ] && [ -x "${UV_TOOL_BIN_DIR}/uv" ]; then
+            uv_bin="${UV_TOOL_BIN_DIR}/uv"
+          fi
+          if [ -z "$uv_bin" ] && [ -x "$HOME/.local/bin/uv" ]; then
+            uv_bin="$HOME/.local/bin/uv"
           fi
           if [ -z "$uv_bin" ]; then
-            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            echo "uv command not found after install" >&2
             exit 1
           fi
-          tool_bin="$("$uv_bin" tool dir --bin)"
-          export PATH="$tool_bin:$PATH"
+          tool_bin_dir="$("$uv_bin" tool dir --bin)"
+          if [ ! -x "$tool_bin_dir/recollectium" ]; then
+            echo "recollectium executable was not installed in uv tool bin directory: $tool_bin_dir" >&2
+            exit 1
+          fi
+          export PATH="$tool_bin_dir:$HOME/.local/bin:$PATH"
           recollectium --version
           recollectium upgrade --check --install-method bootstrap --repo "$GITHUB_REPOSITORY" --json > upgrade-check.json
           recollectium upgrade --dry-run --install-method bootstrap --repo "$GITHUB_REPOSITORY" --json > upgrade-dry-run.json
@@ -242,19 +257,23 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
-          uv_bin="$(command -v uv || true)"
-          if [ -z "$uv_bin" ]; then
-            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
-            if [ -x "$uv_fallback" ]; then
-              uv_bin="$uv_fallback"
-            fi
+          uv_bin="$(command -v uv 2>/dev/null || true)"
+          if [ -z "$uv_bin" ] && [ -n "${UV_TOOL_BIN_DIR:-}" ] && [ -x "${UV_TOOL_BIN_DIR}/uv" ]; then
+            uv_bin="${UV_TOOL_BIN_DIR}/uv"
+          fi
+          if [ -z "$uv_bin" ] && [ -x "$HOME/.local/bin/uv" ]; then
+            uv_bin="$HOME/.local/bin/uv"
           fi
           if [ -z "$uv_bin" ]; then
-            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            echo "uv command not found after install" >&2
             exit 1
           fi
-          tool_bin="$("$uv_bin" tool dir --bin)"
-          export PATH="$tool_bin:$PATH"
+          tool_bin_dir="$("$uv_bin" tool dir --bin)"
+          if [ ! -x "$tool_bin_dir/recollectium" ]; then
+            echo "recollectium executable was not installed in uv tool bin directory: $tool_bin_dir" >&2
+            exit 1
+          fi
+          export PATH="$tool_bin_dir:$HOME/.local/bin:$PATH"
           smoke_root="$(mktemp -d)"
           trap 'recollectium --config "$smoke_root/config/config.json" service stop --json >/dev/null 2>&1 || true; rm -rf "$smoke_root"' EXIT
           port="$(python - <<'PY'
@@ -395,19 +414,23 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ] && [ "${{ matrix.name }}" = "macos-apple-silicon" ]; then
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
-          uv_bin="$(command -v uv || true)"
-          if [ -z "$uv_bin" ]; then
-            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
-            if [ -x "$uv_fallback" ]; then
-              uv_bin="$uv_fallback"
-            fi
+          uv_bin="$(command -v uv 2>/dev/null || true)"
+          if [ -z "$uv_bin" ] && [ -n "${UV_TOOL_BIN_DIR:-}" ] && [ -x "${UV_TOOL_BIN_DIR}/uv" ]; then
+            uv_bin="${UV_TOOL_BIN_DIR}/uv"
+          fi
+          if [ -z "$uv_bin" ] && [ -x "$HOME/.local/bin/uv" ]; then
+            uv_bin="$HOME/.local/bin/uv"
           fi
           if [ -z "$uv_bin" ]; then
-            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            echo "uv command not found after install" >&2
             exit 1
           fi
-          tool_bin="$("$uv_bin" tool dir --bin)"
-          export PATH="$tool_bin:$PATH"
+          tool_bin_dir="$("$uv_bin" tool dir --bin)"
+          if [ ! -x "$tool_bin_dir/recollectium" ]; then
+            echo "recollectium executable was not installed in uv tool bin directory: $tool_bin_dir" >&2
+            exit 1
+          fi
+          export PATH="$tool_bin_dir:$HOME/.local/bin:$PATH"
 
           python - <<'PY'
           import json
@@ -492,19 +515,23 @@ jobs:
             export XDG_STATE_HOME="$RUNNER_TEMP/recollectium-xdg-state"
           fi
           RECOLLECTIUM_INSTALL_REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}" sh ./install.sh
-          uv_bin="$(command -v uv || true)"
-          if [ -z "$uv_bin" ]; then
-            uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"
-            if [ -x "$uv_fallback" ]; then
-              uv_bin="$uv_fallback"
-            fi
+          uv_bin="$(command -v uv 2>/dev/null || true)"
+          if [ -z "$uv_bin" ] && [ -n "${UV_TOOL_BIN_DIR:-}" ] && [ -x "${UV_TOOL_BIN_DIR}/uv" ]; then
+            uv_bin="${UV_TOOL_BIN_DIR}/uv"
+          fi
+          if [ -z "$uv_bin" ] && [ -x "$HOME/.local/bin/uv" ]; then
+            uv_bin="$HOME/.local/bin/uv"
           fi
           if [ -z "$uv_bin" ]; then
-            echo "uv was not found on PATH or at ${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" >&2
+            echo "uv command not found after install" >&2
             exit 1
           fi
-          tool_bin="$("$uv_bin" tool dir --bin)"
-          export PATH="$tool_bin:$PATH"
+          tool_bin_dir="$("$uv_bin" tool dir --bin)"
+          if [ ! -x "$tool_bin_dir/recollectium" ]; then
+            echo "recollectium executable was not installed in uv tool bin directory: $tool_bin_dir" >&2
+            exit 1
+          fi
+          export PATH="$tool_bin_dir:$HOME/.local/bin:$PATH"
           hash -r
           recollectium init
           recollectium add --space user --type note --content "CI purge uninstall smoke sentinel" --json > add-purge.json

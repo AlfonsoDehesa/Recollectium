@@ -43,11 +43,12 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
 def test_install_smoke_uses_uv_tool_dir_and_explicit_macos_path_cases() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert 'uv_bin="$(command -v uv || true)"' in workflow
-    assert 'uv_fallback="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv"' in workflow
+    assert 'uv_bin="$(command -v uv 2>/dev/null || true)"' in workflow
+    assert 'uv_bin="${UV_TOOL_BIN_DIR}/uv"' in workflow
+    assert 'uv_bin="$HOME/.local/bin/uv"' in workflow
     assert 'expected_tool_bin="$("$uv_bin" tool dir --bin)"' in workflow
-    assert 'tool_bin="$("$uv_bin" tool dir --bin)"' in workflow
-    assert 'export PATH="$tool_bin:$PATH"' in workflow
+    assert 'tool_bin_dir="$("$uv_bin" tool dir --bin)"' in workflow
+    assert 'export PATH="$tool_bin_dir:$HOME/.local/bin:$PATH"' in workflow
     assert 'TOOL_BIN="$tool_bin" python3' in workflow
     assert 'test "$command_path" = "$expected_tool_bin/recollectium"' in workflow
     assert "assert managed_path_edits == set(), metadata" in workflow
@@ -75,6 +76,22 @@ def test_install_smoke_uses_verbose_uninstall_for_internal_path_assertions() -> 
     assert "assert uninstall['status'] == 'scheduled', payload" in workflow
     assert "assert isinstance(uninstall['helper_pid'], int)" in workflow
     assert "assert 'handed off' in uninstall['hint'], payload" in workflow
+
+
+def test_install_smoke_uv_resolver_checks_customized_tool_bin() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert 'uv_bin="$(command -v uv 2>/dev/null || true)"' in workflow
+    assert (
+        'if [ -z "$uv_bin" ] && [ -n "${UV_TOOL_BIN_DIR:-}" ] && [ -x "${UV_TOOL_BIN_DIR}/uv" ]; then'
+        in workflow
+    )
+    assert 'uv_bin="${UV_TOOL_BIN_DIR}/uv"' in workflow
+    assert 'if [ -z "$uv_bin" ] && [ -x "$HOME/.local/bin/uv" ]; then' in workflow
+    assert 'uv_bin="$HOME/.local/bin/uv"' in workflow
+    assert 'tool_bin_dir="$("$uv_bin" tool dir --bin)"' in workflow
+    assert '[ -x "$tool_bin_dir/recollectium" ]' in workflow
+    assert "${UV_TOOL_BIN_DIR:-$HOME/.local/bin}/uv" not in workflow
 
 
 def _unix_bootstrap_helpers() -> str:
