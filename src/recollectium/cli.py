@@ -5287,7 +5287,9 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Print shell completion setup instructions for bash, zsh, fish, or PowerShell. "
             "With --source, prints only the raw completion function definition "
-            "for eval consumption."
+            "for eval consumption. Setup instructions, --source shell code, and "
+            "the hidden completion protocol are raw completion output and are not "
+            "changed by --json."
         ),
     )
     completion_parser.add_argument(
@@ -5302,7 +5304,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Print only the raw completion function definition for eval "
-            "consumption. No instructions or human-readable output."
+            "consumption. This shell code is emitted as-is and ignores --json."
         ),
     )
     action_group.add_argument(

@@ -4319,6 +4319,35 @@ def test_cli_output_flags_are_mutually_exclusive(capsys) -> None:
     assert "Status: validation_error" in stderr
 
 
+def test_completion_help_documents_raw_output_json_exception(capsys) -> None:
+    completion_help = _run_help(["completion", "--help"], capsys)
+
+    _assert_human_framed(completion_help)
+    assert "raw completion output" in completion_help
+    assert "not changed by --json" in completion_help
+    assert "emitted as-is" in completion_help
+    assert "ignores --json" in completion_help
+
+
+def test_completion_source_ignores_json_output_flag(capsys) -> None:
+    json_code, json_stdout, json_stderr = _run_cli(
+        ["--json", "completion", "--source", "bash"], capsys
+    )
+    human_code, human_stdout, human_stderr = _run_cli(
+        ["--human-readable", "completion", "--source", "bash"], capsys
+    )
+
+    assert json_code == 0
+    assert json_stderr == ""
+    assert human_code == 0
+    assert human_stderr == ""
+    assert json_stdout == human_stdout
+    assert "#compdef recollectium" in json_stdout
+    assert "__python_argcomplete" in json_stdout
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(json_stdout)
+
+
 def test_completion_complete_line_stays_json_under_human_output_config(
     tmp_path, capsys
 ) -> None:
