@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -5385,7 +5385,7 @@ def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
 
     monkeypatch.setattr(cli_mod.sys.stderr, "isatty", lambda: False)
     non_tty_result = cli_mod._refresh_stale_embeddings_with_progress(
-        FakeCore(),
+        cast(RecollectiumCore, FakeCore()),
         space=SPACE_WORKSPACE,
         workspace_uid="team-a",
         include_archived=True,
@@ -5407,7 +5407,7 @@ def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
         cli_mod, "_ReembeddingProgressReporter", lambda stream: progress
     )
     tty_result = cli_mod._refresh_stale_embeddings_with_progress(
-        FakeCore(),
+        cast(RecollectiumCore, FakeCore()),
         space=SPACE_USER,
         workspace_uid=None,
         include_archived=False,
