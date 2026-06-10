@@ -387,6 +387,19 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "without creating a config file" in service_discover_help
 
 
+def test_cli_config_validate_help_documents_current_behavior(capsys) -> None:
+    config_help = _run_help(["config", "--validate", "--help"], capsys)
+    normalized_help = " ".join(config_help.split())
+
+    assert (
+        "--validate Validate the effective config without creating a file."
+        in normalized_help
+    )
+    assert "exit 0 on success" not in normalized_help
+    assert "1 when a file is missing" not in normalized_help
+    assert "2 when invalid" not in normalized_help
+
+
 def test_cli_no_args_prints_help(capsys) -> None:
     exit_code = main([])
 
