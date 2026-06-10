@@ -1642,6 +1642,21 @@ def _load_effective_config(config_path: Path, *, explicit: bool) -> Recollectium
     return RecollectiumConfig()
 
 
+def _load_effective_config_read_only(
+    config_path: Path, *, explicit: bool
+) -> dict[str, Any]:
+    """Load and validate effective config without creating files or directories."""
+    if explicit:
+        raw = load_config_file(config_path)
+    elif config_path.exists():
+        raw = load_config_file(config_path)
+    else:
+        raw = {}
+    merged = _merged_config(raw)
+    _validate_config_value(merged)
+    return merged
+
+
 def _merged_config(raw: dict[str, Any]) -> dict[str, Any]:
     merged = _deep_merge(deepcopy(DEFAULTS), raw)
     _apply_explicit_null_overrides(merged, raw)
@@ -1888,13 +1903,17 @@ def _handle_config_command(
                 _log.info(failure, extra={"event": "config.doctor_failed"})
             return _emit_cli_failure(
                 status="operation_failed",
-                message="Config doctor found filesystem problems; rerun with --verbose for details.",
+                message="Config doctor found filesystem problems.",
                 detail="; ".join(f"FAIL {failure}" for failure in failures),
                 exit_code=1,
                 command="config doctor",
                 event="config.doctor_failed",
                 failures=failures,
                 compact_human=True,
+                compact_message=(
+                    "Config doctor found filesystem problems; rerun with --verbose "
+                    "for details."
+                ),
             )
 
         _emit_success(
@@ -1938,12 +1957,14 @@ def _handle_config_command(
 
     if args.validate:
         try:
-            cfg = _load_effective_config(config_path, explicit=explicit)
+            effective_config = _load_effective_config_read_only(
+                config_path, explicit=explicit
+            )
         except ValidationError as exc:
             return _config_invalid_error(exc, command="config --validate")
         except FileNotFoundError as exc:
             return _config_missing_error(exc, command="config --validate")
-        payload: dict[str, Any] = {"status": "valid", "config": cfg.effective_config}
+        payload: dict[str, Any] = {"status": "valid", "config": effective_config}
         if (
             output_format == CLI_OUTPUT_JSON
             and _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_COMPACT
@@ -5660,7 +5681,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     _set_cli_output_format(output_format)
     _set_response_verbosity(response_verbosity)
-    if not (args.command == "upgrade" and (args.check or args.dry_run)):
+    read_only_config_validate = args.command == "config" and args.validate
+    if not (
+        (args.command == "upgrade" and (args.check or args.dry_run))
+        or read_only_config_validate
+    ):
         _setup_cli_logging(config_path, log_level=args.log_level)
     _log.info(
         "CLI command started",

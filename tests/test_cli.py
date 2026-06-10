@@ -5895,15 +5895,19 @@ class TestConfigCommand:
         assert exit_code == 1
         assert "config file not found" in stderr
 
-    def test_config_validate_default_creates_file(
+    def test_config_validate_default_missing_config_is_read_only(
         self, tmp_path, capsys, monkeypatch
     ) -> None:
         config_home = tmp_path / "config"
+        data_home = tmp_path / "data"
+        cache_home = tmp_path / "cache"
+        state_home = tmp_path / "state"
+        runtime_home = tmp_path / "runtime"
         monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(cache_home))
+        monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_home))
 
         exit_code, stdout, stderr = _run_cli(["config", "--validate"], capsys)
 
@@ -5911,7 +5915,11 @@ class TestConfigCommand:
         assert exit_code == 0
         assert json.loads(stdout)["status"] == "valid"
         assert stderr == ""
-        assert config_path.exists()
+        assert not config_path.exists()
+        assert not data_home.exists()
+        assert not cache_home.exists()
+        assert not state_home.exists()
+        assert not runtime_home.exists()
 
     def test_config_validate_human_compact_and_verbose_success(
         self, tmp_path, capsys
@@ -5952,6 +5960,90 @@ class TestConfigCommand:
         assert verbose_stdout.startswith("\nCurrent config is valid. Config tested:\n")
         assert "Service:" in verbose_stdout
         assert "Port: 8765" in verbose_stdout
+
+    def test_config_validate_human_verbose_explicit_config_is_read_only(
+        self, tmp_path, capsys
+    ) -> None:
+        configured_dirs = {
+            "data": tmp_path / "configured-data",
+            "cache": tmp_path / "configured-cache",
+            "logs": tmp_path / "configured-logs",
+            "runtime": tmp_path / "configured-runtime",
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "directories": {
+                        key: str(path) for key, path in configured_dirs.items()
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--human-readable",
+                "--verbose",
+                "--config",
+                str(config_path),
+                "config",
+                "--validate",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert stdout.startswith("\nCurrent config is valid. Config tested:\n")
+        assert "Directories:" in stdout
+        assert str(configured_dirs["data"]) in stdout
+        assert all(not path.exists() for path in configured_dirs.values())
+
+    def test_config_validate_json_verbose_explicit_config_is_read_only(
+        self, tmp_path, capsys
+    ) -> None:
+        configured_dirs = {
+            "data": tmp_path / "json-data",
+            "cache": tmp_path / "json-cache",
+            "logs": tmp_path / "json-logs",
+            "runtime": tmp_path / "json-runtime",
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "directories": {
+                        key: str(path) for key, path in configured_dirs.items()
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--json",
+                "--verbose",
+                "--config",
+                str(config_path),
+                "config",
+                "--validate",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        payload = json.loads(stdout)
+        assert exit_code == 0
+        assert stderr == ""
+        assert payload["status"] == "valid"
+        assert payload["config"]["directories"]["data"] == str(configured_dirs["data"])
+        assert all(not path.exists() for path in configured_dirs.values())
 
     def test_config_path_flag(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -6542,10 +6634,8 @@ class TestConfigCommand:
 
         assert exit_code == 1
         assert stdout == ""
-        assert (
-            "Config doctor found filesystem problems; rerun with --verbose for details."
-            in stderr
-        )
+        assert "Config doctor found filesystem problems." in stderr
+        assert "rerun with --verbose" not in stderr
         assert "Status: operation_failed" in stderr
         assert "Detail: FAIL data directory missing:" in stderr
         assert "Failures:" in stderr
