@@ -76,13 +76,8 @@ def test_install_smoke_uses_verbose_uninstall_for_internal_path_assertions() -> 
     assert "assert uninstall['status'] == 'scheduled', payload" in workflow
     assert "assert isinstance(uninstall['helper_pid'], int)" in workflow
     assert "assert 'handed off' in uninstall['hint'], payload" in workflow
-    assert (
-        "scheduled uv tool uninstall recollectium did not complete within 60 seconds"
-        in workflow
-    )
-    assert '$toolListGone = $lastToolList -notmatch "(?m)^recollectium\\b"' in workflow
-    assert "if ($commandGone -and $toolListGone) { break }" in workflow
-    assert "uv tool list:" in workflow
+    assert "Windows self-uninstall is intentionally handed off" in workflow
+    assert "scheduled default-uninstall state" in workflow
 
 
 def test_install_smoke_uv_resolver_checks_customized_tool_bin() -> None:
