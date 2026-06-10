@@ -4,7 +4,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import threading
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 
 import pytest
 from pytest import CaptureFixture
@@ -15,6 +15,7 @@ from recollectium.errors import (
     EmbeddingDimensionMismatchError,
     EmbeddingGenerationError,
     NotFoundError,
+    RecollectiumError,
     ReembeddingFailedError,
     ValidationError,
 )
@@ -981,7 +982,11 @@ def test_clear_embedding_jobs_deletes_selected_audit_records(tmp_path: Path) -> 
 
     result = core.clear_embedding_jobs()
 
-    assert result == {"deleted_count": 3, "states": ["completed", "failed", "pending"]}
+    assert result == {
+        "deleted_count": 3,
+        "states": ["completed", "failed", "pending"],
+        "deleted_job_ids": ["job-failed", "job-completed", "job-pending"],
+    }
     remaining = core.list_embedding_jobs()
     assert [job["state"] for job in remaining] == ["in_progress"]
 
@@ -992,6 +997,48 @@ def test_clear_embedding_jobs_deletes_selected_audit_records(tmp_path: Path) -> 
     ):
         core.clear_embedding_jobs(states=("in_progress",))
     assert [job["state"] for job in core.list_embedding_jobs()] == ["in_progress"]
+
+
+def test_delete_embedding_jobs_detects_rowcount_mismatch(tmp_path: Path) -> None:
+    core = RecollectiumCore(
+        db_path=tmp_path / "clear-jobs-rowcount.db",
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    core.store.create_embedding_job(
+        job_id="job-completed",
+        state="completed",
+        total_count=1,
+        processed_count=1,
+        succeeded_count=1,
+        failed_count=0,
+        provider="fake",
+        model="fake-model",
+        embedding_profile=core.embedding_provider.embedding_profile,
+    )
+
+    original_connect = core.store._connect
+
+    class MismatchedConnection:
+        def __init__(self, connection: sqlite3.Connection) -> None:
+            self.connection = connection
+
+        def execute(self, sql: str, parameters: Any = ()) -> object:
+            result = self.connection.execute(sql, parameters)
+            if sql.startswith("DELETE FROM embedding_jobs"):
+                return type("MismatchedResult", (), {"rowcount": result.rowcount + 1})()
+            return result
+
+    @contextmanager
+    def mismatched_connect() -> Iterator[MismatchedConnection]:
+        with original_connect() as connection:
+            yield MismatchedConnection(connection)
+
+    cast(Any, core.store)._connect = mismatched_connect
+
+    with pytest.raises(
+        RecollectiumError, match="embedding job deletion count changed unexpectedly"
+    ):
+        core.store.delete_embedding_jobs(states=("completed",))
 
 
 def test_startup_reembedding_noops_when_no_stale_memories(tmp_path: Path) -> None:

@@ -309,8 +309,9 @@ class BuiltinFastEmbedProvider:
             raise EmbeddingReadinessTimeoutError(
                 "FastEmbed provider startup timed out after 0 seconds"
             )
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be at least 1")
 
-        last_exception: Exception | None = None
         for attempt in range(1, max_attempts + 1):
             try:
                 self._ensure_ready_once(
@@ -327,15 +328,11 @@ class BuiltinFastEmbedProvider:
             except (
                 EmbeddingModelUnavailableError,
                 EmbeddingGenerationError,
-            ) as exc:
-                last_exception = exc
+            ):
                 if attempt == max_attempts:
                     raise
                 delay = 2.0 * (2 ** (attempt - 1))
                 time.sleep(delay)
-
-        assert last_exception is not None  # reachable only from explicit raise above
-        raise last_exception
 
     def _ensure_ready_once(
         self,

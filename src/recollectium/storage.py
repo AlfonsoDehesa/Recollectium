@@ -10,7 +10,7 @@ import sqlite3
 from typing import Any, Iterator
 
 from recollectium.embeddings import ContentChunk
-from recollectium.errors import NotFoundError, ValidationError
+from recollectium.errors import NotFoundError, RecollectiumError, ValidationError
 from recollectium.migrations import MigrationRunner
 from recollectium.models import Memory, STATUS_ARCHIVED
 from recollectium.search import ChunkCandidate
@@ -45,6 +45,9 @@ class SQLiteMemoryStore:
 
     def migration_status(self) -> dict[str, object]:
         return self._migration_runner.status().to_dict()
+
+    def detailed_migration_status(self) -> dict[str, object]:
+        return self._migration_runner.detailed_status()
 
     def insert_memory(
         self,
@@ -360,18 +363,28 @@ class SQLiteMemoryStore:
         return alias
 
     def list_workspace_inventory(
-        self, *, include_archived: bool = False
+        self, *, include_archived: bool = False, include_alias_records: bool = False
     ) -> list[dict[str, object]]:
         workspaces = self.list_workspace_uids(include_archived=include_archived)
-        aliases_by_canonical: dict[str, list[str]] = {uid: [] for uid in workspaces}
+        aliases_by_canonical: dict[str, list[dict[str, str]]] = {
+            uid: [] for uid in workspaces
+        }
         for alias in self.list_workspace_aliases():
             canonical_uid = alias["canonical_uid"]
             if canonical_uid in aliases_by_canonical:
-                aliases_by_canonical[canonical_uid].append(alias["alias_uid"])
-        return [
-            {"workspace_uid": uid, "aliases": sorted(aliases_by_canonical[uid])}
-            for uid in workspaces
-        ]
+                aliases_by_canonical[canonical_uid].append(alias)
+        inventory: list[dict[str, object]] = []
+        for uid in workspaces:
+            alias_records = sorted(
+                aliases_by_canonical[uid], key=lambda alias: alias["alias_uid"]
+            )
+            alias_uids = [alias["alias_uid"] for alias in alias_records]
+            item: dict[str, object] = {"workspace_uid": uid, "aliases": alias_uids}
+            if include_alias_records:
+                item["alias_count"] = len(alias_uids)
+                item["alias_records"] = alias_records
+            inventory.append(item)
+        return inventory
 
     def rename_workspace(self, old_uid: str, new_uid: str) -> dict[str, int]:
         """Rename all workspace memories and preserve aliases for the canonical UID."""
@@ -819,16 +832,26 @@ class SQLiteMemoryStore:
 
         return [self._row_to_embedding_job(row) for row in rows]
 
-    def delete_embedding_jobs(self, *, states: tuple[str, ...] | list[str]) -> int:
+    def delete_embedding_jobs(
+        self, *, states: tuple[str, ...] | list[str]
+    ) -> list[str]:
         if not states:
             raise ValidationError("at least one job state is required")
         placeholders = ", ".join("?" for _ in states)
         with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT id FROM embedding_jobs WHERE state IN ({placeholders}) "
+                "ORDER BY updated_at DESC, id ASC",
+                tuple(states),
+            ).fetchall()
             result = connection.execute(
                 f"DELETE FROM embedding_jobs WHERE state IN ({placeholders})",
                 tuple(states),
             )
-        return int(result.rowcount)
+        deleted_job_ids = [str(row["id"]) for row in rows]
+        if int(result.rowcount) != len(deleted_job_ids):
+            raise RecollectiumError("embedding job deletion count changed unexpectedly")
+        return deleted_job_ids
 
     def _row_to_embedding_job(self, row: sqlite3.Row) -> dict[str, Any]:
         return {

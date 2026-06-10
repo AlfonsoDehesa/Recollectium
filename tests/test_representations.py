@@ -7,6 +7,7 @@ from recollectium.representations import (
     OPERATION_DEV_MODE,
     OPERATION_DEV_OPTIMIZE_THRESHOLD,
     OPERATION_DEV_RESET,
+    OPERATION_EMBEDDING_JOBS_CLEAR,
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_MAINTENANCE,
     OPERATION_LIFECYCLE_INIT,
@@ -190,6 +191,46 @@ def test_compact_embedding_job_normalizes_legacy_count_keys() -> None:
     }
 
 
+def test_compact_embedding_job_maps_error_message_to_reason() -> None:
+    payload = {
+        "id": "job-failed",
+        "state": "failed",
+        "total_count": 1,
+        "succeeded_count": 0,
+        "failed_count": 1,
+        "error_message": "provider unavailable",
+        "embedding_profile": {"provider": "fake"},
+    }
+
+    assert project_embedding_job(payload, "compact") == {
+        "id": "job-failed",
+        "state": "failed",
+        "total_count": 1,
+        "succeeded_count": 0,
+        "failed_count": 1,
+        "reason": "provider unavailable",
+    }
+    assert project_embedding_job(payload, "verbose") is payload
+
+
+def test_compact_embedding_jobs_clear_omits_deleted_job_ids() -> None:
+    payload = {
+        "deleted_count": 2,
+        "states": ["completed", "failed"],
+        "deleted_job_ids": ["job-1", "job-2"],
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_EMBEDDING_JOBS_CLEAR
+    ) == {"deleted_count": 2, "states": ["completed", "failed"]}
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_EMBEDDING_JOBS_CLEAR
+        )
+        is payload
+    )
+
+
 def test_compact_workspace_list_keeps_uid_alias_strings_and_count() -> None:
     payload = [
         "plain-workspace",
@@ -219,7 +260,32 @@ def test_compact_workspace_list_keeps_uid_alias_strings_and_count() -> None:
     ]
 
 
-def test_compact_workspace_resolve_keeps_canonical_and_alias_context() -> None:
+def test_verbose_workspace_list_keeps_compact_alias_essentials_and_records() -> None:
+    payload = [
+        {
+            "workspace_uid": "core",
+            "aliases": ["recollectium-core"],
+            "alias_count": 1,
+            "alias_records": [
+                {
+                    "alias_uid": "recollectium-core",
+                    "canonical_uid": "core",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        }
+    ]
+
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_WORKSPACES_LIST
+        )
+        == payload
+    )
+
+
+def test_compact_workspace_resolve_keeps_only_canonical_and_alias_flag() -> None:
     payload = {
         "input_uid": "Recollectium",
         "normalized_uid": "recollectium",
@@ -233,8 +299,6 @@ def test_compact_workspace_resolve_keeps_canonical_and_alias_context() -> None:
     ) == {
         "canonical_uid": "core",
         "resolved_by_alias": True,
-        "input_uid": "Recollectium",
-        "normalized_uid": "recollectium",
     }
 
 
@@ -746,10 +810,22 @@ def test_compact_workspace_projection_scalar_and_fallback_variants() -> None:
         {"workspace_uid": "core", "aliases": 3, "created_at": "omitted"},
         "compact",
     ) == {"workspace_uid": "core", "alias_count": 3}
+    assert project_workspace_list_item(
+        {
+            "workspace_uid": "core",
+            "alias_records": [
+                {"alias_uid": "legacy", "created_at": "omitted"},
+                {"alias_uid": 42},
+                "not-a-record",
+            ],
+            "created_at": "omitted",
+        },
+        "compact",
+    ) == {"workspace_uid": "core", "aliases": ["legacy"], "alias_count": 1}
     assert project_workspace_resolve(
         {"canonical_uid": "core", "input_uid": "Core", "normalized_uid": "core"},
         "compact",
-    ) == {"canonical_uid": "core", "input_uid": "Core", "normalized_uid": "core"}
+    ) == {"canonical_uid": "core"}
     assert project_workspace_alias("core", "compact") == "core"
     assert project_workspace_alias(42, "compact") == 42
 

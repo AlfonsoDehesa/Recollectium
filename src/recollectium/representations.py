@@ -167,6 +167,8 @@ def project_embedding_job(
     for public_key, legacy_key in legacy_count_keys.items():
         if public_key not in compact and payload.get(legacy_key) is not None:
             compact[public_key] = payload[legacy_key]
+    if "reason" not in compact and payload.get("error_message"):
+        compact["reason"] = payload["error_message"]
     return compact
 
 
@@ -195,6 +197,14 @@ def project_workspace_list_item(
                 alias_uids.append(alias["alias_uid"])
         compact["aliases"] = alias_uids
         compact["alias_count"] = len(alias_uids)
+    elif isinstance(payload.get("alias_records"), list):
+        alias_uids = [
+            alias["alias_uid"]
+            for alias in payload["alias_records"]
+            if isinstance(alias, dict) and isinstance(alias.get("alias_uid"), str)
+        ]
+        compact["aliases"] = alias_uids
+        compact["alias_count"] = len(alias_uids)
     elif isinstance(aliases, int) and not isinstance(aliases, bool):
         compact["alias_count"] = aliases
     return compact
@@ -206,12 +216,7 @@ def project_workspace_resolve(
     """Project a workspace resolution payload."""
     if validate_response_verbosity(verbosity) == ResponseVerbosity.VERBOSE:
         return payload
-    compact = _compact_dict(payload, ("canonical_uid", "resolved_by_alias"))
-    if payload.get("resolved_by_alias"):
-        compact.update(_compact_dict(payload, ("input_uid", "normalized_uid")))
-    elif payload.get("input_uid") != payload.get("normalized_uid"):
-        compact.update(_compact_dict(payload, ("input_uid", "normalized_uid")))
-    return compact
+    return _compact_dict(payload, ("canonical_uid", "resolved_by_alias"))
 
 
 def project_workspace_alias(

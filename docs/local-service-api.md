@@ -170,8 +170,8 @@ Compact projections by operation:
 - Embedding job list and get: `id`, `state`, `reason`, `total_count`, `succeeded_count`, and `failed_count` when present.
 - Embedding refresh: `refreshed`, `stale_count`, `status_path`, and `job_id` when a job exists.
 - Embedding job clear: `deleted_count` and `states`.
-- Workspace list: UID strings when `include_aliases=false`; when `include_aliases=true`, `{workspace_uid, aliases, alias_count}` where `aliases` contains alias UID strings.
-- Workspace resolve: `{canonical_uid, resolved_by_alias}` plus `input_uid` and `normalized_uid` only when alias resolution or UID normalization changed the input.
+- Workspace list: UID strings when `include_aliases=false`; when `include_aliases=true`, `{workspace_uid, aliases, alias_count}` where `aliases` contains alias UID strings. Verbose `include_aliases=true` responses also include `alias_records` with full alias records and timestamps.
+- Workspace resolve: `{canonical_uid, resolved_by_alias}`.
 - Workspace alias list: `{alias_uid, canonical_uid}`.
 - Workspace alias add: `{canonical_uid, alias_uid, status, migrated_memories}` with `status` set to `added`.
 - Workspace alias remove: `{alias_uid, canonical_uid, status}` with `status` set to `removed`.
@@ -320,7 +320,7 @@ All successful endpoint responses currently return HTTP `200` with a `{"data": .
   - `query` (string, non-empty)
 - Optional inputs:
   - `type` (string bucket filter; optional)
-  - `limit` (positive integer, default `10`)
+  - `limit` (positive integer, default `20`)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
 - Successful response: HTTP `200` with compact `data` list of search results (`id`, `content`, `match`) by default. Use `?verbosity=verbose` or the verbosity header for full search result objects (`memory`, `score`, `rank`, `matched_text`, `snippet`, `chunk_index`).
@@ -391,7 +391,7 @@ Verbose response includes full search result fields:
   - `workspace_uid` (string, non-empty)
 - Optional inputs:
   - `type` (string bucket filter; optional)
-  - `limit` (positive integer, default `10`)
+  - `limit` (positive integer, default `20`)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
 - Successful response: HTTP `200` with compact `data` list of search results (`id`, `content`, `match`) by default. Use `?verbosity=verbose` or the verbosity header for full search result objects.
@@ -809,7 +809,7 @@ If no stale memories match the request, `refreshed` is `false`, `stale_count` is
 - Side effects: removes matching rows from the embedding job history.
 - Optional request fields:
   - `states` (array of states to delete). If omitted, Recollectium deletes `completed`, `failed`, and `pending` job records.
-- Successful response: HTTP `200` with deleted count and selected states. This shape is the same for compact and verbose.
+- Successful response: HTTP `200` with deleted count and selected states by default. Use `?verbosity=verbose` or the verbosity header to include `deleted_job_ids` for auditability.
 
 Example request:
 
@@ -819,13 +819,25 @@ curl -sS -X DELETE http://127.0.0.1:8765/v1/embedding/jobs \
   -d '{"states":["completed","failed","pending"]}'
 ```
 
-Example response:
+Example response: compact
 
 ```json
 {
   "data": {
     "deleted_count": 3,
     "states": ["completed", "failed", "pending"]
+  }
+}
+```
+
+Example response: verbose
+
+```json
+{
+  "data": {
+    "deleted_count": 3,
+    "states": ["completed", "failed", "pending"],
+    "deleted_job_ids": ["job-123", "job-124", "job-125"]
   }
 }
 ```
@@ -946,7 +958,7 @@ Unsupported route/method:
 
 ### `GET /v1/workspaces`
 
-Purpose: list distinct workspace UIDs visible through the API. With `include_aliases=true`, return workspace objects with alias UID arrays in compact mode.
+Purpose: list distinct workspace UIDs visible through the API. With `include_aliases=true`, return workspace objects with alias UID arrays and alias counts in compact mode. Verbose mode preserves those essentials and adds full alias records with timestamps.
 
 **Query parameters**
 
@@ -980,7 +992,7 @@ Compact is the default. Use `?verbosity=verbose` or the verbosity header with `i
 
 Purpose: normalize a workspace UID candidate and resolve it to the canonical UID if it is an alias.
 
-Compact is the default and returns `{canonical_uid, resolved_by_alias}`. It also includes `input_uid` and `normalized_uid` when alias resolution happened or normalization changed the input. Verbose mode returns the full resolution payload.
+Compact is the default and returns only `{canonical_uid, resolved_by_alias}`. Verbose mode returns the full resolution payload, including `input_uid` and `normalized_uid`.
 
 Example request:
 
@@ -994,9 +1006,7 @@ Example response: compact default
 {
   "data": {
     "canonical_uid": "recollectium",
-    "resolved_by_alias": true,
-    "input_uid": "Recollectium Core",
-    "normalized_uid": "recollectium-core"
+    "resolved_by_alias": true
   }
 }
 ```

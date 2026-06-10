@@ -121,8 +121,18 @@ def _run_cli(
     *,
     json_by_default: bool = True,
 ) -> tuple[int, str, str]:
+    completion_args = (
+        args[args.index("completion") + 1 :] if "completion" in args else []
+    )
+    raw_completion = bool(
+        completion_args
+        and "--install" not in completion_args
+        and "--json" not in args
+        and "--human-readable" not in args
+    )
     if (
         json_by_default
+        and not raw_completion
         and "--json" not in args
         and "--human-readable" not in args
         and "--compact" not in args
@@ -2160,6 +2170,27 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["up_to_date"] is True
 
 
+def test_cli_db_status_verbose_reports_migration_internals(tmp_path, capsys) -> None:
+    db_path = tmp_path / "db-status.db"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "--db", str(db_path), "db-status"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["db_path"] == str(db_path)
+    assert payload["up_to_date"] is True
+    assert payload["internals"]["user_version"] == payload["current_version"]
+    assert payload["internals"]["migration_count"] >= 1
+    assert payload["internals"]["applied_count"] >= 1
+    assert payload["internals"]["pending_count"] == 0
+    assert payload["internals"]["migrations"]
+    assert payload["internals"]["applied_migrations"]
+
+
 def test_cli_dev_help_documents_actions(capsys) -> None:
     dev_help = _run_help(["dev", "--help"], capsys)
     assert "seeded development" in dev_help
@@ -2226,6 +2257,9 @@ def test_cli_dev_reset_resets_configured_seed_database(
     assert payload["user_memories"] == 100
     assert payload["workspace_memories"] == 90
     assert payload["workspaces"] == 3
+    assert payload["seeded_database"]["database"] == str(dev_db)
+    assert payload["seeded_database"]["initialized"] is True
+    assert payload["seeded_database"]["expected_topics"] == 10
     assert dev_db.exists()
     assert not regular_db.exists()
 
@@ -2259,6 +2293,9 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     assert payload["use_seeded_database"] is True
     assert payload["database"] == str(dev_db)
     assert payload["workspace_memories"] == 90
+    assert payload["seeded_database"]["database"] == str(dev_db)
+    assert payload["seeded_database"]["initialized"] is True
+    assert payload["seeded_database"]["expected_workspace_memories"] == 90
     assert dev_db.exists()
     assert not regular_db.exists()
     loaded = json.loads(config_path.read_text(encoding="utf-8"))
@@ -2277,6 +2314,9 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     assert payload["use_seeded_database"] is False
     assert payload["database"] == str(regular_db)
     assert payload["config"] == str(config_path)
+    assert payload["seeded_database"]["database"] == str(dev_db)
+    assert payload["seeded_database"]["initialized"] is True
+    assert payload["seeded_database"]["expected_user_memories"] == 100
     loaded = json.loads(config_path.read_text(encoding="utf-8"))
     assert loaded["development"]["use_seeded_database"] is False
     assert not regular_db.exists()
@@ -4408,13 +4448,14 @@ def test_completion_help_documents_raw_output_json_exception(capsys) -> None:
     completion_help = _run_help(["completion", "--help"], capsys)
 
     _assert_human_framed(completion_help)
+    normalized_help = " ".join(completion_help.split())
     assert "raw completion output" in completion_help
-    assert "not changed by --json" in completion_help
+    assert "--json is supported only with --install" in normalized_help
     assert "emitted as-is" in completion_help
-    assert "ignores --json" in completion_help
+    assert "omit --json" in completion_help
 
 
-def test_completion_source_ignores_json_output_flag(capsys) -> None:
+def test_completion_source_rejects_json_output_flag(capsys) -> None:
     json_code, json_stdout, json_stderr = _run_cli(
         ["--json", "completion", "--source", "bash"], capsys
     )
@@ -4422,15 +4463,68 @@ def test_completion_source_ignores_json_output_flag(capsys) -> None:
         ["--human-readable", "completion", "--source", "bash"], capsys
     )
 
-    assert json_code == 0
-    assert json_stderr == ""
+    assert json_code == 2
+    assert json_stdout == ""
+    error_payload = json.loads(json_stderr)
+    assert error_payload["status"] == "selected_format_error"
+    assert "omit --json" in error_payload["detail"]
     assert human_code == 0
     assert human_stderr == ""
-    assert json_stdout == human_stdout
-    assert "#compdef recollectium" in json_stdout
-    assert "__python_argcomplete" in json_stdout
+    assert "#compdef recollectium" in human_stdout
+    assert "__python_argcomplete" in human_stdout
     with pytest.raises(json.JSONDecodeError):
-        json.loads(json_stdout)
+        json.loads(human_stdout)
+
+
+def test_completion_source_rejects_explicit_json_verbose(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "completion", "--source", "bash"], capsys
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "selected_format_error"
+    assert "omit --json" in payload["detail"]
+
+
+def test_completion_complete_line_rejects_json_output_flag(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "completion",
+            "--complete-line",
+            "recollectium c",
+            "--point",
+            "14",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "selected_format_error"
+
+
+def test_completion_complete_line_rejects_explicit_json_verbose(capsys) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--verbose",
+            "completion",
+            "--complete-line",
+            "recollectium c",
+            "--point",
+            "14",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "selected_format_error"
 
 
 def test_completion_complete_line_stays_json_under_human_output_config(
@@ -4452,6 +4546,7 @@ def test_completion_complete_line_stays_json_under_human_output_config(
             "14",
         ],
         capsys,
+        json_by_default=False,
     )
 
     assert exit_code == 0
@@ -4539,6 +4634,21 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
     assert "Config reset to defaults:" in _format_human_output(
         {"path": "/tmp/config.json"}, command="config reset"
     )
+    assert _format_human_output(
+        {
+            "path": "/tmp/config.json",
+            "database": {"path": "/tmp/recollectium.db"},
+            "cli_output": "human_readable",
+        },
+        command="config reset",
+        response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
+    ) == (
+        "Config reset to defaults: /tmp/config.json\n"
+        "  Path: /tmp/config.json\n"
+        "  Database:\n"
+        "    Path: /tmp/recollectium.db\n"
+        "  Cli output: human_readable\n"
+    )
     assert "Config doctor found no problems." in _format_human_output(
         {"status": "ok", "checks": {"config": "/tmp/config.json"}},
         command="config doctor",
@@ -4589,6 +4699,19 @@ def test_cli_human_formatter_colors_config_command_shapes() -> None:
     assert _format_human_output(
         {"path": "/tmp/config.json"}, command="config reset", color=True
     ).startswith("\x1b[1;36mConfig reset to defaults:\x1b[0m /tmp/config.json")
+
+
+def test_log_file_warning_noops_when_recollectium_warning_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = cli_module.logging.getLogger("recollectium")
+    handler = cli_module.logging.NullHandler()
+    logger.addHandler(handler)
+    monkeypatch.setattr(logger, "level", cli_module.logging.CRITICAL + 1)
+
+    cli_module._log_file_warning("hidden warning", event="test.warning")
+
+    logger.removeHandler(handler)
 
 
 def test_cli_human_formatter_covers_config_noop_and_verbose_shapes() -> None:
@@ -4673,27 +4796,42 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr("sys.argv", ["recollectium", "list", "--human-readable"])
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(None)
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(None)
     assert cleaned == ["list"]
     assert output_format == "human_readable"
     assert response_verbosity is None
     assert output_conflict is False
     assert verbosity_conflict is False
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["--human-readable", "list", "--json"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["--human-readable", "list", "--json"])
     assert cleaned == ["list"]
     assert output_format == "json"
     assert response_verbosity is None
     assert output_conflict is True
     assert verbosity_conflict is False
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["config", "set", "logging.level", "--", "--json"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["config", "set", "logging.level", "--", "--json"])
     assert cleaned == ["config", "set", "logging.level", "--", "--json"]
     assert output_format is None
     assert response_verbosity is None
@@ -4715,44 +4853,69 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
 
 def test_cli_verbosity_extraction_conflicts_order_and_literals(monkeypatch) -> None:
     monkeypatch.setattr("sys.argv", ["recollectium", "list", "--compact"])
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(None)
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(None)
     assert cleaned == ["list"]
     assert output_format is None
     assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
     assert output_conflict is False
     assert verbosity_conflict is False
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["--verbose", "list"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["--verbose", "list"])
     assert cleaned == ["list"]
     assert output_format is None
     assert response_verbosity == RESPONSE_VERBOSITY_VERBOSE
     assert output_conflict is False
     assert verbosity_conflict is False
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["list", "--compact", "--verbose"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["list", "--compact", "--verbose"])
     assert cleaned == ["list"]
     assert response_verbosity == RESPONSE_VERBOSITY_VERBOSE
     assert output_conflict is False
     assert verbosity_conflict is True
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["list", "--verbose", "--compact"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["list", "--verbose", "--compact"])
     assert cleaned == ["list"]
     assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
     assert output_conflict is False
     assert verbosity_conflict is True
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(
-            ["config", "set", "response_verbosity", "--", "--verbose"]
-        )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(
+        ["config", "set", "response_verbosity", "--", "--verbose"]
     )
     assert cleaned == ["config", "set", "response_verbosity", "--", "--verbose"]
     assert output_format is None
@@ -6020,6 +6183,80 @@ def test_cli_config_mutations_emit_json_success_payloads(tmp_path, capsys) -> No
     assert json.loads(unset_stdout) == {"key": "cli_output", "status": "removed"}
 
 
+def test_cli_config_reset_verbose_reports_reset_details(tmp_path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json", "logging": {"level": "debug"}}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "--config", str(config_path), "config", "reset"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["path"] == str(config_path)
+    assert payload["status"] == "reset"
+    assert payload["existed"] is True
+    assert payload["changed"] is True
+    assert payload["reset_to_defaults"] is True
+    assert "logging" in payload["reset_keys"]
+    assert "logging" in payload["previous_keys"]
+    assert payload["previous_unknown_keys"] == []
+
+
+def test_cli_config_reset_verbose_reports_missing_config_context(
+    tmp_path, capsys
+) -> None:
+    config_path = tmp_path / "missing" / "config.json"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "--config", str(config_path), "config", "reset"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["path"] == str(config_path)
+    assert payload["status"] == "reset"
+    assert payload["existed"] is False
+    assert payload["changed"] is True
+    assert payload["reset_to_defaults"] is True
+    assert "logging" in payload["reset_keys"]
+    assert payload["previous_keys"] == []
+    assert payload["previous_unknown_keys"] == []
+
+
+def test_cli_config_reset_verbose_reports_unknown_previous_keys(
+    tmp_path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "logging": {"level": "debug"}, "custom": "data"}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--verbose", "--config", str(config_path), "config", "reset"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["path"] == str(config_path)
+    assert payload["status"] == "reset"
+    assert payload["existed"] is True
+    assert payload["changed"] is True
+    assert payload["reset_to_defaults"] is True
+    assert "custom" in payload["previous_keys"]
+    assert payload["previous_unknown_keys"] == ["custom"]
+
+
 def test_builtin_fastembed_provider_from_config_resolves_cache_dir(
     tmp_path: Path,
 ) -> None:
@@ -6081,26 +6318,56 @@ def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
         model="fake-model",
         embedding_profile={"provider": "builtin-fastembed", "model": "fake-model"},
     )
+    SQLiteMemoryStore(db_path).create_embedding_job(
+        job_id="job-failed",
+        state="failed",
+        total_count=1,
+        processed_count=1,
+        succeeded_count=0,
+        failed_count=1,
+        provider="builtin-fastembed",
+        model="fake-model",
+        embedding_profile={"provider": "builtin-fastembed", "model": "fake-model"},
+        error_message="provider unavailable",
+    )
 
     jobs_code, jobs_out, jobs_err = _run_cli(
-        ["--db", str(db_path), "embedding-jobs"],
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "embedding-jobs",
+            "--state",
+            "failed",
+        ],
         capsys,
     )
     assert jobs_code == 0
     assert jobs_err == ""
     jobs_payload = json.loads(jobs_out)
     assert isinstance(jobs_payload, list)
+    assert jobs_payload[0]["reason"] == "provider unavailable"
     if jobs_payload:
         job_id = jobs_payload[0]["id"]
 
         one_job_code, one_job_out, one_job_err = _run_cli(
-            ["--db", str(db_path), "embedding-jobs", "--job-id", job_id],
+            [
+                "--json",
+                "--compact",
+                "--db",
+                str(db_path),
+                "embedding-jobs",
+                "--job-id",
+                job_id,
+            ],
             capsys,
         )
         assert one_job_code == 0
         assert one_job_err == ""
         one_job_payload = json.loads(one_job_out)
         assert one_job_payload["id"] == job_id
+        assert one_job_payload["reason"] == "provider unavailable"
 
     state_code, state_out, state_err = _run_cli(
         [
@@ -6145,8 +6412,22 @@ def test_cli_embedding_refresh_and_jobs_clear_output_json(tmp_path, capsys) -> N
     assert clear_without_yes_out == ""
     assert json.loads(clear_without_yes_err)["status"] == "confirmation_required"
 
+    SQLiteMemoryStore(db_path).create_embedding_job(
+        job_id="job-pending",
+        state="pending",
+        total_count=1,
+        processed_count=0,
+        succeeded_count=0,
+        failed_count=0,
+        provider="builtin-fastembed",
+        model="fake-model",
+        embedding_profile={"provider": "builtin-fastembed", "model": "fake-model"},
+    )
+
     clear_code, clear_out, clear_err = _run_cli(
         [
+            "--json",
+            "--verbose",
             "--db",
             str(db_path),
             "embedding-jobs-clear",
@@ -6158,7 +6439,11 @@ def test_cli_embedding_refresh_and_jobs_clear_output_json(tmp_path, capsys) -> N
     )
     assert clear_code == 0
     assert clear_err == ""
-    assert json.loads(clear_out) == {"deleted_count": 0, "states": ["pending"]}
+    assert json.loads(clear_out) == {
+        "deleted_count": 1,
+        "states": ["pending"],
+        "deleted_job_ids": ["job-pending"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -7276,7 +7561,8 @@ class TestConfigCommand:
         config_path = tmp_path / "recollectium" / "config.json"
 
         exit_code, stdout, stderr = _run_cli(
-            ["--config", str(config_path), "config", "reset"], capsys
+            ["--json", "--compact", "--config", str(config_path), "config", "reset"],
+            capsys,
         )
 
         assert exit_code == 0
@@ -7296,7 +7582,8 @@ class TestConfigCommand:
         )
 
         exit_code, stdout, stderr = _run_cli(
-            ["--config", str(config_path), "config", "reset"], capsys
+            ["--json", "--compact", "--config", str(config_path), "config", "reset"],
+            capsys,
         )
 
         assert exit_code == 0
@@ -7310,7 +7597,8 @@ class TestConfigCommand:
         config_path = tmp_path / "config.json"
 
         exit_code, stdout, stderr = _run_cli(
-            ["--config", str(config_path), "config", "reset"], capsys
+            ["--json", "--compact", "--config", str(config_path), "config", "reset"],
+            capsys,
         )
 
         assert exit_code == 0
@@ -10210,7 +10498,12 @@ def test_workspace_alias_cli_commands_round_trip(tmp_path, capsys) -> None:
         ["--db", str(db_path), "workspace", "list", "--include-aliases"], capsys
     )
     assert exit_code == 0
-    assert json.loads(stdout) == [{"workspace_uid": "canonical", "aliases": ["legacy"]}]
+    workspace_rows = json.loads(stdout)
+    assert workspace_rows[0]["workspace_uid"] == "canonical"
+    assert workspace_rows[0]["aliases"] == ["legacy"]
+    assert workspace_rows[0]["alias_count"] == 1
+    assert workspace_rows[0]["alias_records"][0]["alias_uid"] == "legacy"
+    assert "created_at" in workspace_rows[0]["alias_records"][0]
 
     exit_code, stdout, stderr = _run_cli(
         [
@@ -10325,6 +10618,25 @@ def test_workspace_alias_cli_compact_projection(tmp_path, capsys) -> None:
     assert json.loads(stdout) == [
         {"workspace_uid": "canonical", "aliases": ["legacy"], "alias_count": 1}
     ]
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "workspace",
+            "resolve",
+            "Legacy",
+        ],
+        capsys,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout) == {
+        "canonical_uid": "canonical",
+        "resolved_by_alias": True,
+    }
 
 
 def test_cli_human_compact_memory_mutations_include_id(

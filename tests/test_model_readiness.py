@@ -496,6 +496,13 @@ def test_builtin_fastembed_ensure_ready_raises_after_max_attempts(
     assert call_count[0] == 3
 
 
+def test_builtin_fastembed_ensure_ready_rejects_non_positive_max_attempts() -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    with pytest.raises(ValueError, match="max_attempts must be at least 1"):
+        provider.ensure_ready(timeout_seconds=5.0, max_attempts=0)
+
+
 def test_builtin_fastembed_ensure_ready_does_not_retry_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

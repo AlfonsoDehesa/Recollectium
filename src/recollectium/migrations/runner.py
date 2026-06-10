@@ -47,6 +47,10 @@ class MigrationStatus:
         }
 
 
+def _row_to_dict(row: sqlite3.Row) -> dict[str, object]:
+    return {key: row[key] for key in row.keys()}
+
+
 def _default_migrations() -> list[Migration]:
     from recollectium.migrations.versions import list_migrations
 
@@ -141,6 +145,43 @@ class MigrationRunner:
             latest_version=latest_version,
             pending_versions=pending,
         )
+
+    def detailed_status(self) -> dict[str, object]:
+        """Return migration status with internal runner and metadata details."""
+        status = self.status().to_dict()
+        migrations = [
+            {"version": migration.version, "name": migration.name}
+            for migration in self.migrations
+        ]
+        pending_versions = status["pending_versions"]
+        pending_version_set = (
+            set(pending_versions) if isinstance(pending_versions, list) else set()
+        )
+        with self._connect() as connection:
+            self._ensure_metadata_table(connection)
+            applied_rows = connection.execute(
+                """
+                SELECT version, name, applied_at
+                FROM schema_migrations
+                ORDER BY version
+                """
+            ).fetchall()
+            user_version = self._read_user_version(connection)
+        applied = [_row_to_dict(row) for row in applied_rows]
+        status["internals"] = {
+            "user_version": user_version,
+            "migration_count": len(migrations),
+            "applied_count": len(applied),
+            "pending_count": len(pending_version_set),
+            "migrations": migrations,
+            "applied_migrations": applied,
+            "pending_migrations": [
+                migration
+                for migration in migrations
+                if migration["version"] in pending_version_set
+            ],
+        }
+        return status
 
     def migrate(self) -> MigrationStatus:
         latest_version = self._latest_version()

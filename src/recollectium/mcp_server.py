@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from recollectium.config import RESPONSE_VERBOSITY_COMPACT
+from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
 from recollectium.core import RecollectiumCore
 from recollectium.retrieval import UNSET, UnsetType
 from recollectium.errors import RecollectiumError
@@ -362,7 +362,10 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         try:
             resolved = _resolve_verbosity(verbosity)
             uids = core.list_workspaces(
-                include_archived=include_archived, include_aliases=include_aliases
+                include_archived=include_archived,
+                include_aliases=include_aliases,
+                include_alias_records=include_aliases
+                and resolved == RESPONSE_VERBOSITY_VERBOSE,
             )
             return _json(
                 project_payload(
