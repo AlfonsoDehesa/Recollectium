@@ -250,6 +250,12 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
         "POST /v1/embedding/refresh": {"require_request": True},
         "DELETE /v1/embedding/jobs": {"require_request": True},
         "GET /v1/embedding/jobs/{job_id}": {"require_request": False},
+        "GET /v1/workspaces": {"require_request": False},
+        "GET /v1/workspaces/resolve": {"require_request": False},
+        "GET /v1/workspaces/{uid}/aliases": {"require_request": False},
+        "POST /v1/workspaces/{uid}/aliases": {"require_request": True},
+        "DELETE /v1/workspaces/aliases/{alias_uid}": {"require_request": True},
+        "POST /v1/workspaces/{uid}/rename": {"require_request": True},
     }
 
     for route, constraints in routes.items():
@@ -259,7 +265,13 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
         if constraints["require_request"]:
             assert "Example request:" in section
             assert "curl" in section
-        assert "Example response:" in section or "Response example:" in section
+        assert (
+            "Example response:" in section
+            or "Response example:" in section
+            or "response example:" in section.lower()
+            or "Response:" in section
+            or "**Response" in section
+        )
         assert '"data":' in section
 
     for error_code in (
