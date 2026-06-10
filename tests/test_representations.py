@@ -7,6 +7,7 @@ from recollectium.representations import (
     OPERATION_DEV_MODE,
     OPERATION_DEV_OPTIMIZE_THRESHOLD,
     OPERATION_DEV_RESET,
+    OPERATION_EMBEDDING_JOBS_CLEAR,
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_MAINTENANCE,
     OPERATION_LIFECYCLE_INIT,
@@ -188,6 +189,46 @@ def test_compact_embedding_job_normalizes_legacy_count_keys() -> None:
         "succeeded_count": 2,
         "failed_count": 0,
     }
+
+
+def test_compact_embedding_job_maps_error_message_to_reason() -> None:
+    payload = {
+        "id": "job-failed",
+        "state": "failed",
+        "total_count": 1,
+        "succeeded_count": 0,
+        "failed_count": 1,
+        "error_message": "provider unavailable",
+        "embedding_profile": {"provider": "fake"},
+    }
+
+    assert project_embedding_job(payload, "compact") == {
+        "id": "job-failed",
+        "state": "failed",
+        "total_count": 1,
+        "succeeded_count": 0,
+        "failed_count": 1,
+        "reason": "provider unavailable",
+    }
+    assert project_embedding_job(payload, "verbose") is payload
+
+
+def test_compact_embedding_jobs_clear_omits_deleted_job_ids() -> None:
+    payload = {
+        "deleted_count": 2,
+        "states": ["completed", "failed"],
+        "deleted_job_ids": ["job-1", "job-2"],
+    }
+
+    assert project_payload(
+        payload, verbosity="compact", operation=OPERATION_EMBEDDING_JOBS_CLEAR
+    ) == {"deleted_count": 2, "states": ["completed", "failed"]}
+    assert (
+        project_payload(
+            payload, verbosity="verbose", operation=OPERATION_EMBEDDING_JOBS_CLEAR
+        )
+        is payload
+    )
 
 
 def test_compact_workspace_list_keeps_uid_alias_strings_and_count() -> None:

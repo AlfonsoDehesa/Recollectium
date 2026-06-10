@@ -518,8 +518,12 @@ class RecollectiumCore:
             )
         if "in_progress" in selected_states:
             raise ValidationError("in_progress embedding jobs cannot be deleted")
-        deleted_count = self.store.delete_embedding_jobs(states=selected_states)
-        return {"deleted_count": deleted_count, "states": list(selected_states)}
+        deleted_job_ids = self.store.delete_embedding_jobs(states=selected_states)
+        return {
+            "deleted_count": len(deleted_job_ids),
+            "states": list(selected_states),
+            "deleted_job_ids": deleted_job_ids,
+        }
 
     def active_embedding_status(self) -> dict[str, Any]:
         startup_status_path = None

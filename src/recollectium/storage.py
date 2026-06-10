@@ -10,7 +10,7 @@ import sqlite3
 from typing import Any, Iterator
 
 from recollectium.embeddings import ContentChunk
-from recollectium.errors import NotFoundError, ValidationError
+from recollectium.errors import NotFoundError, RecollectiumError, ValidationError
 from recollectium.migrations import MigrationRunner
 from recollectium.models import Memory, STATUS_ARCHIVED
 from recollectium.search import ChunkCandidate
@@ -832,16 +832,26 @@ class SQLiteMemoryStore:
 
         return [self._row_to_embedding_job(row) for row in rows]
 
-    def delete_embedding_jobs(self, *, states: tuple[str, ...] | list[str]) -> int:
+    def delete_embedding_jobs(
+        self, *, states: tuple[str, ...] | list[str]
+    ) -> list[str]:
         if not states:
             raise ValidationError("at least one job state is required")
         placeholders = ", ".join("?" for _ in states)
         with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT id FROM embedding_jobs WHERE state IN ({placeholders}) "
+                "ORDER BY updated_at DESC, id ASC",
+                tuple(states),
+            ).fetchall()
             result = connection.execute(
                 f"DELETE FROM embedding_jobs WHERE state IN ({placeholders})",
                 tuple(states),
             )
-        return int(result.rowcount)
+        deleted_job_ids = [str(row["id"]) for row in rows]
+        if int(result.rowcount) != len(deleted_job_ids):
+            raise RecollectiumError("embedding job deletion count changed unexpectedly")
+        return deleted_job_ids
 
     def _row_to_embedding_job(self, row: sqlite3.Row) -> dict[str, Any]:
         return {

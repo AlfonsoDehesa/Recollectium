@@ -167,6 +167,8 @@ def project_embedding_job(
     for public_key, legacy_key in legacy_count_keys.items():
         if public_key not in compact and payload.get(legacy_key) is not None:
             compact[public_key] = payload[legacy_key]
+    if "reason" not in compact and payload.get("error_message"):
+        compact["reason"] = payload["error_message"]
     return compact
 
 

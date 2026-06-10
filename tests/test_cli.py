@@ -6081,26 +6081,56 @@ def test_cli_embedding_status_and_jobs_output_json(tmp_path, capsys) -> None:
         model="fake-model",
         embedding_profile={"provider": "builtin-fastembed", "model": "fake-model"},
     )
+    SQLiteMemoryStore(db_path).create_embedding_job(
+        job_id="job-failed",
+        state="failed",
+        total_count=1,
+        processed_count=1,
+        succeeded_count=0,
+        failed_count=1,
+        provider="builtin-fastembed",
+        model="fake-model",
+        embedding_profile={"provider": "builtin-fastembed", "model": "fake-model"},
+        error_message="provider unavailable",
+    )
 
     jobs_code, jobs_out, jobs_err = _run_cli(
-        ["--db", str(db_path), "embedding-jobs"],
+        [
+            "--json",
+            "--compact",
+            "--db",
+            str(db_path),
+            "embedding-jobs",
+            "--state",
+            "failed",
+        ],
         capsys,
     )
     assert jobs_code == 0
     assert jobs_err == ""
     jobs_payload = json.loads(jobs_out)
     assert isinstance(jobs_payload, list)
+    assert jobs_payload[0]["reason"] == "provider unavailable"
     if jobs_payload:
         job_id = jobs_payload[0]["id"]
 
         one_job_code, one_job_out, one_job_err = _run_cli(
-            ["--db", str(db_path), "embedding-jobs", "--job-id", job_id],
+            [
+                "--json",
+                "--compact",
+                "--db",
+                str(db_path),
+                "embedding-jobs",
+                "--job-id",
+                job_id,
+            ],
             capsys,
         )
         assert one_job_code == 0
         assert one_job_err == ""
         one_job_payload = json.loads(one_job_out)
         assert one_job_payload["id"] == job_id
+        assert one_job_payload["reason"] == "provider unavailable"
 
     state_code, state_out, state_err = _run_cli(
         [
@@ -6145,8 +6175,22 @@ def test_cli_embedding_refresh_and_jobs_clear_output_json(tmp_path, capsys) -> N
     assert clear_without_yes_out == ""
     assert json.loads(clear_without_yes_err)["status"] == "confirmation_required"
 
+    SQLiteMemoryStore(db_path).create_embedding_job(
+        job_id="job-pending",
+        state="pending",
+        total_count=1,
+        processed_count=0,
+        succeeded_count=0,
+        failed_count=0,
+        provider="builtin-fastembed",
+        model="fake-model",
+        embedding_profile={"provider": "builtin-fastembed", "model": "fake-model"},
+    )
+
     clear_code, clear_out, clear_err = _run_cli(
         [
+            "--json",
+            "--verbose",
             "--db",
             str(db_path),
             "embedding-jobs-clear",
@@ -6158,7 +6202,11 @@ def test_cli_embedding_refresh_and_jobs_clear_output_json(tmp_path, capsys) -> N
     )
     assert clear_code == 0
     assert clear_err == ""
-    assert json.loads(clear_out) == {"deleted_count": 0, "states": ["pending"]}
+    assert json.loads(clear_out) == {
+        "deleted_count": 1,
+        "states": ["pending"],
+        "deleted_job_ids": ["job-pending"],
+    }
 
 
 # ---------------------------------------------------------------------------

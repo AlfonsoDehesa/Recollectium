@@ -650,7 +650,11 @@ def test_mcp_embedding_tools_compact_and_verbose(tmp_path: Path) -> None:
 
     clear_fn = mcp._tool_manager._tools["clear_embedding_jobs"].fn
     clear_result = json.loads(clear_fn(states=["completed"], verbosity="verbose"))
-    assert clear_result == {"deleted_count": 1, "states": ["completed"]}
+    assert clear_result == {
+        "deleted_count": 1,
+        "states": ["completed"],
+        "deleted_job_ids": ["job-verbosity"],
+    }
 
 
 def test_mcp_get_embedding_job_missing_returns_error(tmp_path: Path) -> None:

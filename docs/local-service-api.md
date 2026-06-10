@@ -809,7 +809,7 @@ If no stale memories match the request, `refreshed` is `false`, `stale_count` is
 - Side effects: removes matching rows from the embedding job history.
 - Optional request fields:
   - `states` (array of states to delete). If omitted, Recollectium deletes `completed`, `failed`, and `pending` job records.
-- Successful response: HTTP `200` with deleted count and selected states. This shape is the same for compact and verbose.
+- Successful response: HTTP `200` with deleted count and selected states by default. Use `?verbosity=verbose` or the verbosity header to include `deleted_job_ids` for auditability.
 
 Example request:
 
@@ -819,13 +819,25 @@ curl -sS -X DELETE http://127.0.0.1:8765/v1/embedding/jobs \
   -d '{"states":["completed","failed","pending"]}'
 ```
 
-Example response:
+Example response: compact
 
 ```json
 {
   "data": {
     "deleted_count": 3,
     "states": ["completed", "failed", "pending"]
+  }
+}
+```
+
+Example response: verbose
+
+```json
+{
+  "data": {
+    "deleted_count": 3,
+    "states": ["completed", "failed", "pending"],
+    "deleted_job_ids": ["job-123", "job-124", "job-125"]
   }
 }
 ```

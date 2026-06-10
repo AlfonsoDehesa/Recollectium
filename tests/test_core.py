@@ -981,7 +981,11 @@ def test_clear_embedding_jobs_deletes_selected_audit_records(tmp_path: Path) -> 
 
     result = core.clear_embedding_jobs()
 
-    assert result == {"deleted_count": 3, "states": ["completed", "failed", "pending"]}
+    assert result == {
+        "deleted_count": 3,
+        "states": ["completed", "failed", "pending"],
+        "deleted_job_ids": ["job-failed", "job-completed", "job-pending"],
+    }
     remaining = core.list_embedding_jobs()
     assert [job["state"] for job in remaining] == ["in_progress"]
 

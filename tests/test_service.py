@@ -221,6 +221,42 @@ def test_embedding_serializers_project_with_operation_and_verbosity() -> None:
         compact_job
     ]
 
+    failed_job = {
+        "id": "job-failed",
+        "state": "failed",
+        "total_count": 1,
+        "succeeded_count": 0,
+        "failed_count": 1,
+        "error_message": "provider unavailable",
+    }
+    assert serialize_embedding_job(
+        failed_job, operation=OPERATION_EMBEDDING_JOBS_GET
+    ) == {
+        "id": "job-failed",
+        "state": "failed",
+        "total_count": 1,
+        "succeeded_count": 0,
+        "failed_count": 1,
+        "reason": "provider unavailable",
+    }
+
+    clear_result = {
+        "deleted_count": 1,
+        "states": ["failed"],
+        "deleted_job_ids": ["job-failed"],
+    }
+    assert serialize_embedding_operation_result(
+        clear_result, operation=OPERATION_EMBEDDING_JOBS_CLEAR
+    ) == {"deleted_count": 1, "states": ["failed"]}
+    assert (
+        serialize_embedding_operation_result(
+            clear_result,
+            verbosity="verbose",
+            operation=OPERATION_EMBEDDING_JOBS_CLEAR,
+        )
+        is clear_result
+    )
+
 
 def test_success_payload_wraps_data_without_mutation() -> None:
     data = [{"id": "m-1"}, {"id": "m-2"}]
@@ -589,20 +625,58 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
         model="fake-model",
         embedding_profile=core.embedding_provider.embedding_profile,
     )
+    core.store.create_embedding_job(
+        job_id="job-failed",
+        state="failed",
+        total_count=1,
+        processed_count=1,
+        succeeded_count=0,
+        failed_count=1,
+        provider="builtin-fastembed",
+        model="fake-model",
+        embedding_profile=core.embedding_provider.embedding_profile,
+        error_message="provider unavailable",
+    )
 
-    status, jobs_payload = _request_json(client, "GET", "/v1/embedding/jobs")
+    status, jobs_payload = _request_json(
+        client, "GET", "/v1/embedding/jobs?state=failed"
+    )
     assert status == 200
     jobs = jobs_payload["data"]
     assert isinstance(jobs, list)
+    assert jobs[0]["reason"] == "provider unavailable"
     if jobs:
         job_id = jobs[0]["id"]
         status, one_job = _request_json(client, "GET", f"/v1/embedding/jobs/{job_id}")
         assert status == 200
         assert one_job["data"]["id"] == job_id
+        assert one_job["data"]["reason"] == "provider unavailable"
 
     status, limited_jobs = _request_json(client, "GET", "/v1/embedding/jobs?limit=1")
     assert status == 200
     assert len(limited_jobs["data"]) <= 1
+
+    status, compact_clear = _request_json(
+        client,
+        "DELETE",
+        "/v1/embedding/jobs",
+        {"states": ["failed"]},
+    )
+    assert status == 200
+    assert compact_clear["data"] == {"deleted_count": 1, "states": ["failed"]}
+
+    status, verbose_clear = _request_json(
+        client,
+        "DELETE",
+        "/v1/embedding/jobs?verbosity=verbose",
+        {"states": ["completed"]},
+    )
+    assert status == 200
+    assert verbose_clear["data"] == {
+        "deleted_count": 1,
+        "states": ["completed"],
+        "deleted_job_ids": ["job-1"],
+    }
 
 
 def test_http_query_parsers_accept_valid_values_and_reject_bad_values() -> None:
