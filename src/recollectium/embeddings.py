@@ -7,7 +7,8 @@ import math
 import multiprocessing
 import os
 import re
-from collections.abc import Iterable
+import time
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -31,6 +32,45 @@ class EmbeddingProvider(Protocol):
     def similarity(self, first: list[float], second: list[float]) -> float: ...
 
 
+@contextlib.contextmanager
+def _redirect_file_descriptor_to_devnull(fd: int) -> Iterator[None]:
+    """Temporarily redirect an OS file descriptor to ``os.devnull``."""
+    saved_fd: int | None = None
+    devnull_fd: int | None = None
+    redirected = False
+    try:
+        saved_fd = os.dup(fd)
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull_fd, fd)
+        redirected = True
+        yield
+    finally:
+        try:
+            if redirected and saved_fd is not None:
+                os.dup2(saved_fd, fd)
+        finally:
+            if devnull_fd is not None:
+                os.close(devnull_fd)
+            if saved_fd is not None:
+                os.close(saved_fd)
+
+
+@contextlib.contextmanager
+def _suppress_fastembed_readiness_output(
+    *, suppress_stdout: bool = False
+) -> Iterator[None]:
+    """Contain native-library readiness output from the FastEmbed child process."""
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(_redirect_file_descriptor_to_devnull(2))
+        if suppress_stdout:
+            stack.enter_context(_redirect_file_descriptor_to_devnull(1))
+        with open(os.devnull, "w", encoding="utf-8") as devnull:
+            if suppress_stdout:
+                stack.enter_context(contextlib.redirect_stdout(devnull))
+            stack.enter_context(contextlib.redirect_stderr(devnull))
+            yield
+
+
 def _fastembed_readiness_worker(
     result_connection: Connection,
     model_name: str,
@@ -39,14 +79,7 @@ def _fastembed_readiness_worker(
 ) -> None:
     try:
         provider = BuiltinFastEmbedProvider(model_name, cache_dir=cache_dir)
-        if suppress_output:
-            with open(os.devnull, "w", encoding="utf-8") as devnull:
-                with (
-                    contextlib.redirect_stdout(devnull),
-                    contextlib.redirect_stderr(devnull),
-                ):
-                    provider._ensure_ready_unbounded()
-        else:
+        with _suppress_fastembed_readiness_output(suppress_stdout=suppress_output):
             provider._ensure_ready_unbounded()
     except Exception as exc:  # pragma: no cover - exercised through parent process
         result_connection.send(
@@ -266,12 +299,50 @@ class BuiltinFastEmbedProvider:
         return self._normalize_vector(vector)
 
     def ensure_ready(
-        self, *, timeout_seconds: float = 60.0, suppress_output: bool = False
+        self,
+        *,
+        timeout_seconds: float = 60.0,
+        suppress_output: bool = False,
+        max_attempts: int = 3,
     ) -> None:
         if timeout_seconds <= 0:
             raise EmbeddingReadinessTimeoutError(
                 "FastEmbed provider startup timed out after 0 seconds"
             )
+
+        last_exception: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._ensure_ready_once(
+                    timeout_seconds=timeout_seconds,
+                    suppress_output=suppress_output,
+                )
+                return
+            except EmbeddingReadinessTimeoutError:
+                raise
+            except EmbeddingProviderUnavailableError:
+                raise
+            except EmbeddingDimensionMismatchError:
+                raise
+            except (
+                EmbeddingModelUnavailableError,
+                EmbeddingGenerationError,
+            ) as exc:
+                last_exception = exc
+                if attempt == max_attempts:
+                    raise
+                delay = 2.0 * (2 ** (attempt - 1))
+                time.sleep(delay)
+
+        assert last_exception is not None  # reachable only from explicit raise above
+        raise last_exception
+
+    def _ensure_ready_once(
+        self,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
 
         context = multiprocessing.get_context("spawn")
         parent_connection, child_connection = context.Pipe(duplex=False)

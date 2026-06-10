@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
 from pathlib import Path
 
 import pytest
 
 from recollectium.core import RecollectiumCore
 import recollectium.core as core_module
+import recollectium.embeddings as embeddings_module
+from recollectium.embeddings import BuiltinFastEmbedProvider
+from recollectium.errors import (
+    EmbeddingDimensionMismatchError,
+    EmbeddingGenerationError,
+    EmbeddingModelUnavailableError,
+    EmbeddingReadinessTimeoutError,
+)
 from recollectium.model_state import read_model_state, write_model_state
 
 # The default model name config validation accepts.
@@ -258,10 +268,115 @@ def test_ensure_model_ready_raises_on_provider_failure(tmp_path: Path):
         config_path=config,
         embedding_provider=provider,
     )
-    from recollectium.errors import EmbeddingModelUnavailableError
-
     with pytest.raises(EmbeddingModelUnavailableError, match="model download failed"):
         core._ensure_model_ready(state_dir=state_dir)
+
+    assert read_model_state(state_dir) is None
+
+
+def test_builtin_fastembed_readiness_suppresses_child_fd2_on_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """FastEmbed readiness child fd-level stderr is contained on success."""
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("fd-level child readiness suppression test requires fork")
+
+    fork_context = multiprocessing.get_context("fork")
+    monkeypatch.setattr(
+        embeddings_module.multiprocessing,
+        "get_context",
+        lambda method: fork_context,
+    )
+
+    def noisy_success(self: BuiltinFastEmbedProvider) -> None:
+        _ = self
+        os.write(2, b"native fd2 readiness noise\n")
+
+    monkeypatch.setattr(
+        BuiltinFastEmbedProvider, "_ensure_ready_unbounded", noisy_success
+    )
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL, cache_dir=tmp_path)
+
+    provider.ensure_ready(timeout_seconds=5.0, suppress_output=True)
+
+    captured = capfd.readouterr()
+    assert captured.err == ""
+
+
+def test_builtin_fastembed_readiness_suppresses_child_fd2_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """FastEmbed readiness child fd-level stderr is contained on strict failure."""
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("fd-level child readiness suppression test requires fork")
+
+    fork_context = multiprocessing.get_context("fork")
+    monkeypatch.setattr(
+        embeddings_module.multiprocessing,
+        "get_context",
+        lambda method: fork_context,
+    )
+
+    def noisy_failure(self: BuiltinFastEmbedProvider) -> None:
+        _ = self
+        os.write(2, b"native fd2 readiness failure noise\n")
+        raise EmbeddingModelUnavailableError("model download failed")
+
+    monkeypatch.setattr(
+        BuiltinFastEmbedProvider, "_ensure_ready_unbounded", noisy_failure
+    )
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL, cache_dir=tmp_path)
+
+    with pytest.raises(EmbeddingModelUnavailableError, match="model download failed"):
+        provider.ensure_ready(timeout_seconds=5.0, suppress_output=True)
+
+    captured = capfd.readouterr()
+    assert captured.err == ""
+
+
+def test_redirect_file_descriptor_to_devnull_closes_saved_fd_when_open_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Saved fd is not leaked if opening os.devnull fails after os.dup()."""
+    real_dup = embeddings_module.os.dup
+    real_open = embeddings_module.os.open
+    real_close = embeddings_module.os.close
+    saved_fds: list[int] = []
+    closed_fds: list[int] = []
+    target_fd = real_open(os.devnull, os.O_WRONLY)
+
+    def track_dup(fd: int) -> int:
+        saved_fd = real_dup(fd)
+        saved_fds.append(saved_fd)
+        return saved_fd
+
+    def fail_open(path: str, flags: int) -> int:
+        assert path == os.devnull
+        assert flags == os.O_WRONLY
+        raise OSError("devnull unavailable")
+
+    def track_close(fd: int) -> None:
+        closed_fds.append(fd)
+        real_close(fd)
+
+    try:
+        with monkeypatch.context() as patch_context:
+            patch_context.setattr(embeddings_module.os, "dup", track_dup)
+            patch_context.setattr(embeddings_module.os, "open", fail_open)
+            patch_context.setattr(embeddings_module.os, "close", track_close)
+
+            with pytest.raises(OSError, match="devnull unavailable"):
+                with embeddings_module._redirect_file_descriptor_to_devnull(target_fd):
+                    raise AssertionError("context body should not execute")
+    finally:
+        real_close(target_fd)
+
+    assert len(saved_fds) == 1
+    assert saved_fds[0] in closed_fds
 
 
 def test_ensure_model_ready_writes_state_with_provider_dimensions(tmp_path: Path):
@@ -329,3 +444,101 @@ def test_model_readiness_keyword_detection_returns_false_for_opaque_callable(
         raise AssertionError("callback should not be invoked")
 
     assert not core_module._callable_accepts_keyword(callback, "progress_callback")
+
+
+def test_builtin_fastembed_ensure_ready_retries_transient_failure_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    call_count = [0]
+
+    def fail_twice_then_succeed(
+        self: BuiltinFastEmbedProvider,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
+        call_count[0] += 1
+        if call_count[0] < 3:
+            raise EmbeddingModelUnavailableError("model download failed")
+
+    monkeypatch.setattr(
+        BuiltinFastEmbedProvider, "_ensure_ready_once", fail_twice_then_succeed
+    )
+
+    provider.ensure_ready(timeout_seconds=5.0, max_attempts=3)
+
+    assert call_count[0] == 3
+
+
+def test_builtin_fastembed_ensure_ready_raises_after_max_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    call_count = [0]
+
+    def always_fail(
+        self: BuiltinFastEmbedProvider,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
+        call_count[0] += 1
+        raise EmbeddingGenerationError("persistent transient failure")
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "_ensure_ready_once", always_fail)
+
+    with pytest.raises(EmbeddingGenerationError, match="persistent transient failure"):
+        provider.ensure_ready(timeout_seconds=5.0, max_attempts=3)
+
+    assert call_count[0] == 3
+
+
+def test_builtin_fastembed_ensure_ready_does_not_retry_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    call_count = [0]
+
+    def timeout_once(
+        self: BuiltinFastEmbedProvider,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
+        call_count[0] += 1
+        raise EmbeddingReadinessTimeoutError("startup timed out after 0 seconds")
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "_ensure_ready_once", timeout_once)
+
+    with pytest.raises(EmbeddingReadinessTimeoutError):
+        provider.ensure_ready(timeout_seconds=5.0, max_attempts=3)
+
+    assert call_count[0] == 1
+
+
+def test_builtin_fastembed_ensure_ready_does_not_retry_dimension_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = BuiltinFastEmbedProvider(_SUPPORTED_MODEL)
+
+    call_count = [0]
+
+    def mismatch_once(
+        self: BuiltinFastEmbedProvider,
+        *,
+        timeout_seconds: float,
+        suppress_output: bool,
+    ) -> None:
+        call_count[0] += 1
+        raise EmbeddingDimensionMismatchError("expected 768 dimensions but got 512")
+
+    monkeypatch.setattr(BuiltinFastEmbedProvider, "_ensure_ready_once", mismatch_once)
+
+    with pytest.raises(EmbeddingDimensionMismatchError):
+        provider.ensure_ready(timeout_seconds=5.0, max_attempts=3)
+
+    assert call_count[0] == 1

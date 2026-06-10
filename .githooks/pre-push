@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+set -u
+
+format_failed=0
+lint_failed=0
+
+printf '%s\n' "Running pre-push quality checks..."
+
+if ! uv run ruff format --check .; then
+  format_failed=1
+  printf '%s\n' ""
+  printf '%s\n' "Ruff formatting check failed."
+  printf '%s\n' "Fix with: uv run ruff format ."
+  printf '%s\n' "Commit the formatter output, then push again."
+  printf '%s\n' ""
+  printf '%s\n' "Formatter diff:"
+  uv run ruff format --diff . || true
+fi
+
+if ! uv run ruff check .; then
+  lint_failed=1
+  printf '%s\n' ""
+  printf '%s\n' "Ruff lint check failed."
+  printf '%s\n' "Fix with: uv run ruff check --fix ."
+  printf '%s\n' "Review and commit any changes, then push again."
+fi
+
+if [ "$format_failed" -ne 0 ] || [ "$lint_failed" -ne 0 ]; then
+  printf '%s\n' ""
+  printf '%s\n' "Pre-push checks failed. Push aborted."
+  exit 1
+fi
+
+printf '%s\n' "Pre-push checks passed."

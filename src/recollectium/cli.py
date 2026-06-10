@@ -146,6 +146,7 @@ from recollectium.service_manager import (
     discover_service,
     get_pid_file_path,
     read_pid_file,
+    service_discovery_payload,
     start_service,
     stop_service,
 )
@@ -6039,6 +6040,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             if running is not None:
                 host = cfg.effective_config["service"]["host"]
                 port = cfg.effective_config["service"]["port"]
+                if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE:
+                    _emit_success(
+                        service_discovery_payload(cfg, running),
+                        output_format=output_format,
+                        command="service status",
+                    )
+                    return 0
                 _emit_success(
                     {
                         "running": True,
@@ -6050,6 +6058,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     command="service status",
                 )
             else:
+                if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE:
+                    status_info = service_discovery_payload(cfg, None)
+                    if raw_pid_info is not None:
+                        status_info["last_service"] = {
+                            "type": raw_pid_info["type"],
+                            "pid": raw_pid_info["pid"],
+                        }
+                    _emit_success(
+                        status_info,
+                        output_format=output_format,
+                        command="service status",
+                    )
+                    return 0
                 status_info: dict[str, object] = {"running": False}
                 if raw_pid_info is not None:
                     status_info["last_service"] = {

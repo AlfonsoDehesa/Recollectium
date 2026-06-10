@@ -48,6 +48,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### 🧹 Chores
 
+- Hardened CI diagnostics, contributor guardrails, and Node 24-based GitHub Actions.
 - Added installer selector metadata test coverage and CI install-smoke metadata assertions.
 - Added stable seeded-memory `eval_key` metadata and a checked-in thematic query-memory label dataset for future retrieval-quality scoring work.
 - Updated seeded development memory fixtures with unique fictional user and project memories safe for public repositories, without visible deterministic label prefixes in stored content.
