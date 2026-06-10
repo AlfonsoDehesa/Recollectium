@@ -121,8 +121,18 @@ def _run_cli(
     *,
     json_by_default: bool = True,
 ) -> tuple[int, str, str]:
+    completion_args = (
+        args[args.index("completion") + 1 :] if "completion" in args else []
+    )
+    raw_completion = bool(
+        completion_args
+        and "--install" not in completion_args
+        and "--json" not in args
+        and "--human-readable" not in args
+    )
     if (
         json_by_default
+        and not raw_completion
         and "--json" not in args
         and "--human-readable" not in args
         and "--compact" not in args
@@ -4786,27 +4796,42 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr("sys.argv", ["recollectium", "list", "--human-readable"])
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(None)
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(None)
     assert cleaned == ["list"]
     assert output_format == "human_readable"
     assert response_verbosity is None
     assert output_conflict is False
     assert verbosity_conflict is False
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["--human-readable", "list", "--json"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["--human-readable", "list", "--json"])
     assert cleaned == ["list"]
     assert output_format == "json"
     assert response_verbosity is None
     assert output_conflict is True
     assert verbosity_conflict is False
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["config", "set", "logging.level", "--", "--json"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["config", "set", "logging.level", "--", "--json"])
     assert cleaned == ["config", "set", "logging.level", "--", "--json"]
     assert output_format is None
     assert response_verbosity is None
@@ -4828,44 +4853,69 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
 
 def test_cli_verbosity_extraction_conflicts_order_and_literals(monkeypatch) -> None:
     monkeypatch.setattr("sys.argv", ["recollectium", "list", "--compact"])
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(None)
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(None)
     assert cleaned == ["list"]
     assert output_format is None
     assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
     assert output_conflict is False
     assert verbosity_conflict is False
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["--verbose", "list"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["--verbose", "list"])
     assert cleaned == ["list"]
     assert output_format is None
     assert response_verbosity == RESPONSE_VERBOSITY_VERBOSE
     assert output_conflict is False
     assert verbosity_conflict is False
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["list", "--compact", "--verbose"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["list", "--compact", "--verbose"])
     assert cleaned == ["list"]
     assert response_verbosity == RESPONSE_VERBOSITY_VERBOSE
     assert output_conflict is False
     assert verbosity_conflict is True
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(["list", "--verbose", "--compact"])
-    )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["list", "--verbose", "--compact"])
     assert cleaned == ["list"]
     assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
     assert output_conflict is False
     assert verbosity_conflict is True
 
-    cleaned, output_format, response_verbosity, output_conflict, verbosity_conflict = (
-        _extract_cli_output_override(
-            ["config", "set", "response_verbosity", "--", "--verbose"]
-        )
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(
+        ["config", "set", "response_verbosity", "--", "--verbose"]
     )
     assert cleaned == ["config", "set", "response_verbosity", "--", "--verbose"]
     assert output_format is None

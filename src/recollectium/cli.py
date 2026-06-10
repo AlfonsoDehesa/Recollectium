@@ -1575,7 +1575,7 @@ def _core_config_path(explicit_path: str | None) -> Path | None:
 
 def _extract_cli_output_override(
     argv: Sequence[str] | None,
-) -> tuple[list[str] | None, str | None, str | None, bool, bool]:
+) -> tuple[list[str] | None, str | None, str | None, bool, bool, bool]:
     """Remove global output and verbosity flags so they work around subcommands."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
     output_format: str | None = None
@@ -1583,6 +1583,7 @@ def _extract_cli_output_override(
     cleaned: list[str] = []
     output_conflict = False
     verbosity_conflict = False
+    explicit_json = False
     literal_args = False
     for item in raw_args:
         if literal_args:
@@ -1593,6 +1594,7 @@ def _extract_cli_output_override(
             cleaned.append(item)
             continue
         if item == "--json":
+            explicit_json = True
             if output_format == CLI_OUTPUT_HUMAN_READABLE:
                 output_conflict = True
             output_format = CLI_OUTPUT_JSON
@@ -1621,6 +1623,7 @@ def _extract_cli_output_override(
             response_verbosity,
             output_conflict,
             verbosity_conflict,
+            explicit_json,
         )
     return (
         cleaned,
@@ -1628,6 +1631,7 @@ def _extract_cli_output_override(
         response_verbosity,
         output_conflict,
         verbosity_conflict,
+        explicit_json,
     )
 
 
@@ -5768,6 +5772,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         verbosity_override,
         output_conflict,
         verbosity_conflict,
+        explicit_json,
     ) = _extract_cli_output_override(argv)
     parser = _build_parser()
     argcomplete.autocomplete(parser)
@@ -5793,7 +5798,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             command="verbosity",
         )
     args = parser.parse_args(effective_argv)
-    setattr(args, "_explicit_json", output_override == CLI_OUTPUT_JSON)
+    setattr(args, "_explicit_json", explicit_json)
 
     if getattr(args, "command", None) is None and getattr(args, "version", False):
         try:
