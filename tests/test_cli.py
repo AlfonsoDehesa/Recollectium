@@ -6352,6 +6352,8 @@ class TestConfigCommand:
         assert "Status: operation_failed" in stderr
         assert f"Detail: config file already exists: {config_path}" in stderr
         assert "Hint: Use recollectium config init --force to overwrite it." in stderr
+        assert "Compact human:" not in stderr
+        assert "Compact message:" not in stderr
 
     def test_config_init_force_overwrites(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -6511,7 +6513,9 @@ class TestConfigCommand:
 
         assert exit_code == 1
         assert stdout == ""
-        assert stderr == "\nConfig doctor found filesystem problems.\n\n"
+        assert stderr == (
+            "\nConfig doctor found filesystem problems; rerun with --verbose for details.\n\n"
+        )
 
     def test_config_doctor_human_verbose_failure_preserves_details(
         self, tmp_path, capsys, monkeypatch
@@ -6538,7 +6542,10 @@ class TestConfigCommand:
 
         assert exit_code == 1
         assert stdout == ""
-        assert "Config doctor found filesystem problems." in stderr
+        assert (
+            "Config doctor found filesystem problems; rerun with --verbose for details."
+            in stderr
+        )
         assert "Status: operation_failed" in stderr
         assert "Detail: FAIL data directory missing:" in stderr
         assert "Failures:" in stderr

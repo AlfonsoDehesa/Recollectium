@@ -1888,7 +1888,7 @@ def _handle_config_command(
                 _log.info(failure, extra={"event": "config.doctor_failed"})
             return _emit_cli_failure(
                 status="operation_failed",
-                message="Config doctor found filesystem problems.",
+                message="Config doctor found filesystem problems; rerun with --verbose for details.",
                 detail="; ".join(f"FAIL {failure}" for failure in failures),
                 exit_code=1,
                 command="config doctor",
@@ -2129,7 +2129,14 @@ def _format_human_error(payload: dict[str, object], *, color: bool = False) -> s
             f"{_style(_json_scalar(hint), _RICH_HINT, enabled=color)}"
         )
     for key, value in payload.items():
-        if key in {"message", "status", "detail", "hint"}:
+        if key in {
+            "message",
+            "status",
+            "detail",
+            "hint",
+            "compact_human",
+            "compact_message",
+        }:
             continue
         lines.append(
             f"  {_format_label(_humanize_key(key), color=color)} {_json_scalar(value)}"
