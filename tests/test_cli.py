@@ -4392,13 +4392,13 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
             "exit_code": 2,
         }
     )
-    assert "Config initialized:" in _format_human_output(
+    assert "Config file is ready." in _format_human_output(
         {"path": "/tmp/config.json"}, command="config init"
     )
     assert "Config reset to defaults:" in _format_human_output(
         {"path": "/tmp/config.json"}, command="config reset"
     )
-    assert "Config doctor" in _format_human_output(
+    assert "Config doctor found no problems." in _format_human_output(
         {"status": "ok", "checks": {"config": "/tmp/config.json"}},
         command="config doctor",
     )
@@ -4410,8 +4410,9 @@ def test_cli_human_formatter_covers_command_shapes() -> None:
         },
         command="config",
     )
-    assert "Recollectium initialized" in _format_human_output(
-        {"database": "/tmp/recollectium.db"}, command="init"
+    assert (
+        "Recollectium is ready with no embeddings needing refresh."
+        in _format_human_output({"database": "/tmp/recollectium.db"}, command="init")
     )
     assert "Workspace result" in _format_human_output(
         {"canonical_uid": "demo"}, command="workspace resolve"
@@ -4439,11 +4440,92 @@ def test_cli_human_formatter_colors_config_command_shapes() -> None:
         {"key": "cli_output"}, command="config unset", color=True
     ).startswith("\x1b[1;36mConfig key removed:\x1b[0m cli_output")
     assert _format_human_output(
-        {"path": "/tmp/config.json"}, command="config init", color=True
+        {"path": "/tmp/config.json"},
+        command="config init",
+        color=True,
+        response_verbosity="verbose",
     ).startswith("\x1b[1;36mConfig initialized:\x1b[0m /tmp/config.json")
     assert _format_human_output(
         {"path": "/tmp/config.json"}, command="config reset", color=True
     ).startswith("\x1b[1;36mConfig reset to defaults:\x1b[0m /tmp/config.json")
+
+
+def test_cli_human_formatter_covers_config_noop_and_verbose_shapes() -> None:
+    assert (
+        _format_human_output(
+            {"status": "skipped", "key": "service.port", "value": 8765},
+            command="config set",
+        )
+        == "Config already has that value. Changes were skipped.\n"
+    )
+    assert (
+        _format_human_output(
+            {"status": "skipped", "key": "service.host"}, command="config unset"
+        )
+        == "Config key is already unset. Changes were skipped.\n"
+    )
+
+    doctor_output = _format_human_output(
+        {"status": "warning", "checks": {"config": "/tmp/config.json"}},
+        command="config doctor",
+    )
+    assert doctor_output.startswith("Config doctor\n")
+    assert "Status: warning" in doctor_output
+    assert "Config: /tmp/config.json" in doctor_output
+
+    init_output = _format_human_output(
+        {"database": "/tmp/recollectium.db", "created": True},
+        command="init",
+        response_verbosity=RESPONSE_VERBOSITY_VERBOSE,
+    )
+    assert init_output.startswith("Recollectium initialized\n")
+    assert "Database: /tmp/recollectium.db" in init_output
+    assert "Created: true" in init_output
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            {"embedding_refresh": {"refreshed": True, "stale_count": 3}},
+            "Recollectium is ready and refreshed 3 stale embeddings.\n",
+        ),
+        (
+            {"embedding_refresh": {"refreshed": True, "stale_count": "many"}},
+            "Recollectium is ready and embeddings were refreshed.\n",
+        ),
+        (
+            {"refreshed": True, "stale_count": 2},
+            "Recollectium is ready and refreshed 2 stale embeddings.\n",
+        ),
+        (
+            {"refreshed": True, "stale_count": 1},
+            "Recollectium is ready and refreshed 1 stale embedding.\n",
+        ),
+        (
+            {"refreshed": True, "stale_count": "many"},
+            "Recollectium is ready and embeddings were refreshed.\n",
+        ),
+    ],
+)
+def test_cli_human_formatter_init_compact_refresh_messages(
+    payload: dict[str, Any], expected: str
+) -> None:
+    assert _format_human_output(payload, command="init") == expected
+
+
+def test_remove_empty_config_parents_prunes_only_empty_dict_ancestors() -> None:
+    config: dict[str, Any] = {"outer": {"inner": {}}, "keep": "value"}
+    cli_module._remove_empty_config_parents(config, "outer.inner.leaf")
+    assert config == {"keep": "value"}
+
+    config = {"outer": {"inner": {"sibling": True}}}
+    cli_module._remove_empty_config_parents(config, "outer.inner.leaf")
+    assert config == {"outer": {"inner": {"sibling": True}}}
+
+    config = {"outer": "not-a-dict"}
+    cli_module._remove_empty_config_parents(config, "outer.inner.leaf")
+    assert config == {"outer": "not-a-dict"}
 
 
 def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
@@ -4736,7 +4818,7 @@ def test_cli_config_human_readable_setup_commands(tmp_path, capsys) -> None:
     )
     assert init_code == 0
     assert init_err == ""
-    assert "Config initialized:" in init_out
+    assert "Config file is ready." in init_out
 
     set_code, set_out, set_err = _run_cli(
         [
@@ -4745,14 +4827,14 @@ def test_cli_config_human_readable_setup_commands(tmp_path, capsys) -> None:
             "config",
             "set",
             "cli_output",
-            "human_readable",
+            "json",
             "--human-readable",
         ],
         capsys,
     )
     assert set_code == 0
     assert set_err == ""
-    assert "Config updated: cli_output = human_readable" in set_out
+    assert "Config updated: cli_output = json" in set_out
 
     unset_code, unset_out, unset_err = _run_cli(
         [
@@ -5220,6 +5302,81 @@ def test_cli_embedding_maintenance_prepares_model_and_refreshes(
     ]
 
 
+def test_cli_init_runs_stale_embedding_refresh(tmp_path, capsys, monkeypatch) -> None:
+    import recollectium.cli as cli_mod
+
+    calls: list[str] = []
+    config_path = tmp_path / "config.json"
+    db_path = tmp_path / "init.db"
+
+    class FakeProvider:
+        embedding_profile = {
+            "provider": "fake",
+            "model": "fake-model",
+            "dimensions": 3,
+            "version": "1",
+            "profile": "fake-profile",
+            "max_tokens": 16,
+            "chunk_tokens": 4,
+            "chunk_overlap_tokens": 0,
+            "query_prompt_policy": "raw",
+        }
+
+    class FakeCore:
+        def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
+            self.config = cli_mod.RecollectiumConfig(config_path, log_level=log_level)
+            self.store = type("FakeStore", (), {"db_path": db_path})()
+            self.embedding_provider = FakeProvider()
+
+        def _ensure_model_ready(
+            self, *, suppress_provider_output: bool = False
+        ) -> None:
+            assert suppress_provider_output is True
+            calls.append("model_state")
+
+        def refresh_stale_embeddings(self, *, include_archived=False, **kwargs):
+            calls.append(f"refresh:{include_archived}")
+            return {"refreshed": True, "stale_count": 1, "job": None}
+
+    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", lambda path: None)
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", FakeCore)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--db", str(db_path), "init"], capsys
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "initialized"
+    assert payload["embedding_refresh"] == {
+        "refreshed": True,
+        "stale_count": 1,
+        "job": None,
+    }
+    assert calls == ["model_state", "refresh:True"]
+
+
+def test_cli_init_human_compact_is_one_sentence(tmp_path, capsys, monkeypatch) -> None:
+    def fake_maintenance(*args, **kwargs):
+        return {
+            "status": "embedding_maintenance_completed",
+            "config_created": False,
+            "database_created": False,
+            "embedding_refresh": {"refreshed": False, "stale_count": 0, "job": None},
+        }
+
+    monkeypatch.setattr("recollectium.cli._run_embedding_maintenance", fake_maintenance)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "init"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stdout == "\nRecollectium is already initialized with no changes needed.\n\n"
+    assert stderr == ""
+
+
 def test_cli_embedding_maintenance_delegates_readiness_to_core(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -5329,7 +5486,7 @@ def test_cli_human_init_non_tty_suppresses_readiness_progress_and_provider_noise
 
     assert exit_code == 0
     assert stderr == ""
-    assert "Recollectium initialized" in stdout
+    assert "Recollectium is ready with no embeddings needing refresh." in stdout
     assert "Preparing model" not in stdout
     assert "provider stdout readiness noise" not in stdout
     assert "provider stderr readiness noise" not in stdout
@@ -5693,6 +5850,32 @@ class TestConfigCommand:
         )
         assert exit_code == 0
         assert stderr == ""
+        payload = json.loads(stdout)
+        assert payload["status"] == "valid"
+        assert payload["config"]["service"]["port"] == DEFAULTS["service"]["port"]
+
+    def test_config_validate_json_compact_omits_config_payload(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--json",
+                "--compact",
+                "--config",
+                str(config_path),
+                "config",
+                "--validate",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout) == {"status": "valid"}
 
     def test_config_validate_failure(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -5712,23 +5895,189 @@ class TestConfigCommand:
         assert exit_code == 1
         assert "config file not found" in stderr
 
-    def test_config_validate_default_creates_file(
+    def test_config_validate_default_missing_config_is_read_only(
         self, tmp_path, capsys, monkeypatch
     ) -> None:
         config_home = tmp_path / "config"
+        data_home = tmp_path / "data"
+        cache_home = tmp_path / "cache"
+        state_home = tmp_path / "state"
+        runtime_home = tmp_path / "runtime"
         monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(cache_home))
+        monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_home))
 
         exit_code, stdout, stderr = _run_cli(["config", "--validate"], capsys)
 
         config_path = config_home / "recollectium" / "config.json"
         assert exit_code == 0
-        assert stdout == ""
+        assert json.loads(stdout)["status"] == "valid"
         assert stderr == ""
-        assert config_path.exists()
+        assert not config_path.exists()
+        assert not data_home.exists()
+        assert not cache_home.exists()
+        assert not state_home.exists()
+        assert not runtime_home.exists()
+
+    def test_config_validate_default_existing_config_is_read_only(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        configured_dirs = {
+            "data": tmp_path / "default-data",
+            "cache": tmp_path / "default-cache",
+            "logs": tmp_path / "default-logs",
+            "runtime": tmp_path / "default-runtime",
+        }
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        config_path = config_home / "recollectium" / "config.json"
+        config_path.parent.mkdir(parents=True)
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "directories": {
+                        key: str(path) for key, path in configured_dirs.items()
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(["config", "--validate"], capsys)
+
+        payload = json.loads(stdout)
+        assert exit_code == 0
+        assert stderr == ""
+        assert payload["status"] == "valid"
+        assert payload["config"]["directories"]["data"] == str(configured_dirs["data"])
+        assert all(not path.exists() for path in configured_dirs.values())
+
+    def test_config_validate_human_compact_and_verbose_success(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+
+        compact_code, compact_stdout, compact_stderr = _run_cli(
+            [
+                "--human-readable",
+                "--compact",
+                "--config",
+                str(config_path),
+                "config",
+                "--validate",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+        verbose_code, verbose_stdout, verbose_stderr = _run_cli(
+            [
+                "--human-readable",
+                "--verbose",
+                "--config",
+                str(config_path),
+                "config",
+                "--validate",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert compact_code == 0
+        assert compact_stdout == "\nCurrent config is valid.\n\n"
+        assert compact_stderr == ""
+        assert verbose_code == 0
+        assert verbose_stderr == ""
+        assert verbose_stdout.startswith("\nCurrent config is valid. Config tested:\n")
+        assert "Service:" in verbose_stdout
+        assert "Port: 8765" in verbose_stdout
+
+    def test_config_validate_human_verbose_explicit_config_is_read_only(
+        self, tmp_path, capsys
+    ) -> None:
+        configured_dirs = {
+            "data": tmp_path / "configured-data",
+            "cache": tmp_path / "configured-cache",
+            "logs": tmp_path / "configured-logs",
+            "runtime": tmp_path / "configured-runtime",
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "directories": {
+                        key: str(path) for key, path in configured_dirs.items()
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--human-readable",
+                "--verbose",
+                "--config",
+                str(config_path),
+                "config",
+                "--validate",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert stdout.startswith("\nCurrent config is valid. Config tested:\n")
+        assert "Directories:" in stdout
+        assert str(configured_dirs["data"]) in stdout
+        assert all(not path.exists() for path in configured_dirs.values())
+
+    def test_config_validate_json_verbose_explicit_config_is_read_only(
+        self, tmp_path, capsys
+    ) -> None:
+        configured_dirs = {
+            "data": tmp_path / "json-data",
+            "cache": tmp_path / "json-cache",
+            "logs": tmp_path / "json-logs",
+            "runtime": tmp_path / "json-runtime",
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "directories": {
+                        key: str(path) for key, path in configured_dirs.items()
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--json",
+                "--verbose",
+                "--config",
+                str(config_path),
+                "config",
+                "--validate",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        payload = json.loads(stdout)
+        assert exit_code == 0
+        assert stderr == ""
+        assert payload["status"] == "valid"
+        assert payload["config"]["directories"]["data"] == str(configured_dirs["data"])
+        assert all(not path.exists() for path in configured_dirs.values())
 
     def test_config_path_flag(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -5844,6 +6193,24 @@ class TestConfigCommand:
         assert loaded["service"]["port"] == 9090
         assert isinstance(loaded["service"]["port"], int)
 
+    def test_config_set_allows_new_custom_key(self, tmp_path, capsys) -> None:
+        config_path = tmp_path / "config.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--config", str(config_path), "config", "set", "custom.foo", "bar"],
+            capsys,
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout) == {
+            "status": "updated",
+            "key": "custom.foo",
+            "value": "bar",
+        }
+        loaded = json.loads(config_path.read_text(encoding="utf-8"))
+        assert loaded["custom"] == {"foo": "bar"}
+
     @pytest.mark.parametrize(
         "model_name",
         ["BAAI/bge-base-en-v1.5", "jinaai/jina-embeddings-v2-small-en"],
@@ -5865,8 +6232,12 @@ class TestConfigCommand:
         )
         assert exit_code == 0
         assert stderr == ""
-        loaded = json.loads(config_path.read_text())
-        assert loaded["embedding"]["model"] == model_name
+        if model_name == DEFAULTS["embedding"]["model"]:
+            assert json.loads(stdout)["status"] == "skipped"
+            assert not config_path.exists()
+        else:
+            loaded = json.loads(config_path.read_text())
+            assert loaded["embedding"]["model"] == model_name
 
     def test_config_set_rejects_unknown_embedding_model(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -5921,6 +6292,57 @@ class TestConfigCommand:
         assert loaded["logging"]["level"] == "debug"
         assert loaded["service"]["port"] == 8080
 
+    def test_config_set_skips_when_effective_value_already_matches(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+        before = config_path.read_text(encoding="utf-8")
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--config",
+                str(config_path),
+                "config",
+                "set",
+                "service.port",
+                str(DEFAULTS["service"]["port"]),
+            ],
+            capsys,
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout) == {
+            "status": "skipped",
+            "reason": "already_set",
+            "key": "service.port",
+            "value": DEFAULTS["service"]["port"],
+        }
+        assert config_path.read_text(encoding="utf-8") == before
+
+    def test_config_set_default_value_missing_file_is_noop(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "missing.json"
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--config",
+                str(config_path),
+                "config",
+                "set",
+                "service.port",
+                str(DEFAULTS["service"]["port"]),
+            ],
+            capsys,
+        )
+
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout)["status"] == "skipped"
+        assert not config_path.exists()
+
     def test_config_unset_removes_key(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
         config_path.parent.mkdir(exist_ok=True)
@@ -5936,15 +6358,29 @@ class TestConfigCommand:
         assert "host" not in loaded["service"]
         assert loaded["service"]["port"] == 8765
 
+        get_code, get_stdout, get_stderr = _run_cli(
+            ["--config", str(config_path), "config", "get", "service.host"], capsys
+        )
+        assert get_code == 0
+        assert get_stderr == ""
+        assert json.loads(get_stdout) == DEFAULTS["service"]["host"]
+
     def test_config_unset_missing_key(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
         config_path.parent.mkdir(exist_ok=True)
         config_path.write_text('{"version": 1}', encoding="utf-8")
+        before = config_path.read_text(encoding="utf-8")
         exit_code, stdout, stderr = _run_cli(
-            ["--config", str(config_path), "config", "unset", "nonexistent"], capsys
+            ["--config", str(config_path), "config", "unset", "service.host"], capsys
         )
-        assert exit_code == 1
-        assert "not found" in stderr
+        assert exit_code == 0
+        assert stderr == ""
+        assert json.loads(stdout) == {
+            "status": "skipped",
+            "reason": "already_unset",
+            "key": "service.host",
+        }
+        assert config_path.read_text(encoding="utf-8") == before
 
     def test_config_unset_missing_file(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "nonexistent.json"
@@ -5964,6 +6400,45 @@ class TestConfigCommand:
         loaded = json.loads(config_path.read_text())
         assert loaded["version"] == 1
 
+    def test_config_init_human_compact_success_and_existing_failure(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--human-readable",
+                "--compact",
+                "--config",
+                str(config_path),
+                "config",
+                "init",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+        fail_code, fail_stdout, fail_stderr = _run_cli(
+            [
+                "--human-readable",
+                "--compact",
+                "--config",
+                str(config_path),
+                "config",
+                "init",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 0
+        assert stdout == "\nConfig file is ready.\n\n"
+        assert stderr == ""
+        assert fail_code == 1
+        assert fail_stdout == ""
+        assert fail_stderr == (
+            "\nConfig file already exists; use recollectium config init --force "
+            "to overwrite it.\n\n"
+        )
+
     def test_config_init_without_force_existing(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
         config_path.parent.mkdir(exist_ok=True)
@@ -5976,6 +6451,35 @@ class TestConfigCommand:
         # File should NOT be overwritten
         loaded = json.loads(config_path.read_text())
         assert loaded.get("custom") == "data"
+
+    def test_config_init_existing_human_verbose_preserves_detail(
+        self, tmp_path, capsys
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(exist_ok=True)
+        config_path.write_text('{"version": 1, "custom": "data"}', encoding="utf-8")
+
+        exit_code, stdout, stderr = _run_cli(
+            [
+                "--human-readable",
+                "--verbose",
+                "--config",
+                str(config_path),
+                "config",
+                "init",
+            ],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert "Config file already exists." in stderr
+        assert "Status: operation_failed" in stderr
+        assert f"Detail: config file already exists: {config_path}" in stderr
+        assert "Hint: Use recollectium config init --force to overwrite it." in stderr
+        assert "Compact human:" not in stderr
+        assert "Compact message:" not in stderr
 
     def test_config_init_force_overwrites(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "config.json"
@@ -6089,6 +6593,86 @@ class TestConfigCommand:
         assert "cache" in payload["checks"]
         assert "logs" in payload["checks"]
         assert "runtime" in payload["checks"]
+
+    def test_config_doctor_human_compact_is_one_sentence(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--human-readable", "--compact", "config", "doctor"],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 0
+        assert stdout == "\nConfig doctor found no problems.\n\n"
+        assert stderr == ""
+
+    def test_config_doctor_human_compact_failure_is_one_sentence(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        fake_cfg = SimpleNamespace(
+            config_file_path=tmp_path / "config.json",
+            xdg_dirs={
+                "data": tmp_path / "missing-data",
+                "cache": tmp_path / "missing-cache",
+                "logs": tmp_path / "missing-logs",
+                "runtime": tmp_path / "missing-runtime",
+            },
+            resolved_database_path=tmp_path / "missing-db-parent" / "recollectium.db",
+        )
+        monkeypatch.setattr(
+            "recollectium.cli._load_effective_config", lambda _path, explicit: fake_cfg
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--human-readable", "--compact", "config", "doctor"],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert stderr == (
+            "\nConfig doctor found filesystem problems; rerun with --verbose for details.\n\n"
+        )
+
+    def test_config_doctor_human_verbose_failure_preserves_details(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        fake_cfg = SimpleNamespace(
+            config_file_path=tmp_path / "config.json",
+            xdg_dirs={
+                "data": tmp_path / "missing-data",
+                "cache": tmp_path,
+                "logs": tmp_path,
+                "runtime": tmp_path,
+            },
+            resolved_database_path=tmp_path / "recollectium.db",
+        )
+        monkeypatch.setattr(
+            "recollectium.cli._load_effective_config", lambda _path, explicit: fake_cfg
+        )
+
+        exit_code, stdout, stderr = _run_cli(
+            ["--human-readable", "--verbose", "config", "doctor"],
+            capsys,
+            json_by_default=False,
+        )
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert "Config doctor found filesystem problems." in stderr
+        assert "rerun with --verbose" not in stderr
+        assert "Status: operation_failed" in stderr
+        assert "Detail: FAIL data directory missing:" in stderr
+        assert "Failures:" in stderr
 
     def test_config_doctor_explicit_missing_file_errors(self, tmp_path, capsys) -> None:
         config_path = tmp_path / "missing" / "config.json"

@@ -49,6 +49,7 @@ from recollectium.config import (
     RESPONSE_VERBOSITY_VERBOSE,
     RecollectiumConfig,
     SUPPORTED_EMBEDDING_MODELS,
+    _apply_explicit_null_overrides,
     _deep_merge,
     _resolve_xdg_dirs,
     _validate_config_value,
@@ -57,7 +58,6 @@ from recollectium.config import (
     resolve_model_cache_path,
     set_config_value,
     unset_config_value,
-    validate_config_file,
 )
 from recollectium.cli_progress import (
     SingleLineProgressReporter,
@@ -354,6 +354,7 @@ _RICH_BLUE_HEADING = "bold blue"
 _RICH_SUCCESS = "bold green"
 _RICH_ERROR = "bold red"
 _RICH_HINT = "yellow"
+_RICH_WARNING = "yellow"
 
 
 def _supports_color(stream: Any) -> bool:
@@ -626,6 +627,10 @@ def _format_uninstall_sentence(payload: dict[str, Any], *, color: bool = False) 
     return f"Uninstall did not complete. {data_sentence} Rerun with --verbose for details.\n"
 
 
+def _embedding_count_noun(count: int) -> str:
+    return "embedding" if count == 1 else "embeddings"
+
+
 def _format_human_output(
     payload: Any,
     *,
@@ -721,22 +726,61 @@ def _format_human_output(
         )
 
     if command == "config set":
+        if payload.get("status") == "skipped":
+            return (
+                _style(
+                    "Config already has that value. Changes were skipped.",
+                    _RICH_WARNING,
+                    enabled=color,
+                )
+                + "\n"
+            )
         heading = _style("Config updated:", _RICH_HEADING, enabled=color)
         return (
             f"{heading} {payload.get('key')} = {_json_scalar(payload.get('value'))}\n"
         )
     if command == "config unset":
+        if payload.get("status") == "skipped":
+            return (
+                _style(
+                    "Config key is already unset. Changes were skipped.",
+                    _RICH_WARNING,
+                    enabled=color,
+                )
+                + "\n"
+            )
         heading = _style("Config key removed:", _RICH_HEADING, enabled=color)
         return f"{heading} {payload.get('key')}\n"
     if command == "config init":
+        if verbosity == RESPONSE_VERBOSITY_COMPACT:
+            return _style("Config file is ready.", _RICH_SUCCESS, enabled=color) + "\n"
         heading = _style("Config initialized:", _RICH_HEADING, enabled=color)
         return f"{heading} {payload.get('path')}\n"
     if command == "config reset":
         heading = _style("Config reset to defaults:", _RICH_HEADING, enabled=color)
         return f"{heading} {payload.get('path')}\n"
     if command == "config doctor":
+        if verbosity == RESPONSE_VERBOSITY_COMPACT and payload.get("status") == "ok":
+            return (
+                _style("Config doctor found no problems.", _RICH_SUCCESS, enabled=color)
+                + "\n"
+            )
         lines = [_style("Config doctor", _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
+        return "\n".join(lines) + "\n"
+    if command == "config --validate":
+        if verbosity == RESPONSE_VERBOSITY_COMPACT:
+            return (
+                _style("Current config is valid.", _RICH_SUCCESS, enabled=color) + "\n"
+            )
+        config_payload = payload.get("config")
+        lines = [
+            _style(
+                "Current config is valid. Config tested:", _RICH_HEADING, enabled=color
+            )
+        ]
+        if isinstance(config_payload, dict):
+            lines.extend(_format_mapping_lines(config_payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
     if command == "config":
         return (
@@ -758,6 +802,32 @@ def _format_human_output(
         return _format_uninstall_sentence(payload, color=color)
 
     if command == "init":
+        if verbosity == RESPONSE_VERBOSITY_COMPACT:
+            if payload.get("already_initialized") is True:
+                message = "Recollectium is already initialized with no changes needed."
+            else:
+                refresh = payload.get("embedding_refresh")
+                if isinstance(refresh, dict) and refresh.get("refreshed") is True:
+                    stale_count = refresh.get("stale_count")
+                    message = (
+                        "Recollectium is ready and refreshed "
+                        f"{stale_count} stale {_embedding_count_noun(stale_count)}."
+                        if isinstance(stale_count, int)
+                        else "Recollectium is ready and embeddings were refreshed."
+                    )
+                elif payload.get("refreshed") is True:
+                    stale_count = payload.get("stale_count")
+                    message = (
+                        "Recollectium is ready and refreshed "
+                        f"{stale_count} stale {_embedding_count_noun(stale_count)}."
+                        if isinstance(stale_count, int)
+                        else "Recollectium is ready and embeddings were refreshed."
+                    )
+                else:
+                    message = (
+                        "Recollectium is ready with no embeddings needing refresh."
+                    )
+            return _style(message, _RICH_SUCCESS, enabled=color) + "\n"
         lines = [_style("Recollectium initialized", _RICH_HEADING, enabled=color)]
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
@@ -1572,6 +1642,52 @@ def _load_effective_config(config_path: Path, *, explicit: bool) -> Recollectium
     return RecollectiumConfig()
 
 
+def _load_effective_config_read_only(
+    config_path: Path, *, explicit: bool
+) -> dict[str, Any]:
+    """Load and validate effective config without creating files or directories."""
+    if explicit:
+        raw = load_config_file(config_path)
+    elif config_path.exists():
+        raw = load_config_file(config_path)
+    else:
+        raw = {}
+    merged = _merged_config(raw)
+    _validate_config_value(merged)
+    return merged
+
+
+def _merged_config(raw: dict[str, Any]) -> dict[str, Any]:
+    merged = _deep_merge(deepcopy(DEFAULTS), raw)
+    _apply_explicit_null_overrides(merged, raw)
+    return merged
+
+
+def _raw_config_has_key(config: dict[str, Any], key: str) -> bool:
+    try:
+        get_config_value(config, key)
+    except KeyError:
+        return False
+    return True
+
+
+def _remove_empty_config_parents(config: dict[str, Any], key: str) -> None:
+    parts = key.split(".")[:-1]
+    stack: list[tuple[dict[str, Any], str]] = []
+    current: Any = config
+    for part in parts:
+        if not isinstance(current, dict) or not isinstance(current.get(part), dict):
+            return
+        stack.append((current, part))
+        current = current[part]
+    for parent, part in reversed(stack):
+        child = parent.get(part)
+        if isinstance(child, dict) and not child:
+            parent.pop(part)
+            continue
+        break
+
+
 def _setup_cli_logging(
     config_path: Path,
     *,
@@ -1654,21 +1770,43 @@ def _handle_config_command(
 
     if args.config_action == "set":
         value = _parse_config_value(args.value)
+        raw = (
+            load_config_file(config_path)
+            if config_path.exists()
+            else deepcopy(DEFAULTS)
+        )
+        effective = _merged_config(raw)
+        try:
+            current_value = get_config_value(effective, args.key)
+        except KeyError:
+            current_value = object()
+        candidate = deepcopy(raw)
+        set_config_value(candidate, args.key, value)
+        # Validate the resulting config before writing or reporting a no-op.
+        try:
+            merged = _merged_config(candidate)
+            _validate_config_value(merged)
+        except ValidationError as exc:
+            return _config_invalid_error(exc, command="config set")
+        if current_value == value:
+            _emit_success(
+                {
+                    "status": "skipped",
+                    "reason": "already_set",
+                    "key": args.key,
+                    "value": value,
+                },
+                output_format=output_format,
+                command="config set",
+            )
+            return 0
         if not config_path.exists():
             config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             config_path.write_text(
                 json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8"
             )
             config_path.chmod(0o600)
-        raw = load_config_file(config_path)
-        set_config_value(raw, args.key, value)
-        # Validate the resulting config before writing
-        try:
-            merged = _deep_merge(deepcopy(DEFAULTS), raw)
-            _validate_config_value(merged)
-        except ValidationError as exc:
-            return _config_invalid_error(exc, command="config set")
-        config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        config_path.write_text(json.dumps(candidate, indent=2) + "\n", encoding="utf-8")
         _emit_success(
             {"status": "updated", "key": args.key, "value": value},
             output_format=output_format,
@@ -1683,10 +1821,15 @@ def _handle_config_command(
                 command="config unset",
             )
         raw = load_config_file(config_path)
-        try:
-            unset_config_value(raw, args.key)
-        except KeyError as exc:
-            return _not_found_error(exc, command="config unset")
+        if not _raw_config_has_key(raw, args.key):
+            _emit_success(
+                {"status": "skipped", "reason": "already_unset", "key": args.key},
+                output_format=output_format,
+                command="config unset",
+            )
+            return 0
+        unset_config_value(raw, args.key)
+        _remove_empty_config_parents(raw, args.key)
         config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
         _emit_success(
             {"status": "removed", "key": args.key},
@@ -1705,6 +1848,11 @@ def _handle_config_command(
                 exit_code=1,
                 command="config init",
                 event="config.exists",
+                compact_human=True,
+                compact_message=(
+                    "Config file already exists; use recollectium config init --force "
+                    "to overwrite it."
+                ),
             )
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
@@ -1761,6 +1909,11 @@ def _handle_config_command(
                 command="config doctor",
                 event="config.doctor_failed",
                 failures=failures,
+                compact_human=True,
+                compact_message=(
+                    "Config doctor found filesystem problems; rerun with --verbose "
+                    "for details."
+                ),
             )
 
         _emit_success(
@@ -1804,14 +1957,20 @@ def _handle_config_command(
 
     if args.validate:
         try:
-            if explicit:
-                validate_config_file(config_path)
-            else:
-                _load_effective_config(config_path, explicit=False)
+            effective_config = _load_effective_config_read_only(
+                config_path, explicit=explicit
+            )
         except ValidationError as exc:
             return _config_invalid_error(exc, command="config --validate")
         except FileNotFoundError as exc:
             return _config_missing_error(exc, command="config --validate")
+        payload: dict[str, Any] = {"status": "valid", "config": effective_config}
+        if (
+            output_format == CLI_OUTPUT_JSON
+            and _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_COMPACT
+        ):
+            payload = {"status": "valid"}
+        _emit_success(payload, output_format=output_format, command="config --validate")
         return 0
 
     if args.path:
@@ -1855,7 +2014,8 @@ def _run_embedding_maintenance(
     output_format: str,
 ) -> dict[str, Any]:
     """Prepare the configured FastEmbed model and refresh stale DB embeddings."""
-    if explicit and not config_path.exists():
+    config_existed = config_path.exists()
+    if explicit and not config_existed:
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         config_path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
         config_path.chmod(0o600)
@@ -1864,6 +2024,7 @@ def _run_embedding_maintenance(
     selected_db_path = (
         Path(db_path) if db_path is not None else cfg.resolved_database_path
     )
+    database_existed = selected_db_path.exists()
     SQLiteMemoryStore(selected_db_path)
     core = RecollectiumCore(
         db_path=selected_db_path,
@@ -1880,11 +2041,13 @@ def _run_embedding_maintenance(
     return {
         "status": "embedding_maintenance_completed",
         "config": str(cfg.config_file_path),
+        "config_created": not config_existed,
         "data": str(cfg.xdg_dirs["data"]),
         "cache": str(cfg.xdg_dirs["cache"]),
         "logs": str(cfg.xdg_dirs["logs"]),
         "runtime": str(cfg.xdg_dirs["runtime"]),
         "database": str(core.store.db_path),
+        "database_created": not database_existed,
         "embedding_model": cfg.effective_config["embedding"]["model"],
         "embedding_profile": profile,
         "model_prepared": True,
@@ -1928,6 +2091,13 @@ def _handle_init_command(
         log_level=log_level,
         output_format=output_format,
     )
+    refresh = result.get("embedding_refresh")
+    refreshed = isinstance(refresh, dict) and refresh.get("refreshed") is True
+    result["already_initialized"] = (
+        result.get("config_created") is False
+        and result.get("database_created") is False
+        and not refreshed
+    )
     result["status"] = "initialized"
     _emit_success(result, output_format=output_format, command="init")
     return 0
@@ -1952,6 +2122,16 @@ def _set_cli_output_format(output_format: str) -> None:
 
 
 def _format_human_error(payload: dict[str, object], *, color: bool = False) -> str:
+    if (
+        payload.get("compact_human") is True
+        and _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_COMPACT
+    ):
+        compact_message = payload.get("compact_message") or payload.get("message")
+        return _style(
+            str(compact_message or "Command failed."),
+            _RICH_ERROR,
+            enabled=color,
+        )
     lines = [
         _style(
             str(payload.get("message") or "Command failed."), _RICH_ERROR, enabled=color
@@ -1970,7 +2150,14 @@ def _format_human_error(payload: dict[str, object], *, color: bool = False) -> s
             f"{_style(_json_scalar(hint), _RICH_HINT, enabled=color)}"
         )
     for key, value in payload.items():
-        if key in {"message", "status", "detail", "hint"}:
+        if key in {
+            "message",
+            "status",
+            "detail",
+            "hint",
+            "compact_human",
+            "compact_message",
+        }:
             continue
         lines.append(
             f"  {_format_label(_humanize_key(key), color=color)} {_json_scalar(value)}"
@@ -1986,7 +2173,12 @@ def _emit_failure_payload(payload: dict[str, object]) -> None:
             )
         )
         return
-    _print_json_stderr(payload)
+    json_payload = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"compact_human", "compact_message"}
+    }
+    _print_json_stderr(json_payload)
 
 
 def _emit_cli_failure(
@@ -5489,7 +5681,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     _set_cli_output_format(output_format)
     _set_response_verbosity(response_verbosity)
-    if not (args.command == "upgrade" and (args.check or args.dry_run)):
+    read_only_config_validate = args.command == "config" and args.validate
+    if not (
+        (args.command == "upgrade" and (args.check or args.dry_run))
+        or read_only_config_validate
+    ):
         _setup_cli_logging(config_path, log_level=args.log_level)
     _log.info(
         "CLI command started",
