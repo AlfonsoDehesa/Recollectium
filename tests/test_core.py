@@ -404,6 +404,13 @@ def test_core_rejects_invalid_list_limit(tmp_path: Path) -> None:
         core.list_memories(limit=0)
 
 
+def test_core_rejects_invalid_list_space(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "list-space.db")
+
+    with pytest.raises(ValidationError, match="space must be user or workspace"):
+        core.list_memories(space="project")
+
+
 def test_default_db_path_uses_xdg_style_data_home(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
