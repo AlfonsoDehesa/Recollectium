@@ -70,7 +70,7 @@ Common next steps:
 - Configurable CLI output, with Rich-backed TTY color for human-readable text, JSON available for automation, and compact response payloads by default.
 - Optional seeded development database for repeatable embedding, search, and memory-operation tests without touching your regular memory DB. Seeded memories include stable `metadata.eval_key` values and a checked-in thematic label dataset. `recollectium dev optimize-threshold` sweeps retrieval thresholds, writes a CSV or PNG report, and recommends a model-specific `retrieval.match_threshold` using a configurable F-beta precision/recall tradeoff. `recollectium dev eval` shows live progress on stderr, keeps concise progress generic, and exposes fuller verbose diagnostics, including Thematic Weighted Precision@10 and Thematic Weighted Recall@10 backed by the checked-in labels.
 - Managed API and MCP service lifecycle with discovery metadata for adapters.
-- Structured JSON logging with rotation.
+- Structured JSON logging with rotation and redacted sensitive values by default.
 - Bootstrap install, package upgrade with embedding maintenance, safe uninstall that removes heavy derived model artifacts while preserving memories by default, and shell completion.
 - The built-in FastEmbed cache at `${directories.cache}/models` is Recollectium-owned derived data. Plain uninstall preserves memories and config but removes that model cache, including when `directories.cache` points at a custom cache directory.
 
@@ -131,6 +131,15 @@ Compact projections:
 - Embedding status, jobs, and refresh: status fields needed to continue or inspect the operation without full job records.
 
 Use verbose mode when an adapter or developer tool needs metadata, timestamps, archive status, full search result records, or full embedding job details.
+
+## Logging sensitivity
+
+Structured logs use JSON and rotate under the configured logs directory. `logging.sensitivity` defaults to `redacted`; in this mode, routine structured log context redacts workspace IDs, aliases, memory IDs, memory content, metadata, source labels, and related memory-sensitive values before writing to file or stderr logs. Set `logging.sensitivity` to `full` (or `unredacted`) only when you explicitly want operational logs to contain those full values for local debugging.
+
+```bash
+recollectium config set logging.sensitivity redacted
+recollectium config set logging.sensitivity full
+```
 
 ## Local-first security model
 

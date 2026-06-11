@@ -21,11 +21,16 @@ This release provides working embedding-powered semantic memory for agents, expo
 - Added compact `recollectium upgrade` and `recollectium uninstall` human-readable sentences while preserving detailed verbose and structured JSON plans.
 - Added product-wide response verbosity controls. CLI, API, and MCP now default to compact payloads for token efficiency, with `response_verbosity`, `--compact`/`--verbose`, API query/header controls, and MCP `verbosity` tool parameters for full-detail inspection when needed.
 - Added a Recollectium-owned FastEmbed model cache under `directories.cache` so heavy model artifacts can be reported and removed on uninstall while preserving memories by default.
+- Added `logging.sensitivity` with a redacted default for memory-sensitive log context and an explicit `full` mode for local debugging.
+- Added an HTTP endpoint for listing all workspace aliases to match CLI and MCP alias-listing parity.
 
 ### 🐛 Fixes
 
 - Fixed local API OpenAPI validation-error responses to advertise the Recollectium 400 `validation_error` envelope and tightened MCP search override schemas for protected minimum and match threshold constraints.
 - Fixed local API request validation to reject unknown JSON body fields and documented search threshold request options consistently.
+- Fixed API/CLI/MCP list and embedding-job filters to reject invalid enum values consistently, tightened bool/int query docs and OpenAPI, and documented the malformed JSON error message accurately.
+- Fixed MCP tool runtime argument handling so unknown extra tool arguments are rejected at execution time, not only in schemas.
+- Fixed Recollectium MCP stdio startup so routine FastMCP/Rich INFO noise is suppressed from stderr while warnings and errors are preserved.
 - Fixed foreground `recollectium dev serve` logging so stderr follows the effective configured log level and includes successful HTTP access logs at info/debug while one-shot CLI commands keep warning-only stderr logs.
 - Fixed remaining response-verbosity audit gaps for CLI version/config/completion/dev/db-status output, API route documentation coverage, API search default-limit docs, and MCP compact/verbose regression tests.
 - Fixed `recollectium config --validate --help` to describe effective read-only config validation instead of stale exit-code details.

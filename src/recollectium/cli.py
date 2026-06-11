@@ -104,6 +104,8 @@ from recollectium.models import (
     ALL_MEMORY_TYPES,
     SPACE_USER,
     SPACE_WORKSPACE,
+    STATUS_ACTIVE,
+    STATUS_ARCHIVED,
     SearchResult,
     USER_MEMORY_TYPES,
     WORKSPACE_MEMORY_TYPES,
@@ -4827,13 +4829,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     list_parser.add_argument(
-        "--space", help="Filter by memory space, usually 'user' or 'workspace'."
+        "--space",
+        choices=(SPACE_USER, SPACE_WORKSPACE),
+        help="Filter by memory space: user or workspace.",
     )
     list_parser.add_argument(
         "--type", help="Filter by canonical memory type bucket."
     ).completer = ChoicesCompleter(ALL_MEMORY_TYPES)  # pyright: ignore[reportAttributeAccessIssue]
     list_parser.add_argument(
-        "--status", help="Filter by memory status, such as active or archived."
+        "--status",
+        choices=(STATUS_ACTIVE, STATUS_ARCHIVED),
+        help="Filter by memory status: active or archived.",
     )
     list_parser.add_argument(
         "--workspace-uid", help="Filter to memories for one stable workspace UID."
@@ -5409,7 +5415,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     embedding_jobs_parser.add_argument(
         "--state",
-        help="Optional list filter by job state, such as pending, in_progress, completed, or failed.",
+        choices=("pending", "in_progress", "completed", "failed"),
+        help="Optional list filter by job state: pending, in_progress, completed, or failed.",
     )
     embedding_jobs_parser.add_argument(
         "--limit",
@@ -6132,6 +6139,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         ) as exc:
             return _embedding_error(exc, command=args.command)
         try:
+            logging.getLogger("mcp").setLevel(logging.WARNING)
+            logging.getLogger("mcp.server").setLevel(logging.WARNING)
+            logging.getLogger("rich").setLevel(logging.WARNING)
             mcp = create_mcp_server(core)
             import asyncio
 
