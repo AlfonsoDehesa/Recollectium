@@ -5,7 +5,7 @@ from __future__ import annotations
 from http import HTTPStatus
 import json
 from pathlib import Path
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -149,17 +149,20 @@ class StrictRequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+SearchMatchThreshold: TypeAlias = (
+    Annotated[float, Field(ge=0.0, le=1.0)]
+    | Literal["model_recommended_default"]
+    | None
+)
+
+
 class SearchUserRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int | None = Field(
-        default_factory=lambda: cast(int | None, UNSET), ge=0
-    )
-    match_threshold: float | Literal["model_recommended_default"] | None = Field(
-        default_factory=lambda: cast(
-            float | Literal["model_recommended_default"] | None, UNSET
-        )
+    protected_minimum: int = Field(default_factory=lambda: cast(int, UNSET), ge=0)
+    match_threshold: SearchMatchThreshold = Field(
+        default_factory=lambda: cast(SearchMatchThreshold, UNSET)
     )
     include_archived: bool = False
 
@@ -169,13 +172,9 @@ class SearchWorkspaceRequest(StrictRequestModel):
     type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int | None = Field(
-        default_factory=lambda: cast(int | None, UNSET), ge=0
-    )
-    match_threshold: float | Literal["model_recommended_default"] | None = Field(
-        default_factory=lambda: cast(
-            float | Literal["model_recommended_default"] | None, UNSET
-        )
+    protected_minimum: int = Field(default_factory=lambda: cast(int, UNSET), ge=0)
+    match_threshold: SearchMatchThreshold = Field(
+        default_factory=lambda: cast(SearchMatchThreshold, UNSET)
     )
     include_archived: bool = False
 
