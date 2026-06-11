@@ -216,13 +216,15 @@ class AddMemoryRequest(StrictRequestModel):
     @model_validator(mode="after")
     def _validate_workspace_uid_for_space(self) -> AddMemoryRequest:
         if self.space == SPACE_USER and self.workspace_uid is not None:
-            raise ValueError("workspace_uid is only valid for user memories")
+            raise ValueError("workspace_uid is only valid for workspace memories")
         if self.space == SPACE_WORKSPACE and self.workspace_uid is None:
             raise ValueError("workspace_uid is required for workspace memories")
         return self
 
 
 class UpdateMemoryRequest(StrictRequestModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"minProperties": 1})
+
     type: str | None = Field(default=None, min_length=1)
     content: str | None = Field(default=None, min_length=1)
     metadata: dict[str, object] | None = None
@@ -516,7 +518,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                 "context": {
                     "error_type": type(exc).__name__,
                     "http_status": int(status),
-                    "error_code": payload.get("error", "unknown"),
+                    "error_code": payload.get("error", {}).get("code", "unknown"),
                 },
             },
         )

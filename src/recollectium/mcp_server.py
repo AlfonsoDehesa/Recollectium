@@ -384,7 +384,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         """Add a new memory. Returns the created memory as JSON."""
         try:
             if space == SPACE_USER and workspace_uid is not None:
-                return _error("workspace_uid is only valid for user memories")
+                return _error("workspace_uid is only valid for workspace memories")
             if space == SPACE_WORKSPACE and not workspace_uid:
                 return _error("workspace_uid is required for workspace memories")
             checked_confidence = _strict_float(

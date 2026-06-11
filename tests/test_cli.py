@@ -9923,6 +9923,48 @@ class TestMcpStdioErrorPaths:
 
         assert exit_code == 0
 
+    def test_mcp_stdio_suppresses_readiness_output_before_protocol(
+        self, tmp_path, capsys
+    ) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        config_data = dict(DEFAULTS)
+        config_data["logging"] = {"level": "WARNING"}
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data))
+
+        class FakeCore:
+            config = SimpleNamespace(effective_config={})
+            embedding_provider = None
+
+            def _ensure_model_ready(self, **_kwargs: object) -> None:
+                print("provider stdout noise")
+                print("provider stderr noise", file=sys.stderr)
+
+        class FakeMCP:
+            async def run_stdio_async(self) -> None:
+                print('{"jsonrpc":"2.0","id":1,"result":{}}')
+
+        with (
+            patch("recollectium.cli.RecollectiumCore", return_value=FakeCore()),
+            patch("recollectium.cli.create_mcp_server", return_value=FakeMCP()),
+        ):
+            exit_code, stdout, stderr = _run_cli(
+                ["--config", str(config_path), "mcp-stdio"],
+                capsys,
+            )
+
+        assert exit_code == 0
+        assert stdout == '{"jsonrpc":"2.0","id":1,"result":{}}\n'
+        assert "provider" not in stdout
+        assert "provider" not in stderr
+
     def test_mcp_stdio_runtime_error(self, tmp_path, capsys) -> None:
         config_dir = tmp_path / "config"
         config_dir.mkdir()

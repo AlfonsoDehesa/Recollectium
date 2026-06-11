@@ -6119,7 +6119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config_path=core_config_path,
                 log_level=args.log_level,
             )
-            core._ensure_model_ready()
+            _ensure_cli_model_ready(core, output_format="json")
         except FileNotFoundError as exc:
             return _config_missing_error(exc, command=args.command)
         except ValidationError as exc:

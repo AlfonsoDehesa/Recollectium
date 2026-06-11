@@ -972,6 +972,16 @@ def test_mcp_tools_reject_coerced_scalar_values(tmp_path: Path) -> None:
         result = json.loads(mcp._tool_manager._tools[tool_name].fn(**kwargs))
         assert "error" in result
 
+    user_workspace_uid_error = json.loads(
+        mcp._tool_manager._tools["add_memory"].fn(
+            space="user", type="fact", content="x", workspace_uid="ws"
+        )
+    )
+    assert (
+        user_workspace_uid_error["error"]
+        == "workspace_uid is only valid for workspace memories"
+    )
+
 
 def test_mcp_add_memory_with_metadata_object(tmp_path: Path) -> None:
     core = RecollectiumCore(db_path=tmp_path / "metadata-object.db")

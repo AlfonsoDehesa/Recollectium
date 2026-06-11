@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError as PydanticValidationError
@@ -291,8 +291,8 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
         "GET /v1/memories/{memory_id}": {"require_request": True},
         "GET /v1/embedding/status": {"require_request": False},
         "GET /v1/embedding/jobs": {"require_request": False},
-        "POST /v1/embedding/refresh": {"require_request": True},
-        "DELETE /v1/embedding/jobs": {"require_request": True},
+        "POST /v1/embedding/refresh": {"require_request": False},
+        "DELETE /v1/embedding/jobs": {"require_request": False},
         "GET /v1/embedding/jobs/{job_id}": {"require_request": False},
         "GET /v1/workspaces": {"require_request": False},
         "GET /v1/workspaces/resolve": {"require_request": False},
@@ -330,6 +330,7 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
         assert error_code in docs_text
 
     assert "POST /v1/memories/{memory_id}/archive` is body-less." in docs_text
+    assert "also accept omitted or `null` bodies" in docs_text
 
     for route in (
         "POST /v1/memories/search_user",
@@ -510,6 +511,8 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         assert numeric_threshold_schema["minimum"] == 0.0
         assert numeric_threshold_schema["maximum"] == 1.0
 
+    assert schemas["UpdateMemoryRequest"]["minProperties"] == 1
+
 
 def test_api_request_models_reject_unknown_fields() -> None:
     for model_type in (
@@ -630,7 +633,10 @@ def test_api_memory_request_constraints_are_in_request_models() -> None:
         AddMemoryRequest.model_validate(
             {"space": "global", "type": "fact", "content": "tea"}
         )
-    with pytest.raises(PydanticValidationError):
+    with pytest.raises(
+        PydanticValidationError,
+        match="workspace_uid is only valid for workspace memories",
+    ):
         AddMemoryRequest.model_validate(
             {
                 "space": "user",
@@ -709,6 +715,35 @@ def _request_raw(
         headers={"Content-Type": "application/json"},
     )
     return response.status_code, response.json()
+
+
+def test_http_error_log_context_uses_stable_error_code_string(caplog: Any) -> None:
+    class FailingCore:
+        config = type(
+            "Config", (), {"effective_config": {"response_verbosity": "compact"}}
+        )()
+
+        def add_memory(self, **_kwargs: Any) -> object:
+            raise ValidationError("bad memory")
+
+    caplog.set_level("ERROR", logger="recollectium.service")
+    client = _client(cast(RecollectiumCore, FailingCore()))
+
+    status, payload = _request_json(
+        client,
+        "POST",
+        "/v1/memories",
+        {"space": "user", "type": "fact", "content": "x"},
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    request_failed_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "service.request_failed"
+    )
+    assert request_failed_record.context["error_code"] == "validation_error"
 
 
 def test_http_metadata_routes_return_json(tmp_path: Path) -> None:

@@ -1169,6 +1169,6 @@ Example response: compact default
 
 - Only documented request body fields are supported; unknown JSON body fields are rejected with a `validation_error` response.
 - Empty JSON objects are rejected for update requests because `PATCH /v1/memories/{memory_id}` requires at least one update field.
-- JSON body is required for `POST`, `PATCH`, and body-bearing `DELETE` endpoints that accept request-body inputs (`POST /v1/memories/search_user`, `POST /v1/memories/search_workspace`, `POST /v1/memories`, `PATCH /v1/memories/{memory_id}`, `POST /v1/embedding/refresh`, `DELETE /v1/embedding/jobs`, `POST /v1/workspaces/{uid}/aliases`, and `POST /v1/workspaces/{uid}/rename`).
+- JSON body is required for `POST`, `PATCH`, and body-bearing `DELETE` endpoints that accept required request-body inputs (`POST /v1/memories/search_user`, `POST /v1/memories/search_workspace`, `POST /v1/memories`, `PATCH /v1/memories/{memory_id}`, `POST /v1/workspaces/{uid}/aliases`, and `POST /v1/workspaces/{uid}/rename`). Body-bearing embedding endpoints (`POST /v1/embedding/refresh` and `DELETE /v1/embedding/jobs`) also accept omitted or `null` bodies and apply default options.
 - `POST /v1/memories/{memory_id}/archive` is body-less.
 - This document is tied to the current implementation and should be updated with service contract changes.
