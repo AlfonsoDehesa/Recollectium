@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import anyio
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
 from recollectium.core import RecollectiumCore
 from recollectium.errors import RecollectiumError
 from recollectium.mcp_server import create_mcp_server
@@ -981,6 +985,89 @@ def test_mcp_tools_reject_coerced_scalar_values(tmp_path: Path) -> None:
         user_workspace_uid_error["error"]
         == "workspace_uid is only valid for workspace memories"
     )
+
+
+def test_mcp_tool_run_rejects_coerced_scalar_values(tmp_path: Path) -> None:
+    """FastMCP Tool.run must reject string/int/bool coercions before tool bodies."""
+    core = RecollectiumCore(db_path=tmp_path / "strict-tool-run.db")
+    mcp = create_mcp_server(core)
+
+    async def run_cases() -> None:
+        invalid_calls = (
+            ("search_user_memory", {"query": "anything", "limit": "5"}),
+            ("search_user_memory", {"query": "anything", "include_archived": 1}),
+            (
+                "search_user_memory",
+                {"query": "anything", "match_threshold": "0.5"},
+            ),
+            (
+                "search_user_memory",
+                {"query": "anything", "protected_minimum": "0"},
+            ),
+            (
+                "search_workspace_memory",
+                {"query": "anything", "workspace_uid": "ws", "limit": "5"},
+            ),
+            (
+                "add_memory",
+                {
+                    "space": "user",
+                    "type": "fact",
+                    "content": "x",
+                    "confidence": "0.5",
+                },
+            ),
+            (
+                "add_memory",
+                {
+                    "space": "user",
+                    "type": "fact",
+                    "content": "x",
+                    "confidence": True,
+                },
+            ),
+            ("list_memories", {"limit": "5"}),
+            ("list_memories", {"include_archived": 1}),
+            ("list_workspaces", {"include_archived": 0}),
+            ("list_workspaces", {"include_aliases": 1}),
+            (
+                "add_workspace_alias",
+                {"canonical_uid": "a", "alias_uid": "b", "migrate_existing": 1},
+            ),
+            ("embedding_jobs", {"limit": "5"}),
+            ("refresh_embeddings", {"include_archived": 1}),
+        )
+
+        for tool_name, arguments in invalid_calls:
+            with pytest.raises(ToolError):
+                await mcp._tool_manager._tools[tool_name].run(arguments)
+
+        accepted = await mcp._tool_manager._tools["add_memory"].run(
+            {"space": "user", "type": "fact", "content": "x", "confidence": 0.5}
+        )
+        assert "error" not in json.loads(accepted)
+
+    anyio.run(run_cases)
+
+
+def test_mcp_capabilities_verbose_includes_response_verbosity(
+    tmp_path: Path,
+) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "capabilities-verbose.db")
+    mcp = create_mcp_server(core)
+
+    async def run_case() -> None:
+        compact = json.loads(
+            await mcp._tool_manager._tools["capabilities"].run({"verbosity": "compact"})
+        )
+        verbose = json.loads(
+            await mcp._tool_manager._tools["capabilities"].run({"verbosity": "verbose"})
+        )
+
+        assert "response_verbosity" not in compact
+        assert verbose["response_verbosity"] == "verbose"
+
+    anyio.run(run_case)
 
 
 def test_mcp_add_memory_with_metadata_object(tmp_path: Path) -> None:

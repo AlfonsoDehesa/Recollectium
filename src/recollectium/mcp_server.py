@@ -71,6 +71,7 @@ SearchProtectedMinimumArg: TypeAlias = Annotated[
             "threshold filtering. Omit to use configuration defaults."
         ),
         ge=0,
+        strict=True,
     ),
 ]
 SearchMatchThresholdNumberArg: TypeAlias = Annotated[
@@ -82,6 +83,7 @@ SearchMatchThresholdNumberArg: TypeAlias = Annotated[
         ),
         ge=0.0,
         le=1.0,
+        strict=True,
     ),
 ]
 SearchMatchThresholdArg: TypeAlias = (
@@ -95,8 +97,11 @@ StatusArg: TypeAlias = Annotated[
     Literal["active", "archived"] | None,
     Field(description="Optional memory status filter."),
 ]
-PositiveLimitArg: TypeAlias = Annotated[int, Field(ge=1)]
-ConfidenceArg: TypeAlias = Annotated[float | None, Field(ge=0.0, le=1.0)]
+StrictBoolArg: TypeAlias = Annotated[bool, Field(strict=True)]
+PositiveLimitArg: TypeAlias = Annotated[int, Field(ge=1, strict=True)]
+ConfidenceArg: TypeAlias = Annotated[
+    float | None, Field(ge=0.0, le=1.0, strict=True)
+]
 
 
 def create_mcp_server(core: RecollectiumCore) -> FastMCP:
@@ -223,10 +228,15 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def capabilities(verbosity: ResponseVerbosityArg = None) -> str:
         """Return local service capabilities and memory type enums."""
-        _resolve_verbosity(verbosity)
+        resolved = _resolve_verbosity(verbosity)
+        data = capabilities_payload()["data"]
+        if resolved == RESPONSE_VERBOSITY_VERBOSE:
+            data["response_verbosity"] = resolved
         return _json(
             project_payload(
-                capabilities_payload()["data"], operation=OPERATION_CAPABILITIES_READ
+                data,
+                verbosity=resolved,
+                operation=OPERATION_CAPABILITIES_READ,
             )
         )
 
@@ -237,7 +247,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         limit: PositiveLimitArg = 20,
         protected_minimum: SearchProtectedMinimumArg | UnsetType = UNSET,
         match_threshold: SearchMatchThresholdArg | UnsetType = UNSET,
-        include_archived: bool = False,
+        include_archived: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Search user-space memories by semantic similarity to the query."""
@@ -286,7 +296,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         limit: PositiveLimitArg = 20,
         protected_minimum: SearchProtectedMinimumArg | UnsetType = UNSET,
         match_threshold: SearchMatchThresholdArg | UnsetType = UNSET,
-        include_archived: bool = False,
+        include_archived: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Search workspace memories by semantic similarity to the query."""
@@ -528,7 +538,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         type: str | None = None,
         status: StatusArg = None,
         workspace_uid: str | None = None,
-        include_archived: bool = False,
+        include_archived: StrictBoolArg = False,
         limit: PositiveLimitArg | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
@@ -571,8 +581,8 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def list_workspaces(
-        include_archived: bool = False,
-        include_aliases: bool = False,
+        include_archived: StrictBoolArg = False,
+        include_aliases: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List known workspace UIDs, optionally with aliases."""
@@ -633,7 +643,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def add_workspace_alias(
         canonical_uid: str,
         alias_uid: str,
-        migrate_existing: bool = False,
+        migrate_existing: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Create an alias for a canonical workspace UID."""
@@ -809,7 +819,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def refresh_embeddings(
         space: Literal["user", "workspace"] | None = None,
         workspace_uid: str | None = None,
-        include_archived: bool = False,
+        include_archived: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Force stale embedding refresh inline and return the completed job summary."""
