@@ -115,7 +115,10 @@ def test_mcp_schemas_restrict_embedding_job_states_and_empty_strings(
     }
 
     for tool_name, field_name in (
+        ("search_user_memory", "type"),
+        ("search_workspace_memory", "type"),
         ("search_workspace_memory", "workspace_uid"),
+        ("list_memories", "type"),
         ("add_memory", "sensitivity"),
         ("update_memory", "id"),
         ("resolve_workspace", "uid"),

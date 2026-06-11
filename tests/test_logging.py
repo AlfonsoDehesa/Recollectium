@@ -166,10 +166,32 @@ class TestJsonFormatter:
         }
         assert "secret" not in json.dumps(parsed)
 
+    def test_redacts_sensitive_values_from_message_by_default(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(msg="memory not found: mem-secret")
+        parsed = json.loads(formatter.format(record))
+        assert parsed["message"] == "memory not found: [redacted]"
+        assert "mem-secret" not in json.dumps(parsed)
+
+    def test_redacts_sensitive_values_from_generic_context_strings(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(
+            extra={"context": {"error": "workspace alias already exists: secret-alias"}}
+        )
+        parsed = json.loads(formatter.format(record))
+        assert (
+            parsed["context"]["error"] == "workspace alias already exists: [redacted]"
+        )
+        assert "secret-alias" not in json.dumps(parsed)
+
     def test_can_format_unredacted_sensitive_context(self) -> None:
         formatter = JsonFormatter(redact_sensitive=False)
-        record = _make_record(extra={"context": {"workspace_uid": "secret-workspace"}})
+        record = _make_record(
+            msg="memory not found: mem-secret",
+            extra={"context": {"workspace_uid": "secret-workspace"}},
+        )
         parsed = json.loads(formatter.format(record))
+        assert parsed["message"] == "memory not found: mem-secret"
         assert parsed["context"]["workspace_uid"] == "secret-workspace"
 
     def test_redact_log_value_handles_nested_lists(self) -> None:

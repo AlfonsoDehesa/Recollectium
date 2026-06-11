@@ -1215,8 +1215,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional memory space filter.",
+              "enum": [
+                "user",
+                "workspace"
+              ],
               "title": "Space"
-            }
+            },
+            "description": "Optional memory space filter."
           },
           {
             "name": "type",
@@ -1247,8 +1253,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional memory status filter.",
+              "enum": [
+                "active",
+                "archived"
+              ],
               "title": "Status"
-            }
+            },
+            "description": "Optional memory status filter."
           },
           {
             "name": "workspace_uid",

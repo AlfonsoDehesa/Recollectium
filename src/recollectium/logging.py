@@ -8,6 +8,7 @@ fallback, and a ``get_logger`` convenience.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import warnings
 from datetime import UTC, datetime
@@ -35,6 +36,12 @@ _SENSITIVE_CONTEXT_KEYS = frozenset(
         "source",
         "query",
     }
+)
+_SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)\b("
+    r"memory(?:[_ -]?id)?|workspace(?:[_ -]?(?:id|uid|alias))?|"
+    r"alias(?:[_ -]?uid)?|content|metadata|source|query"
+    r")\b(?P<label>[^\n:={]{0,80})(?P<sep>[:=]\s*)(?P<value>[^,;\n]+)"
 )
 
 
@@ -83,7 +90,20 @@ def redact_log_value(value: Any) -> Any:
         return redacted
     if isinstance(value, list):
         return [redact_log_value(item) for item in value]
+    if isinstance(value, str):
+        return redact_log_message(value)
     return value
+
+
+def redact_log_message(message: str) -> str:
+    """Redact sensitive values embedded in unstructured log text."""
+
+    return _SENSITIVE_VALUE_RE.sub(
+        lambda match: (
+            f"{match.group(1)}{match.group('label')}{match.group('sep')}{_REDACTED}"
+        ),
+        message,
+    )
 
 
 def logging_sensitivity(config: LoggingConfig) -> str:
@@ -119,14 +139,16 @@ class JsonFormatter(logging.Formatter):
         context = getattr(record, "context", None)
         if not isinstance(context, dict):
             context = {}
+        message = record.getMessage()
         if self._redact_sensitive:
+            message = redact_log_message(message)
             context = redact_log_value(context)
 
         payload = {
             "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
             "level": record.levelname.upper(),
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": message,
             "event": event,
             "context": context,
         }

@@ -130,6 +130,20 @@ PositiveIntQuery: TypeAlias = Annotated[
         description="Positive integer query value encoded as decimal digits.",
     ),
 ]
+SpaceQuery: TypeAlias = Annotated[
+    str | None,
+    Query(
+        description="Optional memory space filter.",
+        json_schema_extra={"enum": [SPACE_USER, SPACE_WORKSPACE]},
+    ),
+]
+StatusQuery: TypeAlias = Annotated[
+    str | None,
+    Query(
+        description="Optional memory status filter.",
+        json_schema_extra={"enum": [STATUS_ACTIVE, STATUS_ARCHIVED]},
+    ),
+]
 
 
 _BOUNDARY_ERROR_MAP: tuple[tuple[type[Exception], HTTPStatus, str], ...] = (
@@ -861,9 +875,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/memories", tags=["memories"])
     def list_memories(
-        space: str | None = None,
+        space: SpaceQuery = None,
         type: str | None = None,
-        status: str | None = None,
+        status: StatusQuery = None,
         workspace_uid: str | None = None,
         include_archived: StrictBoolQuery = None,
         limit: PositiveIntQuery = None,

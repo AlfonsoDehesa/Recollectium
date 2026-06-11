@@ -8,6 +8,7 @@ from pydantic import BaseModel, ValidationError as PydanticValidationError
 import pytest
 
 from recollectium.core import RecollectiumCore
+from recollectium.logging import JsonFormatter
 from recollectium.models import (
     ALL_MEMORY_TYPES,
     USER_MEMORY_TYPES,
@@ -409,6 +410,13 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
     archive_operation = paths["/v1/memories/{memory_id}/archive"]["post"]
     assert "requestBody" not in archive_operation
 
+    list_parameters = {
+        parameter["name"]: parameter["schema"]
+        for parameter in paths["/v1/memories"]["get"].get("parameters", [])
+    }
+    assert list_parameters["space"]["enum"] == ["user", "workspace"]
+    assert list_parameters["status"]["enum"] == ["active", "archived"]
+
     for path, methods in required_paths.items():
         for method in methods:
             parameters = paths[path][method].get("parameters", [])
@@ -747,6 +755,34 @@ def test_http_error_log_context_uses_stable_error_code_string(caplog: Any) -> No
         if getattr(record, "event", None) == "service.request_failed"
     )
     assert request_failed_record.context["error_code"] == "validation_error"
+
+
+def test_http_error_log_message_redacts_boundary_exception_details(
+    caplog: Any,
+) -> None:
+    class FailingCore:
+        config = type(
+            "Config", (), {"effective_config": {"response_verbosity": "compact"}}
+        )()
+
+        def get_memory(self, _id: str) -> object:
+            raise ValidationError("memory not found: mem-secret")
+
+    caplog.set_level("ERROR", logger="recollectium.service")
+    client = _client(cast(RecollectiumCore, FailingCore()))
+
+    status, payload = _request_json(client, "GET", "/v1/memories/mem-secret")
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    request_failed_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "service.request_failed"
+    )
+    formatted = json.loads(JsonFormatter().format(request_failed_record))
+    assert formatted["message"] == "HTTP request failed: memory not found: [redacted]"
+    assert "mem-secret" not in json.dumps(formatted)
 
 
 def test_http_metadata_routes_return_json(tmp_path: Path) -> None:

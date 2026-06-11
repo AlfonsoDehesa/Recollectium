@@ -90,6 +90,7 @@ SearchMatchThresholdArg: TypeAlias = (
     SearchMatchThresholdNumberArg | Literal["model_recommended_default"] | None
 )
 NonEmptyStringArg: TypeAlias = Annotated[str, Field(min_length=1)]
+OptionalNonEmptyStringArg: TypeAlias = NonEmptyStringArg | None
 SpaceArg: TypeAlias = Annotated[
     Literal["user", "workspace"], Field(description="Memory space.")
 ]
@@ -241,7 +242,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def search_user_memory(
         query: NonEmptyStringArg,
-        type: str | None = None,
+        type: OptionalNonEmptyStringArg = None,
         limit: PositiveLimitArg = 20,
         protected_minimum: SearchProtectedMinimumArg | UnsetType = UNSET,
         match_threshold: SearchMatchThresholdArg | UnsetType = UNSET,
@@ -290,7 +291,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def search_workspace_memory(
         query: NonEmptyStringArg,
         workspace_uid: NonEmptyStringArg,
-        type: str | None = None,
+        type: OptionalNonEmptyStringArg = None,
         limit: PositiveLimitArg = 20,
         protected_minimum: SearchProtectedMinimumArg | UnsetType = UNSET,
         match_threshold: SearchMatchThresholdArg | UnsetType = UNSET,
@@ -537,7 +538,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def list_memories(
         space: Literal["user", "workspace"] | None = None,
-        type: str | None = None,
+        type: OptionalNonEmptyStringArg = None,
         status: StatusArg = None,
         workspace_uid: NonEmptyStringArg | None = None,
         include_archived: StrictBoolArg = False,
