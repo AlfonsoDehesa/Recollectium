@@ -336,7 +336,11 @@ class RecollectiumCore:
             workspace_uid = self._resolve_workspace_uid(workspace_uid)
         else:
             workspace_uid = self._normalize_uid(workspace_uid)
-        validated_type = validate_memory_type_filter(type) if type is not None else None
+        if space is not None and space not in {SPACE_USER, SPACE_WORKSPACE}:
+            raise ValidationError("space must be user or workspace")
+        validated_type = (
+            validate_memory_type_filter(type, space=space) if type is not None else None
+        )
 
         return self.store.list_memories(
             space=space,
@@ -515,14 +519,16 @@ class RecollectiumCore:
         )
         if not selected_states:
             raise ValidationError("at least one job state is required")
-        valid_states = {"pending", "in_progress", "completed", "failed"}
-        invalid_states = sorted(set(selected_states) - valid_states)
-        if invalid_states:
-            raise ValidationError(
-                "invalid embedding job state: " + ", ".join(invalid_states)
-            )
         if "in_progress" in selected_states:
             raise ValidationError("in_progress embedding jobs cannot be deleted")
+        valid_states = {"pending", "completed", "failed"}
+        invalid_states = sorted(set(selected_states) - valid_states)
+        if invalid_states:
+            allowed_values = ", ".join(sorted(valid_states))
+            raise ValidationError(
+                "invalid embedding job state: "
+                f"{', '.join(invalid_states)}; states must be one of: {allowed_values}"
+            )
         deleted_job_ids = self.store.delete_embedding_jobs(states=selected_states)
         return {
             "deleted_count": len(deleted_job_ids),

@@ -200,20 +200,123 @@ class TestJsonFormatter:
         assert parsed["context"]["error"] == "embedding job not found: [redacted]"
         assert "job-secret" not in json.dumps(parsed)
 
+    def test_redacts_secret_shaped_context_and_messages(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(
+            msg="token: abc123 password=letmein sensitivity: high",
+            extra={
+                "context": {
+                    "api_secret": "secret-value",
+                    "access_key": "key-value",
+                    "accessToken": "access-token-value",
+                    "credentialId": "credential-id-value",
+                    "safe_count": 2,
+                    "nested": {
+                        "credential": "cred-value",
+                        "refreshToken": "refresh-token-value",
+                        "privateKeyFingerprint": "private-key-value",
+                    },
+                }
+            },
+        )
+
+        parsed = json.loads(formatter.format(record))
+        assert parsed["context"] == {
+            "api_secret": "[redacted]",
+            "access_key": "[redacted]",
+            "accessToken": "[redacted]",
+            "credentialId": "[redacted]",
+            "safe_count": 2,
+            "nested": {
+                "credential": "[redacted]",
+                "refreshToken": "[redacted]",
+                "privateKeyFingerprint": "[redacted]",
+            },
+        }
+        encoded = json.dumps(parsed)
+        assert "abc123" not in encoded
+        assert "letmein" not in encoded
+        assert "secret-value" not in encoded
+        assert "access-token-value" not in encoded
+        assert "credential-id-value" not in encoded
+        assert "cred-value" not in encoded
+        assert "refresh-token-value" not in encoded
+        assert "private-key-value" not in encoded
+
+    def test_redacts_separatorless_secret_message_formats(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(
+            msg=(
+                "api_key abc123 api key abc234 secret abc private key-----BEGIN "
+                "key abc token abc password hunter2 credential cred-1"
+            )
+        )
+
+        parsed = json.loads(formatter.format(record))
+        message = parsed["message"]
+        assert message == (
+            "api_key [redacted] api key [redacted] secret [redacted] "
+            "private key-----[redacted] key [redacted] token [redacted] "
+            "password [redacted] credential [redacted]"
+        )
+        encoded = json.dumps(parsed)
+        for secret in (
+            "abc123",
+            "abc234",
+            "BEGIN",
+            "hunter2",
+            "cred-1",
+        ):
+            assert secret not in encoded
+
+    def test_redacts_generic_key_shaped_context_and_messages(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(
+            msg=(
+                "key: plain-key encryption key: enc-secret "
+                "public_key=pub-secret apiKey: api-secret"
+            ),
+            extra={
+                "context": {
+                    "key": "plain-key",
+                    "encryption_key": "enc-secret",
+                    "public_key": "pub-secret",
+                    "apiKey": "api-secret",
+                    "safe_count": 2,
+                }
+            },
+        )
+
+        parsed = json.loads(formatter.format(record))
+        assert parsed["context"] == {
+            "key": "[redacted]",
+            "encryption_key": "[redacted]",
+            "public_key": "[redacted]",
+            "apiKey": "[redacted]",
+            "safe_count": 2,
+        }
+        encoded = json.dumps(parsed)
+        assert "plain-key" not in encoded
+        assert "enc-secret" not in encoded
+        assert "pub-secret" not in encoded
+        assert "api-secret" not in encoded
+
     def test_can_format_unredacted_sensitive_context(self) -> None:
         formatter = JsonFormatter(redact_sensitive=False)
         record = _make_record(
-            msg="embedding job not found: job-secret",
+            msg="embedding job not found: job-secret key: plain-key",
             extra={
                 "context": {
                     "error": "embedding job not found: job-secret",
+                    "key": "plain-key",
                     "workspace_uid": "secret-workspace",
                 }
             },
         )
         parsed = json.loads(formatter.format(record))
-        assert parsed["message"] == "embedding job not found: job-secret"
+        assert parsed["message"] == "embedding job not found: job-secret key: plain-key"
         assert parsed["context"]["error"] == "embedding job not found: job-secret"
+        assert parsed["context"]["key"] == "plain-key"
         assert parsed["context"]["workspace_uid"] == "secret-workspace"
 
     def test_redact_log_value_handles_nested_lists(self) -> None:
@@ -344,7 +447,7 @@ class TestSetupLogging:
         logger = get_logger("recollectium.test")
         logger.info(
             "event logged",
-            extra={"event": "test.event", "context": {"key": "value"}},
+            extra={"event": "test.event", "context": {"safe_count": 1}},
         )
 
         # Flush all handlers so content is written to disk
@@ -356,7 +459,7 @@ class TestSetupLogging:
         assert "event logged" in content
         parsed = json.loads(content.strip().split("\n")[-1])
         assert parsed["event"] == "test.event"
-        assert parsed["context"] == {"key": "value"}
+        assert parsed["context"] == {"safe_count": 1}
 
         # Restore original handlers
         recollectium_logger.handlers.clear()

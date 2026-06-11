@@ -11,7 +11,17 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from recollectium.core import RecollectiumCore
-from recollectium.errors import RecollectiumError
+from recollectium.errors import (
+    EmbeddingDimensionMismatchError,
+    EmbeddingGenerationError,
+    EmbeddingModelUnavailableError,
+    EmbeddingProviderUnavailableError,
+    EmbeddingReadinessTimeoutError,
+    NotFoundError,
+    RecollectiumError,
+    ReembeddingFailedError,
+    ReembeddingInProgressError,
+)
 from recollectium.mcp_server import create_mcp_server
 from recollectium.retrieval import UNSET
 
@@ -114,11 +124,53 @@ def test_mcp_schemas_restrict_embedding_job_states_and_empty_strings(
         "failed",
     }
 
+    clear_states = mcp._tool_manager._tools["clear_embedding_jobs"].parameters[
+        "properties"
+    ]["states"]
+    assert set(clear_states["anyOf"][0]["items"]["enum"]) == {
+        "pending",
+        "completed",
+        "failed",
+    }
+
+    assert set(
+        mcp._tool_manager._tools["search_user_memory"].parameters["properties"]["type"][
+            "anyOf"
+        ][0]["enum"]
+    ) == {
+        "fact",
+        "preference",
+        "personal_fact",
+        "social_context",
+        "goal",
+        "communication_style",
+        "note",
+    }
+    assert set(
+        mcp._tool_manager._tools["search_workspace_memory"].parameters["properties"][
+            "type"
+        ]["anyOf"][0]["enum"]
+    ) == {"fact", "decision", "task_context", "configuration", "bug_finding", "note"}
+    assert set(
+        mcp._tool_manager._tools["list_memories"].parameters["properties"]["type"][
+            "anyOf"
+        ][0]["enum"]
+    ) == {
+        "fact",
+        "preference",
+        "personal_fact",
+        "social_context",
+        "goal",
+        "communication_style",
+        "note",
+        "decision",
+        "task_context",
+        "configuration",
+        "bug_finding",
+    }
+
     for tool_name, field_name in (
-        ("search_user_memory", "type"),
-        ("search_workspace_memory", "type"),
         ("search_workspace_memory", "workspace_uid"),
-        ("list_memories", "type"),
         ("add_memory", "sensitivity"),
         ("update_memory", "id"),
         ("resolve_workspace", "uid"),
@@ -158,7 +210,92 @@ def test_mcp_search_overrides_reject_invalid_values(tmp_path: Path) -> None:
     ]
     for overrides in invalid_cases:
         result = json.loads(search_fn(query="anything", **overrides))
-        assert "error" in result
+        assert result["error"]["code"] == "validation_error"
+        assert result["error"]["details"] == {}
+
+
+def test_mcp_missing_memory_returns_structured_not_found() -> None:
+    class MissingCore:
+        config = None
+
+        def get_memory(self, id: str) -> None:
+            raise NotFoundError(f"memory not found: {id}")
+
+    mcp = create_mcp_server(cast(RecollectiumCore, MissingCore()))
+    result = json.loads(mcp._tool_manager._tools["get_memory"].fn(id="missing"))
+
+    assert result == {
+        "error": {
+            "code": "not_found",
+            "details": {},
+            "message": "memory not found: missing",
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected_code"),
+    [
+        (
+            EmbeddingReadinessTimeoutError("readiness timed out"),
+            "embedding_readiness_timeout",
+        ),
+        (
+            EmbeddingProviderUnavailableError("provider unavailable"),
+            "embedding_provider_unavailable",
+        ),
+        (
+            EmbeddingModelUnavailableError("model unavailable"),
+            "embedding_model_unavailable",
+        ),
+        (
+            EmbeddingDimensionMismatchError("dimension mismatch"),
+            "embedding_profile_mismatch",
+        ),
+        (EmbeddingGenerationError("generation failed"), "embedding_generation_failed"),
+        (
+            ReembeddingInProgressError(
+                "reembedding in progress", job_id="job-1", status_path="/jobs/job-1"
+            ),
+            "reembedding_in_progress",
+        ),
+        (
+            ReembeddingFailedError(
+                "reembedding failed", job_id="job-2", status_path="/jobs/job-2"
+            ),
+            "reembedding_failed",
+        ),
+    ],
+)
+def test_mcp_domain_errors_use_stable_api_like_codes(
+    exc: RecollectiumError, expected_code: str
+) -> None:
+    class FailingCore:
+        config = None
+
+        def active_embedding_status(self) -> None:
+            raise exc
+
+    mcp = create_mcp_server(cast(RecollectiumCore, FailingCore()))
+    result = json.loads(mcp._tool_manager._tools["embedding_status"].fn())
+
+    assert result["error"]["code"] == expected_code
+    assert result["error"]["details"] == {}
+
+
+def test_mcp_list_memories_rejects_type_invalid_for_selected_space(
+    tmp_path: Path,
+) -> None:
+    mcp = create_mcp_server(RecollectiumCore(db_path=tmp_path / "list-filter.db"))
+    list_fn = mcp._tool_manager._tools["list_memories"].fn
+
+    user_error = json.loads(list_fn(space="user", type="decision"))
+    workspace_error = json.loads(list_fn(space="workspace", type="preference"))
+
+    assert user_error["error"]["code"] == "validation_error"
+    assert "for user memories" in user_error["error"]["message"]
+    assert workspace_error["error"]["code"] == "validation_error"
+    assert "for workspace memories" in workspace_error["error"]["message"]
 
 
 def test_mcp_search_overrides_accept_valid_explicit_values(tmp_path: Path) -> None:
@@ -321,7 +458,13 @@ def test_mcp_tool_invalid_verbosity_returns_error(tmp_path: Path) -> None:
 
     search_fn = mcp._tool_manager._tools["search_user_memory"].fn
     result = json.loads(search_fn(query="anything", verbosity="full"))
-    assert result == {"error": "verbosity must be one of: compact, verbose"}
+    assert result == {
+        "error": {
+            "code": "validation_error",
+            "message": "verbosity must be one of: compact, verbose",
+            "details": {},
+        }
+    }
 
 
 def test_mcp_tool_default_verbosity_uses_config(tmp_path: Path) -> None:
@@ -396,7 +539,7 @@ def test_mcp_tool_errors(tmp_path: Path) -> None:
     result_json = add_fn(space="invalid", type="fact", content="test content")
     data = json.loads(result_json)
     assert "error" in data
-    assert "space must be one of" in data["error"]
+    assert "space must be one of" in data["error"]["message"]
 
 
 def test_search_user_memory_validation_error(tmp_path: Path) -> None:
@@ -469,7 +612,7 @@ def test_add_memory_workspace_space_mismatch(tmp_path: Path) -> None:
     result_json = add_fn(space="workspace", type="fact", content="test content")
     data = json.loads(result_json)
     assert "error" in data
-    assert "workspace_uid is required" in data["error"]
+    assert "workspace_uid is required" in data["error"]["message"]
 
 
 def test_list_memories_invalid_limit(tmp_path: Path) -> None:
@@ -482,7 +625,7 @@ def test_list_memories_invalid_limit(tmp_path: Path) -> None:
     result_json = list_fn(limit=0)
     data = json.loads(result_json)
     assert "error" in data
-    assert "limit must be" in data["error"]
+    assert "limit must be" in data["error"]["message"]
 
 
 def test_search_workspace_memory_round_trip(tmp_path: Path) -> None:
@@ -554,7 +697,13 @@ def test_mcp_list_memories_error_returns_json(tmp_path: Path) -> None:
     core.list_memories = raise_error
     try:
         result = json.loads(mcp._tool_manager._tools["list_memories"].fn())
-        assert result == {"error": "list failed"}
+        assert result == {
+            "error": {
+                "code": "operation_failed",
+                "message": "list failed",
+                "details": {},
+            }
+        }
     finally:
         core.list_memories = original
 
@@ -582,7 +731,7 @@ def test_mcp_list_workspaces_error_returns_json(tmp_path: Path) -> None:
         result = fn(include_archived=False)
         error = json.loads(result)
         assert "error" in error
-        assert "forced error" in error["error"]
+        assert "forced error" in error["error"]["message"]
     finally:
         core.list_workspaces = original
 
@@ -894,7 +1043,7 @@ def test_mcp_embedding_status_error_returns_json() -> None:
 
     fn = mcp._tool_manager._tools["embedding_status"].fn
     result = json.loads(fn())
-    assert result == {"error": "status failed"}
+    assert result["error"]["message"] == "status failed"
 
 
 def test_mcp_embedding_jobs_error_returns_json() -> None:
@@ -902,17 +1051,19 @@ def test_mcp_embedding_jobs_error_returns_json() -> None:
 
     fn = mcp._tool_manager._tools["embedding_jobs"].fn
     result = json.loads(fn(state="queued", limit=5))
-    assert result == {"error": "jobs failed"}
+    assert result["error"]["message"] == "jobs failed"
 
 
 def test_mcp_refresh_and_clear_embedding_jobs_errors_return_json() -> None:
     mcp = create_mcp_server(cast(RecollectiumCore, _EmbeddingErrorCore()))
 
     refresh_fn = mcp._tool_manager._tools["refresh_embeddings"].fn
-    assert json.loads(refresh_fn(space="user")) == {"error": "refresh failed"}
+    assert json.loads(refresh_fn(space="user"))["error"]["message"] == "refresh failed"
 
     clear_fn = mcp._tool_manager._tools["clear_embedding_jobs"].fn
-    assert json.loads(clear_fn(states=["pending"])) == {"error": "clear failed"}
+    assert (
+        json.loads(clear_fn(states=["pending"]))["error"]["message"] == "clear failed"
+    )
 
 
 def test_mcp_add_memory_rejects_invalid_metadata_json(tmp_path: Path) -> None:
@@ -925,7 +1076,7 @@ def test_mcp_add_memory_rejects_invalid_metadata_json(tmp_path: Path) -> None:
         add_fn(space="user", type="fact", content="test", metadata="{invalid")
     )
     assert "error" in result
-    assert "valid JSON" in result["error"]
+    assert "valid JSON" in result["error"]["message"]
 
 
 def test_mcp_add_memory_rejects_non_object_metadata(tmp_path: Path) -> None:
@@ -938,7 +1089,7 @@ def test_mcp_add_memory_rejects_non_object_metadata(tmp_path: Path) -> None:
         add_fn(space="user", type="fact", content="test", metadata="[]")
     )
     assert "error" in result
-    assert "JSON object" in result["error"]
+    assert "JSON object" in result["error"]["message"]
 
 
 def test_mcp_update_memory_rejects_invalid_metadata_json(tmp_path: Path) -> None:
@@ -952,7 +1103,7 @@ def test_mcp_update_memory_rejects_invalid_metadata_json(tmp_path: Path) -> None
     update_fn = mcp._tool_manager._tools["update_memory"].fn
     result = json.loads(update_fn(id=mem["id"], metadata="{bad"))
     assert "error" in result
-    assert "valid JSON" in result["error"]
+    assert "valid JSON" in result["error"]["message"]
 
 
 def test_mcp_update_memory_rejects_non_object_metadata(tmp_path: Path) -> None:
@@ -966,7 +1117,7 @@ def test_mcp_update_memory_rejects_non_object_metadata(tmp_path: Path) -> None:
     update_fn = mcp._tool_manager._tools["update_memory"].fn
     result = json.loads(update_fn(id=mem["id"], metadata='"string"'))
     assert "error" in result
-    assert "JSON object" in result["error"]
+    assert "JSON object" in result["error"]["message"]
 
 
 def test_mcp_tools_reject_coerced_scalar_values(tmp_path: Path) -> None:
@@ -1022,7 +1173,7 @@ def test_mcp_tools_reject_coerced_scalar_values(tmp_path: Path) -> None:
         )
     )
     assert (
-        user_workspace_uid_error["error"]
+        user_workspace_uid_error["error"]["message"]
         == "workspace_uid is only valid for workspace memories"
     )
 

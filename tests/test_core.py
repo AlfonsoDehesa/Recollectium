@@ -262,7 +262,8 @@ def test_core_user_memory_flow_add_get_search_list_update_archive(
     listed = core.list_memories(space="user", type="note")
     assert [memory.id for memory in listed] == [created.id]
 
-    assert core.list_memories(space="user", type="decision") == []
+    with pytest.raises(ValidationError, match="for user memories"):
+        core.list_memories(space="user", type="decision")
 
     updated = core.update_memory(created.id, content="Need to write release notes")
     assert updated.content == "Need to write release notes"
@@ -401,6 +402,13 @@ def test_core_rejects_invalid_list_limit(tmp_path: Path) -> None:
 
     with pytest.raises(ValidationError, match="positive integer"):
         core.list_memories(limit=0)
+
+
+def test_core_rejects_invalid_list_space(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "list-space.db")
+
+    with pytest.raises(ValidationError, match="space must be user or workspace"):
+        core.list_memories(space="project")
 
 
 def test_default_db_path_uses_xdg_style_data_home(monkeypatch, tmp_path: Path) -> None:

@@ -204,6 +204,7 @@ _COMPLETABLE_CONFIG_KEYS = [
     "workspace.uid_normalization",
 ]
 _SUPPORTED_EMBEDDING_MODELS_HELP = ", ".join(sorted(SUPPORTED_EMBEDDING_MODELS))
+_DELETABLE_EMBEDDING_JOB_STATES = ("pending", "completed", "failed")
 _ARGPARSE_JSON_ERRORS = False
 
 
@@ -1577,6 +1578,48 @@ def _resolve_config_path(explicit_path: str | None) -> Path:
     return Path(user_config_dir("recollectium")) / "config.json"
 
 
+def _extract_global_config_path(argv: Sequence[str] | None) -> str | None:
+    """Best-effort preparse of the global --config option before argparse runs."""
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    root_commands = {
+        "init",
+        "config",
+        "add",
+        "update",
+        "archive",
+        "search-user",
+        "search-workspace",
+        "list",
+        "get",
+        "workspace",
+        "db-status",
+        "embedding-status",
+        "embedding-maintenance",
+        "embedding-refresh",
+        "embedding-jobs",
+        "embedding-jobs-clear",
+        "service",
+        "mcp-stdio",
+        "dev",
+        "upgrade",
+        "uninstall",
+        "completion",
+    }
+    iterator = iter(enumerate(raw_args))
+    for _index, item in iterator:
+        if item in root_commands:
+            return None
+        if item == "--config":
+            try:
+                _next_index, value = next(iterator)
+            except StopIteration:
+                return None
+            return value
+        if item.startswith("--config="):
+            return item.split("=", 1)[1]
+    return None
+
+
 def _core_config_path(explicit_path: str | None) -> Path | None:
     """Return only explicit config paths for core/service initialization."""
     if explicit_path is None:
@@ -1727,6 +1770,22 @@ def _extract_cli_output_override(
         output_conflict,
         verbosity_conflict,
         explicit_json,
+    )
+
+
+def _is_raw_completion_request(argv: Sequence[str]) -> bool:
+    """Return whether argv targets the raw completion protocol/source output."""
+
+    try:
+        completion_index = list(argv).index("completion")
+    except ValueError:
+        return False
+    completion_args = list(argv)[completion_index + 1 :]
+    return "--install" not in completion_args and any(
+        item in {"--source", "--complete-line"}
+        or item.startswith("--source=")
+        or item.startswith("--complete-line=")
+        for item in completion_args
     )
 
 
@@ -5460,9 +5519,11 @@ def _build_parser() -> argparse.ArgumentParser:
     embedding_jobs_clear_parser.add_argument(
         "--state",
         action="append",
+        choices=_DELETABLE_EMBEDDING_JOB_STATES,
         dest="states",
         help=(
-            "Job state to delete. May be repeated. Default: completed, failed, pending."
+            "Job state to delete. May be repeated. Choices: pending, completed, failed. "
+            "Default: completed, failed, pending. In-progress jobs cannot be deleted."
         ),
     )
     embedding_jobs_clear_parser.add_argument(
@@ -5927,8 +5988,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     effective_argv = _rewrite_upgrade_version_selector(effective_argv)
+    explicit_config_path = _extract_global_config_path(effective_argv)
+    preparse_config_path = _resolve_config_path(explicit_config_path)
     if output_conflict:
-        _set_cli_output_format(output_override or CLI_OUTPUT_JSON)
+        _set_cli_output_format(
+            CLI_OUTPUT_JSON if explicit_json else (output_override or CLI_OUTPUT_JSON)
+        )
         return _emit_cli_failure(
             status="validation_error",
             message="Choose either --json or --human-readable, not both.",
@@ -5936,7 +6001,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             command="output",
         )
     if verbosity_conflict:
-        _set_cli_output_format(output_override or CLI_OUTPUT_HUMAN_READABLE)
+        raw_completion_request = output_override is None and _is_raw_completion_request(
+            effective_argv
+        )
+        _set_cli_output_format(
+            CLI_OUTPUT_HUMAN_READABLE
+            if raw_completion_request
+            else _resolve_output_format(
+                config_path=preparse_config_path,
+                explicit=explicit_config_path is not None,
+                override=output_override,
+            )
+        )
         return _emit_cli_failure(
             status="validation_error",
             message="Choose either --compact or --verbose, not both.",
@@ -5945,7 +6021,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     global _ARGPARSE_JSON_ERRORS
     previous_argparse_json_errors = _ARGPARSE_JSON_ERRORS
-    _ARGPARSE_JSON_ERRORS = output_override == CLI_OUTPUT_JSON
+    _ARGPARSE_JSON_ERRORS = output_override == CLI_OUTPUT_JSON or (
+        output_override is None
+        and _resolve_output_format(
+            config_path=preparse_config_path,
+            explicit=explicit_config_path is not None,
+            override=None,
+        )
+        == CLI_OUTPUT_JSON
+    )
     try:
         args = parser.parse_args(effective_argv)
     finally:
@@ -5957,7 +6041,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             installed_version = package_version("recollectium")
         except PackageNotFoundError:
             installed_version = __version__
-        if output_override == CLI_OUTPUT_JSON:
+        output_format = _resolve_output_format(
+            config_path=_resolve_config_path(args.config_path),
+            explicit=args.config_path is not None,
+            override=output_override,
+        )
+        if output_format == CLI_OUTPUT_JSON:
             print(
                 json.dumps(
                     {"name": "recollectium", "version": installed_version},

@@ -138,13 +138,21 @@ Error responses use:
 {
   "error": {
     "code": "validation_error",
-    "message": "workspace_uid is required for workspace search",
-    "details": {}
+    "message": "request validation failed: workspace_uid: Field required",
+    "details": {
+      "fields": [
+        {
+          "field": "workspace_uid",
+          "message": "Field required",
+          "type": "missing"
+        }
+      ]
+    }
   }
 }
 ```
 
-`details` is currently always an object and defaults to `{}`. Structured error responses use HTTP `400` for validation errors, `404` for missing resources, `409` for state conflicts, `500` for internal/embedding generation failures, and `503` when the embedding provider is unavailable.
+`details` is currently always an object and defaults to `{}`. Request validation errors include `details.fields` entries with the rejected field, message, and validator type when available. Structured error responses use HTTP `400` for validation errors, `404` for missing resources, `409` for state conflicts, `500` for internal/embedding generation failures, and `503` when the embedding provider is unavailable.
 
 ## Response verbosity
 
@@ -159,7 +167,7 @@ Precedence is:
 3. `response_verbosity` config
 4. built-in default `compact`
 
-MCP tools follow FastMCP's protocol error split. Recollectium domain errors handled inside a tool body return a JSON string shaped like `{ "error": "..." }` in the tool result so clients can inspect ordinary operation failures without losing the tool call envelope. Framework-level argument validation failures, including unknown extra arguments rejected before tool execution, are MCP protocol/tool errors rather than Recollectium JSON result bodies.
+MCP tools follow FastMCP's protocol error split. Recollectium domain errors handled inside a tool body return a JSON string shaped like `{ "error": { "code": "validation_error", "message": "...", "details": {} } }` in the tool result so clients can inspect ordinary operation failures without losing the tool call envelope. Framework-level argument validation failures, including unknown extra arguments rejected before tool execution, are MCP protocol/tool errors rather than Recollectium JSON result bodies.
 
 `compact` is the default response shape. It is optimized for adapters and common UI use. `verbose` returns the full stored objects and operational details. Empty or unknown verbosity values are invalid and return `validation_error`. If the API query parameter is present, it wins over the header even when invalid.
 
@@ -306,6 +314,9 @@ Response example:
 - Adding workspace memories requires `space="workspace"` and `workspace_uid`.
 - Adding user memories requires `space="user"` and must not include `workspace_uid`.
 - Workspace filters on list are optional.
+- User memory types are limited to `fact`, `preference`, `personal_fact`, `social_context`, `goal`, `communication_style`, and `note`.
+- Workspace memory types are limited to `fact`, `decision`, `task_context`, `configuration`, `bug_finding`, and `note`.
+- Add requests reject memory types that are not valid for the requested `space`; list filters reject unknown `space` and `type` values before query execution.
 
 Violations return `validation_error`.
 
@@ -321,7 +332,7 @@ All successful endpoint responses currently return HTTP `200` with a `{"data": .
 - Required inputs:
   - `query` (string, non-empty)
 - Optional inputs:
-  - `type` (string bucket filter; optional)
+  - `type` (optional user memory bucket: `fact`, `preference`, `personal_fact`, `social_context`, `goal`, `communication_style`, or `note`)
   - `limit` (positive integer, default `20`)
   - `protected_minimum` (integer `0` or greater; optional retrieval override that keeps this many top-ranked results before applying `match_threshold`)
   - `match_threshold` (number from `0.0` to `1.0` inclusive, `null`, or `"model_recommended_default"`; optional retrieval override for the minimum semantic match score after the protected minimum. Omit to use config/default; send `null` to disable the threshold.)
@@ -394,7 +405,7 @@ Verbose response includes full search result fields:
   - `query` (string, non-empty)
   - `workspace_uid` (string, non-empty)
 - Optional inputs:
-  - `type` (string bucket filter; optional)
+  - `type` (optional workspace memory bucket: `fact`, `decision`, `task_context`, `configuration`, `bug_finding`, or `note`)
   - `limit` (positive integer, default `20`)
   - `protected_minimum` (integer `0` or greater; optional retrieval override that keeps this many top-ranked results before applying `match_threshold`)
   - `match_threshold` (number from `0.0` to `1.0` inclusive, `null`, or `"model_recommended_default"`; optional retrieval override for the minimum semantic match score after the protected minimum. Omit to use config/default; send `null` to disable the threshold.)
@@ -428,7 +439,7 @@ Verbose requests use `POST /v1/memories/search_workspace?verbosity=verbose` or `
 - Purpose: create one memory.
 - Required inputs:
   - `space` (`"user"` or `"workspace"`)
-  - `type` (string, non-empty)
+  - `type` (scope-specific memory bucket: for `space="user"`, one of `fact`, `preference`, `personal_fact`, `social_context`, `goal`, `communication_style`, or `note`; for `space="workspace"`, one of `fact`, `decision`, `task_context`, `configuration`, `bug_finding`, or `note`)
   - `content` (string, non-empty)
 - Conditionally required:
   - `workspace_uid` required when `space="workspace"`
@@ -511,6 +522,7 @@ Example request: verbose `PATCH /v1/memories/8f6d...?verbosity=verbose`. Verbose
 - Purpose: mark a memory archived.
 - Path params:
   - `memory_id` (string)
+- Request body: not allowed. Send no JSON body; unexpected JSON or other non-empty bodies return HTTP `400` with `validation_error` (`request body is not allowed for this endpoint`).
 - Side effects:
   - Sets memory status to archived.
   - Archived memories are excluded from default search and list results.
@@ -538,7 +550,7 @@ Example request: verbose `POST /v1/memories/8f6d.../archive?verbosity=verbose`. 
 - Purpose: list memories with optional filters.
 - Query params (all optional):
   - `space` (`user` or `workspace`)
-  - `type` (string)
+  - `type` (memory bucket filter; one of the union of valid user/workspace memory types: `fact`, `preference`, `personal_fact`, `social_context`, `goal`, `communication_style`, `note`, `decision`, `task_context`, `configuration`, or `bug_finding`)
   - `status` (`active` or `archived`)
   - `workspace_uid` (string)
   - `include_archived` (strict query string `true` or `false`, default `false`; other spellings are rejected)
@@ -814,7 +826,7 @@ If no stale memories match the request, `refreshed` is `false`, `stale_count` is
 - Purpose: delete embedding job audit records without deleting memories or embeddings.
 - Side effects: removes matching rows from the embedding job history.
 - Optional request fields:
-  - `states` (array of states to delete). If omitted, Recollectium deletes `completed`, `failed`, and `pending` job records.
+  - `states` (array containing only `pending`, `completed`, and/or `failed`). If omitted, Recollectium deletes `completed`, `failed`, and `pending` job records. `in_progress` jobs cannot be deleted.
 - Successful response: HTTP `200` with deleted count and selected states by default. Use `?verbosity=verbose` or the verbosity header to include `deleted_job_ids` for auditability.
 
 Example request:
@@ -1197,5 +1209,5 @@ Example response: compact default
 - Only documented request body fields are supported; unknown JSON body fields are rejected with a `validation_error` response.
 - Empty JSON objects are rejected for update requests because `PATCH /v1/memories/{memory_id}` requires at least one update field.
 - JSON body is required for `POST`, `PATCH`, and body-bearing `DELETE` endpoints that accept required request-body inputs (`POST /v1/memories/search_user`, `POST /v1/memories/search_workspace`, `POST /v1/memories`, `PATCH /v1/memories/{memory_id}`, `POST /v1/workspaces/{uid}/aliases`, and `POST /v1/workspaces/{uid}/rename`). Body-bearing embedding endpoints (`POST /v1/embedding/refresh` and `DELETE /v1/embedding/jobs`) also accept omitted or `null` bodies and apply default options.
-- `POST /v1/memories/{memory_id}/archive` is body-less.
+- `POST /v1/memories/{memory_id}/archive` is body-less and rejects any non-empty JSON body with `validation_error`.
 - This document is tied to the current implementation and should be updated with service contract changes.

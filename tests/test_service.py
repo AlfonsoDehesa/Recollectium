@@ -25,6 +25,7 @@ from recollectium.service import (
     SearchWorkspaceRequest,
     UpdateMemoryRequest,
     _map_boundary_error,
+    _validation_error_details,
     _request_override_from_model,
     _parse_optional_bool,
     _parse_optional_choice,
@@ -98,6 +99,20 @@ def test_service_capabilities_cover_required_operations() -> None:
         OPERATION_WORKSPACES_ALIASES_ADD,
         OPERATION_WORKSPACES_ALIASES_REMOVE,
     )
+
+
+def test_validation_error_details_preserves_non_sequence_locations() -> None:
+    assert _validation_error_details(
+        [{"loc": "payload", "msg": "invalid payload", "type": "value_error"}]
+    ) == {
+        "fields": [
+            {
+                "field": "payload",
+                "message": "invalid payload",
+                "type": "value_error",
+            }
+        ]
+    }
 
 
 def test_metadata_payload_helpers_are_stable() -> None:
@@ -332,7 +347,8 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
     ):
         assert error_code in docs_text
 
-    assert "POST /v1/memories/{memory_id}/archive` is body-less." in docs_text
+    assert "POST /v1/memories/{memory_id}/archive` is body-less" in docs_text
+    assert "rejects any non-empty JSON body" in docs_text
     assert "also accept omitted or `null` bodies" in docs_text
 
     for route in (
@@ -460,6 +476,11 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "RecollectiumInternalError",
         "RecollectiumEmbeddingProviderUnavailable",
     }
+    conflict_example = documented_error_responses["RecollectiumConflict"]["content"][
+        "application/json"
+    ]["example"]
+    assert conflict_example["error"]["code"] == "reembedding_in_progress"
+    assert set(conflict_example["error"]["details"]) == {"job_id", "status_path"}
     expected_shared_statuses = {
         "404": "RecollectiumNotFound",
         "409": "RecollectiumConflict",
@@ -483,8 +504,16 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
             assert validation_response["content"]["application/json"]["example"] == {
                 "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {},
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                        "fields": [
+                            {
+                                "field": "query",
+                                "message": "Field required",
+                                "type": "missing",
+                            }
+                        ]
+                    },
                 }
             }
     for schema_name in (
@@ -521,6 +550,29 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         )
         assert numeric_threshold_schema["minimum"] == 0.0
         assert numeric_threshold_schema["maximum"] == 1.0
+
+    assert schemas["SearchUserRequest"]["properties"]["type"]["anyOf"][0]["enum"] == [
+        "fact",
+        "preference",
+        "personal_fact",
+        "social_context",
+        "goal",
+        "communication_style",
+        "note",
+    ]
+    assert schemas["SearchWorkspaceRequest"]["properties"]["type"]["anyOf"][0][
+        "enum"
+    ] == [
+        "fact",
+        "decision",
+        "task_context",
+        "configuration",
+        "bug_finding",
+        "note",
+    ]
+    assert schemas["ClearEmbeddingJobsRequest"]["properties"]["states"]["anyOf"][0][
+        "items"
+    ]["enum"] == ["pending", "completed", "failed"]
 
     assert schemas["UpdateMemoryRequest"]["minProperties"] == 1
 
@@ -660,6 +712,19 @@ def test_api_memory_request_constraints_are_in_request_models() -> None:
         AddMemoryRequest.model_validate(
             {"space": "workspace", "type": "fact", "content": "tea"}
         )
+    with pytest.raises(PydanticValidationError, match="for user memories"):
+        AddMemoryRequest.model_validate(
+            {"space": "user", "type": "decision", "content": "tea"}
+        )
+    with pytest.raises(PydanticValidationError, match="for workspace memories"):
+        AddMemoryRequest.model_validate(
+            {
+                "space": "workspace",
+                "type": "preference",
+                "content": "tea",
+                "workspace_uid": "ws",
+            }
+        )
     with pytest.raises(PydanticValidationError):
         UpdateMemoryRequest.model_validate({})
 
@@ -726,6 +791,46 @@ def _request_raw(
         headers={"Content-Type": "application/json"},
     )
     return response.status_code, response.json()
+
+
+def test_request_validation_errors_include_field_details(tmp_path: Path) -> None:
+    client = _client(RecollectiumCore(db_path=tmp_path / "validation.db"))
+
+    status, payload = _request_json(client, "POST", "/v1/memories/search_user", {})
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    assert "query" in payload["error"]["message"]
+    assert payload["error"]["details"]["fields"][0]["field"] == "query"
+
+
+def test_archive_rejects_unexpected_request_body(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "archive-body.db")
+    memory = core.add_memory(space="user", type="fact", content="bodyless archive")
+    client = _client(core)
+
+    status, payload = _request_json(
+        client, "POST", f"/v1/memories/{memory.id}/archive", {"unexpected": True}
+    )
+
+    assert status == 400
+    assert payload["error"] == {
+        "code": "validation_error",
+        "message": "request body is not allowed for this endpoint",
+        "details": {},
+    }
+
+
+def test_clear_embedding_jobs_rejects_in_progress_state(tmp_path: Path) -> None:
+    client = _client(RecollectiumCore(db_path=tmp_path / "clear-states.db"))
+
+    status, payload = _request_json(
+        client, "DELETE", "/v1/embedding/jobs", {"states": ["in_progress"]}
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    assert payload["error"]["details"]["fields"][0]["field"] == "states.0"
 
 
 def test_http_error_log_context_uses_stable_error_code_string(caplog: Any) -> None:
@@ -895,6 +1000,15 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
     status, list_payload = _request_json(client, "GET", "/v1/memories")
     assert status == 200
     assert {item["id"] for item in list_payload["data"]} == {user_id, workspace_id}
+
+    for path in (
+        "/v1/memories?space=user&type=decision",
+        "/v1/memories?space=workspace&type=preference",
+    ):
+        status, invalid_filter = _request_json(client, "GET", path)
+        assert status == 400
+        assert invalid_filter["error"]["code"] == "validation_error"
+        assert "type must be one of" in invalid_filter["error"]["message"]
 
     status, search_user = _request_json(
         client,

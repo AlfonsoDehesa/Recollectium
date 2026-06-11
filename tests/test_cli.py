@@ -466,6 +466,58 @@ def test_cli_no_args_prints_help(capsys) -> None:
     assert captured.err == ""
 
 
+def test_cli_top_level_version_honors_json_config(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json"}), encoding="utf-8"
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--version"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["name"] == "recollectium"
+    assert isinstance(payload["version"], str)
+
+
+def test_cli_top_level_version_defaults_human_and_explicit_human_overrides_config(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys, json_by_default=False)
+    assert exit_code == 0
+    assert stderr == ""
+    _assert_human_framed(stdout)
+    assert "recollectium " in stdout
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json"}), encoding="utf-8"
+    )
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--human-readable", "--version"],
+        capsys,
+        json_by_default=False,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    _assert_human_framed(stdout)
+
+
+def test_cli_top_level_json_version_still_wins(capsys: CaptureFixture[str]) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--version"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout)["name"] == "recollectium"
+
+
 def test_cli_parser_without_command_prints_help(monkeypatch, capsys) -> None:
     class FakeArgs:
         version = False
@@ -513,6 +565,44 @@ def test_cli_config_path_json_output_is_structured(
     assert json.loads(stdout) == {
         "path": str(tmp_path / "config" / "recollectium" / "config.json")
     }
+
+
+def test_cli_configured_json_applies_to_argparse_errors(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = deepcopy(DEFAULTS)
+    config["cli_output"] = "json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--config", str(config_path), "not-a-command"])
+    captured = capsys.readouterr()
+
+    assert exc_info.value.code == 2
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["status"] == "validation_error"
+    assert "invalid choice" in payload["message"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    (
+        ["--json", "--human-readable", "config", "--path"],
+        ["--human-readable", "--json", "config", "--path"],
+    ),
+)
+def test_cli_json_human_conflict_always_prefers_json_error(
+    args: list[str], capsys: CaptureFixture[str]
+) -> None:
+    exit_code, stdout, stderr = _run_cli(args, capsys, json_by_default=False)
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert "--json or --human-readable" in payload["message"]
 
 
 def test_cli_config_path_human_output_is_framed(
@@ -4095,6 +4185,49 @@ def test_cli_dev_reports_service_status_errors(tmp_path, capsys, monkeypatch) ->
     assert json.loads(stderr)["status"] == "service_error"
 
 
+def test_cli_extracts_global_config_path_from_equals_form_and_ignores_missing_value() -> (
+    None
+):
+    assert (
+        cli_module._extract_global_config_path(
+            ["--config=/tmp/recollectium.json", "service", "status"]
+        )
+        == "/tmp/recollectium.json"
+    )
+    assert cli_module._extract_global_config_path(["--config"]) is None
+
+
+@pytest.mark.parametrize("service_action", ["status", "restart"])
+def test_cli_service_status_and_restart_report_pid_discovery_errors(
+    service_action: str, capsys, monkeypatch
+) -> None:
+    fake_config = SimpleNamespace(
+        effective_config={"service": {"host": "127.0.0.1", "port": 8000}}
+    )
+    monkeypatch.setattr(cli_module, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_module, "RecollectiumConfig", lambda *a, **kw: fake_config)
+    monkeypatch.setattr(cli_module, "get_pid_file_path", lambda _cfg: Path("pid.json"))
+
+    def _raise_service_error(_pid_path: Path) -> None:
+        raise ServiceError("unreadable pid file")
+
+    monkeypatch.setattr(cli_module, "read_pid_file", _raise_service_error)
+    monkeypatch.setattr(
+        cli_module,
+        "check_running_service",
+        lambda _cfg: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["service", service_action], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "service_error"
+    assert payload["message"] == "Service operation failed."
+    assert payload["detail"] == "ServiceError: unreadable pid file"
+
+
 def test_cli_human_readable_flag_formats_failure_output(tmp_path, capsys) -> None:
     config_path = tmp_path / "config.json"
 
@@ -4467,9 +4600,9 @@ def test_cli_output_flags_are_mutually_exclusive(capsys) -> None:
 
     assert exit_code == 2
     assert stdout == ""
-    assert stderr.startswith("\nChoose either --json or --human-readable, not both.\n")
-    _assert_human_framed(stderr)
-    assert "Status: validation_error" in stderr
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert payload["message"] == "Choose either --json or --human-readable, not both."
 
 
 def test_completion_help_documents_raw_output_json_exception(capsys) -> None:
@@ -4997,6 +5130,55 @@ def test_cli_verbosity_extraction_conflicts_order_and_literals(monkeypatch) -> N
 def test_cli_human_readable_verbosity_conflict_uses_human_error(capsys) -> None:
     exit_code, stdout, stderr = _run_cli(
         ["--compact", "--verbose", "list"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "Choose either --compact or --verbose, not both." in stderr
+    assert not stderr.lstrip().startswith("{")
+
+
+def test_cli_json_config_verbosity_conflict_uses_json_error(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json"}), encoding="utf-8"
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--compact", "--verbose", "list"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert payload["message"] == "Choose either --compact or --verbose, not both."
+
+
+def test_cli_raw_completion_verbosity_conflict_ignores_json_config(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json"}), encoding="utf-8"
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--compact",
+            "--verbose",
+            "completion",
+            "--source",
+            "bash",
+        ],
         capsys,
         json_by_default=False,
     )

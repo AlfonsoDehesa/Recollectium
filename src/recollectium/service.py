@@ -83,6 +83,8 @@ from recollectium.models import (
     SPACE_WORKSPACE,
     STATUS_ACTIVE,
     STATUS_ARCHIVED,
+    USER_MEMORY_TYPES,
+    WORKSPACE_MEMORY_TYPES,
 )
 
 import logging
@@ -209,9 +211,37 @@ SearchMatchThreshold: TypeAlias = (
 )
 
 
+UserMemoryType: TypeAlias = Literal[
+    "fact",
+    "preference",
+    "personal_fact",
+    "social_context",
+    "goal",
+    "communication_style",
+    "note",
+]
+WorkspaceMemoryType: TypeAlias = Literal[
+    "fact", "decision", "task_context", "configuration", "bug_finding", "note"
+]
+AnyMemoryType: TypeAlias = Literal[
+    "fact",
+    "preference",
+    "personal_fact",
+    "social_context",
+    "goal",
+    "communication_style",
+    "note",
+    "decision",
+    "task_context",
+    "configuration",
+    "bug_finding",
+]
+DeletableEmbeddingJobState: TypeAlias = Literal["pending", "completed", "failed"]
+
+
 class SearchUserRequest(StrictRequestModel):
     query: str = Field(min_length=1)
-    type: str | None = Field(default=None, min_length=1)
+    type: UserMemoryType | None = None
     limit: int = Field(default=20, ge=1, strict=True)
     protected_minimum: SearchProtectedMinimum = Field(
         default_factory=lambda: cast(int, UNSET)
@@ -224,7 +254,7 @@ class SearchUserRequest(StrictRequestModel):
 
 class SearchWorkspaceRequest(StrictRequestModel):
     query: str = Field(min_length=1)
-    type: str | None = Field(default=None, min_length=1)
+    type: WorkspaceMemoryType | None = None
     workspace_uid: str = Field(min_length=1)
     limit: int = Field(default=20, ge=1, strict=True)
     protected_minimum: SearchProtectedMinimum = Field(
@@ -238,7 +268,14 @@ class SearchWorkspaceRequest(StrictRequestModel):
 
 class AddMemoryRequest(StrictRequestModel):
     space: Literal["user", "workspace"]
-    type: str = Field(min_length=1)
+    type: str = Field(
+        min_length=1,
+        description=(
+            "Memory type. User memories allow fact, preference, personal_fact, "
+            "social_context, goal, communication_style, note. Workspace memories "
+            "allow fact, decision, task_context, configuration, bug_finding, note."
+        ),
+    )
     content: str = Field(min_length=1)
     workspace_uid: str | None = Field(default=None, min_length=1)
     metadata: dict[str, object] | None = None
@@ -252,6 +289,16 @@ class AddMemoryRequest(StrictRequestModel):
             raise ValueError("workspace_uid is only valid for workspace memories")
         if self.space == SPACE_WORKSPACE and self.workspace_uid is None:
             raise ValueError("workspace_uid is required for workspace memories")
+        allowed_types = (
+            set(USER_MEMORY_TYPES)
+            if self.space == SPACE_USER
+            else set(WORKSPACE_MEMORY_TYPES)
+        )
+        if self.type.casefold() not in allowed_types:
+            allowed = ", ".join(sorted(allowed_types))
+            raise ValueError(
+                f"type must be one of: {allowed} for {self.space} memories"
+            )
         return self
 
 
@@ -288,7 +335,7 @@ class EmbeddingRefreshRequest(StrictRequestModel):
 
 
 class ClearEmbeddingJobsRequest(StrictRequestModel):
-    states: list[str] | None = None
+    states: list[DeletableEmbeddingJobState] | None = None
 
 
 def _map_boundary_error(exc: Exception) -> tuple[HTTPStatus, dict[str, Any]]:
@@ -313,6 +360,37 @@ def _map_boundary_error(exc: Exception) -> tuple[HTTPStatus, dict[str, Any]]:
         HTTPStatus.INTERNAL_SERVER_ERROR,
         error_payload("internal_error", "internal server error"),
     )
+
+
+def _validation_error_details(errors: list[dict[str, Any]]) -> dict[str, Any]:
+    fields: list[dict[str, Any]] = []
+    for error in errors:
+        loc = error.get("loc", ())
+        field: str | None = None
+        if isinstance(loc, tuple | list):
+            path_parts = [
+                str(part)
+                for part in loc
+                if part not in {"body", "query", "path", "header"}
+            ]
+            field = ".".join(path_parts) if path_parts else None
+        elif loc:
+            field = str(loc)
+
+        entry: dict[str, Any] = {"message": str(error.get("msg", "invalid value"))}
+        if field:
+            entry["field"] = field
+        error_type = error.get("type")
+        if isinstance(error_type, str):
+            entry["type"] = error_type
+        fields.append(entry)
+    return {"fields": fields} if fields else {}
+
+
+async def _reject_unexpected_request_body(request: Request) -> None:
+    body = await request.body()
+    if body.strip():
+        raise ValidationError("request body is not allowed for this endpoint")
 
 
 def _json_response(status: HTTPStatus, payload: dict[str, Any]) -> JSONResponse:
@@ -365,7 +443,17 @@ def _validation_error_response_schema() -> dict[str, Any]:
             "application/json": {
                 "schema": {"$ref": "#/components/schemas/RecollectiumErrorEnvelope"},
                 "example": error_payload(
-                    "validation_error", "request validation failed"
+                    "validation_error",
+                    "request validation failed: query: Field required",
+                    details={
+                        "fields": [
+                            {
+                                "field": "query",
+                                "message": "Field required",
+                                "type": "missing",
+                            }
+                        ]
+                    },
                 ),
             }
         },
@@ -373,12 +461,18 @@ def _validation_error_response_schema() -> dict[str, Any]:
 
 
 def _error_response_schema(description: str, code: str, message: str) -> dict[str, Any]:
+    details: dict[str, Any] = {}
+    if code == "reembedding_in_progress":
+        details = {
+            "job_id": "job_123",
+            "status_path": "/v1/embedding/jobs/job_123",
+        }
     return {
         "description": description,
         "content": {
             "application/json": {
                 "schema": {"$ref": "#/components/schemas/RecollectiumErrorEnvelope"},
-                "example": error_payload(code, message),
+                "example": error_payload(code, message, details=details),
             }
         },
     }
@@ -389,7 +483,7 @@ _OPENAPI_SHARED_ERROR_RESPONSES = {
     "409": (
         "RecollectiumConflict",
         "Request conflicts with current state.",
-        "conflict",
+        "reembedding_in_progress",
     ),
     "500": ("RecollectiumInternalError", "Internal server error.", "internal_error"),
     "503": (
@@ -441,9 +535,10 @@ def _customize_openapi_validation_responses(app: FastAPI) -> dict[str, Any]:
     }
     responses_component = components.setdefault("responses", {})
     for status, (name, description, code) in _OPENAPI_SHARED_ERROR_RESPONSES.items():
-        responses_component[name] = _error_response_schema(
-            description, code, description.rstrip(".").lower()
-        )
+        message = description.rstrip(".").lower()
+        if code == "reembedding_in_progress":
+            message = "re-embedding is already in progress"
+        responses_component[name] = _error_response_schema(description, code, message)
     validation_response = _validation_error_response_schema()
     for path_item in schema.get("paths", {}).values():
         for operation in path_item.values():
@@ -528,7 +623,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def handle_request_validation_error(
-        _request: Request, exc: RequestValidationError
+        request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         _log.warning(
             "Request validation failed",
@@ -543,9 +638,30 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                     HTTPStatus.BAD_REQUEST,
                     error_payload("invalid_json", "invalid JSON"),
                 )
+        details = _validation_error_details(list(exc.errors()))
+        if request.url.path.endswith(
+            "/memories/search_user"
+        ) or request.url.path.endswith("/memories/search_workspace"):
+            fields = details.get("fields")
+            if isinstance(fields, list) and fields and isinstance(fields[0], dict):
+                fields[0].setdefault("field", "query")
+        first_field = next(
+            (
+                field
+                for field in details.get("fields", [])
+                if isinstance(field, dict) and isinstance(field.get("field"), str)
+            ),
+            None,
+        )
+        message = "request validation failed"
+        if isinstance(first_field, dict):
+            message = (
+                f"request validation failed: {first_field['field']}: "
+                f"{first_field.get('message', 'invalid value')}"
+            )
         return _json_response(
             HTTPStatus.BAD_REQUEST,
-            error_payload("validation_error", "request validation failed"),
+            error_payload("validation_error", message, details=details),
         )
 
     @app.exception_handler(Exception)
@@ -788,7 +904,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             core.config.effective_config.get("response_verbosity"),
         )
         result = core.clear_embedding_jobs(
-            states=body.states if body is not None else None
+            states=cast(list[str], body.states) if body is not None else None
         )
         _log.info(
             "clear_embedding_jobs completed",
@@ -876,7 +992,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/memories", tags=["memories"])
     def list_memories(
         space: SpaceQuery = None,
-        type: str | None = None,
+        type: AnyMemoryType | None = None,
         status: StatusQuery = None,
         workspace_uid: str | None = None,
         include_archived: StrictBoolQuery = None,
@@ -1005,11 +1121,13 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         f"{SERVICE_API_PREFIX}/memories/{{memory_id}}/archive",
         tags=["memories"],
     )
-    def archive_memory(
+    async def archive_memory(
         memory_id: str,
+        request: Request,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
+        await _reject_unexpected_request_body(request)
         resolved = _resolve_verbosity(
             verbosity,
             x_recollectium_verbosity,

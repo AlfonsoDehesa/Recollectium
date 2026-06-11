@@ -11,9 +11,23 @@ from pydantic import Field
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
 from recollectium.core import RecollectiumCore
-from recollectium.models import SPACE_USER, SPACE_WORKSPACE
+from recollectium.models import (
+    SPACE_USER,
+    SPACE_WORKSPACE,
+)
 from recollectium.retrieval import UNSET, UnsetType
-from recollectium.errors import RecollectiumError
+from recollectium.errors import (
+    EmbeddingDimensionMismatchError,
+    EmbeddingGenerationError,
+    EmbeddingModelUnavailableError,
+    EmbeddingProviderUnavailableError,
+    EmbeddingReadinessTimeoutError,
+    NotFoundError,
+    RecollectiumError,
+    ReembeddingFailedError,
+    ReembeddingInProgressError,
+    ValidationError,
+)
 from recollectium.representations import (
     OPERATION_CAPABILITIES_READ,
     OPERATION_EMBEDDING_JOBS_CLEAR,
@@ -41,6 +55,7 @@ from recollectium.representations import (
 )
 from recollectium.service_contract import (
     capabilities_payload,
+    error_payload,
     health_payload,
     serialize_embedding_job,
     serialize_embedding_jobs,
@@ -101,6 +116,32 @@ StatusArg: TypeAlias = Annotated[
 StrictBoolArg: TypeAlias = Annotated[bool, Field(strict=True)]
 PositiveLimitArg: TypeAlias = Annotated[int, Field(ge=1, strict=True)]
 ConfidenceArg: TypeAlias = Annotated[float | None, Field(ge=0.0, le=1.0, strict=True)]
+UserMemoryTypeArg: TypeAlias = Literal[
+    "fact",
+    "preference",
+    "personal_fact",
+    "social_context",
+    "goal",
+    "communication_style",
+    "note",
+]
+WorkspaceMemoryTypeArg: TypeAlias = Literal[
+    "fact", "decision", "task_context", "configuration", "bug_finding", "note"
+]
+AnyMemoryTypeArg: TypeAlias = Literal[
+    "fact",
+    "preference",
+    "personal_fact",
+    "social_context",
+    "goal",
+    "communication_style",
+    "note",
+    "decision",
+    "task_context",
+    "configuration",
+    "bug_finding",
+]
+DeletableEmbeddingJobStateArg: TypeAlias = Literal["pending", "completed", "failed"]
 
 
 def create_mcp_server(core: RecollectiumCore) -> FastMCP:
@@ -111,8 +152,30 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def _json(payload: Any) -> str:
         return json.dumps(payload, sort_keys=True)
 
-    def _error(message: str) -> str:
-        return _json({"error": message})
+    def _error(message: str, *, code: str = "validation_error") -> str:
+        return _json(error_payload(code, message))
+
+    def _domain_error(exc: RecollectiumError) -> str:
+        code = "operation_failed"
+        if isinstance(exc, ValidationError):
+            code = "validation_error"
+        elif isinstance(exc, NotFoundError):
+            code = "not_found"
+        elif isinstance(exc, EmbeddingReadinessTimeoutError):
+            code = "embedding_readiness_timeout"
+        elif isinstance(exc, EmbeddingProviderUnavailableError):
+            code = "embedding_provider_unavailable"
+        elif isinstance(exc, EmbeddingModelUnavailableError):
+            code = "embedding_model_unavailable"
+        elif isinstance(exc, EmbeddingDimensionMismatchError):
+            code = "embedding_profile_mismatch"
+        elif isinstance(exc, EmbeddingGenerationError):
+            code = "embedding_generation_failed"
+        elif isinstance(exc, ReembeddingInProgressError):
+            code = "reembedding_in_progress"
+        elif isinstance(exc, ReembeddingFailedError):
+            code = "reembedding_failed"
+        return _error(str(exc), code=code)
 
     def _strict_bool(name: str, value: object) -> bool | str:
         if type(value) is not bool:
@@ -242,7 +305,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def search_user_memory(
         query: NonEmptyStringArg,
-        type: OptionalNonEmptyStringArg = None,
+        type: UserMemoryTypeArg | None = None,
         limit: PositiveLimitArg = 20,
         protected_minimum: SearchProtectedMinimumArg | UnsetType = UNSET,
         match_threshold: SearchMatchThresholdArg | UnsetType = UNSET,
@@ -285,13 +348,13 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def search_workspace_memory(
         query: NonEmptyStringArg,
         workspace_uid: NonEmptyStringArg,
-        type: OptionalNonEmptyStringArg = None,
+        type: WorkspaceMemoryTypeArg | None = None,
         limit: PositiveLimitArg = 20,
         protected_minimum: SearchProtectedMinimumArg | UnsetType = UNSET,
         match_threshold: SearchMatchThresholdArg | UnsetType = UNSET,
@@ -335,7 +398,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     def _hide_search_unset_schema_defaults() -> None:
         for tool_name in ("search_user_memory", "search_workspace_memory"):
@@ -429,7 +492,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 "add_memory",
                 extra={"event": "mcp.add_memory_failed", "context": {"error": str(e)}},
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def get_memory(
@@ -452,7 +515,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 "get_memory",
                 extra={"event": "mcp.get_memory_failed", "context": {"error": str(e)}},
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def update_memory(
@@ -507,7 +570,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def archive_memory(
@@ -533,12 +596,12 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def list_memories(
         space: Literal["user", "workspace"] | None = None,
-        type: OptionalNonEmptyStringArg = None,
+        type: AnyMemoryTypeArg | None = None,
         status: StatusArg = None,
         workspace_uid: NonEmptyStringArg | None = None,
         include_archived: StrictBoolArg = False,
@@ -580,7 +643,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def list_workspaces(
@@ -617,7 +680,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def resolve_workspace(
@@ -642,7 +705,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def add_workspace_alias(
@@ -678,7 +741,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def list_workspace_aliases(
@@ -705,7 +768,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def remove_workspace_alias(
@@ -732,7 +795,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def rename_workspace(
@@ -760,7 +823,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def embedding_status(verbosity: ResponseVerbosityArg = None) -> str:
@@ -784,7 +847,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def embedding_jobs(
@@ -817,7 +880,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def refresh_embeddings(
@@ -853,17 +916,19 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def clear_embedding_jobs(
-        states: list[str] | None = None,
+        states: list[DeletableEmbeddingJobStateArg] | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Delete embedding job audit records without deleting memories."""
         try:
             resolved = _resolve_verbosity(verbosity)
-            result = core.clear_embedding_jobs(states=states)
+            result = core.clear_embedding_jobs(
+                states=cast(list[str], states) if states is not None else None
+            )
             return _json(
                 serialize_embedding_operation_result(
                     result,
@@ -880,7 +945,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     @mcp.tool()
     def get_embedding_job(
@@ -906,7 +971,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                     "context": {"error": str(e)},
                 },
             )
-            return _error(str(e))
+            return _domain_error(e)
 
     def _finalize_tool_schemas() -> None:
         for tool in mcp._tool_manager._tools.values():
