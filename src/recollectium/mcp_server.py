@@ -99,9 +99,7 @@ StatusArg: TypeAlias = Annotated[
 ]
 StrictBoolArg: TypeAlias = Annotated[bool, Field(strict=True)]
 PositiveLimitArg: TypeAlias = Annotated[int, Field(ge=1, strict=True)]
-ConfidenceArg: TypeAlias = Annotated[
-    float | None, Field(ge=0.0, le=1.0, strict=True)
-]
+ConfidenceArg: TypeAlias = Annotated[float | None, Field(ge=0.0, le=1.0, strict=True)]
 
 
 def create_mcp_server(core: RecollectiumCore) -> FastMCP:
