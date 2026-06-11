@@ -36,6 +36,13 @@ SUPPORTED_EMBEDDING_MODEL = DEFAULT_BUILTIN_FASTEMBED_MODEL
 SUPPORTED_EMBEDDING_MODELS = frozenset(BUILTIN_FASTEMBED_MODEL_SPECS)
 SUPPORTED_LOGGING_LEVELS = {"debug", "info", "warning", "error"}
 SUPPORTED_LOGGING_FORMATS = {"json"}
+LOGGING_SENSITIVITY_REDACTED = "redacted"
+LOGGING_SENSITIVITY_FULL = "full"
+SUPPORTED_LOGGING_SENSITIVITIES = {
+    LOGGING_SENSITIVITY_REDACTED,
+    LOGGING_SENSITIVITY_FULL,
+    "unredacted",
+}
 CLI_OUTPUT_JSON = "json"
 CLI_OUTPUT_HUMAN_READABLE = "human_readable"
 SUPPORTED_CLI_OUTPUT_FORMATS = {CLI_OUTPUT_JSON, CLI_OUTPUT_HUMAN_READABLE}
@@ -67,6 +74,7 @@ DEFAULTS: dict[str, Any] = {
     "logging": {
         "level": "info",
         "format": "json",
+        "sensitivity": LOGGING_SENSITIVITY_REDACTED,
         "max_bytes": 10485760,
         "backup_count": 5,
     },
@@ -253,7 +261,13 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
     _validate_section(
         data,
         "logging",
-        {"level": str, "format": str, "max_bytes": int, "backup_count": int},
+        {
+            "level": str,
+            "format": str,
+            "sensitivity": str,
+            "max_bytes": int,
+            "backup_count": int,
+        },
     )
     logging_config = data.get("logging", {})
     if isinstance(logging_config, dict):
@@ -270,6 +284,21 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
         if isinstance(fmt, str) and fmt not in SUPPORTED_LOGGING_FORMATS:
             raise ValidationError(
                 f"logging.format must be one of: {', '.join(sorted(SUPPORTED_LOGGING_FORMATS))} (got {fmt!r})"
+            )
+
+        sensitivity = logging_config.get("sensitivity")
+        if isinstance(sensitivity, str):
+            normalized_sensitivity = sensitivity.lower()
+            if normalized_sensitivity not in SUPPORTED_LOGGING_SENSITIVITIES:
+                allowed = ", ".join(sorted(SUPPORTED_LOGGING_SENSITIVITIES))
+                raise ValidationError(
+                    "logging.sensitivity must be one of: "
+                    f"{allowed} (got {sensitivity!r})"
+                )
+            logging_config["sensitivity"] = (
+                LOGGING_SENSITIVITY_FULL
+                if normalized_sensitivity == "unredacted"
+                else normalized_sensitivity
             )
 
         max_bytes = logging_config.get("max_bytes")

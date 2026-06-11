@@ -8,6 +8,7 @@ from pydantic import BaseModel, ValidationError as PydanticValidationError
 import pytest
 
 from recollectium.core import RecollectiumCore
+from recollectium.logging import JsonFormatter
 from recollectium.models import (
     ALL_MEMORY_TYPES,
     USER_MEMORY_TYPES,
@@ -26,6 +27,7 @@ from recollectium.service import (
     _map_boundary_error,
     _request_override_from_model,
     _parse_optional_bool,
+    _parse_optional_choice,
     _parse_optional_positive_int,
     create_app,
     create_mcp_app,
@@ -296,6 +298,7 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
         "GET /v1/embedding/jobs/{job_id}": {"require_request": False},
         "GET /v1/workspaces": {"require_request": False},
         "GET /v1/workspaces/resolve": {"require_request": False},
+        "GET /v1/workspaces/aliases": {"require_request": False},
         "GET /v1/workspaces/{uid}/aliases": {"require_request": False},
         "POST /v1/workspaces/{uid}/aliases": {"require_request": True},
         "DELETE /v1/workspaces/aliases/{alias_uid}": {"require_request": True},
@@ -394,6 +397,7 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "/v1/embedding/jobs/{job_id}": ["get"],
         "/v1/workspaces": ["get"],
         "/v1/workspaces/resolve": ["get"],
+        "/v1/workspaces/aliases": ["get"],
         "/v1/workspaces/{uid}/aliases": ["get", "post"],
         "/v1/workspaces/aliases/{alias_uid}": ["delete"],
         "/v1/workspaces/{uid}/rename": ["post"],
@@ -405,6 +409,13 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
 
     archive_operation = paths["/v1/memories/{memory_id}/archive"]["post"]
     assert "requestBody" not in archive_operation
+
+    list_parameters = {
+        parameter["name"]: parameter["schema"]
+        for parameter in paths["/v1/memories"]["get"].get("parameters", [])
+    }
+    assert list_parameters["space"]["enum"] == ["user", "workspace"]
+    assert list_parameters["status"]["enum"] == ["active", "archived"]
 
     for path, methods in required_paths.items():
         for method in methods:
@@ -746,6 +757,63 @@ def test_http_error_log_context_uses_stable_error_code_string(caplog: Any) -> No
     assert request_failed_record.context["error_code"] == "validation_error"
 
 
+def test_http_error_log_message_redacts_boundary_exception_details(
+    caplog: Any,
+) -> None:
+    class FailingCore:
+        config = type(
+            "Config", (), {"effective_config": {"response_verbosity": "compact"}}
+        )()
+
+        def get_memory(self, _id: str) -> object:
+            raise ValidationError("memory not found: mem-secret")
+
+    caplog.set_level("ERROR", logger="recollectium.service")
+    client = _client(cast(RecollectiumCore, FailingCore()))
+
+    status, payload = _request_json(client, "GET", "/v1/memories/mem-secret")
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    request_failed_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "service.request_failed"
+    )
+    formatted = json.loads(JsonFormatter().format(request_failed_record))
+    assert formatted["message"] == "HTTP request failed: memory not found: [redacted]"
+    assert "mem-secret" not in json.dumps(formatted)
+
+
+def test_http_error_log_message_redacts_embedding_job_ids(caplog: Any) -> None:
+    class FailingCore:
+        config = type(
+            "Config", (), {"effective_config": {"response_verbosity": "compact"}}
+        )()
+
+        def get_embedding_job(self, _job_id: str) -> object:
+            raise ValidationError("embedding job not found: job-secret")
+
+    caplog.set_level("ERROR", logger="recollectium.service")
+    client = _client(cast(RecollectiumCore, FailingCore()))
+
+    status, payload = _request_json(client, "GET", "/v1/embedding/jobs/job-secret")
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    request_failed_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "service.request_failed"
+    )
+    formatted = json.loads(JsonFormatter().format(request_failed_record))
+    assert (
+        formatted["message"]
+        == "HTTP request failed: embedding job not found: [redacted]"
+    )
+    assert "job-secret" not in json.dumps(formatted)
+
+
 def test_http_metadata_routes_return_json(tmp_path: Path) -> None:
     core = RecollectiumCore(db_path=tmp_path / "service-metadata.db")
     client = _client(core)
@@ -978,7 +1046,7 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
 
 def test_http_query_parsers_accept_valid_values_and_reject_bad_values() -> None:
     assert _parse_optional_bool(None, field_name="include_archived") is None
-    assert _parse_optional_bool(" TRUE ", field_name="include_archived") is True
+    assert _parse_optional_bool("true", field_name="include_archived") is True
     assert _parse_optional_bool("false", field_name="include_archived") is False
 
     with pytest.raises(ValidationError, match="include_archived"):
@@ -993,14 +1061,27 @@ def test_http_query_parsers_accept_valid_values_and_reject_bad_values() -> None:
     with pytest.raises(ValidationError, match="positive integer"):
         _parse_optional_positive_int("0", field_name="limit")
 
+    assert _parse_optional_choice(None, field_name="space", choices={"user"}) is None
+    assert (
+        _parse_optional_choice("user", field_name="space", choices={"user"}) == "user"
+    )
+    with pytest.raises(ValidationError, match="space must be one of"):
+        _parse_optional_choice("bad", field_name="space", choices={"user"})
+
 
 def test_http_invalid_query_params_return_validation_errors(tmp_path: Path) -> None:
     core = RecollectiumCore(db_path=tmp_path / "service-query-validation.db")
     client = _client(core)
 
-    status, payload = _request_json(client, "GET", "/v1/memories?include_archived=yes")
-    assert status == 400
-    assert payload["error"]["code"] == "validation_error"
+    for path in (
+        "/v1/memories?include_archived=yes",
+        "/v1/memories?space=bad",
+        "/v1/memories?status=bad",
+        "/v1/workspaces?include_aliases=1",
+    ):
+        status, payload = _request_json(client, "GET", path)
+        assert status == 400
+        assert payload["error"]["code"] == "validation_error"
 
     status, payload = _request_json(client, "GET", "/v1/embedding/jobs?limit=0")
     assert status == 400
@@ -1656,6 +1737,12 @@ def test_http_workspace_alias_routes_resolve_add_list_remove(tmp_path: Path) -> 
     status, aliases = _request_json(client, "GET", "/v1/workspaces/Canonical/aliases")
     assert status == 200
     assert aliases["data"] == [{"alias_uid": "legacy", "canonical_uid": "canonical"}]
+
+    status, all_aliases = _request_json(client, "GET", "/v1/workspaces/aliases")
+    assert status == 200
+    assert all_aliases["data"] == [
+        {"alias_uid": "legacy", "canonical_uid": "canonical"}
+    ]
 
     status, workspaces = _request_json(
         client, "GET", "/v1/workspaces?include_aliases=true"

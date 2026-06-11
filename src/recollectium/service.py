@@ -78,7 +78,12 @@ from recollectium.service_contract import (
     version_payload,
 )
 
-from recollectium.models import SPACE_USER, SPACE_WORKSPACE
+from recollectium.models import (
+    SPACE_USER,
+    SPACE_WORKSPACE,
+    STATUS_ACTIVE,
+    STATUS_ARCHIVED,
+)
 
 import logging
 
@@ -109,6 +114,34 @@ ResponseVerbosityHeader = Annotated[
         alias="X-Recollectium-Verbosity",
         description=_VERBOSITY_HEADER_DESCRIPTION,
         json_schema_extra={"enum": _VERBOSITY_ENUM},
+    ),
+]
+StrictBoolQuery: TypeAlias = Annotated[
+    str | None,
+    Query(
+        pattern="^(true|false)$",
+        description="Strict boolean query value. Accepted values are exactly true or false.",
+    ),
+]
+PositiveIntQuery: TypeAlias = Annotated[
+    str | None,
+    Query(
+        pattern="^[1-9][0-9]*$",
+        description="Positive integer query value encoded as decimal digits.",
+    ),
+]
+SpaceQuery: TypeAlias = Annotated[
+    str | None,
+    Query(
+        description="Optional memory space filter.",
+        json_schema_extra={"enum": [SPACE_USER, SPACE_WORKSPACE]},
+    ),
+]
+StatusQuery: TypeAlias = Annotated[
+    str | None,
+    Query(
+        description="Optional memory status filter.",
+        json_schema_extra={"enum": [STATUS_ACTIVE, STATUS_ARCHIVED]},
     ),
 ]
 
@@ -289,10 +322,9 @@ def _json_response(status: HTTPStatus, payload: dict[str, Any]) -> JSONResponse:
 def _parse_optional_bool(raw: str | None, *, field_name: str) -> bool | None:
     if raw is None:
         return None
-    normalized = raw.strip().lower()
-    if normalized == "true":
+    if raw == "true":
         return True
-    if normalized == "false":
+    if raw == "false":
         return False
     raise ValidationError(f"{field_name} must be true or false")
 
@@ -307,6 +339,17 @@ def _parse_optional_positive_int(raw: str | None, *, field_name: str) -> int | N
     if value < 1:
         raise ValidationError(f"{field_name} must be a positive integer")
     return value
+
+
+def _parse_optional_choice(
+    raw: str | None, *, field_name: str, choices: set[str]
+) -> str | None:
+    if raw is None:
+        return None
+    if raw not in choices:
+        allowed = ", ".join(sorted(choices))
+        raise ValidationError(f"{field_name} must be one of: {allowed}")
+    return raw
 
 
 def _request_override_from_model(model: BaseModel, field_name: str) -> Any:
@@ -669,8 +712,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/embedding/jobs", tags=["embedding"])
     def list_embedding_jobs(
-        state: str | None = None,
-        limit: str | None = None,
+        state: Literal["pending", "in_progress", "completed", "failed"] | None = None,
+        limit: PositiveIntQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -832,12 +875,12 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/memories", tags=["memories"])
     def list_memories(
-        space: str | None = None,
+        space: SpaceQuery = None,
         type: str | None = None,
-        status: str | None = None,
+        status: StatusQuery = None,
         workspace_uid: str | None = None,
-        include_archived: str | None = None,
-        limit: str | None = None,
+        include_archived: StrictBoolQuery = None,
+        limit: PositiveIntQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -850,10 +893,20 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             include_archived,
             field_name="include_archived",
         )
+        parsed_space = _parse_optional_choice(
+            space,
+            field_name="space",
+            choices={SPACE_USER, SPACE_WORKSPACE},
+        )
+        parsed_status = _parse_optional_choice(
+            status,
+            field_name="status",
+            choices={STATUS_ACTIVE, STATUS_ARCHIVED},
+        )
         memories = core.list_memories(
-            space=space,
+            space=parsed_space,
             type=type,
-            status=status,
+            status=parsed_status,
             workspace_uid=workspace_uid,
             include_archived=parsed_include_archived
             if parsed_include_archived is not None
@@ -982,8 +1035,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/workspaces", tags=["workspaces"])
     def list_workspaces(
-        include_archived: str | None = None,
-        include_aliases: str | None = None,
+        include_archived: StrictBoolQuery = None,
+        include_aliases: StrictBoolQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -1065,6 +1118,32 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             extra={
                 "event": "service.list_workspace_aliases_completed",
                 "context": {"canonical_uid": uid},
+            },
+        )
+        return success_payload(
+            project_payload(
+                result, verbosity=resolved, operation=OPERATION_WORKSPACES_ALIASES_LIST
+            )
+        )
+
+    @app.get(f"{SERVICE_API_PREFIX}/workspaces/aliases", tags=["workspaces"])
+    def list_all_workspace_aliases(
+        verbosity: ResponseVerbosityQuery = None,
+        x_recollectium_verbosity: ResponseVerbosityHeader = None,
+    ) -> dict[str, Any]:
+        """List all workspace alias mappings."""
+
+        resolved = _resolve_verbosity(
+            verbosity,
+            x_recollectium_verbosity,
+            core.config.effective_config.get("response_verbosity"),
+        )
+        result = core.list_workspace_aliases()
+        _log.info(
+            "list_all_workspace_aliases completed",
+            extra={
+                "event": "service.list_all_workspace_aliases_completed",
+                "context": {"result_count": len(result)},
             },
         )
         return success_payload(

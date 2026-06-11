@@ -629,6 +629,12 @@
             "schema": {
               "anyOf": [
                 {
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed",
+                    "failed"
+                  ],
                   "type": "string"
                 },
                 {
@@ -645,14 +651,17 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "Positive integer query value encoded as decimal digits.",
               "title": "Limit"
-            }
+            },
+            "description": "Positive integer query value encoded as decimal digits."
           },
           {
             "name": "verbosity",
@@ -1206,8 +1215,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional memory space filter.",
+              "enum": [
+                "user",
+                "workspace"
+              ],
               "title": "Space"
-            }
+            },
+            "description": "Optional memory space filter."
           },
           {
             "name": "type",
@@ -1238,8 +1253,14 @@
                   "type": "null"
                 }
               ],
+              "description": "Optional memory status filter.",
+              "enum": [
+                "active",
+                "archived"
+              ],
               "title": "Status"
-            }
+            },
+            "description": "Optional memory status filter."
           },
           {
             "name": "workspace_uid",
@@ -1264,14 +1285,17 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^(true|false)$"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "Strict boolean query value. Accepted values are exactly true or false.",
               "title": "Include Archived"
-            }
+            },
+            "description": "Strict boolean query value. Accepted values are exactly true or false."
           },
           {
             "name": "limit",
@@ -1280,14 +1304,17 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "Positive integer query value encoded as decimal digits.",
               "title": "Limit"
-            }
+            },
+            "description": "Positive integer query value encoded as decimal digits."
           },
           {
             "name": "verbosity",
@@ -1723,14 +1750,17 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^(true|false)$"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "Strict boolean query value. Accepted values are exactly true or false.",
               "title": "Include Archived"
-            }
+            },
+            "description": "Strict boolean query value. Accepted values are exactly true or false."
           },
           {
             "name": "include_aliases",
@@ -1739,14 +1769,17 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^(true|false)$"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "Strict boolean query value. Accepted values are exactly true or false.",
               "title": "Include Aliases"
-            }
+            },
+            "description": "Strict boolean query value. Accepted values are exactly true or false."
           },
           {
             "name": "verbosity",
@@ -2131,6 +2164,105 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Add Workspace Alias V1 Workspaces  Uid  Aliases Post"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
+          }
+        }
+      }
+    },
+    "/v1/workspaces/aliases": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "List All Workspace Aliases",
+        "description": "List all workspace alias mappings.",
+        "operationId": "list_all_workspace_aliases_v1_workspaces_aliases_get",
+        "parameters": [
+          {
+            "name": "verbosity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Query value takes precedence over X-Recollectium-Verbosity."
+          },
+          {
+            "name": "X-Recollectium-Verbosity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present.",
+              "enum": [
+                "compact",
+                "verbose"
+              ],
+              "title": "X-Recollectium-Verbosity"
+            },
+            "description": "Optional response verbosity override. Use compact for token-sensitive minimal payloads or verbose for full detail. Ignored when the verbosity query parameter is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List All Workspace Aliases V1 Workspaces Aliases Get"
                 }
               }
             }

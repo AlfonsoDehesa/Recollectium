@@ -154,12 +154,14 @@ The same response projection is used by the CLI and MCP surfaces. CLI callers us
 
 Precedence is:
 
-1. `?verbosity=...` query parameter
-2. `X-Recollectium-Verbosity` header
-3. configured `response_verbosity`
+1. API `verbosity` query parameter
+2. API `X-Recollectium-Verbosity` header
+3. `response_verbosity` config
 4. built-in default `compact`
 
-`compact` is the default response shape. It is optimized for adapters and common UI use. `verbose` returns the full stored objects and operational details. Empty or unknown verbosity values are invalid and return `validation_error`. If the query parameter is present, it wins over the header even when invalid.
+MCP tools follow FastMCP's protocol error split. Recollectium domain errors handled inside a tool body return a JSON string shaped like `{ "error": "..." }` in the tool result so clients can inspect ordinary operation failures without losing the tool call envelope. Framework-level argument validation failures, including unknown extra arguments rejected before tool execution, are MCP protocol/tool errors rather than Recollectium JSON result bodies.
+
+`compact` is the default response shape. It is optimized for adapters and common UI use. `verbose` returns the full stored objects and operational details. Empty or unknown verbosity values are invalid and return `validation_error`. If the API query parameter is present, it wins over the header even when invalid.
 
 Compact projections by operation:
 
@@ -535,12 +537,12 @@ Example request: verbose `POST /v1/memories/8f6d.../archive?verbosity=verbose`. 
 - Method and path: `GET /v1/memories`
 - Purpose: list memories with optional filters.
 - Query params (all optional):
-  - `space` (string)
+  - `space` (`user` or `workspace`)
   - `type` (string)
-  - `status` (string)
+  - `status` (`active` or `archived`)
   - `workspace_uid` (string)
-  - `include_archived` (`true` or `false`, default `false`)
-  - `limit` (positive integer)
+  - `include_archived` (strict query string `true` or `false`, default `false`; other spellings are rejected)
+  - `limit` (positive integer query string)
 - Side effects: none.
 - Successful response: HTTP `200` with compact memory objects by default (`id`, `content`, `type`, `space`, and `workspace_uid` when present). Use `?verbosity=verbose` or the verbosity header for full memory objects.
 
@@ -928,7 +930,7 @@ Invalid JSON:
 {
   "error": {
     "code": "invalid_json",
-    "message": "invalid JSON: Expecting property name enclosed in double quotes",
+    "message": "invalid JSON",
     "details": {}
   }
 }
@@ -968,8 +970,8 @@ Purpose: list distinct workspace UIDs visible through the API. With `include_ali
 
 | Param | Type | Default | Description |
 |---|---|---|---|
-| `include_archived` | bool | `false` | Include UIDs that appear only on archived memories. |
-| `include_aliases` | bool | `false` | Return objects shaped as `{workspace_uid, aliases, alias_count}` instead of UID strings in compact mode. Verbose mode includes full alias records. |
+| `include_archived` | strict query string `true` or `false` | `false` | Include UIDs that appear only on archived memories. |
+| `include_aliases` | strict query string `true` or `false` | `false` | Return objects shaped as `{workspace_uid, aliases, alias_count}` instead of UID strings in compact mode. Verbose mode includes full alias records. |
 
 Compact is the default. Use `?verbosity=verbose` or the verbosity header with `include_aliases=true` for full alias records with timestamps.
 
@@ -1012,6 +1014,31 @@ Example response: compact default
     "canonical_uid": "recollectium",
     "resolved_by_alias": true
   }
+}
+```
+
+### `GET /v1/workspaces/aliases`
+
+Purpose: list all workspace alias mappings. This provides HTTP parity with the CLI and MCP all-alias listing surfaces.
+
+Compact is the default and returns each alias as `{alias_uid, canonical_uid}`. Use `?verbosity=verbose` or the verbosity header for timestamps.
+
+Example request:
+
+```bash
+curl -sS http://127.0.0.1:8765/v1/workspaces/aliases
+```
+
+Example response: compact default
+
+```json
+{
+  "data": [
+    {
+      "alias_uid": "recollectium-core",
+      "canonical_uid": "recollectium"
+    }
+  ]
 }
 ```
 
