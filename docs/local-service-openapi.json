@@ -2069,6 +2069,7 @@
             "title": "Sensitivity"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "space",
@@ -2090,6 +2091,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "alias_uid"
@@ -2113,6 +2115,7 @@
             "title": "States"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "ClearEmbeddingJobsRequest"
       },
@@ -2148,6 +2151,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "EmbeddingRefreshRequest"
       },
@@ -2172,6 +2176,7 @@
             "title": "New Uid"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "new_uid"
@@ -2204,21 +2209,16 @@
             "default": 20
           },
           "protected_minimum": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
+            "minimum": 0.0,
             "title": "Protected Minimum"
           },
           "match_threshold": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
               },
               {
                 "type": "string",
@@ -2236,6 +2236,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "query"
@@ -2273,21 +2274,16 @@
             "default": 20
           },
           "protected_minimum": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
+            "minimum": 0.0,
             "title": "Protected Minimum"
           },
           "match_threshold": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
               },
               {
                 "type": "string",
@@ -2305,6 +2301,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "query",
@@ -2382,6 +2379,7 @@
             "title": "Sensitivity"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "UpdateMemoryRequest"
       },

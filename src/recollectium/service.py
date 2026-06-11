@@ -5,12 +5,12 @@ from __future__ import annotations
 from http import HTTPStatus
 import json
 from pathlib import Path
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
@@ -145,44 +145,55 @@ _BOUNDARY_ERROR_MAP: tuple[tuple[type[Exception], HTTPStatus, str], ...] = (
 )
 
 
-class SearchUserRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
+
+def _reject_non_json_number(value: Any) -> Any:
+    if isinstance(value, bool | str):
+        raise ValueError("match_threshold must be a JSON number")
+    return value
+
+
+SearchProtectedMinimum: TypeAlias = Annotated[int, Field(ge=0, strict=True)]
+SearchMatchThresholdNumber: TypeAlias = Annotated[
+    float,
+    Field(ge=0.0, le=1.0),
+    BeforeValidator(_reject_non_json_number),
+]
+SearchMatchThreshold: TypeAlias = (
+    SearchMatchThresholdNumber | Literal["model_recommended_default"] | None
+)
+
+
+class SearchUserRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int | None = Field(
-        default_factory=lambda: cast(int | None, UNSET), ge=0
+    protected_minimum: SearchProtectedMinimum = Field(
+        default_factory=lambda: cast(int, UNSET)
     )
-    match_threshold: float | Literal["model_recommended_default"] | None = Field(
-        default_factory=lambda: cast(
-            float | Literal["model_recommended_default"] | None, UNSET
-        )
+    match_threshold: SearchMatchThreshold = Field(
+        default_factory=lambda: cast(SearchMatchThreshold, UNSET)
     )
     include_archived: bool = False
 
 
-class SearchWorkspaceRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class SearchWorkspaceRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int | None = Field(
-        default_factory=lambda: cast(int | None, UNSET), ge=0
+    protected_minimum: SearchProtectedMinimum = Field(
+        default_factory=lambda: cast(int, UNSET)
     )
-    match_threshold: float | Literal["model_recommended_default"] | None = Field(
-        default_factory=lambda: cast(
-            float | Literal["model_recommended_default"] | None, UNSET
-        )
+    match_threshold: SearchMatchThreshold = Field(
+        default_factory=lambda: cast(SearchMatchThreshold, UNSET)
     )
     include_archived: bool = False
 
 
-class AddMemoryRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class AddMemoryRequest(StrictRequestModel):
     space: str = Field(min_length=1)
     type: str = Field(min_length=1)
     content: str = Field(min_length=1)
@@ -193,9 +204,7 @@ class AddMemoryRequest(BaseModel):
     sensitivity: str | None = None
 
 
-class UpdateMemoryRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class UpdateMemoryRequest(StrictRequestModel):
     type: str | None = None
     content: str | None = None
     metadata: dict[str, object] | None = None
@@ -204,30 +213,22 @@ class UpdateMemoryRequest(BaseModel):
     sensitivity: str | None = None
 
 
-class RenameWorkspaceRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class RenameWorkspaceRequest(StrictRequestModel):
     new_uid: str = Field(min_length=1)
 
 
-class AddWorkspaceAliasRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class AddWorkspaceAliasRequest(StrictRequestModel):
     alias_uid: str = Field(min_length=1)
     migrate_existing: bool = False
 
 
-class EmbeddingRefreshRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class EmbeddingRefreshRequest(StrictRequestModel):
     space: str | None = Field(default=None, min_length=1)
     workspace_uid: str | None = Field(default=None, min_length=1)
     include_archived: bool = False
 
 
-class ClearEmbeddingJobsRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class ClearEmbeddingJobsRequest(StrictRequestModel):
     states: list[str] | None = None
 
 

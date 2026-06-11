@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError as PydanticValidationError
 import pytest
 
 from recollectium.core import RecollectiumCore
@@ -15,6 +15,14 @@ from recollectium.models import (
 )
 from recollectium.errors import ValidationError
 from recollectium.service import (
+    AddMemoryRequest,
+    AddWorkspaceAliasRequest,
+    ClearEmbeddingJobsRequest,
+    EmbeddingRefreshRequest,
+    RenameWorkspaceRequest,
+    SearchUserRequest,
+    SearchWorkspaceRequest,
+    UpdateMemoryRequest,
     _map_boundary_error,
     _request_override_from_model,
     _parse_optional_bool,
@@ -323,6 +331,17 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
 
     assert "POST /v1/memories/{memory_id}/archive` is body-less." in docs_text
 
+    for route in (
+        "POST /v1/memories/search_user",
+        "POST /v1/memories/search_workspace",
+    ):
+        section = _service_docs_section_for_route(docs_text, route)
+        assert "protected_minimum" in section
+        assert "integer `0` or greater" in section
+        assert "match_threshold" in section
+        assert "number from `0.0` to `1.0` inclusive" in section
+        assert "send `null` to disable the threshold" in section
+
 
 def _assert_verbosity_parameter_contract(parameters: list[dict[str, Any]]) -> None:
     by_name = {parameter["name"]: parameter for parameter in parameters}
@@ -392,13 +411,107 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
     schemas = contract["components"]["schemas"]
     for schema_name in (
         "AddMemoryRequest",
+        "AddWorkspaceAliasRequest",
+        "ClearEmbeddingJobsRequest",
+        "EmbeddingRefreshRequest",
+        "RenameWorkspaceRequest",
         "SearchUserRequest",
         "SearchWorkspaceRequest",
         "UpdateMemoryRequest",
-        "RenameWorkspaceRequest",
-        "AddWorkspaceAliasRequest",
     ):
         assert schema_name in schemas
+        assert schemas[schema_name]["additionalProperties"] is False
+
+    for schema_name in ("SearchUserRequest", "SearchWorkspaceRequest"):
+        properties = schemas[schema_name]["properties"]
+        assert properties["protected_minimum"] == {
+            "minimum": 0,
+            "title": "Protected Minimum",
+            "type": "integer",
+        }
+        assert {
+            option["type"] for option in properties["match_threshold"]["anyOf"]
+        } == {
+            "number",
+            "string",
+            "null",
+        }
+        numeric_threshold_schema = next(
+            option
+            for option in properties["match_threshold"]["anyOf"]
+            if option["type"] == "number"
+        )
+        assert numeric_threshold_schema["minimum"] == 0.0
+        assert numeric_threshold_schema["maximum"] == 1.0
+
+
+def test_api_request_models_reject_unknown_fields() -> None:
+    for model_type in (
+        AddMemoryRequest,
+        AddWorkspaceAliasRequest,
+        ClearEmbeddingJobsRequest,
+        EmbeddingRefreshRequest,
+        RenameWorkspaceRequest,
+        SearchUserRequest,
+        SearchWorkspaceRequest,
+        UpdateMemoryRequest,
+    ):
+        assert model_type.model_config.get("extra") == "forbid"
+
+
+def test_search_request_retrieval_override_validation_contract() -> None:
+    for model_type, valid_body in (
+        (SearchUserRequest, {"query": "likes tea"}),
+        (
+            SearchWorkspaceRequest,
+            {"query": "likes tea", "workspace_uid": "workspace-1"},
+        ),
+    ):
+        omitted_overrides = model_type.model_validate(valid_body)
+        assert (
+            _request_override_from_model(omitted_overrides, "protected_minimum")
+            is UNSET
+        )
+        assert (
+            _request_override_from_model(omitted_overrides, "match_threshold") is UNSET
+        )
+
+        explicit_overrides = model_type.model_validate(
+            valid_body
+            | {
+                "protected_minimum": 0,
+                "match_threshold": None,
+            }
+        )
+        assert (
+            _request_override_from_model(explicit_overrides, "protected_minimum") == 0
+        )
+        assert (
+            _request_override_from_model(explicit_overrides, "match_threshold") is None
+        )
+
+        for rejected_protected_minimum in (None, True, False, "2", 1.0):
+            with pytest.raises(PydanticValidationError):
+                model_type.model_validate(
+                    valid_body | {"protected_minimum": rejected_protected_minimum}
+                )
+        with pytest.raises(PydanticValidationError):
+            model_type.model_validate(valid_body | {"match_threshold": -0.01})
+        with pytest.raises(PydanticValidationError):
+            model_type.model_validate(valid_body | {"match_threshold": 1.01})
+        for rejected_match_threshold in (True, False, "0.5"):
+            with pytest.raises(PydanticValidationError):
+                model_type.model_validate(
+                    valid_body | {"match_threshold": rejected_match_threshold}
+                )
+
+        model_type.model_validate(valid_body | {"match_threshold": 0.0})
+        model_type.model_validate(valid_body | {"match_threshold": 1.0})
+        model_type.model_validate(valid_body | {"match_threshold": 0})
+        model_type.model_validate(valid_body | {"match_threshold": 1})
+        model_type.model_validate(
+            valid_body | {"match_threshold": "model_recommended_default"}
+        )
 
 
 def _service_docs_section_for_route(docs_text: str, route: str) -> str:
@@ -708,6 +821,48 @@ def test_http_invalid_query_params_return_validation_errors(tmp_path: Path) -> N
     status, payload = _request_json(client, "GET", "/v1/embedding/jobs?limit=0")
     assert status == 400
     assert payload["error"]["code"] == "validation_error"
+
+
+def test_http_unknown_request_body_fields_return_validation_errors(
+    tmp_path: Path,
+) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "service-strict-body-validation.db")
+    client = _client(core)
+
+    status, payload = _request_json(
+        client,
+        "POST",
+        "/v1/memories/search_user",
+        {"query": "likes tea", "typo_field": True},
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+
+
+def test_http_search_request_retrieval_override_validation_errors(
+    tmp_path: Path,
+) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "service-search-validation.db")
+    client = _client(core)
+
+    for body in (
+        {"query": "likes tea", "protected_minimum": None},
+        {"query": "likes tea", "protected_minimum": True},
+        {"query": "likes tea", "protected_minimum": False},
+        {"query": "likes tea", "protected_minimum": "2"},
+        {"query": "likes tea", "protected_minimum": 2.0},
+        {"query": "likes tea", "match_threshold": -0.01},
+        {"query": "likes tea", "match_threshold": 1.01},
+        {"query": "likes tea", "match_threshold": True},
+        {"query": "likes tea", "match_threshold": False},
+        {"query": "likes tea", "match_threshold": "0.5"},
+    ):
+        status, payload = _request_json(
+            client, "POST", "/v1/memories/search_user", body
+        )
+        assert status == 400
+        assert payload["error"]["code"] == "validation_error"
 
 
 def test_http_workspace_search_requires_workspace_uid(tmp_path: Path) -> None:

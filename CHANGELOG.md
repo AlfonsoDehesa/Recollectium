@@ -24,6 +24,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### 🐛 Fixes
 
+- Fixed local API request validation to reject unknown JSON body fields and documented search threshold request options consistently.
 - Fixed foreground `recollectium dev serve` logging so stderr follows the effective configured log level and includes successful HTTP access logs at info/debug while one-shot CLI commands keep warning-only stderr logs.
 - Fixed remaining response-verbosity audit gaps for CLI version/config/completion/dev/db-status output, API route documentation coverage, API search default-limit docs, and MCP compact/verbose regression tests.
 - Fixed `recollectium config --validate --help` to describe effective read-only config validation instead of stale exit-code details.
