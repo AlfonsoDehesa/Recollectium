@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -287,6 +288,74 @@ def _request_override_from_model(model: BaseModel, field_name: str) -> Any:
     if field_name in model.model_fields_set:
         return getattr(model, field_name)
     return UNSET
+
+
+def _validation_error_response_schema() -> dict[str, Any]:
+    return {
+        "description": "Request validation failed.",
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/RecollectiumErrorEnvelope"},
+                "example": error_payload(
+                    "validation_error", "request validation failed"
+                ),
+            }
+        },
+    }
+
+
+def _customize_openapi_validation_responses(app: FastAPI) -> dict[str, Any]:
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    components = schema.setdefault("components", {})
+    schemas = components.setdefault("schemas", {})
+    schemas["RecollectiumErrorEnvelope"] = {
+        "additionalProperties": False,
+        "properties": {
+            "error": {
+                "additionalProperties": False,
+                "properties": {
+                    "code": {
+                        "description": "Stable Recollectium error code.",
+                        "type": "string",
+                    },
+                    "message": {
+                        "description": "Human-readable error summary.",
+                        "type": "string",
+                    },
+                    "details": {
+                        "additionalProperties": True,
+                        "description": "Optional machine-readable error details.",
+                        "type": "object",
+                    },
+                },
+                "required": ["code", "message", "details"],
+                "type": "object",
+            }
+        },
+        "required": ["error"],
+        "title": "RecollectiumErrorEnvelope",
+        "type": "object",
+    }
+    validation_response = _validation_error_response_schema()
+    for path_item in schema.get("paths", {}).values():
+        for operation in path_item.values():
+            responses = (
+                operation.get("responses", {}) if isinstance(operation, dict) else {}
+            )
+            if isinstance(responses, dict) and "422" in responses:
+                responses.pop("422", None)
+                responses.setdefault("400", validation_response)
+    schemas.pop("HTTPValidationError", None)
+    schemas.pop("ValidationError", None)
+    app.openapi_schema = schema
+    return schema
 
 
 def _resolve_verbosity(
@@ -1028,6 +1097,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
                 result, verbosity=resolved, operation=OPERATION_WORKSPACES_RENAME
             )
         )
+
+    app.openapi = lambda: _customize_openapi_validation_responses(app)  # type: ignore[method-assign]
 
     return app
 

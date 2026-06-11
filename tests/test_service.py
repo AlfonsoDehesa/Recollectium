@@ -369,7 +369,9 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
 
     contract = json.loads(openapi_path.read_text(encoding="utf-8"))
     app = create_app(RecollectiumCore(db_path=tmp_path / "openapi.db"))
-    assert contract == app.openapi()
+    generated_contract = app.openapi()
+    assert app.openapi() == generated_contract
+    assert contract == generated_contract
     assert contract["openapi"] == "3.1.0"
 
     info_description = contract["info"]["description"].lower()
@@ -409,6 +411,53 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
             _assert_verbosity_parameter_contract(parameters)
 
     schemas = contract["components"]["schemas"]
+    assert "HTTPValidationError" not in schemas
+    assert "ValidationError" not in schemas
+    assert schemas["RecollectiumErrorEnvelope"] == {
+        "additionalProperties": False,
+        "properties": {
+            "error": {
+                "additionalProperties": False,
+                "properties": {
+                    "code": {
+                        "description": "Stable Recollectium error code.",
+                        "type": "string",
+                    },
+                    "message": {
+                        "description": "Human-readable error summary.",
+                        "type": "string",
+                    },
+                    "details": {
+                        "additionalProperties": True,
+                        "description": "Optional machine-readable error details.",
+                        "type": "object",
+                    },
+                },
+                "required": ["code", "message", "details"],
+                "type": "object",
+            }
+        },
+        "required": ["error"],
+        "title": "RecollectiumErrorEnvelope",
+        "type": "object",
+    }
+    for path_item in paths.values():
+        for operation in path_item.values():
+            responses = operation["responses"]
+            assert "422" not in responses
+            validation_response = responses.get("400")
+            if validation_response is None:
+                continue
+            assert validation_response["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+            }
+            assert validation_response["content"]["application/json"]["example"] == {
+                "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {},
+                }
+            }
     for schema_name in (
         "AddMemoryRequest",
         "AddWorkspaceAliasRequest",
