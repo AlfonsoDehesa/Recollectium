@@ -202,6 +202,7 @@ _COMPLETABLE_CONFIG_KEYS = [
     "workspace.uid_normalization",
 ]
 _SUPPORTED_EMBEDDING_MODELS_HELP = ", ".join(sorted(SUPPORTED_EMBEDDING_MODELS))
+_ARGPARSE_JSON_ERRORS = False
 
 
 def _frame_human_output(text: str) -> str:
@@ -216,6 +217,18 @@ class _HumanFramedArgumentParser(argparse.ArgumentParser):
         return _frame_human_output(super().format_help())
 
     def error(self, message: str) -> NoReturn:
+        if _ARGPARSE_JSON_ERRORS:
+            self.exit(
+                2,
+                json.dumps(
+                    {
+                        "status": "validation_error",
+                        "message": message,
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+            )
         self.exit(
             2,
             _frame_human_output(
@@ -1572,7 +1585,7 @@ def _core_config_path(explicit_path: str | None) -> Path | None:
 def _extract_cli_output_override(
     argv: Sequence[str] | None,
 ) -> tuple[list[str] | None, str | None, str | None, bool, bool, bool]:
-    """Remove global output and verbosity flags so they work around subcommands."""
+    """Remove unambiguous global output and verbosity flags around subcommands."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
     output_format: str | None = None
     response_verbosity: str | None = None
@@ -1581,13 +1594,97 @@ def _extract_cli_output_override(
     verbosity_conflict = False
     explicit_json = False
     literal_args = False
+    command_seen = False
+    pending_option_value = False
+    config_set_tokens: list[str] = []
+    config_set_value_pending = False
+    root_commands = {
+        "init",
+        "config",
+        "add",
+        "update",
+        "archive",
+        "search-user",
+        "search-workspace",
+        "list",
+        "get",
+        "workspace",
+        "db-status",
+        "embedding-status",
+        "embedding-maintenance",
+        "embedding-refresh",
+        "embedding-jobs",
+        "embedding-jobs-clear",
+        "service",
+        "mcp-stdio",
+        "dev",
+        "upgrade",
+        "uninstall",
+        "completion",
+    }
+    value_options = {
+        "--config",
+        "--db",
+        "--log-level",
+        "--space",
+        "--type",
+        "--content",
+        "--workspace-uid",
+        "--metadata",
+        "--source",
+        "--confidence",
+        "--id",
+        "--status",
+        "--limit",
+        "--protected-minimum",
+        "--match-threshold",
+        "--host",
+        "--port",
+        "--pid-file",
+        "--log-file",
+        "--format",
+        "--timeout",
+        "--timeout-seconds",
+        "--complete-line",
+        "--shell",
+        "--target",
+        "--apply",
+        "--min",
+        "--max",
+        "--steps",
+        "--output",
+    }
+
+    def append_cleaned(item: str) -> None:
+        nonlocal command_seen, pending_option_value, config_set_value_pending
+        cleaned.append(item)
+        if item in value_options:
+            pending_option_value = True
+        if not command_seen and item in root_commands:
+            command_seen = True
+        if command_seen and len(config_set_tokens) < 3:
+            config_set_tokens.append(item)
+            if len(config_set_tokens) == 3 and config_set_tokens[:2] == [
+                "config",
+                "set",
+            ]:
+                config_set_value_pending = True
+
     for item in raw_args:
         if literal_args:
             cleaned.append(item)
             continue
+        if pending_option_value:
+            cleaned.append(item)
+            pending_option_value = False
+            continue
         if item == "--":
             literal_args = True
             cleaned.append(item)
+            continue
+        if config_set_value_pending:
+            cleaned.append(item)
+            config_set_value_pending = False
             continue
         if item == "--json":
             explicit_json = True
@@ -1610,7 +1707,7 @@ def _extract_cli_output_override(
                 verbosity_conflict = True
             response_verbosity = RESPONSE_VERBOSITY_VERBOSE
             continue
-        cleaned.append(item)
+        append_cleaned(item)
     if argv is None:
         cleaned_arg: list[str] | None = None if cleaned == raw_args else cleaned
         return (
@@ -5832,14 +5929,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             command="output",
         )
     if verbosity_conflict:
-        _set_cli_output_format(output_override or CLI_OUTPUT_JSON)
+        _set_cli_output_format(output_override or CLI_OUTPUT_HUMAN_READABLE)
         return _emit_cli_failure(
             status="validation_error",
             message="Choose either --compact or --verbose, not both.",
             exit_code=2,
             command="verbosity",
         )
-    args = parser.parse_args(effective_argv)
+    global _ARGPARSE_JSON_ERRORS
+    previous_argparse_json_errors = _ARGPARSE_JSON_ERRORS
+    _ARGPARSE_JSON_ERRORS = output_override == CLI_OUTPUT_JSON
+    try:
+        args = parser.parse_args(effective_argv)
+    finally:
+        _ARGPARSE_JSON_ERRORS = previous_argparse_json_errors
     setattr(args, "_explicit_json", explicit_json)
 
     if getattr(args, "command", None) is None and getattr(args, "version", False):
@@ -6016,7 +6119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config_path=core_config_path,
                 log_level=args.log_level,
             )
-            core._ensure_model_ready()
+            _ensure_cli_model_ready(core, output_format="json")
         except FileNotFoundError as exc:
             return _config_missing_error(exc, command=args.command)
         except ValidationError as exc:

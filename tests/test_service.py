@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError as PydanticValidationError
@@ -291,8 +291,8 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
         "GET /v1/memories/{memory_id}": {"require_request": True},
         "GET /v1/embedding/status": {"require_request": False},
         "GET /v1/embedding/jobs": {"require_request": False},
-        "POST /v1/embedding/refresh": {"require_request": True},
-        "DELETE /v1/embedding/jobs": {"require_request": True},
+        "POST /v1/embedding/refresh": {"require_request": False},
+        "DELETE /v1/embedding/jobs": {"require_request": False},
         "GET /v1/embedding/jobs/{job_id}": {"require_request": False},
         "GET /v1/workspaces": {"require_request": False},
         "GET /v1/workspaces/resolve": {"require_request": False},
@@ -330,6 +330,7 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
         assert error_code in docs_text
 
     assert "POST /v1/memories/{memory_id}/archive` is body-less." in docs_text
+    assert "also accept omitted or `null` bodies" in docs_text
 
     for route in (
         "POST /v1/memories/search_user",
@@ -441,9 +442,26 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "title": "RecollectiumErrorEnvelope",
         "type": "object",
     }
+    documented_error_responses = contract["components"]["responses"]
+    assert set(documented_error_responses) >= {
+        "RecollectiumNotFound",
+        "RecollectiumConflict",
+        "RecollectiumInternalError",
+        "RecollectiumEmbeddingProviderUnavailable",
+    }
+    expected_shared_statuses = {
+        "404": "RecollectiumNotFound",
+        "409": "RecollectiumConflict",
+        "500": "RecollectiumInternalError",
+        "503": "RecollectiumEmbeddingProviderUnavailable",
+    }
     for path_item in paths.values():
         for operation in path_item.values():
             responses = operation["responses"]
+            for status, response_name in expected_shared_statuses.items():
+                assert responses[status] == {
+                    "$ref": f"#/components/responses/{response_name}"
+                }
             assert "422" not in responses
             validation_response = responses.get("400")
             if validation_response is None:
@@ -492,6 +510,8 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         )
         assert numeric_threshold_schema["minimum"] == 0.0
         assert numeric_threshold_schema["maximum"] == 1.0
+
+    assert schemas["UpdateMemoryRequest"]["minProperties"] == 1
 
 
 def test_api_request_models_reject_unknown_fields() -> None:
@@ -563,6 +583,92 @@ def test_search_request_retrieval_override_validation_contract() -> None:
         )
 
 
+def test_api_request_models_reject_coerced_scalar_values() -> None:
+    scalar_cases: tuple[tuple[type[Any], dict[str, Any], dict[str, Any]], ...] = (
+        (SearchUserRequest, {"query": "tea"}, {"limit": "5"}),
+        (SearchUserRequest, {"query": "tea"}, {"limit": True}),
+        (SearchUserRequest, {"query": "tea"}, {"include_archived": 1}),
+        (
+            SearchWorkspaceRequest,
+            {"query": "tea", "workspace_uid": "ws"},
+            {"limit": "5"},
+        ),
+        (
+            SearchWorkspaceRequest,
+            {"query": "tea", "workspace_uid": "ws"},
+            {"include_archived": 0},
+        ),
+        (
+            AddMemoryRequest,
+            {"space": "user", "type": "fact", "content": "tea"},
+            {"confidence": "0.5"},
+        ),
+        (
+            AddMemoryRequest,
+            {"space": "user", "type": "fact", "content": "tea"},
+            {"confidence": True},
+        ),
+        (UpdateMemoryRequest, {}, {"confidence": "0.5"}),
+        (AddWorkspaceAliasRequest, {"alias_uid": "alias"}, {"migrate_existing": 1}),
+        (EmbeddingRefreshRequest, {}, {"include_archived": "true"}),
+    )
+    for model_type, valid_body, invalid_override in scalar_cases:
+        with pytest.raises(PydanticValidationError):
+            model_type.model_validate(valid_body | invalid_override)
+
+
+def test_api_memory_request_constraints_are_in_request_models() -> None:
+    for invalid_confidence in (-0.01, 1.01):
+        with pytest.raises(PydanticValidationError):
+            AddMemoryRequest.model_validate(
+                {
+                    "space": "user",
+                    "type": "fact",
+                    "content": "tea",
+                    "confidence": invalid_confidence,
+                }
+            )
+
+    with pytest.raises(PydanticValidationError):
+        AddMemoryRequest.model_validate(
+            {"space": "global", "type": "fact", "content": "tea"}
+        )
+    with pytest.raises(
+        PydanticValidationError,
+        match="workspace_uid is only valid for workspace memories",
+    ):
+        AddMemoryRequest.model_validate(
+            {
+                "space": "user",
+                "type": "fact",
+                "content": "tea",
+                "workspace_uid": "ws",
+            }
+        )
+    with pytest.raises(PydanticValidationError):
+        AddMemoryRequest.model_validate(
+            {"space": "workspace", "type": "fact", "content": "tea"}
+        )
+    with pytest.raises(PydanticValidationError):
+        UpdateMemoryRequest.model_validate({})
+
+    AddMemoryRequest.model_validate({"space": "user", "type": "fact", "content": "tea"})
+    AddMemoryRequest.model_validate(
+        {
+            "space": "workspace",
+            "type": "fact",
+            "content": "tea",
+            "workspace_uid": "ws",
+            "confidence": 0.5,
+        }
+    )
+    UpdateMemoryRequest.model_validate({"content": "updated"})
+    EmbeddingRefreshRequest.model_validate({"space": "user"})
+    EmbeddingRefreshRequest.model_validate({"space": "workspace"})
+    with pytest.raises(PydanticValidationError):
+        EmbeddingRefreshRequest.model_validate({"space": "global"})
+
+
 def _service_docs_section_for_route(docs_text: str, route: str) -> str:
     route_index = docs_text.index(route)
     next_heading_match = re.search(r"\n### ", docs_text[route_index + 1 :])
@@ -609,6 +715,35 @@ def _request_raw(
         headers={"Content-Type": "application/json"},
     )
     return response.status_code, response.json()
+
+
+def test_http_error_log_context_uses_stable_error_code_string(caplog: Any) -> None:
+    class FailingCore:
+        config = type(
+            "Config", (), {"effective_config": {"response_verbosity": "compact"}}
+        )()
+
+        def add_memory(self, **_kwargs: Any) -> object:
+            raise ValidationError("bad memory")
+
+    caplog.set_level("ERROR", logger="recollectium.service")
+    client = _client(cast(RecollectiumCore, FailingCore()))
+
+    status, payload = _request_json(
+        client,
+        "POST",
+        "/v1/memories",
+        {"space": "user", "type": "fact", "content": "x"},
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    request_failed_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "service.request_failed"
+    )
+    assert request_failed_record.context["error_code"] == "validation_error"
 
 
 def test_http_metadata_routes_return_json(tmp_path: Path) -> None:

@@ -11,14 +11,17 @@ from pydantic import Field
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
 from recollectium.core import RecollectiumCore
-from recollectium.retrieval import UNSET
+from recollectium.models import SPACE_USER, SPACE_WORKSPACE
+from recollectium.retrieval import UNSET, UnsetType
 from recollectium.errors import RecollectiumError
 from recollectium.representations import (
+    OPERATION_CAPABILITIES_READ,
     OPERATION_EMBEDDING_JOBS_CLEAR,
     OPERATION_EMBEDDING_JOBS_GET,
     OPERATION_EMBEDDING_JOBS_LIST,
     OPERATION_EMBEDDING_REFRESH,
     OPERATION_EMBEDDING_STATUS,
+    OPERATION_HEALTH_READ,
     OPERATION_MEMORIES_ADD,
     OPERATION_MEMORIES_ARCHIVE,
     OPERATION_MEMORIES_GET,
@@ -32,10 +35,13 @@ from recollectium.representations import (
     OPERATION_WORKSPACES_LIST,
     OPERATION_WORKSPACES_RENAME,
     OPERATION_WORKSPACES_RESOLVE,
+    OPERATION_VERSION_READ,
     project_payload,
     validate_response_verbosity,
 )
 from recollectium.service_contract import (
+    capabilities_payload,
+    health_payload,
     serialize_embedding_job,
     serialize_embedding_jobs,
     serialize_embedding_operation_result,
@@ -43,6 +49,7 @@ from recollectium.service_contract import (
     serialize_memories,
     serialize_memory,
     serialize_search_results,
+    version_payload,
 )
 
 _log = logging.getLogger(__name__)
@@ -64,6 +71,7 @@ SearchProtectedMinimumArg: TypeAlias = Annotated[
             "threshold filtering. Omit to use configuration defaults."
         ),
         ge=0,
+        strict=True,
     ),
 ]
 SearchMatchThresholdNumberArg: TypeAlias = Annotated[
@@ -75,11 +83,23 @@ SearchMatchThresholdNumberArg: TypeAlias = Annotated[
         ),
         ge=0.0,
         le=1.0,
+        strict=True,
     ),
 ]
 SearchMatchThresholdArg: TypeAlias = (
     SearchMatchThresholdNumberArg | Literal["model_recommended_default"] | None
 )
+NonEmptyStringArg: TypeAlias = Annotated[str, Field(min_length=1)]
+SpaceArg: TypeAlias = Annotated[
+    Literal["user", "workspace"], Field(description="Memory space.")
+]
+StatusArg: TypeAlias = Annotated[
+    Literal["active", "archived"] | None,
+    Field(description="Optional memory status filter."),
+]
+StrictBoolArg: TypeAlias = Annotated[bool, Field(strict=True)]
+PositiveLimitArg: TypeAlias = Annotated[int, Field(ge=1, strict=True)]
+ConfidenceArg: TypeAlias = Annotated[float | None, Field(ge=0.0, le=1.0, strict=True)]
 
 
 def create_mcp_server(core: RecollectiumCore) -> FastMCP:
@@ -92,6 +112,87 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     def _error(message: str) -> str:
         return _json({"error": message})
+
+    def _strict_bool(name: str, value: object) -> bool | str:
+        if type(value) is not bool:
+            return f"{name} must be a JSON boolean"
+        return value
+
+    def _strict_int(
+        name: str, value: object, *, minimum: int | None = None
+    ) -> int | str:
+        if type(value) is not int:
+            return f"{name} must be a JSON integer"
+        if minimum is not None and value < minimum:
+            return f"{name} must be greater than or equal to {minimum}"
+        return value
+
+    def _strict_float(
+        name: str,
+        value: object,
+        *,
+        minimum: float | None = None,
+        maximum: float | None = None,
+    ) -> float | None | str:
+        if value is None:
+            return None
+        if type(value) not in {int, float}:
+            return f"{name} must be a JSON number"
+        numeric = float(cast(int | float, value))
+        if minimum is not None and numeric < minimum:
+            return f"{name} must be greater than or equal to {minimum}"
+        if maximum is not None and numeric > maximum:
+            return f"{name} must be less than or equal to {maximum}"
+        return numeric
+
+    def _search_overrides(
+        *,
+        limit: object,
+        protected_minimum: object,
+        match_threshold: object,
+        include_archived: object,
+    ) -> (
+        tuple[
+            int,
+            int | UnsetType,
+            float | None | Literal["model_recommended_default"] | UnsetType,
+            bool,
+        ]
+        | str
+    ):
+        checked_limit = _strict_int("limit", limit, minimum=1)
+        if isinstance(checked_limit, str):
+            return checked_limit
+        checked_archived = _strict_bool("include_archived", include_archived)
+        if isinstance(checked_archived, str):
+            return checked_archived
+        checked_protected: int | UnsetType = UNSET
+        if protected_minimum is not UNSET:
+            parsed_protected = _strict_int(
+                "protected_minimum", protected_minimum, minimum=0
+            )
+            if isinstance(parsed_protected, str):
+                return parsed_protected
+            checked_protected = parsed_protected
+        checked_threshold: (
+            float | None | Literal["model_recommended_default"] | UnsetType
+        ) = UNSET
+        if (
+            match_threshold is not UNSET
+            and match_threshold != "model_recommended_default"
+            and match_threshold is not None
+        ):
+            parsed_threshold = _strict_float(
+                "match_threshold", match_threshold, minimum=0.0, maximum=1.0
+            )
+            if isinstance(parsed_threshold, str):
+                return parsed_threshold
+            checked_threshold = parsed_threshold
+        elif match_threshold == "model_recommended_default":
+            checked_threshold = "model_recommended_default"
+        elif match_threshold is None:
+            checked_threshold = None
+        return checked_limit, checked_protected, checked_threshold, checked_archived
 
     def _resolve_verbosity(verbosity: str | None) -> str:
         config_default = None
@@ -107,17 +208,57 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         return validate_response_verbosity(selected).value
 
     @mcp.tool()
+    def health(verbosity: ResponseVerbosityArg = None) -> str:
+        """Return local Recollectium service health."""
+        _resolve_verbosity(verbosity)
+        return _json(
+            project_payload(health_payload()["data"], operation=OPERATION_HEALTH_READ)
+        )
+
+    @mcp.tool()
+    def version(verbosity: ResponseVerbosityArg = None) -> str:
+        """Return Recollectium and local service API versions."""
+        _resolve_verbosity(verbosity)
+        return _json(
+            project_payload(version_payload()["data"], operation=OPERATION_VERSION_READ)
+        )
+
+    @mcp.tool()
+    def capabilities(verbosity: ResponseVerbosityArg = None) -> str:
+        """Return local service capabilities and memory type enums."""
+        resolved = _resolve_verbosity(verbosity)
+        data = capabilities_payload()["data"]
+        if resolved == RESPONSE_VERBOSITY_VERBOSE:
+            data["response_verbosity"] = resolved
+        return _json(
+            project_payload(
+                data,
+                verbosity=resolved,
+                operation=OPERATION_CAPABILITIES_READ,
+            )
+        )
+
+    @mcp.tool()
     def search_user_memory(
-        query: str,
+        query: NonEmptyStringArg,
         type: str | None = None,
-        limit: int = 20,
-        protected_minimum: SearchProtectedMinimumArg = cast(int, UNSET),
-        match_threshold: SearchMatchThresholdArg = cast(SearchMatchThresholdArg, UNSET),
-        include_archived: bool = False,
+        limit: PositiveLimitArg = 20,
+        protected_minimum: SearchProtectedMinimumArg | UnsetType = UNSET,
+        match_threshold: SearchMatchThresholdArg | UnsetType = UNSET,
+        include_archived: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Search user-space memories by semantic similarity to the query."""
         try:
+            checked = _search_overrides(
+                limit=limit,
+                protected_minimum=protected_minimum,
+                match_threshold=match_threshold,
+                include_archived=include_archived,
+            )
+            if isinstance(checked, str):
+                return _error(checked)
+            limit, protected_minimum, match_threshold, include_archived = checked
             resolved = _resolve_verbosity(verbosity)
             results = core.search_user_memories(
                 query=query,
@@ -147,17 +288,26 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def search_workspace_memory(
-        query: str,
-        workspace_uid: str,
+        query: NonEmptyStringArg,
+        workspace_uid: NonEmptyStringArg,
         type: str | None = None,
-        limit: int = 20,
-        protected_minimum: SearchProtectedMinimumArg = cast(int, UNSET),
-        match_threshold: SearchMatchThresholdArg = cast(SearchMatchThresholdArg, UNSET),
-        include_archived: bool = False,
+        limit: PositiveLimitArg = 20,
+        protected_minimum: SearchProtectedMinimumArg | UnsetType = UNSET,
+        match_threshold: SearchMatchThresholdArg | UnsetType = UNSET,
+        include_archived: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Search workspace memories by semantic similarity to the query."""
         try:
+            checked = _search_overrides(
+                limit=limit,
+                protected_minimum=protected_minimum,
+                match_threshold=match_threshold,
+                include_archived=include_archived,
+            )
+            if isinstance(checked, str):
+                return _error(checked)
+            limit, protected_minimum, match_threshold, include_archived = checked
             resolved = _resolve_verbosity(verbosity)
             results = core.search_workspace_memories(
                 query=query,
@@ -191,13 +341,34 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             tool = mcp._tool_manager._tools[tool_name]
             properties = tool.parameters["properties"]
             for parameter_name in ("protected_minimum", "match_threshold"):
-                properties[parameter_name].pop("default", None)
+                schema = properties[parameter_name]
+                schema.pop("default", None)
+                options = [
+                    option
+                    for option in schema["anyOf"]
+                    if option.get("$ref") != "#/$defs/_UnsetType"
+                ]
+                if len(options) == 1:
+                    replacement = {"title": schema.get("title"), **options[0]}
+                    properties[parameter_name] = {
+                        key: value
+                        for key, value in replacement.items()
+                        if value is not None
+                    }
+                else:
+                    schema["anyOf"] = options
 
     _hide_search_unset_schema_defaults()
 
-    def _parse_metadata(metadata: str | None) -> dict[str, object] | None | str:
+    def _parse_metadata(
+        metadata: str | dict[str, object] | None,
+    ) -> dict[str, object] | None | str:
         if metadata is None:
             return None
+        if isinstance(metadata, dict):
+            return metadata
+        if not isinstance(metadata, str):
+            return "metadata must be a JSON object"
         try:
             parsed_metadata = json.loads(metadata)
         except json.JSONDecodeError:
@@ -208,18 +379,27 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def add_memory(
-        space: str,
-        type: str,
-        content: str,
+        space: SpaceArg,
+        type: NonEmptyStringArg,
+        content: NonEmptyStringArg,
         workspace_uid: str | None = None,
-        metadata: str | None = None,
-        source: str | None = None,
-        confidence: float | None = None,
+        metadata: str | dict[str, object] | None = None,
+        source: NonEmptyStringArg | None = None,
+        confidence: ConfidenceArg = None,
         sensitivity: str | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Add a new memory. Returns the created memory as JSON."""
         try:
+            if space == SPACE_USER and workspace_uid is not None:
+                return _error("workspace_uid is only valid for workspace memories")
+            if space == SPACE_WORKSPACE and not workspace_uid:
+                return _error("workspace_uid is required for workspace memories")
+            checked_confidence = _strict_float(
+                "confidence", confidence, minimum=0.0, maximum=1.0
+            )
+            if isinstance(checked_confidence, str):
+                return _error(checked_confidence)
             resolved = _resolve_verbosity(verbosity)
             parsed_metadata = _parse_metadata(metadata)
             if isinstance(parsed_metadata, str):
@@ -232,7 +412,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 workspace_uid=workspace_uid,
                 metadata=parsed_metadata,
                 source=source,
-                confidence=confidence,
+                confidence=checked_confidence,
                 sensitivity=sensitivity,
             )
             return _json(
@@ -274,16 +454,26 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def update_memory(
         id: str,
-        type: str | None = None,
-        content: str | None = None,
-        metadata: str | None = None,
-        source: str | None = None,
-        confidence: float | None = None,
+        type: NonEmptyStringArg | None = None,
+        content: NonEmptyStringArg | None = None,
+        metadata: str | dict[str, object] | None = None,
+        source: NonEmptyStringArg | None = None,
+        confidence: ConfidenceArg = None,
         sensitivity: str | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Update an existing memory. Returns the updated memory as JSON."""
         try:
+            if not any(
+                value is not None
+                for value in (type, content, metadata, source, confidence, sensitivity)
+            ):
+                return _error("at least one update field is required")
+            checked_confidence = _strict_float(
+                "confidence", confidence, minimum=0.0, maximum=1.0
+            )
+            if isinstance(checked_confidence, str):
+                return _error(checked_confidence)
             resolved = _resolve_verbosity(verbosity)
             parsed_metadata = _parse_metadata(metadata)
             if isinstance(parsed_metadata, str):
@@ -295,7 +485,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
                 content=content,
                 metadata=parsed_metadata,
                 source=source,
-                confidence=confidence,
+                confidence=checked_confidence,
                 sensitivity=sensitivity,
             )
             return _json(
@@ -342,23 +532,31 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def list_memories(
-        space: str | None = None,
+        space: Literal["user", "workspace"] | None = None,
         type: str | None = None,
-        status: str | None = None,
+        status: StatusArg = None,
         workspace_uid: str | None = None,
-        include_archived: bool = False,
-        limit: int | None = None,
+        include_archived: StrictBoolArg = False,
+        limit: PositiveLimitArg | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List memories, optionally filtered by space, type, status, workspace UID, and limit."""
         try:
+            checked_archived = _strict_bool("include_archived", include_archived)
+            if isinstance(checked_archived, str):
+                return _error(checked_archived)
+            if limit is not None:
+                checked_limit = _strict_int("limit", limit, minimum=1)
+                if isinstance(checked_limit, str):
+                    return _error(checked_limit)
+                limit = checked_limit
             resolved = _resolve_verbosity(verbosity)
             results = core.list_memories(
                 space=space,
                 type=type,
                 status=status,
                 workspace_uid=workspace_uid,
-                include_archived=include_archived,
+                include_archived=checked_archived,
                 limit=limit,
             )
             return _json(
@@ -381,17 +579,23 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def list_workspaces(
-        include_archived: bool = False,
-        include_aliases: bool = False,
+        include_archived: StrictBoolArg = False,
+        include_aliases: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List known workspace UIDs, optionally with aliases."""
         try:
+            checked_archived = _strict_bool("include_archived", include_archived)
+            if isinstance(checked_archived, str):
+                return _error(checked_archived)
+            checked_aliases = _strict_bool("include_aliases", include_aliases)
+            if isinstance(checked_aliases, str):
+                return _error(checked_aliases)
             resolved = _resolve_verbosity(verbosity)
             uids = core.list_workspaces(
-                include_archived=include_archived,
-                include_aliases=include_aliases,
-                include_alias_records=include_aliases
+                include_archived=checked_archived,
+                include_aliases=checked_aliases,
+                include_alias_records=checked_aliases
                 and resolved == RESPONSE_VERBOSITY_VERBOSE,
             )
             return _json(
@@ -437,16 +641,19 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def add_workspace_alias(
         canonical_uid: str,
         alias_uid: str,
-        migrate_existing: bool = False,
+        migrate_existing: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Create an alias for a canonical workspace UID."""
         try:
+            checked_migrate = _strict_bool("migrate_existing", migrate_existing)
+            if isinstance(checked_migrate, str):
+                return _error(checked_migrate)
             resolved = _resolve_verbosity(verbosity)
             result = core.add_workspace_alias(
                 canonical_uid=canonical_uid,
                 alias_uid=alias_uid,
-                migrate_existing=migrate_existing,
+                migrate_existing=checked_migrate,
             )
             return _json(
                 project_payload(
@@ -574,12 +781,18 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def embedding_jobs(
-        state: str | None = None,
-        limit: int | None = None,
+        state: Literal["queued", "running", "completed", "failed", "pending"]
+        | None = None,
+        limit: PositiveLimitArg | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List embedding jobs, optionally filtered by state."""
         try:
+            if limit is not None:
+                checked_limit = _strict_int("limit", limit, minimum=1)
+                if isinstance(checked_limit, str):
+                    return _error(checked_limit)
+                limit = checked_limit
             resolved = _resolve_verbosity(verbosity)
             jobs = core.list_embedding_jobs(state=state, limit=limit)
             return _json(
@@ -602,18 +815,21 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def refresh_embeddings(
-        space: str | None = None,
+        space: Literal["user", "workspace"] | None = None,
         workspace_uid: str | None = None,
-        include_archived: bool = False,
+        include_archived: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Force stale embedding refresh inline and return the completed job summary."""
         try:
+            checked_archived = _strict_bool("include_archived", include_archived)
+            if isinstance(checked_archived, str):
+                return _error(checked_archived)
             resolved = _resolve_verbosity(verbosity)
             result = core.refresh_stale_embeddings(
                 space=space,
                 workspace_uid=workspace_uid,
-                include_archived=include_archived,
+                include_archived=checked_archived,
             )
             return _json(
                 serialize_embedding_operation_result(
@@ -684,4 +900,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return _error(str(e))
 
+    def _finalize_tool_schemas() -> None:
+        for tool in mcp._tool_manager._tools.values():
+            tool.parameters["additionalProperties"] = False
+
+    _finalize_tool_schemas()
     return mcp
