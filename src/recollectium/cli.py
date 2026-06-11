@@ -5488,6 +5488,7 @@ def _handle_dev_command(
                 config_path=core_config_path,
                 log_level=args.log_level,
                 cli_structured_errors=True,
+                foreground_stderr_logs=True,
             )
         except FileNotFoundError as exc:
             return _config_missing_error(exc, command="dev serve")

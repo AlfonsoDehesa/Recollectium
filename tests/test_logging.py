@@ -182,6 +182,63 @@ class TestSetupLogging:
             if not isinstance(h, logging.handlers.RotatingFileHandler):
                 assert h.level == logging.WARNING
 
+    def test_default_stderr_warning_preserves_file_log_level(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = _make_test_config(tmp_path, level="debug")
+        setup_logging(config)
+
+        logger = get_logger("recollectium.test.default_stderr")
+        logger.debug("debug reaches file only", extra={"event": "debug.file_only"})
+
+        for handler in logging.getLogger("recollectium").handlers:
+            handler.flush()
+
+        assert capsys.readouterr().err == ""
+        log_file = tmp_path / "logs" / "recollectium.log"
+        payloads = [
+            json.loads(line)
+            for line in log_file.read_text(encoding="utf-8").splitlines()
+        ]
+        assert any(
+            payload["event"] == "debug.file_only" and payload["level"] == "DEBUG"
+            for payload in payloads
+        )
+
+    def test_foreground_stderr_level_streams_access_logs(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = _make_test_config(tmp_path, level="info")
+        setup_logging(config, stderr_level="info", library_log_level="info")
+
+        logging.getLogger("uvicorn.access").info(
+            '127.0.0.1:1 - "GET /v1/health HTTP/1.1" 200'
+        )
+
+        for logger_name in ("uvicorn", "recollectium"):
+            for handler in logging.getLogger(logger_name).handlers:
+                handler.flush()
+
+        stderr_lines = capsys.readouterr().err.splitlines()
+        assert stderr_lines
+        payload = json.loads(stderr_lines[-1])
+        assert payload["logger"] == "uvicorn.access"
+        assert payload["level"] == "INFO"
+        assert "GET /v1/health" in payload["message"]
+
+    def test_explicit_integer_stderr_level_is_supported(self, tmp_path: Path) -> None:
+        config = _make_test_config(tmp_path)
+        setup_logging(config, stderr_level=logging.ERROR)
+
+        stream_handlers = [
+            handler
+            for handler in logging.getLogger("recollectium").handlers
+            if isinstance(handler, logging.StreamHandler)
+            and not isinstance(handler, logging.handlers.RotatingFileHandler)
+        ]
+        assert stream_handlers
+        assert all(handler.level == logging.ERROR for handler in stream_handlers)
+
     def test_logger_emits_to_file(self, tmp_path: Path) -> None:
         # Save and clear existing handlers so test setup takes full control
         recollectium_logger = logging.getLogger("recollectium")
@@ -363,13 +420,13 @@ class TestGetLogger:
 # ---------------------------------------------------------------------------
 
 
-def _make_test_config(tmp_path: Path) -> RecollectiumConfig:
+def _make_test_config(tmp_path: Path, *, level: str = "info") -> RecollectiumConfig:
     """Create a minimal mock config for logging setup tests."""
     config = MagicMock(spec=RecollectiumConfig)
     config.xdg_dirs = {"logs": tmp_path / "logs"}
     config.effective_config = {
         "logging": {
-            "level": "info",
+            "level": level,
             "format": "json",
             "max_bytes": 10485760,
             "backup_count": 5,

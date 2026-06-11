@@ -1046,6 +1046,62 @@ def test_run_service_builds_core_and_starts_uvicorn(monkeypatch) -> None:
     assert calls["log_config"] is None
 
 
+def test_run_service_foreground_reconfigures_stderr_logging(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeCore:
+        def __init__(
+            self,
+            *,
+            db_path: str | None,
+            config_path: str | None = None,
+            log_level: str | None = None,
+        ) -> None:
+            self.config = type(
+                "FakeConfig",
+                (),
+                {"effective_config": {"logging": {"level": "info"}}},
+            )()
+
+        def _ensure_model_ready(self) -> None:
+            pass
+
+    def fake_setup_logging(
+        config: object,
+        *,
+        stderr_level: str | int | None = None,
+        library_log_level: str | int | None = None,
+    ) -> None:
+        calls["config"] = config
+        calls["stderr_level"] = stderr_level
+        calls["library_log_level"] = library_log_level
+
+    def fake_create_app(core: object) -> str:
+        return "fake-app"
+
+    def fake_run(app: object, **kwargs: object) -> None:
+        calls["uvicorn_app"] = app
+        calls["uvicorn_kwargs"] = kwargs
+
+    monkeypatch.setattr("recollectium.service.RecollectiumCore", FakeCore)
+    monkeypatch.setattr("recollectium.service.setup_logging", fake_setup_logging)
+    monkeypatch.setattr("recollectium.service.create_app", fake_create_app)
+
+    import uvicorn
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    run_service(
+        host="127.0.0.1",
+        port=9002,
+        db_path="service.db",
+        foreground_stderr_logs=True,
+    )
+
+    assert calls["stderr_level"] == "info"
+    assert calls["library_log_level"] == "info"
+
+
 def test_create_mcp_app_instantiates_fastapi_with_sse_mount(
     tmp_path: Path,
 ) -> None:

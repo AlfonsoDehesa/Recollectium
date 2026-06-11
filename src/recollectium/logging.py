@@ -68,16 +68,37 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, sort_keys=True)
 
 
-def setup_logging(config: LoggingConfig) -> None:
+def _level_from_name(level: str | int | None, default: int) -> int:
+    """Return a logging level for a configured string/int value."""
+
+    if isinstance(level, int):
+        return level
+    if level is None:
+        return default
+    return getattr(logging, str(level).upper(), default)
+
+
+def setup_logging(
+    config: LoggingConfig,
+    *,
+    stderr_level: str | int | None = None,
+    library_log_level: str | int | None = None,
+) -> None:
     """Bootstrap the ``recollectium`` logger hierarchy.
 
     Creates the logs directory (mode 0o700), attaches a
     ``RotatingFileHandler`` writing to ``logs/recollectium.log`` (mode 0o600) and
-    a ``StreamHandler`` on stderr at WARNING level.  Both use
+    a ``StreamHandler`` on stderr.  The file handler follows the configured
+    ``logging.level``.  The stderr handler defaults to WARNING level so normal
+    one-shot CLI commands keep stdout/stderr automation clean; foreground
+    service callers can pass ``stderr_level`` to opt into streaming diagnostic
+    logs at the effective configured level.  Both handlers use
     ``JsonFormatter``.
 
     Library loggers ``uvicorn``, ``sqlite3``, and ``httpx`` are captured at
-    WARNING and routed to the same handlers.
+    WARNING by default and routed to the same handlers.  Foreground service
+    callers can pass ``library_log_level`` to include uvicorn access logs at the
+    effective configured level.
     """
     log_dir = config.xdg_dirs["logs"]
     log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -86,8 +107,10 @@ def setup_logging(config: LoggingConfig) -> None:
     log_file = log_dir / "recollectium.log"
 
     logging_config = config.effective_config.get("logging", {})
-    log_level_name = str(logging_config.get("level", "info")).upper()
-    log_level = getattr(logging, log_level_name, logging.INFO)
+    log_level_name = str(logging_config.get("level", "info"))
+    log_level = _level_from_name(log_level_name, logging.INFO)
+    effective_stderr_level = _level_from_name(stderr_level, logging.WARNING)
+    effective_library_log_level = _level_from_name(library_log_level, logging.WARNING)
     max_bytes = int(logging_config.get("max_bytes", 10485760))
     backup_count = int(logging_config.get("backup_count", 5))
 
@@ -107,7 +130,7 @@ def setup_logging(config: LoggingConfig) -> None:
     stream_handler = logging.StreamHandler(sys.stderr)
     setattr(stream_handler, "_recollectium_managed", True)
     stream_handler.setFormatter(json_formatter)
-    stream_handler.setLevel(logging.WARNING)
+    stream_handler.setLevel(effective_stderr_level)
 
     root_logger = logging.getLogger("recollectium")
     root_logger.setLevel(log_level)
@@ -124,7 +147,7 @@ def setup_logging(config: LoggingConfig) -> None:
 
     for lib_name in ("uvicorn", "sqlite3", "httpx"):
         lib_logger = logging.getLogger(lib_name)
-        lib_logger.setLevel(logging.WARNING)
+        lib_logger.setLevel(effective_library_log_level)
         lib_logger.propagate = False
         _replace_managed_handlers(lib_logger)
         lib_logger.addHandler(file_handler)
