@@ -836,12 +836,14 @@ def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> 
         config_path: str | None,
         log_level: str | None,
         cli_structured_errors: bool = False,
+        foreground_stderr_logs: bool = False,
     ) -> None:
         call["host"] = host
         call["port"] = port
         call["db_path"] = db_path
         call["config_path"] = config_path
         call["log_level"] = log_level
+        call["foreground_stderr_logs"] = foreground_stderr_logs
 
     monkeypatch.setattr("recollectium.cli.run_service", _fake_run_service)
 
@@ -870,6 +872,7 @@ def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> 
     assert call["db_path"] == str(db_path)
     assert str(call["config_path"]) == str(config_path)
     assert call["log_level"] == "debug"
+    assert call["foreground_stderr_logs"] is True
 
 
 def test_cli_dev_serve_uses_default_host_and_port_without_explicit_config(
@@ -885,6 +888,7 @@ def test_cli_dev_serve_uses_default_host_and_port_without_explicit_config(
         config_path: str | None,
         log_level: str | None,
         cli_structured_errors: bool = False,
+        foreground_stderr_logs: bool = False,
     ) -> None:
         call["host"] = host
         call["port"] = port
@@ -921,6 +925,7 @@ def test_cli_dev_serve_explicit_missing_config_fails_clearly(
         config_path: str | None,
         log_level: str | None,
         cli_structured_errors: bool = False,
+        foreground_stderr_logs: bool = False,
     ) -> None:
         raise AssertionError("run_service should not run with a missing config")
 
@@ -956,6 +961,7 @@ def test_cli_dev_serve_invalid_config_fails_clearly(
         config_path: str | None,
         log_level: str | None,
         cli_structured_errors: bool = False,
+        foreground_stderr_logs: bool = False,
     ) -> None:
         raise AssertionError("run_service should not run with invalid config")
 
@@ -995,6 +1001,7 @@ def test_cli_dev_serve_explicit_missing_config_fails_after_flag_overrides(
         config_path: str | None,
         log_level: str | None,
         cli_structured_errors: bool = False,
+        foreground_stderr_logs: bool = False,
     ) -> None:
         raise FileNotFoundError(f"config file not found: {config_path}")
 
@@ -1032,6 +1039,7 @@ def test_cli_dev_serve_invalid_config_fails_after_flag_overrides(
         config_path: str | None,
         log_level: str | None,
         cli_structured_errors: bool = False,
+        foreground_stderr_logs: bool = False,
     ) -> None:
         raise ValidationError("invalid JSON in config file")
 

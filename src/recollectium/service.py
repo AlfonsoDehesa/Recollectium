@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
 from recollectium.core import RecollectiumCore
+from recollectium.logging import setup_logging
 from recollectium.retrieval import UNSET
 from recollectium.errors import (
     EmbeddingDimensionMismatchError,
@@ -1049,6 +1050,7 @@ def run_service(
     service_type: str | None = None,
     log_level: str | None = None,
     cli_structured_errors: bool = False,
+    foreground_stderr_logs: bool = False,
 ) -> None:
     import uvicorn
 
@@ -1056,6 +1058,12 @@ def run_service(
         db_path=db_path, config_path=config_path, log_level=log_level
     )
     log_level = core.config.effective_config["logging"]["level"]
+    if foreground_stderr_logs:
+        setup_logging(
+            core.config,
+            stderr_level=log_level,
+            library_log_level=log_level,
+        )
 
     # Block until the embedding model is ready before accepting connections.
     try:
