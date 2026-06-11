@@ -12586,15 +12586,17 @@ def test_core_recollectium_error_returns_operation_failed_json(
     assert payload["detail"] == "RecollectiumError: domain boom"
 
 
-def test_cli_dev_serve_service_error_returns_structured_json(
-    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+def test_cli_dev_serve_service_error_returns_structured_json_and_log_context(
+    capsys: CaptureFixture[str], caplog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from recollectium.errors import ServiceError
 
     def _fake_run_service(**kwargs: object) -> None:
+        assert kwargs["cli_structured_errors"] is True
         raise ServiceError("serve boom")
 
     monkeypatch.setattr("recollectium.cli.run_service", _fake_run_service)
+    caplog.set_level("INFO", logger="recollectium.cli")
 
     exit_code, stdout, stderr = _run_cli(["dev", "serve"], capsys)
 
@@ -12603,6 +12605,17 @@ def test_cli_dev_serve_service_error_returns_structured_json(
     payload = json.loads(stderr)
     assert payload["status"] == "service_error"
     assert payload["detail"] == "ServiceError: serve boom"
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "dev.serve.service_error"
+    ]
+    assert len(failure_records) == 1
+    assert failure_records[0].context == {
+        "command": "dev serve",
+        "status": "service_error",
+        "exit_code": 1,
+    }
 
 
 def test_cli_dev_serve_embedding_error_returns_structured_json(
