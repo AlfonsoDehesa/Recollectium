@@ -237,7 +237,11 @@ class RecollectiumCore:
             "user search",
             extra={
                 "event": "search.user",
-                "context": {"query": query[:200], "results": len(result)},
+                "context": {
+                    "query_len": len(query),
+                    "results": len(result),
+                    "space": SPACE_USER,
+                },
             },
         )
         return result
@@ -309,8 +313,9 @@ class RecollectiumCore:
             extra={
                 "event": "search.workspace",
                 "context": {
-                    "query": query[:200],
+                    "query_len": len(query),
                     "results": len(result),
+                    "space": SPACE_WORKSPACE,
                     "workspace_uid": workspace_uid,
                 },
             },

@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import json
+import logging
 from pathlib import Path
 import sqlite3
 import sys
@@ -319,6 +320,37 @@ def test_core_workspace_search_isolation_by_workspace_uid(
 
     user_results = core.search_user_memories("buy")
     assert user_results == []
+
+
+def test_core_search_logs_omit_raw_query_text(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "privacy.db")
+    core.add_memory(space="user", type="fact", content="Search privacy test")
+    core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="fact",
+        content="Workspace search privacy test",
+        workspace_uid="privacy-workspace",
+    )
+
+    secret_query = "needle-secret-query"
+    with caplog.at_level(logging.INFO, logger="recollectium.core"):
+        core.search_user_memories(secret_query)
+        core.search_workspace_memories(secret_query, workspace_uid="privacy-workspace")
+
+    assert secret_query not in caplog.text
+    contexts = [record.__dict__.get("context") for record in caplog.records]
+    search_contexts = [context for context in contexts if isinstance(context, dict)]
+    assert search_contexts
+    assert all("query" not in context for context in search_contexts)
+    assert {context.get("query_len") for context in search_contexts} == {
+        len(secret_query)
+    }
+    assert {context.get("space") for context in search_contexts} == {
+        SPACE_USER,
+        SPACE_WORKSPACE,
+    }
 
 
 def test_core_persistence_across_instances_and_not_found(tmp_path: Path) -> None:

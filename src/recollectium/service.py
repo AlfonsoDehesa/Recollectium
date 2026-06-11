@@ -11,7 +11,14 @@ from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StrictBool,
+    model_validator,
+)
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
@@ -70,6 +77,8 @@ from recollectium.service_contract import (
     success_payload,
     version_payload,
 )
+
+from recollectium.models import SPACE_USER, SPACE_WORKSPACE
 
 import logging
 
@@ -170,48 +179,62 @@ SearchMatchThreshold: TypeAlias = (
 class SearchUserRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
-    limit: int = Field(default=20, ge=1)
+    limit: int = Field(default=20, ge=1, strict=True)
     protected_minimum: SearchProtectedMinimum = Field(
         default_factory=lambda: cast(int, UNSET)
     )
     match_threshold: SearchMatchThreshold = Field(
         default_factory=lambda: cast(SearchMatchThreshold, UNSET)
     )
-    include_archived: bool = False
+    include_archived: StrictBool = False
 
 
 class SearchWorkspaceRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
-    limit: int = Field(default=20, ge=1)
+    limit: int = Field(default=20, ge=1, strict=True)
     protected_minimum: SearchProtectedMinimum = Field(
         default_factory=lambda: cast(int, UNSET)
     )
     match_threshold: SearchMatchThreshold = Field(
         default_factory=lambda: cast(SearchMatchThreshold, UNSET)
     )
-    include_archived: bool = False
+    include_archived: StrictBool = False
 
 
 class AddMemoryRequest(StrictRequestModel):
-    space: str = Field(min_length=1)
+    space: Literal["user", "workspace"]
     type: str = Field(min_length=1)
     content: str = Field(min_length=1)
-    workspace_uid: str | None = None
+    workspace_uid: str | None = Field(default=None, min_length=1)
     metadata: dict[str, object] | None = None
-    source: str | None = None
-    confidence: float | None = None
-    sensitivity: str | None = None
+    source: str | None = Field(default=None, min_length=1)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0, strict=True)
+    sensitivity: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_workspace_uid_for_space(self) -> AddMemoryRequest:
+        if self.space == SPACE_USER and self.workspace_uid is not None:
+            raise ValueError("workspace_uid is only valid for user memories")
+        if self.space == SPACE_WORKSPACE and self.workspace_uid is None:
+            raise ValueError("workspace_uid is required for workspace memories")
+        return self
 
 
 class UpdateMemoryRequest(StrictRequestModel):
-    type: str | None = None
-    content: str | None = None
+    type: str | None = Field(default=None, min_length=1)
+    content: str | None = Field(default=None, min_length=1)
     metadata: dict[str, object] | None = None
-    source: str | None = None
-    confidence: float | None = None
-    sensitivity: str | None = None
+    source: str | None = Field(default=None, min_length=1)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0, strict=True)
+    sensitivity: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _require_update_field(self) -> UpdateMemoryRequest:
+        if not self.model_fields_set:
+            raise ValueError("at least one update field is required")
+        return self
 
 
 class RenameWorkspaceRequest(StrictRequestModel):
@@ -220,13 +243,13 @@ class RenameWorkspaceRequest(StrictRequestModel):
 
 class AddWorkspaceAliasRequest(StrictRequestModel):
     alias_uid: str = Field(min_length=1)
-    migrate_existing: bool = False
+    migrate_existing: StrictBool = False
 
 
 class EmbeddingRefreshRequest(StrictRequestModel):
-    space: str | None = Field(default=None, min_length=1)
+    space: Literal["user", "workspace"] | None = None
     workspace_uid: str | None = Field(default=None, min_length=1)
-    include_archived: bool = False
+    include_archived: StrictBool = False
 
 
 class ClearEmbeddingJobsRequest(StrictRequestModel):
@@ -304,6 +327,34 @@ def _validation_error_response_schema() -> dict[str, Any]:
     }
 
 
+def _error_response_schema(description: str, code: str, message: str) -> dict[str, Any]:
+    return {
+        "description": description,
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/RecollectiumErrorEnvelope"},
+                "example": error_payload(code, message),
+            }
+        },
+    }
+
+
+_OPENAPI_SHARED_ERROR_RESPONSES = {
+    "404": ("RecollectiumNotFound", "Requested resource was not found.", "not_found"),
+    "409": (
+        "RecollectiumConflict",
+        "Request conflicts with current state.",
+        "conflict",
+    ),
+    "500": ("RecollectiumInternalError", "Internal server error.", "internal_error"),
+    "503": (
+        "RecollectiumEmbeddingProviderUnavailable",
+        "Embedding provider is temporarily unavailable.",
+        "embedding_provider_unavailable",
+    ),
+}
+
+
 def _customize_openapi_validation_responses(app: FastAPI) -> dict[str, Any]:
     if app.openapi_schema:
         return app.openapi_schema
@@ -343,6 +394,11 @@ def _customize_openapi_validation_responses(app: FastAPI) -> dict[str, Any]:
         "title": "RecollectiumErrorEnvelope",
         "type": "object",
     }
+    responses_component = components.setdefault("responses", {})
+    for status, (name, description, code) in _OPENAPI_SHARED_ERROR_RESPONSES.items():
+        responses_component[name] = _error_response_schema(
+            description, code, description.rstrip(".").lower()
+        )
     validation_response = _validation_error_response_schema()
     for path_item in schema.get("paths", {}).values():
         for operation in path_item.values():
@@ -352,6 +408,15 @@ def _customize_openapi_validation_responses(app: FastAPI) -> dict[str, Any]:
             if isinstance(responses, dict) and "422" in responses:
                 responses.pop("422", None)
                 responses.setdefault("400", validation_response)
+            if isinstance(responses, dict):
+                for status, (
+                    name,
+                    _description,
+                    _code,
+                ) in _OPENAPI_SHARED_ERROR_RESPONSES.items():
+                    responses.setdefault(
+                        status, {"$ref": f"#/components/responses/{name}"}
+                    )
     schemas.pop("HTTPValidationError", None)
     schemas.pop("ValidationError", None)
     app.openapi_schema = schema

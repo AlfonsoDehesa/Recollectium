@@ -144,7 +144,7 @@ Error responses use:
 }
 ```
 
-`details` is currently always an object and defaults to `{}`.
+`details` is currently always an object and defaults to `{}`. Structured error responses use HTTP `400` for validation errors, `404` for missing resources, `409` for state conflicts, `500` for internal/embedding generation failures, and `503` when the embedding provider is unavailable.
 
 ## Response verbosity
 
@@ -309,7 +309,7 @@ Violations return `validation_error`.
 
 ## Endpoints
 
-All request bodies below are JSON objects.
+All request bodies below are JSON objects. Body fields are validated as the documented native JSON types: integers must be JSON numbers without a fractional component, booleans must be JSON `true`/`false`, and numeric strings such as `"5"` or `"0.5"` are rejected where the contract says integer or number.
 All successful endpoint responses currently return HTTP `200` with a `{"data": ...}` payload.
 
 ### 1) Search user memories
@@ -433,9 +433,9 @@ Verbose requests use `POST /v1/memories/search_workspace?verbosity=verbose` or `
   - `workspace_uid` forbidden when `space="user"`
 - Optional inputs:
   - `metadata` (JSON object, default `{}`)
-  - `source` (string)
-  - `confidence` (number in range `0` to `1`)
-  - `sensitivity` (string)
+  - `source` (string, non-empty)
+  - `confidence` (JSON number in range `0` to `1`; numeric strings and booleans are rejected)
+  - `sensitivity` (string, non-empty)
 - Side effects:
   - Inserts memory into SQLite store.
   - Generates and stores embedding for `content`.
@@ -477,9 +477,9 @@ Verbose response contains the full created memory object.
   - `type` (string)
   - `content` (string)
   - `metadata` (JSON object)
-  - `source` (string)
-  - `confidence` (number in range `0` to `1`)
-  - `sensitivity` (string)
+  - `source` (string, non-empty)
+  - `confidence` (JSON number in range `0` to `1`; numeric strings and booleans are rejected)
+  - `sensitivity` (string, non-empty)
 - Side effects:
   - Updates memory fields.
   - If `content` changes, embedding is regenerated.
@@ -1168,6 +1168,7 @@ Example response: compact default
 ## Notes
 
 - Only documented request body fields are supported; unknown JSON body fields are rejected with a `validation_error` response.
-- JSON body is required for `POST` and `PATCH` endpoints that accept request-body inputs (`POST /v1/memories/search_user`, `POST /v1/memories/search_workspace`, `POST /v1/memories`, and `PATCH /v1/memories/{memory_id}`).
+- Empty JSON objects are rejected for update requests because `PATCH /v1/memories/{memory_id}` requires at least one update field.
+- JSON body is required for `POST`, `PATCH`, and body-bearing `DELETE` endpoints that accept request-body inputs (`POST /v1/memories/search_user`, `POST /v1/memories/search_workspace`, `POST /v1/memories`, `PATCH /v1/memories/{memory_id}`, `POST /v1/embedding/refresh`, `DELETE /v1/embedding/jobs`, `POST /v1/workspaces/{uid}/aliases`, and `POST /v1/workspaces/{uid}/rename`).
 - `POST /v1/memories/{memory_id}/archive` is body-less.
 - This document is tied to the current implementation and should be updated with service contract changes.

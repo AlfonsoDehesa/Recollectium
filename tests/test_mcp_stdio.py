@@ -37,6 +37,9 @@ def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
         "get_embedding_job",
         "refresh_embeddings",
         "clear_embedding_jobs",
+        "health",
+        "version",
+        "capabilities",
     }
     assert set(tools.keys()) == expected
 
@@ -103,10 +106,55 @@ def test_mcp_search_overrides_reject_invalid_values(tmp_path: Path) -> None:
         {"match_threshold": -0.1},
         {"match_threshold": 1.1},
         {"match_threshold": "bad"},
+        {"match_threshold": "0.5"},
+        {"match_threshold": {}},
+        {"limit": "5"},
+        {"limit": True},
+        {"include_archived": 1},
     ]
     for overrides in invalid_cases:
         result = json.loads(search_fn(query="anything", **overrides))
         assert "error" in result
+
+
+def test_mcp_search_overrides_accept_valid_explicit_values(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "valid-search-overrides.db")
+    core.add_memory(space="user", type="fact", content="valid overrides")
+    core.add_memory(
+        space="workspace",
+        type="fact",
+        content="valid workspace overrides",
+        workspace_uid="ws",
+    )
+    mcp = create_mcp_server(core)
+
+    user_search = mcp._tool_manager._tools["search_user_memory"].fn
+    assert isinstance(
+        json.loads(
+            user_search(
+                query="valid",
+                protected_minimum=0,
+                match_threshold=0.5,
+                include_archived=False,
+            )
+        ),
+        list,
+    )
+    assert isinstance(
+        json.loads(
+            user_search(query="valid", match_threshold="model_recommended_default")
+        ),
+        list,
+    )
+    assert isinstance(
+        json.loads(user_search(query="valid", match_threshold=None)), list
+    )
+
+    workspace_search = mcp._tool_manager._tools["search_workspace_memory"].fn
+    workspace_error = json.loads(
+        workspace_search(query="valid", workspace_uid="ws", include_archived=1)
+    )
+    assert "error" in workspace_error
 
 
 def test_mcp_search_overrides_preserve_omitted_vs_null_semantics() -> None:
@@ -154,7 +202,7 @@ def test_mcp_tool_add_memory_round_trip(tmp_path: Path) -> None:
     assert "id" in memory
 
     list_fn = mcp._tool_manager._tools["list_memories"].fn
-    list_json = list_fn(space="user", type="preference")
+    list_json = list_fn(space="user", type="preference", limit=1)
     memories = json.loads(list_json)
     assert len(memories) >= 1
     assert memories[0]["content"] == "I prefer dark mode"
@@ -451,6 +499,22 @@ def test_mcp_rename_workspace_error_returns_json(tmp_path: Path) -> None:
     assert "error" in error
 
 
+def test_mcp_list_memories_error_returns_json(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "list-error.db")
+    mcp = create_mcp_server(core)
+    original = core.list_memories
+
+    def raise_error(*args, **kwargs):
+        raise RecollectiumError("list failed")
+
+    core.list_memories = raise_error
+    try:
+        result = json.loads(mcp._tool_manager._tools["list_memories"].fn())
+        assert result == {"error": "list failed"}
+    finally:
+        core.list_memories = original
+
+
 def test_mcp_list_workspaces_error_returns_json(tmp_path: Path) -> None:
     """list_workspaces returns error JSON on RecollectiumError."""
     db_path = str(tmp_path / "test.db")
@@ -554,6 +618,19 @@ def test_mcp_workspace_alias_error_paths(tmp_path: Path) -> None:
 
     remove_alias_fn = mcp._tool_manager._tools["remove_workspace_alias"].fn
     assert "error" in json.loads(remove_alias_fn(alias_uid="missing"))
+
+
+def test_mcp_health_version_capabilities_tools_return_json(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "service-tools.db")
+    mcp = create_mcp_server(core)
+
+    assert json.loads(mcp._tool_manager._tools["health"].fn())["status"] == "ok"
+    assert "recollectium_version" in json.loads(
+        mcp._tool_manager._tools["version"].fn()
+    )
+    capabilities = json.loads(mcp._tool_manager._tools["capabilities"].fn())
+    assert "capabilities" in capabilities
+    assert "memory_types" in capabilities
 
 
 def test_mcp_embedding_status_returns_json(tmp_path: Path) -> None:
@@ -846,6 +923,71 @@ def test_mcp_update_memory_rejects_non_object_metadata(tmp_path: Path) -> None:
     result = json.loads(update_fn(id=mem["id"], metadata='"string"'))
     assert "error" in result
     assert "JSON object" in result["error"]
+
+
+def test_mcp_tools_reject_coerced_scalar_values(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "strict-mcp.db")
+    mcp = create_mcp_server(core)
+    memory_id = json.loads(
+        mcp._tool_manager._tools["add_memory"].fn(
+            space="user", type="fact", content="strict scalar"
+        )
+    )["id"]
+
+    invalid_calls = (
+        (
+            "add_memory",
+            {"space": "user", "type": "fact", "content": "x", "confidence": "0.5"},
+        ),
+        (
+            "add_memory",
+            {"space": "user", "type": "fact", "content": "x", "confidence": -0.1},
+        ),
+        (
+            "add_memory",
+            {"space": "user", "type": "fact", "content": "x", "confidence": 1.1},
+        ),
+        (
+            "add_memory",
+            {"space": "user", "type": "fact", "content": "x", "workspace_uid": "ws"},
+        ),
+        (
+            "add_memory",
+            {"space": "user", "type": "fact", "content": "x", "metadata": 1},
+        ),
+        ("update_memory", {"id": memory_id}),
+        ("update_memory", {"id": memory_id, "confidence": "0.5"}),
+        ("list_memories", {"include_archived": 1}),
+        ("list_memories", {"limit": "5"}),
+        ("list_workspaces", {"include_archived": 0}),
+        ("list_workspaces", {"include_aliases": 1}),
+        (
+            "add_workspace_alias",
+            {"canonical_uid": "a", "alias_uid": "b", "migrate_existing": 1},
+        ),
+        ("embedding_jobs", {"limit": "5"}),
+        ("refresh_embeddings", {"include_archived": 1}),
+    )
+    for tool_name, kwargs in invalid_calls:
+        result = json.loads(mcp._tool_manager._tools[tool_name].fn(**kwargs))
+        assert "error" in result
+
+
+def test_mcp_add_memory_with_metadata_object(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "metadata-object.db")
+    mcp = create_mcp_server(core)
+
+    add_fn = mcp._tool_manager._tools["add_memory"].fn
+    result = json.loads(
+        add_fn(
+            space="user",
+            type="fact",
+            content="object metadata",
+            metadata={"key": "value"},
+            verbosity="verbose",
+        )
+    )
+    assert result["metadata"] == {"key": "value"}
 
 
 def test_mcp_add_memory_with_metadata_source_confidence_sensitivity(

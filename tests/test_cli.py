@@ -4866,6 +4866,48 @@ def test_cli_output_helpers_cover_sys_argv_and_invalid_config_shapes(
     assert output_conflict is False
     assert verbosity_conflict is False
 
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["config", "set", "cli_output", "--json"])
+    assert cleaned == ["config", "set", "cli_output", "--json"]
+    assert output_format is None
+    assert response_verbosity is None
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["config", "set", "logging.level", "--verbose"])
+    assert cleaned == ["config", "set", "logging.level", "--verbose"]
+    assert output_format is None
+    assert response_verbosity is None
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
+    (
+        cleaned,
+        output_format,
+        response_verbosity,
+        output_conflict,
+        verbosity_conflict,
+        _explicit_json,
+    ) = _extract_cli_output_override(["list", "--json", "--compact"])
+    assert cleaned == ["list"]
+    assert output_format == "json"
+    assert response_verbosity == RESPONSE_VERBOSITY_COMPACT
+    assert output_conflict is False
+    assert verbosity_conflict is False
+
     config_path = tmp_path / "config.json"
     config_path.write_text('{"version": 1, "cli_output": "invalid"}', encoding="utf-8")
     assert (
@@ -4954,7 +4996,7 @@ def test_cli_verbosity_extraction_conflicts_order_and_literals(monkeypatch) -> N
 
 def test_cli_human_readable_verbosity_conflict_uses_human_error(capsys) -> None:
     exit_code, stdout, stderr = _run_cli(
-        ["--human-readable", "--compact", "--verbose", "list"],
+        ["--compact", "--verbose", "list"],
         capsys,
         json_by_default=False,
     )
@@ -4963,6 +5005,34 @@ def test_cli_human_readable_verbosity_conflict_uses_human_error(capsys) -> None:
     assert stdout == ""
     assert "Choose either --compact or --verbose, not both." in stderr
     assert not stderr.lstrip().startswith("{")
+
+
+def test_cli_parser_errors_honor_explicit_json(capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--json", "add", "--space", "user"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["status"] == "validation_error"
+    assert "required" in payload["message"]
+    assert "usage:" not in captured.err
+
+
+def test_cli_json_parser_error_state_resets_for_human_errors(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["--json", "add", "--space", "user"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--human-readable", "add", "--space", "user"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "usage:" in captured.err
+    assert not captured.err.lstrip().startswith("{")
 
 
 def test_cli_json_verbosity_compact_vs_verbose_memory_shapes(tmp_path, capsys) -> None:
@@ -5631,6 +5701,110 @@ def test_cli_embedding_maintenance_prepares_model_and_refreshes(
         f"core:{db_path}",
         "model_state",
         "refresh:True",
+    ]
+
+
+def test_cli_embedding_maintenance_human_tty_refresh_progress_after_readiness(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    calls: list[str] = []
+    db_path = tmp_path / "maintenance-progress.db"
+
+    class FakeCore:
+        def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
+            self.config = cli_mod.RecollectiumConfig(config_path, log_level=log_level)
+            self.store = type("FakeStore", (), {"db_path": db_path})()
+            self.embedding_provider = type(
+                "FakeProvider",
+                (),
+                {
+                    "embedding_profile": {
+                        "provider": "fake",
+                        "model": "fake-model",
+                        "dimensions": 3,
+                    }
+                },
+            )()
+
+        def _ensure_model_ready(
+            self, *, suppress_provider_output: bool = False, progress_callback=None
+        ) -> None:
+            assert suppress_provider_output is True
+            assert progress_callback is readiness_progress
+            calls.append("model_state")
+            assert progress_callback is not None
+            progress_callback({"phase": "Preparing embedding model"})
+
+        def refresh_stale_embeddings(
+            self, *, include_archived=False, progress_callback=None, **kwargs
+        ):
+            assert include_archived is True
+            assert progress_callback is reembedding_progress
+            calls.append("refresh")
+            assert progress_callback is not None
+            progress_callback(
+                {
+                    "event": "progress",
+                    "total": 1,
+                    "processed": 1,
+                    "succeeded": 1,
+                    "failed": 0,
+                }
+            )
+            return {"refreshed": True, "stale_count": 1, "job": None}
+
+    class FakeProgress:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __enter__(self):
+            calls.append(f"enter:{self.name}")
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            calls.append(f"exit:{self.name}")
+
+        def __call__(self, event: dict[str, object]) -> None:
+            calls.append(
+                f"event:{self.name}:{event.get('event') or event.get('phase')}"
+            )
+
+    readiness_progress = FakeProgress("readiness")
+    reembedding_progress = FakeProgress("reembedding")
+    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", lambda path: None)
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", FakeCore)
+    monkeypatch.setattr(cli_mod.sys.stderr, "isatty", lambda: True)
+    monkeypatch.setattr(
+        cli_mod,
+        "_human_model_readiness_progress_reporter",
+        lambda *a, **kw: readiness_progress,
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "_ReembeddingProgressReporter",
+        lambda stream: reembedding_progress,
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--db", str(db_path), "embedding-maintenance"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Embedding maintenance" in stdout
+    assert calls == [
+        "enter:readiness",
+        "model_state",
+        "event:readiness:Preparing embedding model",
+        "exit:readiness",
+        "enter:reembedding",
+        "refresh",
+        "event:reembedding:progress",
+        "exit:reembedding",
     ]
 
 

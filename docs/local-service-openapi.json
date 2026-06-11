@@ -88,6 +88,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -174,6 +186,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -260,6 +284,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -356,6 +392,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -452,6 +500,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -538,6 +598,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -656,6 +728,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       },
@@ -757,6 +841,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -860,6 +956,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -955,6 +1063,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -1051,6 +1171,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       },
@@ -1231,6 +1363,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -1326,6 +1470,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       },
@@ -1429,6 +1585,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -1524,6 +1692,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -1642,6 +1822,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -1737,6 +1929,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -1832,6 +2036,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       },
@@ -1935,6 +2151,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -2030,6 +2258,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -2135,6 +2375,18 @@
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/RecollectiumNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/RecollectiumConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/RecollectiumInternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/RecollectiumEmbeddingProviderUnavailable"
           }
         }
       }
@@ -2146,7 +2398,10 @@
         "properties": {
           "space": {
             "type": "string",
-            "minLength": 1,
+            "enum": [
+              "user",
+              "workspace"
+            ],
             "title": "Space"
           },
           "type": {
@@ -2162,7 +2417,8 @@
           "workspace_uid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2185,7 +2441,8 @@
           "source": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2196,7 +2453,9 @@
           "confidence": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -2207,7 +2466,8 @@
           "sensitivity": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2272,7 +2532,10 @@
             "anyOf": [
               {
                 "type": "string",
-                "minLength": 1
+                "enum": [
+                  "user",
+                  "workspace"
+                ]
               },
               {
                 "type": "null"
@@ -2448,7 +2711,8 @@
           "type": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2459,7 +2723,8 @@
           "content": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2482,7 +2747,8 @@
           "source": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2493,7 +2759,9 @@
           "confidence": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -2504,7 +2772,8 @@
           "sensitivity": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2550,6 +2819,76 @@
         ],
         "title": "RecollectiumErrorEnvelope",
         "type": "object"
+      }
+    },
+    "responses": {
+      "RecollectiumNotFound": {
+        "description": "Requested resource was not found.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+            },
+            "example": {
+              "error": {
+                "code": "not_found",
+                "message": "requested resource was not found",
+                "details": {}
+              }
+            }
+          }
+        }
+      },
+      "RecollectiumConflict": {
+        "description": "Request conflicts with current state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+            },
+            "example": {
+              "error": {
+                "code": "conflict",
+                "message": "request conflicts with current state",
+                "details": {}
+              }
+            }
+          }
+        }
+      },
+      "RecollectiumInternalError": {
+        "description": "Internal server error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+            },
+            "example": {
+              "error": {
+                "code": "internal_error",
+                "message": "internal server error",
+                "details": {}
+              }
+            }
+          }
+        }
+      },
+      "RecollectiumEmbeddingProviderUnavailable": {
+        "description": "Embedding provider is temporarily unavailable.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+            },
+            "example": {
+              "error": {
+                "code": "embedding_provider_unavailable",
+                "message": "embedding provider is temporarily unavailable",
+                "details": {}
+              }
+            }
+          }
+        }
       }
     }
   }
