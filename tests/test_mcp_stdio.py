@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from recollectium.core import RecollectiumCore
 from recollectium.errors import RecollectiumError
 from recollectium.mcp_server import create_mcp_server
+from recollectium.retrieval import UNSET
 
 
 def test_create_mcp_server_registers_tools(tmp_path: Path) -> None:
@@ -71,10 +72,12 @@ def test_mcp_search_override_schemas_are_discoverable(tmp_path: Path) -> None:
         protected_minimum_schema = properties["protected_minimum"]
         assert protected_minimum_schema["type"] == "integer"
         assert protected_minimum_schema["minimum"] == 0
+        assert "default" not in protected_minimum_schema
         assert "null" not in json.dumps(protected_minimum_schema)
 
         assert "match_threshold" not in tool.parameters["required"]
         match_threshold_schema = properties["match_threshold"]
+        assert "default" not in match_threshold_schema
         threshold_options = match_threshold_schema["anyOf"]
         numeric_option = next(
             option for option in threshold_options if option.get("type") == "number"
@@ -104,6 +107,32 @@ def test_mcp_search_overrides_reject_invalid_values(tmp_path: Path) -> None:
     for overrides in invalid_cases:
         result = json.loads(search_fn(query="anything", **overrides))
         assert "error" in result
+
+
+def test_mcp_search_overrides_preserve_omitted_vs_null_semantics() -> None:
+    class CapturingCore:
+        config = None
+
+        def __init__(self) -> None:
+            self.user_calls: list[dict[str, Any]] = []
+
+        def search_user_memories(self, **kwargs: Any) -> list[Any]:
+            self.user_calls.append(kwargs)
+            return []
+
+    core = CapturingCore()
+    mcp = create_mcp_server(cast(RecollectiumCore, core))
+    search_fn = mcp._tool_manager._tools["search_user_memory"].fn
+
+    json.loads(search_fn(query="anything"))
+    omitted_call = core.user_calls[-1]
+    assert omitted_call["protected_minimum"] is UNSET
+    assert omitted_call["match_threshold"] is UNSET
+
+    json.loads(search_fn(query="anything", match_threshold=None))
+    null_call = core.user_calls[-1]
+    assert null_call["protected_minimum"] is UNSET
+    assert null_call["match_threshold"] is None
 
 
 def test_mcp_tool_add_memory_round_trip(tmp_path: Path) -> None:

@@ -186,6 +186,15 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             )
             return _error(str(e))
 
+    def _hide_search_unset_schema_defaults() -> None:
+        for tool_name in ("search_user_memory", "search_workspace_memory"):
+            tool = mcp._tool_manager._tools[tool_name]
+            properties = tool.parameters["properties"]
+            for parameter_name in ("protected_minimum", "match_threshold"):
+                properties[parameter_name].pop("default", None)
+
+    _hide_search_unset_schema_defaults()
+
     def _parse_metadata(metadata: str | None) -> dict[str, object] | None | str:
         if metadata is None:
             return None
