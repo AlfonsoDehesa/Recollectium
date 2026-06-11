@@ -382,11 +382,11 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         space: SpaceArg,
         type: NonEmptyStringArg,
         content: NonEmptyStringArg,
-        workspace_uid: str | None = None,
+        workspace_uid: NonEmptyStringArg | None = None,
         metadata: str | dict[str, object] | None = None,
         source: NonEmptyStringArg | None = None,
         confidence: ConfidenceArg = None,
-        sensitivity: str | None = None,
+        sensitivity: NonEmptyStringArg | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Add a new memory. Returns the created memory as JSON."""
@@ -431,7 +431,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def get_memory(id: str, verbosity: ResponseVerbosityArg = None) -> str:
+    def get_memory(
+        id: NonEmptyStringArg, verbosity: ResponseVerbosityArg = None
+    ) -> str:
         """Get a single memory by ID. Returns the memory as JSON."""
         try:
             resolved = _resolve_verbosity(verbosity)
@@ -453,13 +455,13 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def update_memory(
-        id: str,
+        id: NonEmptyStringArg,
         type: NonEmptyStringArg | None = None,
         content: NonEmptyStringArg | None = None,
         metadata: str | dict[str, object] | None = None,
         source: NonEmptyStringArg | None = None,
         confidence: ConfidenceArg = None,
-        sensitivity: str | None = None,
+        sensitivity: NonEmptyStringArg | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Update an existing memory. Returns the updated memory as JSON."""
@@ -507,7 +509,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def archive_memory(id: str, verbosity: ResponseVerbosityArg = None) -> str:
+    def archive_memory(
+        id: NonEmptyStringArg, verbosity: ResponseVerbosityArg = None
+    ) -> str:
         """Archive a memory. Returns the archived memory as JSON."""
         try:
             resolved = _resolve_verbosity(verbosity)
@@ -535,7 +539,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         space: Literal["user", "workspace"] | None = None,
         type: str | None = None,
         status: StatusArg = None,
-        workspace_uid: str | None = None,
+        workspace_uid: NonEmptyStringArg | None = None,
         include_archived: StrictBoolArg = False,
         limit: PositiveLimitArg | None = None,
         verbosity: ResponseVerbosityArg = None,
@@ -615,7 +619,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def resolve_workspace(uid: str, verbosity: ResponseVerbosityArg = None) -> str:
+    def resolve_workspace(
+        uid: NonEmptyStringArg, verbosity: ResponseVerbosityArg = None
+    ) -> str:
         """Resolve a workspace UID candidate to its canonical UID."""
         try:
             resolved = _resolve_verbosity(verbosity)
@@ -639,8 +645,8 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def add_workspace_alias(
-        canonical_uid: str,
-        alias_uid: str,
+        canonical_uid: NonEmptyStringArg,
+        alias_uid: NonEmptyStringArg,
         migrate_existing: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
@@ -675,7 +681,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def list_workspace_aliases(
-        canonical_uid: str | None = None,
+        canonical_uid: NonEmptyStringArg | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """List workspace alias mappings, optionally filtered by canonical UID."""
@@ -702,7 +708,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def remove_workspace_alias(
-        alias_uid: str,
+        alias_uid: NonEmptyStringArg,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Remove a workspace alias mapping."""
@@ -729,8 +735,8 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def rename_workspace(
-        old_uid: str,
-        new_uid: str,
+        old_uid: NonEmptyStringArg,
+        new_uid: NonEmptyStringArg,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
         """Rename a workspace. Migrates all workspace memories from old_uid to new_uid."""
@@ -781,8 +787,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
 
     @mcp.tool()
     def embedding_jobs(
-        state: Literal["queued", "running", "completed", "failed", "pending"]
-        | None = None,
+        state: Literal["pending", "in_progress", "completed", "failed"] | None = None,
         limit: PositiveLimitArg | None = None,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
@@ -816,7 +821,7 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     @mcp.tool()
     def refresh_embeddings(
         space: Literal["user", "workspace"] | None = None,
-        workspace_uid: str | None = None,
+        workspace_uid: NonEmptyStringArg | None = None,
         include_archived: StrictBoolArg = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
@@ -877,7 +882,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
             return _error(str(e))
 
     @mcp.tool()
-    def get_embedding_job(job_id: str, verbosity: ResponseVerbosityArg = None) -> str:
+    def get_embedding_job(
+        job_id: NonEmptyStringArg, verbosity: ResponseVerbosityArg = None
+    ) -> str:
         """Get a single embedding job by ID."""
         try:
             resolved = _resolve_verbosity(verbosity)
@@ -903,6 +910,36 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def _finalize_tool_schemas() -> None:
         for tool in mcp._tool_manager._tools.values():
             tool.parameters["additionalProperties"] = False
+            allowed_parameters = frozenset(tool.parameters.get("properties", {}))
+            object.__setattr__(
+                tool, "_recollectium_allowed_parameters", allowed_parameters
+            )
+            tool_type = type(tool)
+            if getattr(tool_type, "_recollectium_strict_run_enabled", False):
+                continue
+            original_run = tool_type.run
+
+            async def _run_strict(
+                self: Any,
+                arguments: dict[str, Any],
+                context: Any = None,
+                convert_result: bool = False,
+            ) -> Any:
+                allowed = getattr(self, "_recollectium_allowed_parameters", None)
+                if isinstance(allowed, frozenset):
+                    extras = sorted(set(arguments) - allowed)
+                    if extras:
+                        extra_list = ", ".join(extras)
+                        raise ValueError(f"unknown argument(s): {extra_list}")
+                return await original_run(
+                    self,
+                    arguments,
+                    context=context,
+                    convert_result=convert_result,
+                )
+
+            setattr(tool_type, "run", _run_strict)
+            setattr(tool_type, "_recollectium_strict_run_enabled", True)
 
     _finalize_tool_schemas()
     return mcp

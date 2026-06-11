@@ -98,6 +98,43 @@ def test_mcp_search_override_schemas_are_discoverable(tmp_path: Path) -> None:
         } in threshold_options
 
 
+def test_mcp_schemas_restrict_embedding_job_states_and_empty_strings(
+    tmp_path: Path,
+) -> None:
+    mcp = create_mcp_server(RecollectiumCore(db_path=tmp_path / "schema.db"))
+    embedding_state = mcp._tool_manager._tools["embedding_jobs"].parameters[
+        "properties"
+    ]["state"]
+    assert json.dumps(embedding_state).count("queued") == 0
+    assert json.dumps(embedding_state).count("running") == 0
+    assert set(embedding_state["anyOf"][0]["enum"]) == {
+        "pending",
+        "in_progress",
+        "completed",
+        "failed",
+    }
+
+    for tool_name, field_name in (
+        ("search_workspace_memory", "workspace_uid"),
+        ("add_memory", "sensitivity"),
+        ("update_memory", "id"),
+        ("resolve_workspace", "uid"),
+    ):
+        schema = mcp._tool_manager._tools[tool_name].parameters["properties"][
+            field_name
+        ]
+        encoded = json.dumps(schema)
+        assert '"minLength": 1' in encoded
+
+
+@pytest.mark.anyio
+async def test_mcp_tool_run_rejects_unknown_extra_arguments(tmp_path: Path) -> None:
+    mcp = create_mcp_server(RecollectiumCore(db_path=tmp_path / "extras.db"))
+    tool = mcp._tool_manager._tools["health"]
+    with pytest.raises(ValueError, match="unknown argument"):
+        await tool.run({"verbosity": "compact", "extra": True})
+
+
 def test_mcp_search_overrides_reject_invalid_values(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)
