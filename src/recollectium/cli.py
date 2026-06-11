@@ -1773,6 +1773,22 @@ def _extract_cli_output_override(
     )
 
 
+def _is_raw_completion_request(argv: Sequence[str]) -> bool:
+    """Return whether argv targets the raw completion protocol/source output."""
+
+    try:
+        completion_index = list(argv).index("completion")
+    except ValueError:
+        return False
+    completion_args = list(argv)[completion_index + 1 :]
+    return "--install" not in completion_args and any(
+        item in {"--source", "--complete-line"}
+        or item.startswith("--source=")
+        or item.startswith("--complete-line=")
+        for item in completion_args
+    )
+
+
 def _resolve_output_format(
     *,
     config_path: Path,
@@ -5972,6 +5988,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     effective_argv = _rewrite_upgrade_version_selector(effective_argv)
+    explicit_config_path = _extract_global_config_path(effective_argv)
+    preparse_config_path = _resolve_config_path(explicit_config_path)
     if output_conflict:
         _set_cli_output_format(
             CLI_OUTPUT_JSON if explicit_json else (output_override or CLI_OUTPUT_JSON)
@@ -5983,7 +6001,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             command="output",
         )
     if verbosity_conflict:
-        _set_cli_output_format(output_override or CLI_OUTPUT_HUMAN_READABLE)
+        raw_completion_request = output_override is None and _is_raw_completion_request(
+            effective_argv
+        )
+        _set_cli_output_format(
+            CLI_OUTPUT_HUMAN_READABLE
+            if raw_completion_request
+            else _resolve_output_format(
+                config_path=preparse_config_path,
+                explicit=explicit_config_path is not None,
+                override=output_override,
+            )
+        )
         return _emit_cli_failure(
             status="validation_error",
             message="Choose either --compact or --verbose, not both.",
@@ -5992,14 +6021,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     global _ARGPARSE_JSON_ERRORS
     previous_argparse_json_errors = _ARGPARSE_JSON_ERRORS
-    preparse_config_path = _resolve_config_path(
-        _extract_global_config_path(effective_argv)
-    )
     _ARGPARSE_JSON_ERRORS = output_override == CLI_OUTPUT_JSON or (
         output_override is None
         and _resolve_output_format(
             config_path=preparse_config_path,
-            explicit=_extract_global_config_path(effective_argv) is not None,
+            explicit=explicit_config_path is not None,
             override=None,
         )
         == CLI_OUTPUT_JSON

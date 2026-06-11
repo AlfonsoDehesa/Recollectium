@@ -54,18 +54,26 @@ _SENSITIVE_CONTEXT_KEYS = frozenset(
 _SENSITIVE_KEY_RE = re.compile(
     r"(?i)("
     r"(^|[_-])(secret|token|password|credential|credentials|sensitivity)([_-]|$)|"
-    r"(^|[_-])(?:api|access|encryption|private|public|secret)?[_-]?key$"
+    r"(^|[_-])(?:api|access|encryption|private|public|secret)?[_-]?key([_-]|$)"
     r")"
 )
 _SENSITIVE_VALUE_RE = re.compile(
-    r"(?i)\b("
+    r"(?i)(?<![\w])("
     r"memory(?:[_ -]?id)?|workspace(?:[_ -]?(?:id|uid|alias))?|"
     r"alias(?:[_ -]?uid)?|embedding(?:[_ -]?job)?|job(?:[_ -]?id)?|"
     r"content|metadata|source|query|secret|api[_ -]?secret|token|password|"
     r"credentials?|key|api[_ -]?key|access[_ -]?key|encryption[_ -]?key|"
     r"private[_ -]?key|public[_ -]?key|secret[_ -]?key|sensitivity"
-    r")\b(?P<label>[^\n:={]{0,80})(?P<sep>[:=]\s*)(?P<value>[^,;\n]+)"
+    r")(?![\w])(?P<label>[^\n:={]{0,80})(?P<sep>[:=]\s*)(?P<value>[^,;\n]+)"
 )
+_SENSITIVE_BARE_VALUE_RE = re.compile(
+    r"(?i)(?<![\w])("
+    r"api[_ -]?secret|api[_ -]?key|access[_ -]?key|encryption[_ -]?key|"
+    r"private[_ -]?key|public[_ -]?key|secret[_ -]?key|credentials?|"
+    r"secret|token|password|key|sensitivity"
+    r")(?![\w])(?P<sep>\s+|-{2,})(?P<value>[^,;\s\n]+)"
+)
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
 class LoggingConfig(Protocol):
@@ -88,6 +96,12 @@ def _event_for_record(record: logging.LogRecord) -> str:
     return record.name
 
 
+def _normalized_context_key(key: str) -> str:
+    """Return a key form suitable for separator and camelCase sensitive checks."""
+
+    return _CAMEL_BOUNDARY_RE.sub("_", key).lower()
+
+
 def redact_log_value(value: Any) -> Any:
     """Return a redacted copy of sensitive structured log values."""
 
@@ -95,7 +109,7 @@ def redact_log_value(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            normalized = key_text.lower()
+            normalized = _normalized_context_key(key_text)
             if (
                 normalized in _SENSITIVE_CONTEXT_KEYS
                 or _SENSITIVE_KEY_RE.search(normalized) is not None
@@ -125,11 +139,15 @@ def redact_log_value(value: Any) -> Any:
 def redact_log_message(message: str) -> str:
     """Redact sensitive values embedded in unstructured log text."""
 
-    return _SENSITIVE_VALUE_RE.sub(
+    redacted = _SENSITIVE_VALUE_RE.sub(
         lambda match: (
             f"{match.group(1)}{match.group('label')}{match.group('sep')}{_REDACTED}"
         ),
         message,
+    )
+    return _SENSITIVE_BARE_VALUE_RE.sub(
+        lambda match: f"{match.group(1)}{match.group('sep')}{_REDACTED}",
+        redacted,
     )
 
 

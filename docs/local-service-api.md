@@ -138,13 +138,21 @@ Error responses use:
 {
   "error": {
     "code": "validation_error",
-    "message": "workspace_uid is required for workspace search",
-    "details": {}
+    "message": "request validation failed: workspace_uid: Field required",
+    "details": {
+      "fields": [
+        {
+          "field": "workspace_uid",
+          "message": "Field required",
+          "type": "missing"
+        }
+      ]
+    }
   }
 }
 ```
 
-`details` is currently always an object and defaults to `{}`. Structured error responses use HTTP `400` for validation errors, `404` for missing resources, `409` for state conflicts, `500` for internal/embedding generation failures, and `503` when the embedding provider is unavailable.
+`details` is currently always an object and defaults to `{}`. Request validation errors include `details.fields` entries with the rejected field, message, and validator type when available. Structured error responses use HTTP `400` for validation errors, `404` for missing resources, `409` for state conflicts, `500` for internal/embedding generation failures, and `503` when the embedding provider is unavailable.
 
 ## Response verbosity
 
@@ -306,6 +314,9 @@ Response example:
 - Adding workspace memories requires `space="workspace"` and `workspace_uid`.
 - Adding user memories requires `space="user"` and must not include `workspace_uid`.
 - Workspace filters on list are optional.
+- User memory types are limited to `fact`, `preference`, `personal_fact`, `social_context`, `goal`, `communication_style`, and `note`.
+- Workspace memory types are limited to `fact`, `decision`, `task_context`, `configuration`, `bug_finding`, and `note`.
+- Add requests reject memory types that are not valid for the requested `space`; list filters reject unknown `space` and `type` values before query execution.
 
 Violations return `validation_error`.
 
@@ -428,7 +439,7 @@ Verbose requests use `POST /v1/memories/search_workspace?verbosity=verbose` or `
 - Purpose: create one memory.
 - Required inputs:
   - `space` (`"user"` or `"workspace"`)
-  - `type` (string, non-empty)
+  - `type` (scope-specific memory bucket: for `space="user"`, one of `fact`, `preference`, `personal_fact`, `social_context`, `goal`, `communication_style`, or `note`; for `space="workspace"`, one of `fact`, `decision`, `task_context`, `configuration`, `bug_finding`, or `note`)
   - `content` (string, non-empty)
 - Conditionally required:
   - `workspace_uid` required when `space="workspace"`
@@ -511,6 +522,7 @@ Example request: verbose `PATCH /v1/memories/8f6d...?verbosity=verbose`. Verbose
 - Purpose: mark a memory archived.
 - Path params:
   - `memory_id` (string)
+- Request body: not allowed. Send no JSON body; unexpected JSON or other non-empty bodies return HTTP `400` with `validation_error` (`request body is not allowed for this endpoint`).
 - Side effects:
   - Sets memory status to archived.
   - Archived memories are excluded from default search and list results.
@@ -538,7 +550,7 @@ Example request: verbose `POST /v1/memories/8f6d.../archive?verbosity=verbose`. 
 - Purpose: list memories with optional filters.
 - Query params (all optional):
   - `space` (`user` or `workspace`)
-  - `type` (string)
+  - `type` (memory bucket filter; one of the union of valid user/workspace memory types: `fact`, `preference`, `personal_fact`, `social_context`, `goal`, `communication_style`, `note`, `decision`, `task_context`, `configuration`, or `bug_finding`)
   - `status` (`active` or `archived`)
   - `workspace_uid` (string)
   - `include_archived` (strict query string `true` or `false`, default `false`; other spellings are rejected)

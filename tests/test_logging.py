@@ -208,8 +208,14 @@ class TestJsonFormatter:
                 "context": {
                     "api_secret": "secret-value",
                     "access_key": "key-value",
+                    "accessToken": "access-token-value",
+                    "credentialId": "credential-id-value",
                     "safe_count": 2,
-                    "nested": {"credential": "cred-value"},
+                    "nested": {
+                        "credential": "cred-value",
+                        "refreshToken": "refresh-token-value",
+                        "privateKeyFingerprint": "private-key-value",
+                    },
                 }
             },
         )
@@ -218,14 +224,50 @@ class TestJsonFormatter:
         assert parsed["context"] == {
             "api_secret": "[redacted]",
             "access_key": "[redacted]",
+            "accessToken": "[redacted]",
+            "credentialId": "[redacted]",
             "safe_count": 2,
-            "nested": {"credential": "[redacted]"},
+            "nested": {
+                "credential": "[redacted]",
+                "refreshToken": "[redacted]",
+                "privateKeyFingerprint": "[redacted]",
+            },
         }
         encoded = json.dumps(parsed)
         assert "abc123" not in encoded
         assert "letmein" not in encoded
         assert "secret-value" not in encoded
+        assert "access-token-value" not in encoded
+        assert "credential-id-value" not in encoded
         assert "cred-value" not in encoded
+        assert "refresh-token-value" not in encoded
+        assert "private-key-value" not in encoded
+
+    def test_redacts_separatorless_secret_message_formats(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(
+            msg=(
+                "api_key abc123 api key abc234 secret abc private key-----BEGIN "
+                "key abc token abc password hunter2 credential cred-1"
+            )
+        )
+
+        parsed = json.loads(formatter.format(record))
+        message = parsed["message"]
+        assert message == (
+            "api_key [redacted] api key [redacted] secret [redacted] "
+            "private key-----[redacted] key [redacted] token [redacted] "
+            "password [redacted] credential [redacted]"
+        )
+        encoded = json.dumps(parsed)
+        for secret in (
+            "abc123",
+            "abc234",
+            "BEGIN",
+            "hunter2",
+            "cred-1",
+        ):
+            assert secret not in encoded
 
     def test_redacts_generic_key_shaped_context_and_messages(self) -> None:
         formatter = JsonFormatter()

@@ -461,12 +461,18 @@ def _validation_error_response_schema() -> dict[str, Any]:
 
 
 def _error_response_schema(description: str, code: str, message: str) -> dict[str, Any]:
+    details: dict[str, Any] = {}
+    if code == "reembedding_in_progress":
+        details = {
+            "job_id": "job_123",
+            "status_path": "/v1/embedding/jobs/job_123",
+        }
     return {
         "description": description,
         "content": {
             "application/json": {
                 "schema": {"$ref": "#/components/schemas/RecollectiumErrorEnvelope"},
-                "example": error_payload(code, message),
+                "example": error_payload(code, message, details=details),
             }
         },
     }

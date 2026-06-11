@@ -3193,7 +3193,10 @@
               "error": {
                 "code": "reembedding_in_progress",
                 "message": "re-embedding is already in progress",
-                "details": {}
+                "details": {
+                  "job_id": "job_123",
+                  "status_path": "/v1/embedding/jobs/job_123"
+                }
               }
             }
           }

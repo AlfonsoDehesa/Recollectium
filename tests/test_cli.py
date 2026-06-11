@@ -5140,6 +5140,55 @@ def test_cli_human_readable_verbosity_conflict_uses_human_error(capsys) -> None:
     assert not stderr.lstrip().startswith("{")
 
 
+def test_cli_json_config_verbosity_conflict_uses_json_error(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json"}), encoding="utf-8"
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--compact", "--verbose", "list"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert payload["message"] == "Choose either --compact or --verbose, not both."
+
+
+def test_cli_raw_completion_verbosity_conflict_ignores_json_config(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json"}), encoding="utf-8"
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--compact",
+            "--verbose",
+            "completion",
+            "--source",
+            "bash",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "Choose either --compact or --verbose, not both." in stderr
+    assert not stderr.lstrip().startswith("{")
+
+
 def test_cli_parser_errors_honor_explicit_json(capsys) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["--json", "add", "--space", "user"])

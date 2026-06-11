@@ -476,6 +476,11 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         "RecollectiumInternalError",
         "RecollectiumEmbeddingProviderUnavailable",
     }
+    conflict_example = documented_error_responses["RecollectiumConflict"]["content"][
+        "application/json"
+    ]["example"]
+    assert conflict_example["error"]["code"] == "reembedding_in_progress"
+    assert set(conflict_example["error"]["details"]) == {"job_id", "status_path"}
     expected_shared_statuses = {
         "404": "RecollectiumNotFound",
         "409": "RecollectiumConflict",
