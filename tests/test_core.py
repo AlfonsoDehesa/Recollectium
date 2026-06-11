@@ -340,8 +340,12 @@ def test_core_search_logs_omit_raw_query_text(
         core.search_workspace_memories(secret_query, workspace_uid="privacy-workspace")
 
     assert secret_query not in caplog.text
-    contexts = [record.__dict__.get("context") for record in caplog.records]
-    search_contexts = [context for context in contexts if isinstance(context, dict)]
+    search_contexts = [
+        cast(dict[str, Any], record.__dict__["context"])
+        for record in caplog.records
+        if record.__dict__.get("event") in {"search.user", "search.workspace"}
+        and isinstance(record.__dict__.get("context"), dict)
+    ]
     assert search_contexts
     assert all("query" not in context for context in search_contexts)
     assert {context.get("query_len") for context in search_contexts} == {
