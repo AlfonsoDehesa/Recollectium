@@ -15,6 +15,14 @@ from recollectium.models import (
 )
 from recollectium.errors import ValidationError
 from recollectium.service import (
+    AddMemoryRequest,
+    AddWorkspaceAliasRequest,
+    ClearEmbeddingJobsRequest,
+    EmbeddingRefreshRequest,
+    RenameWorkspaceRequest,
+    SearchUserRequest,
+    SearchWorkspaceRequest,
+    UpdateMemoryRequest,
     _map_boundary_error,
     _request_override_from_model,
     _parse_optional_bool,
@@ -323,6 +331,14 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
 
     assert "POST /v1/memories/{memory_id}/archive` is body-less." in docs_text
 
+    for route in (
+        "POST /v1/memories/search_user",
+        "POST /v1/memories/search_workspace",
+    ):
+        section = _service_docs_section_for_route(docs_text, route)
+        assert "protected_minimum" in section
+        assert "match_threshold" in section
+
 
 def _assert_verbosity_parameter_contract(parameters: list[dict[str, Any]]) -> None:
     by_name = {parameter["name"]: parameter for parameter in parameters}
@@ -392,13 +408,30 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
     schemas = contract["components"]["schemas"]
     for schema_name in (
         "AddMemoryRequest",
+        "AddWorkspaceAliasRequest",
+        "ClearEmbeddingJobsRequest",
+        "EmbeddingRefreshRequest",
+        "RenameWorkspaceRequest",
         "SearchUserRequest",
         "SearchWorkspaceRequest",
         "UpdateMemoryRequest",
-        "RenameWorkspaceRequest",
-        "AddWorkspaceAliasRequest",
     ):
         assert schema_name in schemas
+        assert schemas[schema_name]["additionalProperties"] is False
+
+
+def test_api_request_models_reject_unknown_fields() -> None:
+    for model_type in (
+        AddMemoryRequest,
+        AddWorkspaceAliasRequest,
+        ClearEmbeddingJobsRequest,
+        EmbeddingRefreshRequest,
+        RenameWorkspaceRequest,
+        SearchUserRequest,
+        SearchWorkspaceRequest,
+        UpdateMemoryRequest,
+    ):
+        assert model_type.model_config.get("extra") == "forbid"
 
 
 def _service_docs_section_for_route(docs_text: str, route: str) -> str:
@@ -706,6 +739,23 @@ def test_http_invalid_query_params_return_validation_errors(tmp_path: Path) -> N
     assert payload["error"]["code"] == "validation_error"
 
     status, payload = _request_json(client, "GET", "/v1/embedding/jobs?limit=0")
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+
+
+def test_http_unknown_request_body_fields_return_validation_errors(
+    tmp_path: Path,
+) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "service-strict-body-validation.db")
+    client = _client(core)
+
+    status, payload = _request_json(
+        client,
+        "POST",
+        "/v1/memories/search_user",
+        {"query": "likes tea", "typo_field": True},
+    )
+
     assert status == 400
     assert payload["error"]["code"] == "validation_error"
 

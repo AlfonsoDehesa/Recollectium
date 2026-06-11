@@ -321,6 +321,8 @@ All successful endpoint responses currently return HTTP `200` with a `{"data": .
 - Optional inputs:
   - `type` (string bucket filter; optional)
   - `limit` (positive integer, default `20`)
+  - `protected_minimum` (integer `0` or greater; optional retrieval override that keeps this many top-ranked results before applying `match_threshold`)
+  - `match_threshold` (number, `null`, or `"model_recommended_default"`; optional retrieval override for the minimum semantic match score after the protected minimum)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
 - Successful response: HTTP `200` with compact `data` list of search results (`id`, `content`, `match`) by default. Use `?verbosity=verbose` or the verbosity header for full search result objects (`memory`, `score`, `rank`, `matched_text`, `snippet`, `chunk_index`).
@@ -392,6 +394,8 @@ Verbose response includes full search result fields:
 - Optional inputs:
   - `type` (string bucket filter; optional)
   - `limit` (positive integer, default `20`)
+  - `protected_minimum` (integer `0` or greater; optional retrieval override that keeps this many top-ranked results before applying `match_threshold`)
+  - `match_threshold` (number, `null`, or `"model_recommended_default"`; optional retrieval override for the minimum semantic match score after the protected minimum)
   - `include_archived` (boolean, default `false`)
 - Side effects: none.
 - Successful response: HTTP `200` with compact `data` list of search results (`id`, `content`, `match`) by default. Use `?verbosity=verbose` or the verbosity header for full search result objects.
@@ -1163,7 +1167,7 @@ Example response: compact default
 
 ## Notes
 
-- Only documented fields are supported.
+- Only documented request body fields are supported; unknown JSON body fields are rejected with a `validation_error` response.
 - JSON body is required for `POST` and `PATCH` endpoints that accept request-body inputs (`POST /v1/memories/search_user`, `POST /v1/memories/search_workspace`, `POST /v1/memories`, and `PATCH /v1/memories/{memory_id}`).
 - `POST /v1/memories/{memory_id}/archive` is body-less.
 - This document is tied to the current implementation and should be updated with service contract changes.

@@ -2069,6 +2069,7 @@
             "title": "Sensitivity"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "space",
@@ -2090,6 +2091,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "alias_uid"
@@ -2113,6 +2115,7 @@
             "title": "States"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "ClearEmbeddingJobsRequest"
       },
@@ -2148,6 +2151,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "EmbeddingRefreshRequest"
       },
@@ -2172,6 +2176,7 @@
             "title": "New Uid"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "new_uid"
@@ -2236,6 +2241,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "query"
@@ -2305,6 +2311,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "query",
@@ -2382,6 +2389,7 @@
             "title": "Sensitivity"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "UpdateMemoryRequest"
       },

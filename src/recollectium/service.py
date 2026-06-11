@@ -145,9 +145,11 @@ _BOUNDARY_ERROR_MAP: tuple[tuple[type[Exception], HTTPStatus, str], ...] = (
 )
 
 
-class SearchUserRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
+
+class SearchUserRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     limit: int = Field(default=20, ge=1)
@@ -162,9 +164,7 @@ class SearchUserRequest(BaseModel):
     include_archived: bool = False
 
 
-class SearchWorkspaceRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class SearchWorkspaceRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
@@ -180,9 +180,7 @@ class SearchWorkspaceRequest(BaseModel):
     include_archived: bool = False
 
 
-class AddMemoryRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class AddMemoryRequest(StrictRequestModel):
     space: str = Field(min_length=1)
     type: str = Field(min_length=1)
     content: str = Field(min_length=1)
@@ -193,9 +191,7 @@ class AddMemoryRequest(BaseModel):
     sensitivity: str | None = None
 
 
-class UpdateMemoryRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class UpdateMemoryRequest(StrictRequestModel):
     type: str | None = None
     content: str | None = None
     metadata: dict[str, object] | None = None
@@ -204,30 +200,22 @@ class UpdateMemoryRequest(BaseModel):
     sensitivity: str | None = None
 
 
-class RenameWorkspaceRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class RenameWorkspaceRequest(StrictRequestModel):
     new_uid: str = Field(min_length=1)
 
 
-class AddWorkspaceAliasRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class AddWorkspaceAliasRequest(StrictRequestModel):
     alias_uid: str = Field(min_length=1)
     migrate_existing: bool = False
 
 
-class EmbeddingRefreshRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class EmbeddingRefreshRequest(StrictRequestModel):
     space: str | None = Field(default=None, min_length=1)
     workspace_uid: str | None = Field(default=None, min_length=1)
     include_archived: bool = False
 
 
-class ClearEmbeddingJobsRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class ClearEmbeddingJobsRequest(StrictRequestModel):
     states: list[str] | None = None
 
 
