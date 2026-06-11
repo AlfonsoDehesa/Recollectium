@@ -15,6 +15,28 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from recollectium.config import LOGGING_SENSITIVITY_FULL
+
+
+_REDACTED = "[redacted]"
+_SENSITIVE_CONTEXT_KEYS = frozenset(
+    {
+        "id",
+        "memory_id",
+        "job_id",
+        "workspace_uid",
+        "canonical_uid",
+        "alias_uid",
+        "old_uid",
+        "new_uid",
+        "input_uid",
+        "content",
+        "metadata",
+        "source",
+        "query",
+    }
+)
+
 
 class LoggingConfig(Protocol):
     @property
@@ -36,6 +58,43 @@ def _event_for_record(record: logging.LogRecord) -> str:
     return record.name
 
 
+def redact_log_value(value: Any) -> Any:
+    """Return a redacted copy of sensitive structured log values."""
+
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            normalized = key_text.lower()
+            if normalized in _SENSITIVE_CONTEXT_KEYS or any(
+                token in normalized
+                for token in (
+                    "memory",
+                    "workspace",
+                    "alias",
+                    "content",
+                    "metadata",
+                    "source",
+                )
+            ):
+                redacted[key_text] = _REDACTED
+            else:
+                redacted[key_text] = redact_log_value(item)
+        return redacted
+    if isinstance(value, list):
+        return [redact_log_value(item) for item in value]
+    return value
+
+
+def logging_sensitivity(config: LoggingConfig) -> str:
+    """Return the effective logging sensitivity mode."""
+
+    logging_config = config.effective_config.get("logging", {})
+    if not isinstance(logging_config, Mapping):
+        return "redacted"
+    return str(logging_config.get("sensitivity", "redacted")).lower()
+
+
 class JsonFormatter(logging.Formatter):
     """A ``logging.Formatter`` that serialises log records as one JSON line.
 
@@ -49,6 +108,10 @@ class JsonFormatter(logging.Formatter):
     - ``context`` -- optional structured data dict (empty dict when absent)
     """
 
+    def __init__(self, *, redact_sensitive: bool = True) -> None:
+        super().__init__()
+        self._redact_sensitive = redact_sensitive
+
     def format(self, record: logging.LogRecord) -> str:
         import json
 
@@ -56,6 +119,8 @@ class JsonFormatter(logging.Formatter):
         context = getattr(record, "context", None)
         if not isinstance(context, dict):
             context = {}
+        if self._redact_sensitive:
+            context = redact_log_value(context)
 
         payload = {
             "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
@@ -114,7 +179,8 @@ def setup_logging(
     max_bytes = int(logging_config.get("max_bytes", 10485760))
     backup_count = int(logging_config.get("backup_count", 5))
 
-    json_formatter = JsonFormatter()
+    redact_sensitive = logging_sensitivity(config) != LOGGING_SENSITIVITY_FULL
+    json_formatter = JsonFormatter(redact_sensitive=redact_sensitive)
 
     file_handler = RotatingFileHandler(
         log_file,

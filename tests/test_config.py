@@ -309,6 +309,21 @@ class TestValidateConfigValue:
         _validate_config_value(data)
         assert data["logging"]["level"] == "warning"
 
+    def test_logging_sensitivity_defaults_to_redacted(self) -> None:
+        assert DEFAULTS["logging"]["sensitivity"] == "redacted"
+
+    def test_logging_sensitivity_accepts_full_and_unredacted_alias(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["logging"]["sensitivity"] = "unredacted"
+        _validate_config_value(data)
+        assert data["logging"]["sensitivity"] == "full"
+
+    def test_unknown_logging_sensitivity_raises(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["logging"]["sensitivity"] = "unsafe"
+        with pytest.raises(ValidationError, match="logging.sensitivity must be one of"):
+            _validate_config_value(data)
+
     def test_invalid_directories_subkey_type_raises(self) -> None:
         data = deepcopy(DEFAULTS)
         data["directories"] = {"data": 123}

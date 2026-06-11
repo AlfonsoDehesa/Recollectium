@@ -13,7 +13,13 @@ import warnings
 import pytest
 
 from recollectium.config import RecollectiumConfig, DEFAULTS, SUPPORTED_LOGGING_FORMATS
-from recollectium.logging import JsonFormatter, get_logger, setup_logging
+from recollectium.logging import (
+    JsonFormatter,
+    get_logger,
+    logging_sensitivity,
+    redact_log_value,
+    setup_logging,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +142,49 @@ class TestJsonFormatter:
         record = _make_record()
         line = formatter.format(record)
         assert "\n" not in line.strip()
+
+    def test_redacts_sensitive_context_by_default(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(
+            extra={
+                "context": {
+                    "workspace_uid": "secret-workspace",
+                    "alias_uid": "secret-alias",
+                    "memory_id": "secret-memory",
+                    "metadata": {"private": True},
+                    "result_count": 1,
+                }
+            }
+        )
+        parsed = json.loads(formatter.format(record))
+        assert parsed["context"] == {
+            "workspace_uid": "[redacted]",
+            "alias_uid": "[redacted]",
+            "memory_id": "[redacted]",
+            "metadata": "[redacted]",
+            "result_count": 1,
+        }
+        assert "secret" not in json.dumps(parsed)
+
+    def test_can_format_unredacted_sensitive_context(self) -> None:
+        formatter = JsonFormatter(redact_sensitive=False)
+        record = _make_record(extra={"context": {"workspace_uid": "secret-workspace"}})
+        parsed = json.loads(formatter.format(record))
+        assert parsed["context"]["workspace_uid"] == "secret-workspace"
+
+    def test_redact_log_value_handles_nested_lists(self) -> None:
+        assert redact_log_value([{"workspace_uid": "secret"}, "safe"]) == [
+            {"workspace_uid": "[redacted]"},
+            "safe",
+        ]
+
+    def test_logging_sensitivity_falls_back_for_malformed_logging_section(self) -> None:
+        config = type(
+            "MalformedConfig",
+            (),
+            {"effective_config": {"logging": "bad"}, "xdg_dirs": {}},
+        )()
+        assert logging_sensitivity(config) == "redacted"  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
