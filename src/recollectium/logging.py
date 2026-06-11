@@ -35,13 +35,32 @@ _SENSITIVE_CONTEXT_KEYS = frozenset(
         "metadata",
         "source",
         "query",
+        "secret",
+        "api_secret",
+        "token",
+        "password",
+        "credential",
+        "credentials",
+        "api_key",
+        "access_key",
+        "private_key",
+        "secret_key",
+        "sensitivity",
     }
+)
+_SENSITIVE_KEY_RE = re.compile(
+    r"(?i)("
+    r"(^|[_-])(secret|token|password|credential|credentials|sensitivity)([_-]|$)|"
+    r"(^|[_-])(?:api|access|private|secret)[_-]?key$"
+    r")"
 )
 _SENSITIVE_VALUE_RE = re.compile(
     r"(?i)\b("
     r"memory(?:[_ -]?id)?|workspace(?:[_ -]?(?:id|uid|alias))?|"
     r"alias(?:[_ -]?uid)?|embedding(?:[_ -]?job)?|job(?:[_ -]?id)?|"
-    r"content|metadata|source|query"
+    r"content|metadata|source|query|secret|api[_ -]?secret|token|password|"
+    r"credentials?|api[_ -]?key|access[_ -]?key|private[_ -]?key|"
+    r"secret[_ -]?key|sensitivity"
     r")\b(?P<label>[^\n:={]{0,80})(?P<sep>[:=]\s*)(?P<value>[^,;\n]+)"
 )
 
@@ -74,15 +93,19 @@ def redact_log_value(value: Any) -> Any:
         for key, item in value.items():
             key_text = str(key)
             normalized = key_text.lower()
-            if normalized in _SENSITIVE_CONTEXT_KEYS or any(
-                token in normalized
-                for token in (
-                    "memory",
-                    "workspace",
-                    "alias",
-                    "content",
-                    "metadata",
-                    "source",
+            if (
+                normalized in _SENSITIVE_CONTEXT_KEYS
+                or _SENSITIVE_KEY_RE.search(normalized) is not None
+                or any(
+                    token in normalized
+                    for token in (
+                        "memory",
+                        "workspace",
+                        "alias",
+                        "content",
+                        "metadata",
+                        "source",
+                    )
                 )
             ):
                 redacted[key_text] = _REDACTED

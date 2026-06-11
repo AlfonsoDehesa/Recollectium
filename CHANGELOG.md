@@ -26,6 +26,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### 🐛 Fixes
 
+- Fixed surface-audit polish gaps across CLI argparse JSON errors, deterministic output flag conflicts, API validation details and body-less archive validation, MCP error envelopes and schemas, embedding job clear state constraints, memory type schemas, and log redaction.
 - Fixed local API OpenAPI validation-error responses to advertise the Recollectium 400 `validation_error` envelope and tightened MCP search override schemas for protected minimum and match threshold constraints.
 - Fixed local API request validation to reject unknown JSON body fields and documented search threshold request options consistently.
 - Fixed API/CLI/MCP list and embedding-job filters to reject invalid enum values consistently, tightened bool/int query docs and OpenAPI, and documented the malformed JSON error message accurately.

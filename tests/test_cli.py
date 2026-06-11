@@ -515,6 +515,44 @@ def test_cli_config_path_json_output_is_structured(
     }
 
 
+def test_cli_configured_json_applies_to_argparse_errors(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = deepcopy(DEFAULTS)
+    config["cli_output"] = "json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--config", str(config_path), "not-a-command"])
+    captured = capsys.readouterr()
+
+    assert exc_info.value.code == 2
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["status"] == "validation_error"
+    assert "invalid choice" in payload["message"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    (
+        ["--json", "--human-readable", "config", "--path"],
+        ["--human-readable", "--json", "config", "--path"],
+    ),
+)
+def test_cli_json_human_conflict_always_prefers_json_error(
+    args: list[str], capsys: CaptureFixture[str]
+) -> None:
+    exit_code, stdout, stderr = _run_cli(args, capsys, json_by_default=False)
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert "--json or --human-readable" in payload["message"]
+
+
 def test_cli_config_path_human_output_is_framed(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4467,9 +4505,9 @@ def test_cli_output_flags_are_mutually_exclusive(capsys) -> None:
 
     assert exit_code == 2
     assert stdout == ""
-    assert stderr.startswith("\nChoose either --json or --human-readable, not both.\n")
-    _assert_human_framed(stderr)
-    assert "Status: validation_error" in stderr
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert payload["message"] == "Choose either --json or --human-readable, not both."
 
 
 def test_completion_help_documents_raw_output_json_exception(capsys) -> None:

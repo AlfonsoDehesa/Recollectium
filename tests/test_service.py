@@ -332,7 +332,8 @@ def test_local_service_docs_cover_request_and_response_behavior_for_all_routes()
     ):
         assert error_code in docs_text
 
-    assert "POST /v1/memories/{memory_id}/archive` is body-less." in docs_text
+    assert "POST /v1/memories/{memory_id}/archive` is body-less" in docs_text
+    assert "rejects any non-empty JSON body" in docs_text
     assert "also accept omitted or `null` bodies" in docs_text
 
     for route in (
@@ -483,8 +484,16 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
             assert validation_response["content"]["application/json"]["example"] == {
                 "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {},
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                        "fields": [
+                            {
+                                "field": "query",
+                                "message": "Field required",
+                                "type": "missing",
+                            }
+                        ]
+                    },
                 }
             }
     for schema_name in (
@@ -521,6 +530,29 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
         )
         assert numeric_threshold_schema["minimum"] == 0.0
         assert numeric_threshold_schema["maximum"] == 1.0
+
+    assert schemas["SearchUserRequest"]["properties"]["type"]["anyOf"][0]["enum"] == [
+        "fact",
+        "preference",
+        "personal_fact",
+        "social_context",
+        "goal",
+        "communication_style",
+        "note",
+    ]
+    assert schemas["SearchWorkspaceRequest"]["properties"]["type"]["anyOf"][0][
+        "enum"
+    ] == [
+        "fact",
+        "decision",
+        "task_context",
+        "configuration",
+        "bug_finding",
+        "note",
+    ]
+    assert schemas["ClearEmbeddingJobsRequest"]["properties"]["states"]["anyOf"][0][
+        "items"
+    ]["enum"] == ["pending", "completed", "failed"]
 
     assert schemas["UpdateMemoryRequest"]["minProperties"] == 1
 
@@ -726,6 +758,46 @@ def _request_raw(
         headers={"Content-Type": "application/json"},
     )
     return response.status_code, response.json()
+
+
+def test_request_validation_errors_include_field_details(tmp_path: Path) -> None:
+    client = _client(RecollectiumCore(db_path=tmp_path / "validation.db"))
+
+    status, payload = _request_json(client, "POST", "/v1/memories/search_user", {})
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    assert "query" in payload["error"]["message"]
+    assert payload["error"]["details"]["fields"][0]["field"] == "query"
+
+
+def test_archive_rejects_unexpected_request_body(tmp_path: Path) -> None:
+    core = RecollectiumCore(db_path=tmp_path / "archive-body.db")
+    memory = core.add_memory(space="user", type="fact", content="bodyless archive")
+    client = _client(core)
+
+    status, payload = _request_json(
+        client, "POST", f"/v1/memories/{memory.id}/archive", {"unexpected": True}
+    )
+
+    assert status == 400
+    assert payload["error"] == {
+        "code": "validation_error",
+        "message": "request body is not allowed for this endpoint",
+        "details": {},
+    }
+
+
+def test_clear_embedding_jobs_rejects_in_progress_state(tmp_path: Path) -> None:
+    client = _client(RecollectiumCore(db_path=tmp_path / "clear-states.db"))
+
+    status, payload = _request_json(
+        client, "DELETE", "/v1/embedding/jobs", {"states": ["in_progress"]}
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    assert payload["error"]["details"]["fields"][0]["field"] == "states.0"
 
 
 def test_http_error_log_context_uses_stable_error_code_string(caplog: Any) -> None:

@@ -82,8 +82,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -180,8 +188,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -278,8 +294,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -386,8 +410,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -494,8 +526,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -592,8 +632,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -731,8 +779,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -844,8 +900,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -959,8 +1023,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -1066,8 +1138,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -1174,8 +1254,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -1231,6 +1319,19 @@
             "schema": {
               "anyOf": [
                 {
+                  "enum": [
+                    "fact",
+                    "preference",
+                    "personal_fact",
+                    "social_context",
+                    "goal",
+                    "communication_style",
+                    "note",
+                    "decision",
+                    "task_context",
+                    "configuration",
+                    "bug_finding"
+                  ],
                   "type": "string"
                 },
                 {
@@ -1384,8 +1485,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -1491,8 +1600,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -1606,8 +1723,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -1713,8 +1838,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -1849,8 +1982,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -1956,8 +2097,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -2063,8 +2212,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -2178,8 +2335,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -2277,8 +2442,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -2384,8 +2557,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -2501,8 +2682,16 @@
                 "example": {
                   "error": {
                     "code": "validation_error",
-                    "message": "request validation failed",
-                    "details": {}
+                    "message": "request validation failed: query: Field required",
+                    "details": {
+                      "fields": [
+                        {
+                          "field": "query",
+                          "message": "Field required",
+                          "type": "missing"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -2643,7 +2832,12 @@
             "anyOf": [
               {
                 "items": {
-                  "type": "string"
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "completed",
+                    "failed"
+                  ]
                 },
                 "type": "array"
               },
@@ -2723,7 +2917,15 @@
             "anyOf": [
               {
                 "type": "string",
-                "minLength": 1
+                "enum": [
+                  "fact",
+                  "preference",
+                  "personal_fact",
+                  "social_context",
+                  "goal",
+                  "communication_style",
+                  "note"
+                ]
               },
               {
                 "type": "null"
@@ -2783,7 +2985,14 @@
             "anyOf": [
               {
                 "type": "string",
-                "minLength": 1
+                "enum": [
+                  "fact",
+                  "decision",
+                  "task_context",
+                  "configuration",
+                  "bug_finding",
+                  "note"
+                ]
               },
               {
                 "type": "null"
@@ -2981,8 +3190,8 @@
             },
             "example": {
               "error": {
-                "code": "conflict",
-                "message": "request conflicts with current state",
+                "code": "reembedding_in_progress",
+                "message": "re-embedding is already in progress",
                 "details": {}
               }
             }

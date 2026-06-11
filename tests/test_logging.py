@@ -200,6 +200,33 @@ class TestJsonFormatter:
         assert parsed["context"]["error"] == "embedding job not found: [redacted]"
         assert "job-secret" not in json.dumps(parsed)
 
+    def test_redacts_secret_shaped_context_and_messages(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(
+            msg="token: abc123 password=letmein sensitivity: high",
+            extra={
+                "context": {
+                    "api_secret": "secret-value",
+                    "access_key": "key-value",
+                    "safe_count": 2,
+                    "nested": {"credential": "cred-value"},
+                }
+            },
+        )
+
+        parsed = json.loads(formatter.format(record))
+        assert parsed["context"] == {
+            "api_secret": "[redacted]",
+            "access_key": "[redacted]",
+            "safe_count": 2,
+            "nested": {"credential": "[redacted]"},
+        }
+        encoded = json.dumps(parsed)
+        assert "abc123" not in encoded
+        assert "letmein" not in encoded
+        assert "secret-value" not in encoded
+        assert "cred-value" not in encoded
+
     def test_can_format_unredacted_sensitive_context(self) -> None:
         formatter = JsonFormatter(redact_sensitive=False)
         record = _make_record(

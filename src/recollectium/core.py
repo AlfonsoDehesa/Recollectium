@@ -515,14 +515,16 @@ class RecollectiumCore:
         )
         if not selected_states:
             raise ValidationError("at least one job state is required")
-        valid_states = {"pending", "in_progress", "completed", "failed"}
-        invalid_states = sorted(set(selected_states) - valid_states)
-        if invalid_states:
-            raise ValidationError(
-                "invalid embedding job state: " + ", ".join(invalid_states)
-            )
         if "in_progress" in selected_states:
             raise ValidationError("in_progress embedding jobs cannot be deleted")
+        valid_states = {"pending", "completed", "failed"}
+        invalid_states = sorted(set(selected_states) - valid_states)
+        if invalid_states:
+            allowed_values = ", ".join(sorted(valid_states))
+            raise ValidationError(
+                "invalid embedding job state: "
+                f"{', '.join(invalid_states)}; states must be one of: {allowed_values}"
+            )
         deleted_job_ids = self.store.delete_embedding_jobs(states=selected_states)
         return {
             "deleted_count": len(deleted_job_ids),
