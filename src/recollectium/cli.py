@@ -112,10 +112,6 @@ from recollectium.retrieval import resolve_retrieval_policy
 from recollectium.mcp_server import create_mcp_server
 from recollectium.retrieval import UNSET
 from recollectium.service import run_service
-from recollectium.service_contract import (
-    SERVICE_DEFAULT_HOST,
-    SERVICE_DEFAULT_PORT,
-)
 from recollectium.representations import (
     OPERATION_DEV_EVAL,
     OPERATION_DEV_MODE,
@@ -4922,38 +4918,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     archive_parser.add_argument("memory_id", help="Memory ID to archive.")
 
-    # -- serve -------------------------------------------------------------
-    serve_parser = subparsers.add_parser(
-        "serve",
-        help="run the local Recollectium HTTP service",
-        description=(
-            "Start a blocking local-first HTTP JSON service for Recollectium Core. "
-            "By default it binds to localhost (127.0.0.1), exposes the /v1 "
-            "service API, and keeps running until interrupted. Host and port "
-            "can be set via config file or CLI flags. CLI flags override config. "
-            "Non-local binds can expose unauthenticated memory operations unless "
-            "protected by private networking and external access controls."
-        ),
-    )
-    serve_parser.add_argument(
-        "--host",
-        default=None,
-        help=(
-            "Host interface to bind. Overrides service.host from config. "
-            "Defaults to 127.0.0.1. Non-local binds should be protected by "
-            "private networking and external access controls."
-        ),
-    )
-    serve_parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help=(
-            "TCP port for the local service API. Overrides service.port from config. "
-            "Defaults to 8765."
-        ),
-    )
-
     # -- service ------------------------------------------------------------
     service_parser = subparsers.add_parser(
         "service",
@@ -5045,13 +5009,16 @@ def _build_parser() -> argparse.ArgumentParser:
     # -- dev ---------------------------------------------------------------
     dev_parser = subparsers.add_parser(
         "dev",
-        help="switch, reset, or evaluate the seeded development memory database",
+        help="run development database, eval, and debug server tools",
         description=(
-            "Switch Recollectium between the normal user database and a pre-seeded "
-            "development database, reset the development database to its canonical "
-            "fixture, or run retrieval evaluation against the seeded development "
-            "database only. The regular database is not touched. Switch and reset "
-            "actions refuse to run while a managed service is already running."
+            "Run Recollectium development tools: switch between the normal user "
+            "database and a pre-seeded development database, reset the development "
+            "database to its canonical fixture, run retrieval evaluation against the "
+            "seeded development database only, optimize retrieval thresholds, or run "
+            "the local-first HTTP API server in the foreground for development and "
+            "debugging. The regular database is not touched by seeded database actions. "
+            "Switch and reset actions refuse to run while a managed service is already "
+            "running."
         ),
     )
     dev_subparsers = dev_parser.add_subparsers(
@@ -5059,6 +5026,38 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         title="dev actions",
         metavar="ACTION",
+    )
+    dev_serve_parser = dev_subparsers.add_parser(
+        "serve",
+        help="run the foreground HTTP API server for development/debugging",
+        description=(
+            "Start a blocking local-first development/debug HTTP JSON service for "
+            "Recollectium Core. By default it binds to localhost (127.0.0.1), "
+            "exposes the /v1 service API, and keeps running in the foreground "
+            "until interrupted. Host and port can be set via config file or CLI "
+            "flags. CLI flags override config. Non-local binds can expose "
+            "unauthenticated memory operations unless protected by private networking "
+            "and external access controls. For a managed background service, use "
+            "recollectium service start api."
+        ),
+    )
+    dev_serve_parser.add_argument(
+        "--host",
+        default=None,
+        help=(
+            "Host interface to bind. Overrides service.host from config. "
+            "Defaults to 127.0.0.1. Non-local binds should be protected by "
+            "private networking and external access controls."
+        ),
+    )
+    dev_serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help=(
+            "TCP port for the local /v1 service API. Overrides service.port from "
+            "config. Defaults to 8765."
+        ),
     )
     dev_true_parser = dev_subparsers.add_parser(
         "true",
@@ -5467,6 +5466,48 @@ def _handle_dev_command(
     response_verbosity: str,
 ) -> int:
     dev_action = getattr(args, "dev_action", getattr(args, "state", None))
+    if dev_action == "serve":
+        host = args.host
+        port = args.port
+        if host is None or port is None:
+            try:
+                cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
+            except FileNotFoundError as exc:
+                return _config_missing_error(exc, command="dev serve")
+            except ValidationError as exc:
+                return _config_invalid_error(exc, command="dev serve")
+            if host is None:
+                host = cfg.effective_config["service"]["host"]
+            if port is None:
+                port = cfg.effective_config["service"]["port"]
+        try:
+            run_service(
+                host=host,
+                port=port,
+                db_path=args.db_path,
+                config_path=core_config_path,
+                log_level=args.log_level,
+                cli_structured_errors=True,
+            )
+        except FileNotFoundError as exc:
+            return _config_missing_error(exc, command="dev serve")
+        except ValidationError as exc:
+            return _config_invalid_error(exc, command="dev serve")
+        except (
+            EmbeddingReadinessTimeoutError,
+            EmbeddingModelUnavailableError,
+            EmbeddingProviderUnavailableError,
+            EmbeddingGenerationError,
+        ) as exc:
+            return _embedding_error(exc, command="dev serve")
+        except ServiceError as exc:
+            return _service_error(
+                exc, command="dev serve", event="dev.serve.service_error"
+            )
+        except RecollectiumError as exc:
+            return _operation_failed_error(exc, command="dev serve")
+        return 0
+
     try:
         cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
         if dev_action == "eval":
@@ -5930,58 +5971,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         except RecollectiumError as exc:
             return _operation_failed_error(exc, command="embedding-maintenance")
-
-    # -- serve command ----------------------------------------------------
-    if args.command == "serve":
-        # Resolve host/port from config or defaults
-        host = args.host
-        port = args.port
-        if host is None or port is None:
-            try:
-                cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
-            except FileNotFoundError as exc:
-                return _config_missing_error(exc, command=args.command)
-            except ValidationError as exc:
-                return _config_invalid_error(exc, command=args.command)
-            if host is None:
-                host = (
-                    cfg.effective_config["service"]["host"]
-                    if cfg
-                    else SERVICE_DEFAULT_HOST
-                )
-            if port is None:
-                port = (
-                    cfg.effective_config["service"]["port"]
-                    if cfg
-                    else SERVICE_DEFAULT_PORT
-                )
-        try:
-            run_service(
-                host=host,
-                port=port,
-                db_path=args.db_path,
-                config_path=core_config_path,
-                log_level=args.log_level,
-                cli_structured_errors=True,
-            )
-        except FileNotFoundError as exc:
-            return _config_missing_error(exc, command=args.command)
-        except ValidationError as exc:
-            return _config_invalid_error(exc, command=args.command)
-        except (
-            EmbeddingReadinessTimeoutError,
-            EmbeddingModelUnavailableError,
-            EmbeddingProviderUnavailableError,
-            EmbeddingGenerationError,
-        ) as exc:
-            return _embedding_error(exc, command=args.command)
-        except ServiceError as exc:
-            return _service_error(
-                exc, command=args.command, event="serve.service_error"
-            )
-        except RecollectiumError as exc:
-            return _operation_failed_error(exc, command=args.command)
-        return 0
 
     # -- db-status command ------------------------------------------------
     if args.command == "db-status":
