@@ -24,6 +24,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### 🐛 Fixes
 
+- Fixed local API OpenAPI validation-error responses to advertise the Recollectium 400 `validation_error` envelope and tightened MCP search override schemas for protected minimum and match threshold constraints.
 - Fixed local API request validation to reject unknown JSON body fields and documented search threshold request options consistently.
 - Fixed foreground `recollectium dev serve` logging so stderr follows the effective configured log level and includes successful HTTP access logs at info/debug while one-shot CLI commands keep warning-only stderr logs.
 - Fixed remaining response-verbosity audit gaps for CLI version/config/completion/dev/db-status output, API route documentation coverage, API search default-limit docs, and MCP compact/verbose regression tests.

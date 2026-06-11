@@ -58,6 +58,54 @@ def test_mcp_tool_verbosity_schema_is_discoverable(tmp_path: Path) -> None:
         ]
 
 
+def test_mcp_search_override_schemas_are_discoverable(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+
+    for tool_name in ("search_user_memory", "search_workspace_memory"):
+        tool = mcp._tool_manager._tools[tool_name]
+        properties = tool.parameters["properties"]
+
+        assert "protected_minimum" not in tool.parameters["required"]
+        protected_minimum_schema = properties["protected_minimum"]
+        assert protected_minimum_schema["type"] == "integer"
+        assert protected_minimum_schema["minimum"] == 0
+        assert "null" not in json.dumps(protected_minimum_schema)
+
+        assert "match_threshold" not in tool.parameters["required"]
+        match_threshold_schema = properties["match_threshold"]
+        threshold_options = match_threshold_schema["anyOf"]
+        numeric_option = next(
+            option for option in threshold_options if option.get("type") == "number"
+        )
+        assert numeric_option["minimum"] == 0.0
+        assert numeric_option["maximum"] == 1.0
+        assert {"type": "null"} in threshold_options
+        assert {
+            "const": "model_recommended_default",
+            "type": "string",
+        } in threshold_options
+
+
+def test_mcp_search_overrides_reject_invalid_values(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "test.db")
+    core = RecollectiumCore(db_path=db_path)
+    mcp = create_mcp_server(core)
+    search_fn = mcp._tool_manager._tools["search_user_memory"].fn
+
+    invalid_cases = [
+        {"protected_minimum": -1},
+        {"protected_minimum": None},
+        {"match_threshold": -0.1},
+        {"match_threshold": 1.1},
+        {"match_threshold": "bad"},
+    ]
+    for overrides in invalid_cases:
+        result = json.loads(search_fn(query="anything", **overrides))
+        assert "error" in result
+
+
 def test_mcp_tool_add_memory_round_trip(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)

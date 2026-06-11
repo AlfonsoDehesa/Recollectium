@@ -72,12 +72,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -151,12 +158,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -230,12 +244,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -319,12 +340,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -408,12 +436,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -487,12 +522,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -598,12 +640,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -692,12 +741,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -788,12 +844,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -876,12 +939,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -965,12 +1035,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1138,12 +1215,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1226,12 +1310,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1322,12 +1413,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1410,12 +1508,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1521,12 +1626,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1609,12 +1721,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1697,12 +1816,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1793,12 +1919,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1881,12 +2014,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -1979,12 +2119,19 @@
               }
             }
           },
-          "422": {
-            "description": "Validation Error",
+          "400": {
+            "description": "Request validation failed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/RecollectiumErrorEnvelope"
+                },
+                "example": {
+                  "error": {
+                    "code": "validation_error",
+                    "message": "request validation failed",
+                    "details": {}
+                  }
                 }
               }
             }
@@ -2154,19 +2301,6 @@
         "additionalProperties": false,
         "type": "object",
         "title": "EmbeddingRefreshRequest"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "type": "array",
-            "title": "Detail"
-          }
-        },
-        "type": "object",
-        "title": "HTTPValidationError"
       },
       "RenameWorkspaceRequest": {
         "properties": {
@@ -2383,45 +2517,39 @@
         "type": "object",
         "title": "UpdateMemoryRequest"
       },
-      "ValidationError": {
+      "RecollectiumErrorEnvelope": {
+        "additionalProperties": false,
         "properties": {
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "description": "Stable Recollectium error code.",
+                "type": "string"
+              },
+              "message": {
+                "description": "Human-readable error summary.",
+                "type": "string"
+              },
+              "details": {
+                "additionalProperties": true,
+                "description": "Optional machine-readable error details.",
+                "type": "object"
+              }
             },
-            "type": "array",
-            "title": "Location"
-          },
-          "msg": {
-            "type": "string",
-            "title": "Message"
-          },
-          "type": {
-            "type": "string",
-            "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "type": "object"
           }
         },
-        "type": "object",
         "required": [
-          "loc",
-          "msg",
-          "type"
+          "error"
         ],
-        "title": "ValidationError"
+        "title": "RecollectiumErrorEnvelope",
+        "type": "object"
       }
     }
   }

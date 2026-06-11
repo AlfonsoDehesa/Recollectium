@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
 from recollectium.core import RecollectiumCore
-from recollectium.retrieval import UNSET, UnsetType
+from recollectium.retrieval import UNSET
 from recollectium.errors import RecollectiumError
 from recollectium.representations import (
     OPERATION_EMBEDDING_JOBS_CLEAR,
@@ -56,6 +56,30 @@ ResponseVerbosityArg = Annotated[
         ),
     ),
 ]
+SearchProtectedMinimumArg: TypeAlias = Annotated[
+    int,
+    Field(
+        description=(
+            "Optional minimum number of highest-ranked matches protected from "
+            "threshold filtering. Omit to use configuration defaults."
+        ),
+        ge=0,
+    ),
+]
+SearchMatchThresholdNumberArg: TypeAlias = Annotated[
+    float,
+    Field(
+        description=(
+            "Numeric semantic match threshold from 0.0 to 1.0. Omit to use "
+            "configuration defaults."
+        ),
+        ge=0.0,
+        le=1.0,
+    ),
+]
+SearchMatchThresholdArg: TypeAlias = (
+    SearchMatchThresholdNumberArg | Literal["model_recommended_default"] | None
+)
 
 
 def create_mcp_server(core: RecollectiumCore) -> FastMCP:
@@ -87,11 +111,8 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         query: str,
         type: str | None = None,
         limit: int = 20,
-        protected_minimum: int | None | UnsetType = UNSET,
-        match_threshold: float
-        | Literal["model_recommended_default"]
-        | None
-        | UnsetType = UNSET,
+        protected_minimum: SearchProtectedMinimumArg = cast(int, UNSET),
+        match_threshold: SearchMatchThresholdArg = cast(SearchMatchThresholdArg, UNSET),
         include_archived: bool = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
@@ -130,11 +151,8 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         workspace_uid: str,
         type: str | None = None,
         limit: int = 20,
-        protected_minimum: int | None | UnsetType = UNSET,
-        match_threshold: float
-        | Literal["model_recommended_default"]
-        | None
-        | UnsetType = UNSET,
+        protected_minimum: SearchProtectedMinimumArg = cast(int, UNSET),
+        match_threshold: SearchMatchThresholdArg = cast(SearchMatchThresholdArg, UNSET),
         include_archived: bool = False,
         verbosity: ResponseVerbosityArg = None,
     ) -> str:
