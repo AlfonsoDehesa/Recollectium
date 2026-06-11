@@ -25,6 +25,7 @@ from recollectium.service import (
     SearchWorkspaceRequest,
     UpdateMemoryRequest,
     _map_boundary_error,
+    _validation_error_details,
     _request_override_from_model,
     _parse_optional_bool,
     _parse_optional_choice,
@@ -98,6 +99,20 @@ def test_service_capabilities_cover_required_operations() -> None:
         OPERATION_WORKSPACES_ALIASES_ADD,
         OPERATION_WORKSPACES_ALIASES_REMOVE,
     )
+
+
+def test_validation_error_details_preserves_non_sequence_locations() -> None:
+    assert _validation_error_details(
+        [{"loc": "payload", "msg": "invalid payload", "type": "value_error"}]
+    ) == {
+        "fields": [
+            {
+                "field": "payload",
+                "message": "invalid payload",
+                "type": "value_error",
+            }
+        ]
+    }
 
 
 def test_metadata_payload_helpers_are_stable() -> None:

@@ -4133,6 +4133,49 @@ def test_cli_dev_reports_service_status_errors(tmp_path, capsys, monkeypatch) ->
     assert json.loads(stderr)["status"] == "service_error"
 
 
+def test_cli_extracts_global_config_path_from_equals_form_and_ignores_missing_value() -> (
+    None
+):
+    assert (
+        cli_module._extract_global_config_path(
+            ["--config=/tmp/recollectium.json", "service", "status"]
+        )
+        == "/tmp/recollectium.json"
+    )
+    assert cli_module._extract_global_config_path(["--config"]) is None
+
+
+@pytest.mark.parametrize("service_action", ["status", "restart"])
+def test_cli_service_status_and_restart_report_pid_discovery_errors(
+    service_action: str, capsys, monkeypatch
+) -> None:
+    fake_config = SimpleNamespace(
+        effective_config={"service": {"host": "127.0.0.1", "port": 8000}}
+    )
+    monkeypatch.setattr(cli_module, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_module, "RecollectiumConfig", lambda *a, **kw: fake_config)
+    monkeypatch.setattr(cli_module, "get_pid_file_path", lambda _cfg: Path("pid.json"))
+
+    def _raise_service_error(_pid_path: Path) -> None:
+        raise ServiceError("unreadable pid file")
+
+    monkeypatch.setattr(cli_module, "read_pid_file", _raise_service_error)
+    monkeypatch.setattr(
+        cli_module,
+        "check_running_service",
+        lambda _cfg: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["service", service_action], capsys)
+
+    assert exit_code == 1
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "service_error"
+    assert payload["message"] == "Service operation failed."
+    assert payload["detail"] == "ServiceError: unreadable pid file"
+
+
 def test_cli_human_readable_flag_formats_failure_output(tmp_path, capsys) -> None:
     config_path = tmp_path / "config.json"
 
