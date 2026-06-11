@@ -2728,7 +2728,8 @@
           "type": {
             "type": "string",
             "minLength": 1,
-            "title": "Type"
+            "title": "Type",
+            "description": "Memory type. User memories allow fact, preference, personal_fact, social_context, goal, communication_style, note. Workspace memories allow fact, decision, task_context, configuration, bug_finding, note."
           },
           "content": {
             "type": "string",

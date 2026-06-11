@@ -336,7 +336,11 @@ class RecollectiumCore:
             workspace_uid = self._resolve_workspace_uid(workspace_uid)
         else:
             workspace_uid = self._normalize_uid(workspace_uid)
-        validated_type = validate_memory_type_filter(type) if type is not None else None
+        if space is not None and space not in {SPACE_USER, SPACE_WORKSPACE}:
+            raise ValidationError("space must be user or workspace")
+        validated_type = (
+            validate_memory_type_filter(type, space=space) if type is not None else None
+        )
 
         return self.store.list_memories(
             space=space,

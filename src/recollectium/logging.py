@@ -41,9 +41,12 @@ _SENSITIVE_CONTEXT_KEYS = frozenset(
         "password",
         "credential",
         "credentials",
+        "key",
         "api_key",
         "access_key",
+        "encryption_key",
         "private_key",
+        "public_key",
         "secret_key",
         "sensitivity",
     }
@@ -51,7 +54,7 @@ _SENSITIVE_CONTEXT_KEYS = frozenset(
 _SENSITIVE_KEY_RE = re.compile(
     r"(?i)("
     r"(^|[_-])(secret|token|password|credential|credentials|sensitivity)([_-]|$)|"
-    r"(^|[_-])(?:api|access|private|secret)[_-]?key$"
+    r"(^|[_-])(?:api|access|encryption|private|public|secret)?[_-]?key$"
     r")"
 )
 _SENSITIVE_VALUE_RE = re.compile(
@@ -59,8 +62,8 @@ _SENSITIVE_VALUE_RE = re.compile(
     r"memory(?:[_ -]?id)?|workspace(?:[_ -]?(?:id|uid|alias))?|"
     r"alias(?:[_ -]?uid)?|embedding(?:[_ -]?job)?|job(?:[_ -]?id)?|"
     r"content|metadata|source|query|secret|api[_ -]?secret|token|password|"
-    r"credentials?|api[_ -]?key|access[_ -]?key|private[_ -]?key|"
-    r"secret[_ -]?key|sensitivity"
+    r"credentials?|key|api[_ -]?key|access[_ -]?key|encryption[_ -]?key|"
+    r"private[_ -]?key|public[_ -]?key|secret[_ -]?key|sensitivity"
     r")\b(?P<label>[^\n:={]{0,80})(?P<sep>[:=]\s*)(?P<value>[^,;\n]+)"
 )
 

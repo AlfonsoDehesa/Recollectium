@@ -16,7 +16,18 @@ from recollectium.models import (
     SPACE_WORKSPACE,
 )
 from recollectium.retrieval import UNSET, UnsetType
-from recollectium.errors import RecollectiumError
+from recollectium.errors import (
+    EmbeddingDimensionMismatchError,
+    EmbeddingGenerationError,
+    EmbeddingModelUnavailableError,
+    EmbeddingProviderUnavailableError,
+    EmbeddingReadinessTimeoutError,
+    NotFoundError,
+    RecollectiumError,
+    ReembeddingFailedError,
+    ReembeddingInProgressError,
+    ValidationError,
+)
 from recollectium.representations import (
     OPERATION_CAPABILITIES_READ,
     OPERATION_EMBEDDING_JOBS_CLEAR,
@@ -145,11 +156,25 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
         return _json(error_payload(code, message))
 
     def _domain_error(exc: RecollectiumError) -> str:
-        code = (
-            "validation_error"
-            if exc.__class__.__name__ == "ValidationError"
-            else "operation_failed"
-        )
+        code = "operation_failed"
+        if isinstance(exc, ValidationError):
+            code = "validation_error"
+        elif isinstance(exc, NotFoundError):
+            code = "not_found"
+        elif isinstance(exc, EmbeddingReadinessTimeoutError):
+            code = "embedding_readiness_timeout"
+        elif isinstance(exc, EmbeddingProviderUnavailableError):
+            code = "embedding_provider_unavailable"
+        elif isinstance(exc, EmbeddingModelUnavailableError):
+            code = "embedding_model_unavailable"
+        elif isinstance(exc, EmbeddingDimensionMismatchError):
+            code = "embedding_profile_mismatch"
+        elif isinstance(exc, EmbeddingGenerationError):
+            code = "embedding_generation_failed"
+        elif isinstance(exc, ReembeddingInProgressError):
+            code = "reembedding_in_progress"
+        elif isinstance(exc, ReembeddingFailedError):
+            code = "reembedding_failed"
         return _error(str(exc), code=code)
 
     def _strict_bool(name: str, value: object) -> bool | str:

@@ -11,7 +11,17 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from recollectium.core import RecollectiumCore
-from recollectium.errors import RecollectiumError
+from recollectium.errors import (
+    EmbeddingDimensionMismatchError,
+    EmbeddingGenerationError,
+    EmbeddingModelUnavailableError,
+    EmbeddingProviderUnavailableError,
+    EmbeddingReadinessTimeoutError,
+    NotFoundError,
+    RecollectiumError,
+    ReembeddingFailedError,
+    ReembeddingInProgressError,
+)
 from recollectium.mcp_server import create_mcp_server
 from recollectium.retrieval import UNSET
 
@@ -202,6 +212,90 @@ def test_mcp_search_overrides_reject_invalid_values(tmp_path: Path) -> None:
         result = json.loads(search_fn(query="anything", **overrides))
         assert result["error"]["code"] == "validation_error"
         assert result["error"]["details"] == {}
+
+
+def test_mcp_missing_memory_returns_structured_not_found() -> None:
+    class MissingCore:
+        config = None
+
+        def get_memory(self, id: str) -> None:
+            raise NotFoundError(f"memory not found: {id}")
+
+    mcp = create_mcp_server(cast(RecollectiumCore, MissingCore()))
+    result = json.loads(mcp._tool_manager._tools["get_memory"].fn(id="missing"))
+
+    assert result == {
+        "error": {
+            "code": "not_found",
+            "details": {},
+            "message": "memory not found: missing",
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected_code"),
+    [
+        (
+            EmbeddingReadinessTimeoutError("readiness timed out"),
+            "embedding_readiness_timeout",
+        ),
+        (
+            EmbeddingProviderUnavailableError("provider unavailable"),
+            "embedding_provider_unavailable",
+        ),
+        (
+            EmbeddingModelUnavailableError("model unavailable"),
+            "embedding_model_unavailable",
+        ),
+        (
+            EmbeddingDimensionMismatchError("dimension mismatch"),
+            "embedding_profile_mismatch",
+        ),
+        (EmbeddingGenerationError("generation failed"), "embedding_generation_failed"),
+        (
+            ReembeddingInProgressError(
+                "reembedding in progress", job_id="job-1", status_path="/jobs/job-1"
+            ),
+            "reembedding_in_progress",
+        ),
+        (
+            ReembeddingFailedError(
+                "reembedding failed", job_id="job-2", status_path="/jobs/job-2"
+            ),
+            "reembedding_failed",
+        ),
+    ],
+)
+def test_mcp_domain_errors_use_stable_api_like_codes(
+    exc: RecollectiumError, expected_code: str
+) -> None:
+    class FailingCore:
+        config = None
+
+        def active_embedding_status(self) -> None:
+            raise exc
+
+    mcp = create_mcp_server(cast(RecollectiumCore, FailingCore()))
+    result = json.loads(mcp._tool_manager._tools["embedding_status"].fn())
+
+    assert result["error"]["code"] == expected_code
+    assert result["error"]["details"] == {}
+
+
+def test_mcp_list_memories_rejects_type_invalid_for_selected_space(
+    tmp_path: Path,
+) -> None:
+    mcp = create_mcp_server(RecollectiumCore(db_path=tmp_path / "list-filter.db"))
+    list_fn = mcp._tool_manager._tools["list_memories"].fn
+
+    user_error = json.loads(list_fn(space="user", type="decision"))
+    workspace_error = json.loads(list_fn(space="workspace", type="preference"))
+
+    assert user_error["error"]["code"] == "validation_error"
+    assert "for user memories" in user_error["error"]["message"]
+    assert workspace_error["error"]["code"] == "validation_error"
+    assert "for workspace memories" in workspace_error["error"]["message"]
 
 
 def test_mcp_search_overrides_accept_valid_explicit_values(tmp_path: Path) -> None:

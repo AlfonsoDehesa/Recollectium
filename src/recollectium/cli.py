@@ -6015,7 +6015,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             installed_version = package_version("recollectium")
         except PackageNotFoundError:
             installed_version = __version__
-        if output_override == CLI_OUTPUT_JSON:
+        output_format = _resolve_output_format(
+            config_path=_resolve_config_path(args.config_path),
+            explicit=args.config_path is not None,
+            override=output_override,
+        )
+        if output_format == CLI_OUTPUT_JSON:
             print(
                 json.dumps(
                     {"name": "recollectium", "version": installed_version},

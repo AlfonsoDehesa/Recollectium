@@ -227,20 +227,54 @@ class TestJsonFormatter:
         assert "secret-value" not in encoded
         assert "cred-value" not in encoded
 
+    def test_redacts_generic_key_shaped_context_and_messages(self) -> None:
+        formatter = JsonFormatter()
+        record = _make_record(
+            msg=(
+                "key: plain-key encryption key: enc-secret "
+                "public_key=pub-secret apiKey: api-secret"
+            ),
+            extra={
+                "context": {
+                    "key": "plain-key",
+                    "encryption_key": "enc-secret",
+                    "public_key": "pub-secret",
+                    "apiKey": "api-secret",
+                    "safe_count": 2,
+                }
+            },
+        )
+
+        parsed = json.loads(formatter.format(record))
+        assert parsed["context"] == {
+            "key": "[redacted]",
+            "encryption_key": "[redacted]",
+            "public_key": "[redacted]",
+            "apiKey": "[redacted]",
+            "safe_count": 2,
+        }
+        encoded = json.dumps(parsed)
+        assert "plain-key" not in encoded
+        assert "enc-secret" not in encoded
+        assert "pub-secret" not in encoded
+        assert "api-secret" not in encoded
+
     def test_can_format_unredacted_sensitive_context(self) -> None:
         formatter = JsonFormatter(redact_sensitive=False)
         record = _make_record(
-            msg="embedding job not found: job-secret",
+            msg="embedding job not found: job-secret key: plain-key",
             extra={
                 "context": {
                     "error": "embedding job not found: job-secret",
+                    "key": "plain-key",
                     "workspace_uid": "secret-workspace",
                 }
             },
         )
         parsed = json.loads(formatter.format(record))
-        assert parsed["message"] == "embedding job not found: job-secret"
+        assert parsed["message"] == "embedding job not found: job-secret key: plain-key"
         assert parsed["context"]["error"] == "embedding job not found: job-secret"
+        assert parsed["context"]["key"] == "plain-key"
         assert parsed["context"]["workspace_uid"] == "secret-workspace"
 
     def test_redact_log_value_handles_nested_lists(self) -> None:
@@ -371,7 +405,7 @@ class TestSetupLogging:
         logger = get_logger("recollectium.test")
         logger.info(
             "event logged",
-            extra={"event": "test.event", "context": {"key": "value"}},
+            extra={"event": "test.event", "context": {"safe_count": 1}},
         )
 
         # Flush all handlers so content is written to disk
@@ -383,7 +417,7 @@ class TestSetupLogging:
         assert "event logged" in content
         parsed = json.loads(content.strip().split("\n")[-1])
         assert parsed["event"] == "test.event"
-        assert parsed["context"] == {"key": "value"}
+        assert parsed["context"] == {"safe_count": 1}
 
         # Restore original handlers
         recollectium_logger.handlers.clear()

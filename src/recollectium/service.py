@@ -83,6 +83,8 @@ from recollectium.models import (
     SPACE_WORKSPACE,
     STATUS_ACTIVE,
     STATUS_ARCHIVED,
+    USER_MEMORY_TYPES,
+    WORKSPACE_MEMORY_TYPES,
 )
 
 import logging
@@ -266,7 +268,14 @@ class SearchWorkspaceRequest(StrictRequestModel):
 
 class AddMemoryRequest(StrictRequestModel):
     space: Literal["user", "workspace"]
-    type: str = Field(min_length=1)
+    type: str = Field(
+        min_length=1,
+        description=(
+            "Memory type. User memories allow fact, preference, personal_fact, "
+            "social_context, goal, communication_style, note. Workspace memories "
+            "allow fact, decision, task_context, configuration, bug_finding, note."
+        ),
+    )
     content: str = Field(min_length=1)
     workspace_uid: str | None = Field(default=None, min_length=1)
     metadata: dict[str, object] | None = None
@@ -280,6 +289,16 @@ class AddMemoryRequest(StrictRequestModel):
             raise ValueError("workspace_uid is only valid for workspace memories")
         if self.space == SPACE_WORKSPACE and self.workspace_uid is None:
             raise ValueError("workspace_uid is required for workspace memories")
+        allowed_types = (
+            set(USER_MEMORY_TYPES)
+            if self.space == SPACE_USER
+            else set(WORKSPACE_MEMORY_TYPES)
+        )
+        if self.type.casefold() not in allowed_types:
+            allowed = ", ".join(sorted(allowed_types))
+            raise ValueError(
+                f"type must be one of: {allowed} for {self.space} memories"
+            )
         return self
 
 

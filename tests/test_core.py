@@ -262,7 +262,8 @@ def test_core_user_memory_flow_add_get_search_list_update_archive(
     listed = core.list_memories(space="user", type="note")
     assert [memory.id for memory in listed] == [created.id]
 
-    assert core.list_memories(space="user", type="decision") == []
+    with pytest.raises(ValidationError, match="for user memories"):
+        core.list_memories(space="user", type="decision")
 
     updated = core.update_memory(created.id, content="Need to write release notes")
     assert updated.content == "Need to write release notes"

@@ -466,6 +466,58 @@ def test_cli_no_args_prints_help(capsys) -> None:
     assert captured.err == ""
 
 
+def test_cli_top_level_version_honors_json_config(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json"}), encoding="utf-8"
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--version"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["name"] == "recollectium"
+    assert isinstance(payload["version"], str)
+
+
+def test_cli_top_level_version_defaults_human_and_explicit_human_overrides_config(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    exit_code, stdout, stderr = _run_cli(["--version"], capsys, json_by_default=False)
+    assert exit_code == 0
+    assert stderr == ""
+    _assert_human_framed(stdout)
+    assert "recollectium " in stdout
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "cli_output": "json"}), encoding="utf-8"
+    )
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "--human-readable", "--version"],
+        capsys,
+        json_by_default=False,
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    _assert_human_framed(stdout)
+
+
+def test_cli_top_level_json_version_still_wins(capsys: CaptureFixture[str]) -> None:
+    exit_code, stdout, stderr = _run_cli(
+        ["--json", "--version"], capsys, json_by_default=False
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert json.loads(stdout)["name"] == "recollectium"
+
+
 def test_cli_parser_without_command_prints_help(monkeypatch, capsys) -> None:
     class FakeArgs:
         version = False

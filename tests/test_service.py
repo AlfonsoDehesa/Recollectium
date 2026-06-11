@@ -707,6 +707,19 @@ def test_api_memory_request_constraints_are_in_request_models() -> None:
         AddMemoryRequest.model_validate(
             {"space": "workspace", "type": "fact", "content": "tea"}
         )
+    with pytest.raises(PydanticValidationError, match="for user memories"):
+        AddMemoryRequest.model_validate(
+            {"space": "user", "type": "decision", "content": "tea"}
+        )
+    with pytest.raises(PydanticValidationError, match="for workspace memories"):
+        AddMemoryRequest.model_validate(
+            {
+                "space": "workspace",
+                "type": "preference",
+                "content": "tea",
+                "workspace_uid": "ws",
+            }
+        )
     with pytest.raises(PydanticValidationError):
         UpdateMemoryRequest.model_validate({})
 
@@ -982,6 +995,15 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
     status, list_payload = _request_json(client, "GET", "/v1/memories")
     assert status == 200
     assert {item["id"] for item in list_payload["data"]} == {user_id, workspace_id}
+
+    for path in (
+        "/v1/memories?space=user&type=decision",
+        "/v1/memories?space=workspace&type=preference",
+    ):
+        status, invalid_filter = _request_json(client, "GET", path)
+        assert status == 400
+        assert invalid_filter["error"]["code"] == "validation_error"
+        assert "type must be one of" in invalid_filter["error"]["message"]
 
     status, search_user = _request_json(
         client,
