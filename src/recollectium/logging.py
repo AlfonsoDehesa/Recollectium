@@ -40,7 +40,8 @@ _SENSITIVE_CONTEXT_KEYS = frozenset(
 _SENSITIVE_VALUE_RE = re.compile(
     r"(?i)\b("
     r"memory(?:[_ -]?id)?|workspace(?:[_ -]?(?:id|uid|alias))?|"
-    r"alias(?:[_ -]?uid)?|content|metadata|source|query"
+    r"alias(?:[_ -]?uid)?|embedding(?:[_ -]?job)?|job(?:[_ -]?id)?|"
+    r"content|metadata|source|query"
     r")\b(?P<label>[^\n:={]{0,80})(?P<sep>[:=]\s*)(?P<value>[^,;\n]+)"
 )
 

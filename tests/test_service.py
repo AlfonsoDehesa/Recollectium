@@ -785,6 +785,35 @@ def test_http_error_log_message_redacts_boundary_exception_details(
     assert "mem-secret" not in json.dumps(formatted)
 
 
+def test_http_error_log_message_redacts_embedding_job_ids(caplog: Any) -> None:
+    class FailingCore:
+        config = type(
+            "Config", (), {"effective_config": {"response_verbosity": "compact"}}
+        )()
+
+        def get_embedding_job(self, _job_id: str) -> object:
+            raise ValidationError("embedding job not found: job-secret")
+
+    caplog.set_level("ERROR", logger="recollectium.service")
+    client = _client(cast(RecollectiumCore, FailingCore()))
+
+    status, payload = _request_json(client, "GET", "/v1/embedding/jobs/job-secret")
+
+    assert status == 400
+    assert payload["error"]["code"] == "validation_error"
+    request_failed_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "service.request_failed"
+    )
+    formatted = json.loads(JsonFormatter().format(request_failed_record))
+    assert (
+        formatted["message"]
+        == "HTTP request failed: embedding job not found: [redacted]"
+    )
+    assert "job-secret" not in json.dumps(formatted)
+
+
 def test_http_metadata_routes_return_json(tmp_path: Path) -> None:
     core = RecollectiumCore(db_path=tmp_path / "service-metadata.db")
     client = _client(core)
