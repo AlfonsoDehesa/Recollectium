@@ -277,7 +277,7 @@ uv run recollectium archive --help
 uv run recollectium workspace --help
 uv run recollectium config --help
 uv run recollectium service --help
-uv run recollectium serve --help
+uv run recollectium dev serve --help
 uv run recollectium db-status --help
 uv run recollectium dev --help
 uv run recollectium embedding-status --help

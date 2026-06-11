@@ -48,6 +48,7 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### 🧹 Chores
 
+- Removed top-level `recollectium serve`; use `recollectium dev serve` for foreground development/debug serving or `recollectium service start api` for the managed service.
 - Hardened CI diagnostics, contributor guardrails, and Node 24-based GitHub Actions.
 - Added installer selector metadata test coverage and CI install-smoke metadata assertions.
 - Added stable seeded-memory `eval_key` metadata and a checked-in thematic query-memory label dataset for future retrieval-quality scoring work.

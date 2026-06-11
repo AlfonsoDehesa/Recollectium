@@ -49,7 +49,7 @@ recollectium service start mcp
 It can also run the API service in the foreground for development and debugging:
 
 ```bash
-recollectium serve --host 127.0.0.1 --port 8765
+recollectium dev serve --host 127.0.0.1 --port 8765
 ```
 
 Keep API and MCP services bound to `127.0.0.1` unless you are deliberately running Recollectium over a private network with external access controls.

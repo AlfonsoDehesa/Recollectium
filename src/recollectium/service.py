@@ -1067,7 +1067,7 @@ def run_service(
             raise EmbeddingGenerationError(f"model readiness failed: {exc}") from exc
         import sys
 
-        print(f"recollectium serve: model readiness failed: {exc}", file=sys.stderr)
+        print(f"recollectium service: model readiness failed: {exc}", file=sys.stderr)
         print(
             "Check your internet connection and try 'recollectium init' again.",
             file=sys.stderr,

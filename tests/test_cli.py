@@ -203,6 +203,17 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "upgrade" in top_level_help
     assert "uninstall" in top_level_help
     assert "completion" in top_level_help
+    assert "run the local Recollectium HTTP service" not in top_level_help
+
+
+def test_cli_top_level_serve_is_not_accepted(capsys: CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["serve", "--help"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "invalid choice: 'serve'" in captured.err
 
 
 def test_cli_internal_parser_helpers_reject_invalid_threshold_and_count() -> None:
@@ -288,16 +299,22 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     archive_help = _run_help(["archive", "--help"], capsys)
     assert "not hard-deleted" in archive_help
 
-    serve_help = _run_help(["serve", "--help"], capsys)
-    assert "blocking" in serve_help
-    assert "local-first" in serve_help
-    assert "127.0.0.1" in serve_help
-    assert "/v1" in serve_help
-    assert "--host" in serve_help
-    assert "--port" in serve_help
-
     dev_help = _run_help(["dev", "--help"], capsys)
     assert "optimize-threshold" in dev_help
+    assert "serve" in dev_help
+    assert "foreground HTTP API server" in dev_help
+
+    dev_serve_help = _run_help(["dev", "serve", "--help"], capsys)
+    assert "blocking" in dev_serve_help
+    assert "local-first" in dev_serve_help
+    assert "development/debug" in dev_serve_help
+    assert "foreground" in dev_serve_help
+    assert "127.0.0.1" in dev_serve_help
+    assert "/v1" in dev_serve_help
+    assert "unauthenticated" in dev_serve_help
+    assert "recollectium service start api" in dev_serve_help
+    assert "--host" in dev_serve_help
+    assert "--port" in dev_serve_help
 
     dev_eval_help = _run_help(["dev", "eval", "--help"], capsys)
     _assert_human_framed(dev_eval_help)
@@ -807,7 +824,7 @@ def test_cli_json_service_lifecycle_projection_keeps_small_shape(
     assert verbose == payload
 
 
-def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None:
+def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "serve.db"
     call: dict[str, object] = {}
 
@@ -838,6 +855,7 @@ def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None
             str(db_path),
             "--log-level",
             "debug",
+            "dev",
             "serve",
             "--host",
             "127.0.0.2",
@@ -854,7 +872,7 @@ def test_cli_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None
     assert call["log_level"] == "debug"
 
 
-def test_cli_serve_uses_default_host_and_port_without_explicit_config(
+def test_cli_dev_serve_uses_default_host_and_port_without_explicit_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     call: dict[str, object] = {}
@@ -881,7 +899,7 @@ def test_cli_serve_uses_default_host_and_port_without_explicit_config(
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
 
-    exit_code = main(["serve"])
+    exit_code = main(["dev", "serve"])
 
     assert exit_code == 0
     assert call["host"] == "127.0.0.1"
@@ -892,7 +910,7 @@ def test_cli_serve_uses_default_host_and_port_without_explicit_config(
     assert (tmp_path / "config" / "recollectium" / "config.json").exists()
 
 
-def test_cli_serve_explicit_missing_config_fails_clearly(
+def test_cli_dev_serve_explicit_missing_config_fails_clearly(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _fake_run_service(
@@ -910,7 +928,7 @@ def test_cli_serve_explicit_missing_config_fails_clearly(
     config_path = tmp_path / "missing" / "config.json"
 
     exit_code, stdout, stderr = _run_cli(
-        ["--config", str(config_path), "serve"], capsys
+        ["--config", str(config_path), "dev", "serve"], capsys
     )
 
     assert exit_code == 1
@@ -927,7 +945,7 @@ def test_cli_serve_explicit_missing_config_fails_clearly(
         )
 
 
-def test_cli_serve_invalid_config_fails_clearly(
+def test_cli_dev_serve_invalid_config_fails_clearly(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _fake_run_service(
@@ -946,7 +964,7 @@ def test_cli_serve_invalid_config_fails_clearly(
     config_path.write_text('{"version": 1, "service": {"port": "bad"}}')
 
     exit_code, stdout, stderr = _run_cli(
-        ["--config", str(config_path), "serve"], capsys
+        ["--config", str(config_path), "dev", "serve"], capsys
     )
 
     assert exit_code == 2
@@ -964,7 +982,7 @@ def test_cli_serve_invalid_config_fails_clearly(
         )
 
 
-def test_cli_serve_explicit_missing_config_fails_after_flag_overrides(
+def test_cli_dev_serve_explicit_missing_config_fails_after_flag_overrides(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config_path = tmp_path / "missing" / "config.json"
@@ -986,6 +1004,7 @@ def test_cli_serve_explicit_missing_config_fails_after_flag_overrides(
         [
             "--config",
             str(config_path),
+            "dev",
             "serve",
             "--host",
             "127.0.0.2",
@@ -1000,7 +1019,7 @@ def test_cli_serve_explicit_missing_config_fails_after_flag_overrides(
     assert f"config file not found: {config_path}" in stderr
 
 
-def test_cli_serve_invalid_config_fails_after_flag_overrides(
+def test_cli_dev_serve_invalid_config_fails_after_flag_overrides(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config_path = tmp_path / "config.json"
@@ -1022,6 +1041,7 @@ def test_cli_serve_invalid_config_fails_after_flag_overrides(
         [
             "--config",
             str(config_path),
+            "dev",
             "serve",
             "--host",
             "127.0.0.2",
@@ -12566,26 +12586,39 @@ def test_core_recollectium_error_returns_operation_failed_json(
     assert payload["detail"] == "RecollectiumError: domain boom"
 
 
-def test_cli_serve_service_error_returns_structured_json(
-    capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+def test_cli_dev_serve_service_error_returns_structured_json_and_log_context(
+    capsys: CaptureFixture[str], caplog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from recollectium.errors import ServiceError
 
     def _fake_run_service(**kwargs: object) -> None:
+        assert kwargs["cli_structured_errors"] is True
         raise ServiceError("serve boom")
 
     monkeypatch.setattr("recollectium.cli.run_service", _fake_run_service)
+    caplog.set_level("INFO", logger="recollectium.cli")
 
-    exit_code, stdout, stderr = _run_cli(["serve"], capsys)
+    exit_code, stdout, stderr = _run_cli(["dev", "serve"], capsys)
 
     assert exit_code == 1
     assert stdout == ""
     payload = json.loads(stderr)
     assert payload["status"] == "service_error"
     assert payload["detail"] == "ServiceError: serve boom"
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "dev.serve.service_error"
+    ]
+    assert len(failure_records) == 1
+    assert failure_records[0].context == {
+        "command": "dev serve",
+        "status": "service_error",
+        "exit_code": 1,
+    }
 
 
-def test_cli_serve_embedding_error_returns_structured_json(
+def test_cli_dev_serve_embedding_error_returns_structured_json(
     capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from recollectium.errors import EmbeddingGenerationError
@@ -12596,7 +12629,7 @@ def test_cli_serve_embedding_error_returns_structured_json(
 
     monkeypatch.setattr("recollectium.cli.run_service", _fake_run_service)
 
-    exit_code, stdout, stderr = _run_cli(["serve"], capsys)
+    exit_code, stdout, stderr = _run_cli(["dev", "serve"], capsys)
 
     assert exit_code == 1
     assert stdout == ""
@@ -12605,7 +12638,7 @@ def test_cli_serve_embedding_error_returns_structured_json(
     assert payload["detail"] == "EmbeddingGenerationError: model readiness failed"
 
 
-def test_cli_serve_recollectium_error_returns_structured_json(
+def test_cli_dev_serve_recollectium_error_returns_structured_json(
     capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from recollectium.errors import RecollectiumError
@@ -12615,7 +12648,7 @@ def test_cli_serve_recollectium_error_returns_structured_json(
 
     monkeypatch.setattr("recollectium.cli.run_service", _fake_run_service)
 
-    exit_code, stdout, stderr = _run_cli(["serve"], capsys)
+    exit_code, stdout, stderr = _run_cli(["dev", "serve"], capsys)
 
     assert exit_code == 1
     assert stdout == ""

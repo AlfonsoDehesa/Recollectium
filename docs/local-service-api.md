@@ -23,13 +23,13 @@ recollectium service start api
 For foreground development or debugging, run the same API server directly:
 
 ```bash
-recollectium serve
+recollectium dev serve
 ```
 
 Or run the foreground server with explicit host/port/database path:
 
 ```bash
-recollectium --db /path/to/recollectium.db serve --host 127.0.0.1 --port 8765
+recollectium --db /path/to/recollectium.db dev serve --host 127.0.0.1 --port 8765
 ```
 
 ## Base URL and versioning
