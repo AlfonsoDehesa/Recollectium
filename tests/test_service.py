@@ -490,15 +490,25 @@ def test_search_request_retrieval_override_validation_contract() -> None:
             _request_override_from_model(explicit_overrides, "match_threshold") is None
         )
 
-        with pytest.raises(PydanticValidationError):
-            model_type.model_validate(valid_body | {"protected_minimum": None})
+        for rejected_protected_minimum in (None, True, False, "2", 1.0):
+            with pytest.raises(PydanticValidationError):
+                model_type.model_validate(
+                    valid_body | {"protected_minimum": rejected_protected_minimum}
+                )
         with pytest.raises(PydanticValidationError):
             model_type.model_validate(valid_body | {"match_threshold": -0.01})
         with pytest.raises(PydanticValidationError):
             model_type.model_validate(valid_body | {"match_threshold": 1.01})
+        for rejected_match_threshold in (True, False, "0.5"):
+            with pytest.raises(PydanticValidationError):
+                model_type.model_validate(
+                    valid_body | {"match_threshold": rejected_match_threshold}
+                )
 
         model_type.model_validate(valid_body | {"match_threshold": 0.0})
         model_type.model_validate(valid_body | {"match_threshold": 1.0})
+        model_type.model_validate(valid_body | {"match_threshold": 0})
+        model_type.model_validate(valid_body | {"match_threshold": 1})
         model_type.model_validate(
             valid_body | {"match_threshold": "model_recommended_default"}
         )
@@ -838,8 +848,15 @@ def test_http_search_request_retrieval_override_validation_errors(
 
     for body in (
         {"query": "likes tea", "protected_minimum": None},
+        {"query": "likes tea", "protected_minimum": True},
+        {"query": "likes tea", "protected_minimum": False},
+        {"query": "likes tea", "protected_minimum": "2"},
+        {"query": "likes tea", "protected_minimum": 2.0},
         {"query": "likes tea", "match_threshold": -0.01},
         {"query": "likes tea", "match_threshold": 1.01},
+        {"query": "likes tea", "match_threshold": True},
+        {"query": "likes tea", "match_threshold": False},
+        {"query": "likes tea", "match_threshold": "0.5"},
     ):
         status, payload = _request_json(
             client, "POST", "/v1/memories/search_user", body

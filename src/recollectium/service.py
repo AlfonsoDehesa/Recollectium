@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal, TypeAlias, cast
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from recollectium.config import RESPONSE_VERBOSITY_COMPACT, RESPONSE_VERBOSITY_VERBOSE
@@ -149,10 +149,20 @@ class StrictRequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _reject_non_json_number(value: Any) -> Any:
+    if isinstance(value, bool | str):
+        raise ValueError("match_threshold must be a JSON number")
+    return value
+
+
+SearchProtectedMinimum: TypeAlias = Annotated[int, Field(ge=0, strict=True)]
+SearchMatchThresholdNumber: TypeAlias = Annotated[
+    float,
+    Field(ge=0.0, le=1.0),
+    BeforeValidator(_reject_non_json_number),
+]
 SearchMatchThreshold: TypeAlias = (
-    Annotated[float, Field(ge=0.0, le=1.0)]
-    | Literal["model_recommended_default"]
-    | None
+    SearchMatchThresholdNumber | Literal["model_recommended_default"] | None
 )
 
 
@@ -160,7 +170,9 @@ class SearchUserRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: str | None = Field(default=None, min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int = Field(default_factory=lambda: cast(int, UNSET), ge=0)
+    protected_minimum: SearchProtectedMinimum = Field(
+        default_factory=lambda: cast(int, UNSET)
+    )
     match_threshold: SearchMatchThreshold = Field(
         default_factory=lambda: cast(SearchMatchThreshold, UNSET)
     )
@@ -172,7 +184,9 @@ class SearchWorkspaceRequest(StrictRequestModel):
     type: str | None = Field(default=None, min_length=1)
     workspace_uid: str = Field(min_length=1)
     limit: int = Field(default=20, ge=1)
-    protected_minimum: int = Field(default_factory=lambda: cast(int, UNSET), ge=0)
+    protected_minimum: SearchProtectedMinimum = Field(
+        default_factory=lambda: cast(int, UNSET)
+    )
     match_threshold: SearchMatchThreshold = Field(
         default_factory=lambda: cast(SearchMatchThreshold, UNSET)
     )
