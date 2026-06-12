@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import os
 import tomllib
+import tempfile
+
+from mcp.client.session import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
 from copy import deepcopy
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
@@ -10104,6 +10109,266 @@ class TestMcpStdioErrorPaths:
             )
 
         assert exit_code == 0
+
+    def test_mcp_stdio_restores_logger_levels_after_run(self, tmp_path, capsys) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        config_data = dict(DEFAULTS)
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data))
+
+        mcp_logger = logging.getLogger("mcp")
+        mcp_server_logger = logging.getLogger("mcp.server")
+        rich_logger = logging.getLogger("rich")
+        previous_levels = {
+            "mcp": mcp_logger.level,
+            "mcp.server": mcp_server_logger.level,
+            "rich": rich_logger.level,
+        }
+        try:
+            mcp_logger.setLevel(logging.ERROR)
+            mcp_server_logger.setLevel(logging.CRITICAL)
+            rich_logger.setLevel(logging.DEBUG)
+
+            class FakeMCP:
+                async def run_stdio_async(self) -> None:
+                    pass
+
+            with (
+                patch("recollectium.cli.RecollectiumCore"),
+                patch("recollectium.cli.create_mcp_server", return_value=FakeMCP()),
+            ):
+                exit_code, stdout, stderr = _run_cli(
+                    ["--config", str(config_path), "mcp-stdio"],
+                    capsys,
+                )
+
+            assert exit_code == 0
+            assert mcp_logger.level == logging.ERROR
+            assert mcp_server_logger.level == logging.CRITICAL
+            assert rich_logger.level == logging.DEBUG
+        finally:
+            mcp_logger.setLevel(previous_levels["mcp"])
+            mcp_server_logger.setLevel(previous_levels["mcp.server"])
+            rich_logger.setLevel(previous_levels["rich"])
+
+    def test_mcp_stdio_suppresses_add_memory_success_logs_to_stderr(
+        self, tmp_path, capsys
+    ) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        config_data = dict(DEFAULTS)
+        config_data["logging"] = {"level": "info"}
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data))
+
+        root_logger = logging.getLogger()
+        previous_root_level = root_logger.level
+        root_handler = logging.StreamHandler(sys.stderr)
+        root_handler.setLevel(logging.INFO)
+        root_logger.addHandler(root_handler)
+        root_logger.setLevel(logging.INFO)
+
+        class FakeCore:
+            def __init__(self, *_args: object, **_kwargs: object) -> None:
+                self.config = SimpleNamespace(effective_config={}, xdg_dirs={})
+
+            def add_memory(self, **_kwargs: object) -> SimpleNamespace:
+                logging.getLogger("recollectium.core").info(
+                    "memory added",
+                    extra={"event": "memory.added"},
+                )
+                return SimpleNamespace(id="memory-1")
+
+        class FakeMCP:
+            def __init__(self, core: FakeCore) -> None:
+                self.core = core
+
+            async def run_stdio_async(self) -> None:
+                self.core.add_memory(space="user", type="fact", content="hello")
+
+        try:
+            with (
+                patch("recollectium.cli.RecollectiumCore", FakeCore),
+                patch("recollectium.cli._ensure_cli_model_ready"),
+                patch(
+                    "recollectium.cli.create_mcp_server",
+                    side_effect=lambda core: FakeMCP(core),
+                ),
+            ):
+                exit_code, stdout, stderr = _run_cli(
+                    [
+                        "--config",
+                        str(config_path),
+                        "--db",
+                        str(tmp_path / "memory.db"),
+                        "--log-level",
+                        "info",
+                        "mcp-stdio",
+                    ],
+                    capsys,
+                    json_by_default=False,
+                )
+        finally:
+            root_logger.removeHandler(root_handler)
+            root_logger.setLevel(previous_root_level)
+
+        assert exit_code == 0
+        assert stdout == ""
+        assert stderr == ""
+
+    @pytest.mark.anyio
+    async def test_mcp_stdio_add_memory_keeps_stderr_quiet_under_info(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        _isolate_xdg_dirs(tmp_path, monkeypatch)
+
+        repo_root = Path(__file__).resolve().parents[1]
+        src_dir = repo_root / "src" / "recollectium"
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        config_data = dict(DEFAULTS)
+        config_data["logging"] = {"level": "info"}
+        config_data["directories"] = {
+            "data": str(tmp_path / "data"),
+            "cache": str(tmp_path / "cache"),
+            "logs": str(tmp_path / "logs"),
+            "runtime": str(tmp_path / "run"),
+        }
+        config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+        launcher_dir = tmp_path / "launcher"
+        package_dir = launcher_dir / "recollectium"
+        package_dir.mkdir(parents=True)
+        package_dir.joinpath("__init__.py").write_text("", encoding="utf-8")
+        package_dir.joinpath("__main__.py").write_text(
+            """
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+REAL_SRC = Path(__REAL_SRC__)
+package = sys.modules["recollectium"]
+package.__path__ = [str(REAL_SRC)]
+
+spec = importlib.util.spec_from_file_location(
+    "recollectium.embeddings", REAL_SRC / "embeddings.py"
+)
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules["recollectium.embeddings"] = module
+spec.loader.exec_module(module)
+
+
+class _FakeEmbeddingProvider:
+    def __init__(self, model_name=None, *, cache_dir=None):
+        self.model_name = model_name
+        self.cache_dir = str(cache_dir) if cache_dir is not None else None
+        self.embedding_profile = {
+            "provider": "fake",
+            "model": "fake-model",
+            "dimensions": 3,
+            "version": "1",
+            "profile": "fake-profile-v1",
+            "max_tokens": 16,
+            "chunk_tokens": 4,
+            "chunk_overlap_tokens": 0,
+            "query_prompt_policy": "raw",
+        }
+
+    def embed(self, text):
+        return [float(len(text)), 1.0, 0.0]
+
+    def similarity(self, first, second):
+        return 1.0
+
+    def ensure_ready(self, *, timeout_seconds=60.0):
+        return None
+
+    def _ensure_ready_unbounded(self):
+        return None
+
+
+module.BuiltinFastEmbedProvider = _FakeEmbeddingProvider
+
+init_code = compile(
+    (REAL_SRC / "__init__.py").read_text(encoding="utf-8"),
+    str(REAL_SRC / "__init__.py"),
+    "exec",
+)
+exec(init_code, package.__dict__)
+
+from recollectium.cli import main as recollectium_main
+
+raise SystemExit(recollectium_main())
+""".replace("__REAL_SRC__", repr(str(src_dir))).lstrip(),
+            encoding="utf-8",
+        )
+
+        env = os.environ.copy()
+        pythonpath_entries = [str(launcher_dir)]
+        if env.get("PYTHONPATH"):
+            pythonpath_entries.append(env["PYTHONPATH"])
+        env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+
+        server = StdioServerParameters(
+            command=sys.executable,
+            args=[
+                "-m",
+                "recollectium",
+                "--config",
+                str(config_path),
+                "--db",
+                str(tmp_path / "memory.db"),
+                "--log-level",
+                "info",
+                "mcp-stdio",
+            ],
+            env=env,
+            cwd=str(repo_root),
+        )
+        stderr_buffer = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+        try:
+            async with stdio_client(server, errlog=stderr_buffer) as (
+                read_stream,
+                write_stream,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "add_memory",
+                        {
+                            "space": "user",
+                            "type": "fact",
+                            "content": "hello from stdio",
+                        },
+                    )
+        finally:
+            stderr_buffer.seek(0)
+            stderr_output = stderr_buffer.read()
+            stderr_buffer.close()
+
+        assert result.isError is False
+        assert result.content
+        payload = json.loads(cast(Any, result.content[0]).text)
+        assert payload["status"] == "saved"
+        assert "id" in payload
+        assert stderr_output == ""
 
     def test_mcp_stdio_suppresses_readiness_output_before_protocol(
         self, tmp_path, capsys
