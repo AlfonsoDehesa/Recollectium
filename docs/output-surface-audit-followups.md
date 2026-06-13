@@ -32,4 +32,6 @@ Implement all red findings and all yellow decisions Alfonso accepted, while keep
 ## Verification plan
 
 - Add focused unit/CLI/API/MCP tests for each changed output contract.
+- For CLI JSON surface audits, validate required-field subsets instead of exact tiny-dict equality: assert the required `status` value and any command-specific required keys, while allowing extra keys such as `detail`, `hint`, or `checks`.
+- Preserve raw stdout/stderr captures in the report, but classify `config_validate_failure_json`, `config_get_missing_json`, and `config_doctor_success_json_compact` as green when their required status subset matches the expected contract.
 - Run `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, focused tests, and full coverage before PR readiness.
