@@ -4187,6 +4187,7 @@ def _delete_purge_target(
     *,
     dry_run: bool,
     owned_paths: set[Path] | None = None,
+    custom_configured_paths: set[Path] | None = None,
 ) -> dict[str, Any]:
     if _is_suspicious_purge_path(path):
         return _path_payload(path, deleted=False, reason="suspicious_path")
@@ -4197,6 +4198,8 @@ def _delete_purge_target(
         else _is_recollectium_owned_path(path)
     )
     if not is_owned:
+        if custom_configured_paths is not None and resolved in custom_configured_paths:
+            return _path_payload(path, deleted=False, reason="custom_configured_path")
         return _path_payload(path, deleted=False, reason="not_recollectium_owned")
     if not path.exists():
         return _path_payload(path, deleted=False, reason="missing")
@@ -4228,6 +4231,11 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
     default_dirs = _resolve_xdg_dirs(DEFAULTS["directories"])
     default_config_dir = default_dirs["config"].expanduser().resolve(strict=False)
     owned_paths = {default_config_dir}
+    custom_configured_paths = {
+        plan.config.xdg_dirs[key].expanduser().resolve(strict=False)
+        for key in ("data", "cache", "logs", "runtime")
+        if directory_overrides.get(key) is not None
+    }
     resolved_config_path = plan.config_path.expanduser().resolve(strict=False)
     if resolved_config_path.parent == default_config_dir:
         owned_paths.add(resolved_config_path)
@@ -4269,7 +4277,12 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
     )
 
     results = [
-        _delete_purge_target(target, dry_run=dry_run, owned_paths=owned_paths)
+        _delete_purge_target(
+            target,
+            dry_run=dry_run,
+            owned_paths=owned_paths,
+            custom_configured_paths=custom_configured_paths,
+        )
         for target in targets
     ]
     return {
@@ -6087,6 +6100,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         or read_only_config_validate
     ):
         _setup_cli_logging(config_path, log_level=args.log_level)
+    recollectium_logger: logging.Logger | None = None
+    previous_propagate: bool | None = None
+    previous_mcp_level: int | None = None
+    previous_mcp_server_level: int | None = None
+    previous_rich_level: int | None = None
+    if args.command == "mcp-stdio":
+        recollectium_logger = logging.getLogger("recollectium")
+        previous_propagate = recollectium_logger.propagate
+        recollectium_logger.propagate = False
+        try:
+            _log.info(
+                "CLI command started",
+                extra={"event": "cli.command", "context": {"command": args.command}},
+            )
+            try:
+                core = RecollectiumCore(
+                    db_path=args.db_path,
+                    config_path=core_config_path,
+                    log_level=args.log_level,
+                )
+                _ensure_cli_model_ready(core, output_format="json")
+            except FileNotFoundError as exc:
+                return _config_missing_error(exc, command=args.command)
+            except ValidationError as exc:
+                return _config_invalid_error(exc, command=args.command)
+            except (
+                EmbeddingReadinessTimeoutError,
+                EmbeddingModelUnavailableError,
+                EmbeddingProviderUnavailableError,
+                EmbeddingGenerationError,
+            ) as exc:
+                return _embedding_error(exc, command=args.command)
+            try:
+                mcp_logger = logging.getLogger("mcp")
+                mcp_server_logger = logging.getLogger("mcp.server")
+                rich_logger = logging.getLogger("rich")
+                previous_mcp_level = mcp_logger.level
+                previous_mcp_server_level = mcp_server_logger.level
+                previous_rich_level = rich_logger.level
+                mcp_logger.setLevel(logging.WARNING)
+                mcp_server_logger.setLevel(logging.WARNING)
+                rich_logger.setLevel(logging.WARNING)
+                mcp = create_mcp_server(core)
+                import asyncio
+
+                asyncio.run(mcp.run_stdio_async())
+            except Exception as exc:
+                return _operation_failed_error(exc, command="mcp-stdio")
+            return 0
+        finally:
+            recollectium_logger.propagate = previous_propagate
+            if previous_mcp_level is not None:
+                logging.getLogger("mcp").setLevel(previous_mcp_level)
+            if previous_mcp_server_level is not None:
+                logging.getLogger("mcp.server").setLevel(previous_mcp_server_level)
+            if previous_rich_level is not None:
+                logging.getLogger("rich").setLevel(previous_rich_level)
+
     _log.info(
         "CLI command started",
         extra={"event": "cli.command", "context": {"command": args.command}},
@@ -6207,39 +6278,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         return 0
 
-    # -- mcp-stdio command ------------------------------------------------
-    if args.command == "mcp-stdio":
-        try:
-            core = RecollectiumCore(
-                db_path=args.db_path,
-                config_path=core_config_path,
-                log_level=args.log_level,
-            )
-            _ensure_cli_model_ready(core, output_format="json")
-        except FileNotFoundError as exc:
-            return _config_missing_error(exc, command=args.command)
-        except ValidationError as exc:
-            return _config_invalid_error(exc, command=args.command)
-        except (
-            EmbeddingReadinessTimeoutError,
-            EmbeddingModelUnavailableError,
-            EmbeddingProviderUnavailableError,
-            EmbeddingGenerationError,
-        ) as exc:
-            return _embedding_error(exc, command=args.command)
-        try:
-            logging.getLogger("mcp").setLevel(logging.WARNING)
-            logging.getLogger("mcp.server").setLevel(logging.WARNING)
-            logging.getLogger("rich").setLevel(logging.WARNING)
-            mcp = create_mcp_server(core)
-            import asyncio
-
-            asyncio.run(mcp.run_stdio_async())
-        except Exception as exc:
-            return _operation_failed_error(exc, command="mcp-stdio")
-        return 0
-
-    # -- service commands --------------------------------------------------
     if args.command == "service":
         if args.service_action == "discover":
             try:
@@ -6401,7 +6439,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if running is not None:
                 # Service is running: stop it first, then restart same type
                 service_type = running["type"]
-                _log.warning(
+                _log.info(
                     f"Stopping existing {service_type} service...",
                     extra={"event": "service.stop"},
                 )
