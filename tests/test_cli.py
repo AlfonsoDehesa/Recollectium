@@ -9743,11 +9743,38 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     assert shared_cache.exists()
     assert not model_cache.exists()
     assert any(
-        item["path"] == str(shared_cache) and item["reason"] == "not_recollectium_owned"
+        item["path"] == str(shared_cache) and item["reason"] == "custom_configured_path"
         for item in skipped
     )
     assert any(
         item["path"] == str(model_cache) for item in payload["data"]["purge"]["deleted"]
+    )
+
+
+def test_cli_uninstall_purge_dry_run_marks_custom_cache_override_as_configured(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    custom_cache = tmp_path / "shared-cache"
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    config_path.parent.mkdir(parents=True)
+    config_data = deepcopy(DEFAULTS)
+    config_data["directories"] = {"cache": str(custom_cache)}
+    config_path.write_text(json.dumps(config_data), encoding="utf-8")
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+
+    exit_code, stdout, stderr = _run_cli(["uninstall", "--purge", "--dry-run"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert any(
+        item["path"] == str(custom_cache) and item["reason"] == "custom_configured_path"
+        for item in payload["data"]["purge"]["skipped"]
+    )
+    assert not any(
+        item["path"] == str(custom_cache) and item["reason"] == "not_recollectium_owned"
+        for item in payload["data"]["purge"]["skipped"]
     )
 
 
@@ -9818,6 +9845,26 @@ def test_cli_uninstall_purge_marks_suspicious_path(
         "path": str(Path.cwd()),
         "deleted": False,
         "reason": "suspicious_path",
+    }
+
+
+def test_cli_uninstall_purge_marks_custom_configured_path_requires_confirmation(
+    tmp_path: Path,
+) -> None:
+    from recollectium.cli import _delete_purge_target
+
+    custom_cache = tmp_path / "shared-cache"
+
+    payload = _delete_purge_target(
+        custom_cache,
+        dry_run=True,
+        custom_configured_paths={custom_cache.resolve(strict=False)},
+    )
+
+    assert payload == {
+        "path": str(custom_cache),
+        "deleted": False,
+        "reason": "custom_configured_path",
     }
 
 
