@@ -664,7 +664,7 @@ def test_restart_running_service(tmp_path: Path, capsys: CaptureFixture[str]) ->
         )
 
     assert exit_code == 0
-    assert "Stopping existing api service..." in stderr
+    assert stderr == ""
     payload = json.loads(stdout)
     assert payload["status"] == "restarted"
     assert payload["type"] == "api"

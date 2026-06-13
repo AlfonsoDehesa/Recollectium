@@ -6426,7 +6426,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if running is not None:
                 # Service is running: stop it first, then restart same type
                 service_type = running["type"]
-                _log.warning(
+                _log.info(
                     f"Stopping existing {service_type} service...",
                     extra={"event": "service.stop"},
                 )
