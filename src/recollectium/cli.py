@@ -4187,6 +4187,7 @@ def _delete_purge_target(
     *,
     dry_run: bool,
     owned_paths: set[Path] | None = None,
+    custom_configured_paths: set[Path] | None = None,
 ) -> dict[str, Any]:
     if _is_suspicious_purge_path(path):
         return _path_payload(path, deleted=False, reason="suspicious_path")
@@ -4197,6 +4198,8 @@ def _delete_purge_target(
         else _is_recollectium_owned_path(path)
     )
     if not is_owned:
+        if custom_configured_paths is not None and resolved in custom_configured_paths:
+            return _path_payload(path, deleted=False, reason="custom_configured_path")
         return _path_payload(path, deleted=False, reason="not_recollectium_owned")
     if not path.exists():
         return _path_payload(path, deleted=False, reason="missing")
@@ -4228,6 +4231,11 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
     default_dirs = _resolve_xdg_dirs(DEFAULTS["directories"])
     default_config_dir = default_dirs["config"].expanduser().resolve(strict=False)
     owned_paths = {default_config_dir}
+    custom_configured_paths = {
+        plan.config.xdg_dirs[key].expanduser().resolve(strict=False)
+        for key in ("data", "cache", "logs", "runtime")
+        if directory_overrides.get(key) is not None
+    }
     resolved_config_path = plan.config_path.expanduser().resolve(strict=False)
     if resolved_config_path.parent == default_config_dir:
         owned_paths.add(resolved_config_path)
@@ -4269,7 +4277,12 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
     )
 
     results = [
-        _delete_purge_target(target, dry_run=dry_run, owned_paths=owned_paths)
+        _delete_purge_target(
+            target,
+            dry_run=dry_run,
+            owned_paths=owned_paths,
+            custom_configured_paths=custom_configured_paths,
+        )
         for target in targets
     ]
     return {
