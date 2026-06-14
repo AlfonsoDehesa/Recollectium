@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import io
 import json
 import logging
@@ -6442,6 +6444,55 @@ def test_run_installed_embedding_maintenance_builds_fresh_process_command(
     ]
 
 
+def test_run_installed_embedding_maintenance_uses_human_readable_process_command(
+    tmp_path, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], int, str | None]] = []
+
+    monkeypatch.setattr(
+        cli_mod,
+        "_run_command_with_tty_stderr",
+        lambda command, *, timeout_seconds, cwd=None: (
+            calls.append((command, timeout_seconds, cwd))
+            or CommandResult(0, "maintenance ok", "diagnostic line\n")
+        ),
+    )
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    monkeypatch.setattr(cli_mod.sys, "executable", "/tmp/python")
+    result = cli_mod._run_installed_embedding_maintenance(
+        config_path=tmp_path / "config.json",
+        explicit=True,
+        db_path=str(tmp_path / "memory.db"),
+        log_level="debug",
+        timeout_seconds=42,
+        output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
+    )
+
+    assert result == CommandResult(0, "maintenance ok", "diagnostic line\n")
+    assert calls == [
+        (
+            [
+                "/tmp/python",
+                "-m",
+                "recollectium",
+                "--human-readable",
+                "--config",
+                str(tmp_path / "config.json"),
+                "--db",
+                str(tmp_path / "memory.db"),
+                "--log-level",
+                "debug",
+                "embedding-maintenance",
+            ],
+            42,
+            None,
+        )
+    ]
+
+
 def test_cli_embedding_maintenance_error_paths_return_structured_json(
     capsys, monkeypatch, tmp_path
 ) -> None:
@@ -11593,8 +11644,10 @@ def test_cli_upgrade_main_check_resolves_remote_ref(capsys, monkeypatch) -> None
     from recollectium.update import InstallMetadata, MainRefInfo
 
     calls: list[tuple[str, str, int, bool]] = []
+    progress_calls: list[tuple[str, tuple[str, ...]]] = []
     commit = "a" * 40
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
     monkeypatch.setattr(
         cli_mod,
         "load_install_metadata",
@@ -11618,6 +11671,13 @@ def test_cli_upgrade_main_check_resolves_remote_ref(capsys, monkeypatch) -> None
     monkeypatch.setattr(cli_mod, "resolve_main_ref", _resolve_main_ref)
     monkeypatch.setattr(
         cli_mod,
+        "_human_upgrade_progress_context",
+        lambda output_format, *, details: (
+            progress_calls.append((output_format, details)) or contextlib.nullcontext()
+        ),
+    )
+    monkeypatch.setattr(
+        cli_mod,
         "write_install_metadata_update",
         lambda plan: (_ for _ in ()).throw(
             AssertionError("check must not write metadata")
@@ -11637,6 +11697,73 @@ def test_cli_upgrade_main_check_resolves_remote_ref(capsys, monkeypatch) -> None
     assert payload["target_kind"] == "main"
     assert payload["target_commit"] == commit
     assert payload["will_update_metadata"] is False
+
+
+def test_cli_upgrade_main_check_emits_human_progress_when_tty(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import InstallMetadata, MainRefInfo
+
+    progress_calls: list[tuple[str, tuple[str, ...]]] = []
+    commit = "b" * 40
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("--main must not fetch releases")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "resolve_main_ref",
+        lambda **kw: MainRefInfo(remote_commit=commit),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "_human_upgrade_progress_context",
+        lambda output_format, *, details: (
+            progress_calls.append((output_format, details)) or contextlib.nullcontext()
+        ),
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "write_install_metadata_update",
+        lambda plan: (_ for _ in ()).throw(
+            AssertionError("check must not write metadata")
+        ),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--human-readable",
+            "upgrade",
+            "--check",
+            "--main",
+            "--repo",
+            "owner/repo",
+            "--timeout",
+            "7",
+        ],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert progress_calls == [
+        (cli_mod.CLI_OUTPUT_HUMAN_READABLE, ("Resolving target",))
+    ]
+    assert "dry_run" not in stdout
+    assert "main" in stdout
 
 
 def test_cli_upgrade_main_lookup_error_uses_main_message(capsys, monkeypatch) -> None:
@@ -11770,17 +11897,352 @@ def test_cli_upgrade_check_prints_non_mutating_plan(capsys, monkeypatch) -> None
     assert payload["tracking_action"] == "would_update_metadata"
 
 
+def test_run_command_with_tty_stderr_tees_live_and_captures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+
+    result = cli_module._run_command_with_tty_stderr(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "print(sys.stderr.isatty()); "
+                "print('stderr-line', file=sys.stderr, flush=True)"
+            ),
+        ],
+        timeout_seconds=5,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "True"
+    assert "stderr-line" in result.stderr
+    assert "stderr-line" in stream.getvalue()
+
+
+def test_run_command_with_tty_stderr_timeout_reaps_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[attr-defined,method-assign]
+    monkeypatch.setattr(cli_module.sys, "stderr", stream)
+
+    result = cli_module._run_command_with_tty_stderr(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os,sys,time; "
+                "print(os.getpid(), flush=True); "
+                "print('timeout-stderr', file=sys.stderr, flush=True); "
+                "time.sleep(5)"
+            ),
+        ],
+        timeout_seconds=1,
+    )
+
+    pid = int(result.stdout.strip().splitlines()[0])
+    assert result.returncode == 124
+    assert "timeout-stderr" in result.stderr
+    assert "timeout-stderr" in stream.getvalue()
+    with pytest.raises(ChildProcessError):
+        os.waitpid(pid, os.WNOHANG)
+
+
+def test_human_upgrade_progress_context_respects_output_format_and_stderr_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    spinner_inits: list[tuple[object, str, tuple[str, ...]]] = []
+
+    class FakeStatusSpinner:
+        def __init__(self, stream, *, title, details):
+            spinner_inits.append((stream, title, details))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    monkeypatch.setattr(cli_mod, "SingleLineStatusSpinner", FakeStatusSpinner)
+
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: False)
+    ctx = cli_mod._human_upgrade_progress_context(
+        cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+        details=("Resolving target",),
+    )
+    assert isinstance(ctx, contextlib.AbstractContextManager)
+    with ctx:
+        pass
+
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    ctx = cli_mod._human_upgrade_progress_context(
+        cli_mod.CLI_OUTPUT_JSON, details=("x",)
+    )
+    assert isinstance(ctx, contextlib.AbstractContextManager)
+    with ctx:
+        pass
+
+    ctx = cli_mod._human_upgrade_progress_context(
+        cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+        details=(),
+    )
+    assert isinstance(ctx, contextlib.AbstractContextManager)
+    with ctx:
+        pass
+
+    ctx = cli_mod._human_upgrade_progress_context(
+        cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+        details=("Applying update",),
+    )
+    with ctx:
+        pass
+
+    assert spinner_inits == [
+        (cli_mod.sys.stderr, "Upgrade in progress", ("Applying update",))
+    ]
+
+
+def test_run_command_with_tty_stderr_falls_back_when_not_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], int, str | None]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd):
+            calls.append((command, timeout_seconds, cwd))
+            return CommandResult(17, "fallback-stdout", "fallback-stderr")
+
+    monkeypatch.setattr(cli_mod.os, "name", "nt")
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", lambda: FakeRunner())
+
+    result = cli_mod._run_command_with_tty_stderr(
+        ["demo"], timeout_seconds=9, cwd="/tmp"
+    )
+
+    assert result == CommandResult(17, "fallback-stdout", "fallback-stderr")
+    assert calls == [(["demo"], 9, "/tmp")]
+
+
+def test_run_command_with_tty_stderr_falls_back_when_pty_import_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], int, str | None]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd):
+            calls.append((command, timeout_seconds, cwd))
+            return CommandResult(18, "import-fallback-stdout", "import-fallback-stderr")
+
+    monkeypatch.setitem(sys.modules, "pty", None)
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", lambda: FakeRunner())
+
+    result = cli_mod._run_command_with_tty_stderr(["demo"], timeout_seconds=9)
+
+    assert result == CommandResult(
+        18, "import-fallback-stdout", "import-fallback-stderr"
+    )
+    assert calls == [(["demo"], 9, None)]
+
+
+def test_run_command_with_tty_stderr_falls_back_when_openpty_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], int, str | None]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd):
+            calls.append((command, timeout_seconds, cwd))
+            return CommandResult(
+                19, "openpty-fallback-stdout", "openpty-fallback-stderr"
+            )
+
+    fake_pty = SimpleNamespace(openpty=lambda: (_ for _ in ()).throw(OSError("no pty")))
+    monkeypatch.setitem(sys.modules, "pty", fake_pty)
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", lambda: FakeRunner())
+
+    result = cli_mod._run_command_with_tty_stderr(
+        ["demo"], timeout_seconds=9, cwd="/tmp"
+    )
+
+    assert result == CommandResult(
+        19, "openpty-fallback-stdout", "openpty-fallback-stderr"
+    )
+    assert calls == [(["demo"], 9, "/tmp")]
+
+
+def test_run_command_with_tty_stderr_returns_error_when_popen_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    fake_pty = SimpleNamespace(openpty=lambda: (21, 22))
+
+    monkeypatch.setitem(sys.modules, "pty", fake_pty)
+    monkeypatch.setattr(
+        cli_mod.subprocess,
+        "Popen",
+        lambda *a, **kw: (_ for _ in ()).throw(OSError("popen boom")),
+    )
+    monkeypatch.setattr(cli_mod.os, "close", lambda fd: None)
+
+    result = cli_mod._run_command_with_tty_stderr(["demo"], timeout_seconds=9)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "popen boom"
+
+
+def test_run_command_with_tty_stderr_handles_decoder_remainder_and_unexpected_oserror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    stderr_stream = io.StringIO()
+    fake_threads: list[Any] = []
+    read_chunks = [b"\xe2\x82", b""]
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self.target = target
+            self.daemon = daemon
+            self.exc: BaseException | None = None
+            fake_threads.append(self)
+
+        def start(self):
+            try:
+                self.target()
+            except BaseException as exc:  # pragma: no cover - recorded for assertion
+                self.exc = exc
+
+        def join(self):
+            return None
+
+    class FakeStdout:
+        def read(self, size: int):
+            return ""
+
+        def close(self):
+            return None
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = FakeStdout()
+
+        def wait(self, timeout):
+            return 0
+
+        def kill(self):
+            return None
+
+    fake_pty = SimpleNamespace(openpty=lambda: (31, 32))
+
+    monkeypatch.setitem(sys.modules, "pty", fake_pty)
+    monkeypatch.setattr(cli_mod.threading, "Thread", FakeThread)
+    monkeypatch.setattr(cli_mod.subprocess, "Popen", lambda *a, **kw: FakeProcess())
+    monkeypatch.setattr(cli_mod.os, "read", lambda fd, size: read_chunks.pop(0))
+    monkeypatch.setattr(cli_mod.os, "close", lambda fd: None)
+    monkeypatch.setattr(cli_mod.sys, "stderr", stderr_stream)
+
+    result = cli_mod._run_command_with_tty_stderr(["demo"], timeout_seconds=9)
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == "�"
+    assert stderr_stream.getvalue() == "�"
+    assert len(fake_threads) == 2
+    assert fake_threads[1].exc is None
+
+
+def test_run_command_with_tty_stderr_surfaces_unexpected_oserror_from_tty_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    fake_threads: list[Any] = []
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self.target = target
+            self.daemon = daemon
+            self.exc: BaseException | None = None
+            fake_threads.append(self)
+
+        def start(self):
+            try:
+                self.target()
+            except BaseException as exc:
+                self.exc = exc
+
+        def join(self):
+            return None
+
+    class FakeStdout:
+        def read(self, size: int):
+            return ""
+
+        def close(self):
+            return None
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = FakeStdout()
+
+        def wait(self, timeout):
+            return 0
+
+        def kill(self):
+            return None
+
+    fake_pty = SimpleNamespace(openpty=lambda: (41, 42))
+
+    monkeypatch.setitem(sys.modules, "pty", fake_pty)
+    monkeypatch.setattr(cli_mod.threading, "Thread", FakeThread)
+    monkeypatch.setattr(cli_mod.subprocess, "Popen", lambda *a, **kw: FakeProcess())
+    monkeypatch.setattr(
+        cli_mod.os,
+        "read",
+        lambda fd, size: (_ for _ in ()).throw(OSError(errno.EINVAL, "bad read")),
+    )
+    monkeypatch.setattr(cli_mod.os, "close", lambda fd: None)
+    monkeypatch.setattr(cli_mod.sys, "stderr", io.StringIO())
+    monkeypatch.setattr(cli_mod.threading, "excepthook", lambda args: None)
+
+    result = cli_mod._run_command_with_tty_stderr(["demo"], timeout_seconds=9)
+
+    assert result.returncode == 0
+    assert len(fake_threads) == 2
+    assert isinstance(fake_threads[1].exc, OSError)
+    assert fake_threads[1].exc.errno == errno.EINVAL
+
+
 def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
     capsys, monkeypatch
 ) -> None:
     import recollectium.cli as cli_mod
     from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
 
-    spinner_events: list[tuple[str, object]] = []
+    spinner_events: list[tuple[str, None]] = []
+    spinner_inits: list[tuple[object, str, tuple[str, ...]]] = []
+    maintenance_calls: list[dict[str, object]] = []
 
     class FakeStatusSpinner:
         def __init__(self, stream, *, title, details):
-            spinner_events.append(("init", (stream, title, details)))
+            spinner_inits.append((stream, title, details))
 
         def __enter__(self):
             spinner_events.append(("enter", None))
@@ -11803,11 +12265,11 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
         "fetch_latest_release",
         lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
     )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: object())
     monkeypatch.setattr(
-        cli_mod,
-        "RecollectiumConfig",
-        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("missing")),
+        cli_mod, "check_running_service", lambda cfg: {"type": "mcp", "pid": 1}
     )
+    monkeypatch.setattr(cli_mod, "stop_service", lambda cfg: None)
     monkeypatch.setattr(
         cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
     )
@@ -11815,8 +12277,11 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
     monkeypatch.setattr(
         cli_mod,
         "_run_installed_embedding_maintenance",
-        lambda **kw: CommandResult(0, '{"status":"ok"}', ""),
+        lambda **kw: (
+            maintenance_calls.append(kw) or CommandResult(0, '{"status":"ok"}', "")
+        ),
     )
+    monkeypatch.setattr(cli_mod, "start_service", lambda *a, **kw: None)
 
     exit_code, stdout, stderr = _run_cli(
         ["--human-readable", "--compact", "upgrade"],
@@ -11826,12 +12291,105 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
 
     assert exit_code == 0
     assert stderr == ""
-    assert [event for event, _ in spinner_events] == ["init", "enter", "exit"]
-    init_payload = spinner_events[0][1]
-    assert isinstance(init_payload, tuple)
-    assert init_payload[1:] == ("Upgrade in progress", ("running package update",))
+    assert spinner_events == [
+        ("enter", None),
+        ("exit", None),
+        ("enter", None),
+        ("exit", None),
+        ("enter", None),
+        ("exit", None),
+        ("enter", None),
+        ("exit", None),
+        ("enter", None),
+        ("exit", None),
+    ]
+    assert len(spinner_inits) == 5
+    assert [entry[1:] for entry in spinner_inits] == [
+        ("Upgrade in progress", ("Resolving target",)),
+        ("Upgrade in progress", ("Checking services",)),
+        ("Upgrade in progress", ("Stopping services",)),
+        ("Upgrade in progress", ("Applying update",)),
+        ("Upgrade in progress", ("Restarting services",)),
+    ]
+    assert maintenance_calls
+    config_path = maintenance_calls[0]["config_path"]
+    assert maintenance_calls == [
+        {
+            "config_path": config_path,
+            "explicit": False,
+            "db_path": None,
+            "log_level": None,
+            "timeout_seconds": 600,
+            "output_format": cli_module.CLI_OUTPUT_HUMAN_READABLE,
+        }
+    ]
     assert stdout.strip() == "Recollectium was updated to the latest release: v9.9.9."
     assert "Target kind" not in stdout
+
+
+def test_cli_upgrade_compact_human_mutating_skips_service_spinners_without_running_services(
+    capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
+
+    spinner_inits: list[tuple[str, tuple[str, ...]]] = []
+
+    class FakeSpinner:
+        def __init__(self, stream, *, title, details):
+            spinner_inits.append((title, details))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def finish(self):
+            return None
+
+    monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    monkeypatch.setattr(cli_mod, "SingleLineStatusSpinner", FakeSpinner)
+    monkeypatch.setattr(
+        cli_mod,
+        "load_install_metadata",
+        lambda: InstallMetadata("uv_tool", None, None, None),
+    )
+    monkeypatch.setattr(cli_mod, "detect_install_method", lambda metadata: "uv_tool")
+    monkeypatch.setattr(
+        cli_mod,
+        "fetch_latest_release",
+        lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
+    )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: object())
+    monkeypatch.setattr(cli_mod, "check_running_service", lambda cfg: None)
+    monkeypatch.setattr(
+        cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
+    )
+    monkeypatch.setattr(cli_mod, "write_install_metadata_update", lambda plan: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "_run_installed_embedding_maintenance",
+        lambda **kw: CommandResult(0, '{"status":"ok"}', ""),
+    )
+    monkeypatch.setattr(cli_mod, "start_service", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_mod, "stop_service", lambda *a, **kw: None)
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--compact", "upgrade"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert spinner_inits == [
+        ("Upgrade in progress", ("Resolving target",)),
+        ("Upgrade in progress", ("Checking services",)),
+        ("Upgrade in progress", ("Applying update",)),
+    ]
+    assert stdout.strip() == "Recollectium was updated to the latest release: v9.9.9."
 
 
 def test_cli_upgrade_compact_human_mutating_without_live_progress_stays_quiet(
@@ -11900,6 +12458,7 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
     from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
 
     apply_calls = 0
+    maintenance_calls: list[dict[str, object]] = []
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
     monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
     monkeypatch.setattr(
@@ -11931,7 +12490,9 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
     monkeypatch.setattr(
         cli_mod,
         "_run_installed_embedding_maintenance",
-        lambda **kw: CommandResult(0, '{"status":"ok"}', ""),
+        lambda **kw: (
+            maintenance_calls.append(kw) or CommandResult(0, '{"status":"ok"}', "")
+        ),
     )
 
     exit_code, stdout, stderr = _run_cli(["--json", "upgrade"], capsys)
@@ -11939,25 +12500,29 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
     assert exit_code == 0
     assert stderr == ""
     assert apply_calls == 1
+    assert maintenance_calls == [
+        {
+            "config_path": maintenance_calls[0]["config_path"],
+            "explicit": False,
+            "db_path": None,
+            "log_level": None,
+            "timeout_seconds": 600,
+            "output_format": cli_module.CLI_OUTPUT_JSON,
+        }
+    ]
     assert json.loads(stdout)["status"] == "updated"
 
 
 @pytest.mark.parametrize("flag", ["--check", "--dry-run"])
-def test_cli_upgrade_human_non_mutating_does_not_emit_progress_or_apply(
+def test_cli_upgrade_human_non_mutating_emits_progress_and_does_not_apply(
     flag, capsys, monkeypatch
 ) -> None:
     import recollectium.cli as cli_mod
     from recollectium.update import InstallMetadata, ReleaseInfo
 
+    progress_calls: list[tuple[str, tuple[str, ...]]] = []
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
     monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
-    monkeypatch.setattr(
-        cli_mod,
-        "SingleLineStatusSpinner",
-        lambda *a, **kw: (_ for _ in ()).throw(
-            AssertionError(f"{flag} must not start spinner")
-        ),
-    )
     monkeypatch.setattr(
         cli_mod,
         "load_install_metadata",
@@ -11983,6 +12548,13 @@ def test_cli_upgrade_human_non_mutating_does_not_emit_progress_or_apply(
             AssertionError(f"{flag} must not apply updates")
         ),
     )
+    monkeypatch.setattr(
+        cli_mod,
+        "_human_upgrade_progress_context",
+        lambda output_format, *, details: (
+            progress_calls.append((output_format, details)) or contextlib.nullcontext()
+        ),
+    )
 
     exit_code, stdout, stderr = _run_cli(
         ["--human-readable", "--compact", "upgrade", flag],
@@ -11992,6 +12564,9 @@ def test_cli_upgrade_human_non_mutating_does_not_emit_progress_or_apply(
 
     assert exit_code == 0
     assert stderr == ""
+    assert progress_calls == [
+        (cli_mod.CLI_OUTPUT_HUMAN_READABLE, ("Resolving target",))
+    ]
     assert stdout.strip() == "Recollectium would update to the latest release: v9.9.9."
 
 
@@ -12579,7 +13154,9 @@ def test_cli_upgrade_human_apply_failure_finishes_spinner_before_payload(
     assert exit_code == 7
     assert stdout == ""
     assert "Recollectium package upgrade failed." in stderr
-    assert events == ["init", "enter", "finish", "emit_failure_payload"]
+    assert events[-1] == "emit_failure_payload"
+    assert events.count("init") == events.count("finish")
+    assert events.count("enter") == events.count("finish")
 
 
 def test_cli_upgrade_success_restarts_running_service(capsys, monkeypatch) -> None:
@@ -12680,6 +13257,7 @@ def test_cli_upgrade_success_runs_installed_embedding_maintenance(
         "db_path": "/tmp/recollectium.db",
         "log_level": None,
         "timeout_seconds": 600,
+        "output_format": cli_module.CLI_OUTPUT_JSON,
     }
 
 
