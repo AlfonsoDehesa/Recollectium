@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import argcomplete
+import codecs
 import contextlib
+import errno
 from argcomplete.completers import ChoicesCompleter
 from copy import deepcopy
 import inspect
@@ -1350,6 +1352,120 @@ def _human_upgrade_progress_context(
     )
 
 
+def _run_command_with_tty_stderr(
+    command: list[str], *, timeout_seconds: int, cwd: str | None = None
+) -> CommandResult:
+    """Run a command with stderr attached to a TTY when supported."""
+    if os.name != "posix":
+        return SubprocessCommandRunner().run(
+            command, timeout_seconds=timeout_seconds, cwd=cwd
+        )
+
+    try:
+        import pty
+    except ImportError:
+        return SubprocessCommandRunner().run(
+            command, timeout_seconds=timeout_seconds, cwd=cwd
+        )
+
+    try:
+        master_fd, slave_fd = pty.openpty()
+    except OSError:
+        return SubprocessCommandRunner().run(
+            command, timeout_seconds=timeout_seconds, cwd=cwd
+        )
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=slave_fd,
+            text=True,
+        )
+    except OSError as exc:
+        with contextlib.suppress(OSError):
+            os.close(master_fd)
+        with contextlib.suppress(OSError):
+            os.close(slave_fd)
+        return CommandResult(returncode=1, stdout="", stderr=str(exc))
+
+    with contextlib.suppress(OSError):
+        os.close(slave_fd)
+
+    stdout_buffer = StringIO()
+    stderr_buffer = StringIO()
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+
+    def _tee_stdout() -> None:
+        try:
+            assert process.stdout is not None
+            while True:
+                chunk = process.stdout.read(4096)
+                if not chunk:
+                    break
+                stdout_buffer.write(chunk)
+        finally:
+            if process.stdout is not None:
+                with contextlib.suppress(OSError, ValueError):
+                    process.stdout.close()
+
+    def _tee_stderr() -> None:
+        try:
+            while True:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                except OSError as exc:
+                    if exc.errno in {errno.EIO, errno.EBADF}:
+                        break
+                    raise
+                if not chunk:
+                    break
+                text = decoder.decode(chunk)
+                if text:
+                    stderr_buffer.write(text)
+                    sys.stderr.write(text)
+                    with contextlib.suppress(OSError, ValueError):
+                        sys.stderr.flush()
+            remainder = decoder.decode(b"", final=True)
+            if remainder:
+                stderr_buffer.write(remainder)
+                sys.stderr.write(remainder)
+                with contextlib.suppress(OSError, ValueError):
+                    sys.stderr.flush()
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(master_fd)
+
+    stdout_thread = threading.Thread(target=_tee_stdout, daemon=True)
+    stderr_thread = threading.Thread(target=_tee_stderr, daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+    returncode: int
+    try:
+        returncode = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(OSError):
+            process.kill()
+        with contextlib.suppress(OSError):
+            process.wait()
+        returncode = 124
+    finally:
+        stdout_thread.join()
+        stderr_thread.join()
+
+    stdout = stdout_buffer.getvalue()
+    stderr = stderr_buffer.getvalue()
+    if returncode == 124:
+        timeout_message = f"command timed out after {timeout_seconds} seconds"
+        return CommandResult(
+            returncode=124,
+            stdout=stdout,
+            stderr=stderr or timeout_message,
+        )
+    return CommandResult(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
 def _model_readiness_context(provider: object) -> tuple[str | None, bool | None]:
     model_name_value = getattr(provider, "model_name", None)
     model_name = model_name_value if isinstance(model_name_value, str) else None
@@ -2334,65 +2450,7 @@ def _run_installed_embedding_maintenance(
         command.extend(["--log-level", log_level])
     command.append("embedding-maintenance")
     if output_format == CLI_OUTPUT_HUMAN_READABLE and _stderr_supports_live_progress():
-        try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-        except OSError as exc:
-            return CommandResult(returncode=1, stdout="", stderr=str(exc))
-
-        stdout_buffer = StringIO()
-        stderr_buffer = StringIO()
-
-        def _tee_stream(source: Any, sink: Any | None, buffer: StringIO) -> None:
-            try:
-                while True:
-                    chunk = source.read(4096)
-                    if not chunk:
-                        break
-                    buffer.write(chunk)
-                    if sink is not None:
-                        sink.write(chunk)
-                        with contextlib.suppress(OSError, ValueError):
-                            sink.flush()
-            finally:
-                with contextlib.suppress(OSError, ValueError):
-                    source.close()
-
-        stdout_thread = threading.Thread(
-            target=_tee_stream,
-            args=(process.stdout, None, stdout_buffer),
-            daemon=True,
-        )
-        stderr_thread = threading.Thread(
-            target=_tee_stream,
-            args=(process.stderr, sys.stderr, stderr_buffer),
-            daemon=True,
-        )
-        stdout_thread.start()
-        stderr_thread.start()
-        try:
-            returncode = process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            with contextlib.suppress(OSError, ValueError):
-                process.kill()
-            returncode = 124
-        finally:
-            stdout_thread.join()
-            stderr_thread.join()
-        stdout = stdout_buffer.getvalue()
-        stderr = stderr_buffer.getvalue()
-        if returncode == 124:
-            timeout_message = f"command timed out after {timeout_seconds} seconds"
-            return CommandResult(
-                returncode=124,
-                stdout=stdout,
-                stderr=stderr or timeout_message,
-            )
-        return CommandResult(returncode=returncode, stdout=stdout, stderr=stderr)
+        return _run_command_with_tty_stderr(command, timeout_seconds=timeout_seconds)
     return SubprocessCommandRunner().run(command, timeout_seconds=timeout_seconds)
 
 
@@ -3243,9 +3301,7 @@ def _handle_upgrade_command(
         )
     allow_main = args.allow_main or args.repo is not None
     upgrade_progress_enabled = (
-        output_format == CLI_OUTPUT_HUMAN_READABLE
-        and _stderr_supports_live_progress()
-        and not (args.check or args.dry_run)
+        output_format == CLI_OUTPUT_HUMAN_READABLE and _stderr_supports_live_progress()
     )
 
     def _upgrade_progress_context(
