@@ -6437,6 +6437,59 @@ def test_run_installed_embedding_maintenance_builds_fresh_process_command(
     ]
 
 
+def test_run_installed_embedding_maintenance_uses_human_readable_process_command(
+    tmp_path, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(
+            command, 0, stdout="maintenance ok", stderr=""
+        )
+
+    monkeypatch.setattr(cli_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    monkeypatch.setattr(cli_mod.sys, "executable", "/tmp/python")
+    result = cli_mod._run_installed_embedding_maintenance(
+        config_path=tmp_path / "config.json",
+        explicit=True,
+        db_path=str(tmp_path / "memory.db"),
+        log_level="debug",
+        timeout_seconds=42,
+        output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
+    )
+
+    assert result == CommandResult(0, "maintenance ok", "")
+    assert calls == [
+        (
+            [
+                "/tmp/python",
+                "-m",
+                "recollectium",
+                "--human-readable",
+                "--config",
+                str(tmp_path / "config.json"),
+                "--db",
+                str(tmp_path / "memory.db"),
+                "--log-level",
+                "debug",
+                "embedding-maintenance",
+            ],
+            {
+                "stdout": subprocess.PIPE,
+                "stderr": cli_mod.sys.stderr,
+                "text": True,
+                "timeout": 42,
+                "check": False,
+            },
+        )
+    ]
+
+
 def test_cli_embedding_maintenance_error_paths_return_structured_json(
     capsys, monkeypatch, tmp_path
 ) -> None:
@@ -9738,8 +9791,7 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     assert shared_cache.exists()
     assert not model_cache.exists()
     assert any(
-        item["path"] == str(shared_cache)
-        and item["reason"] == "custom_configured_path"
+        item["path"] == str(shared_cache) and item["reason"] == "custom_configured_path"
         for item in skipped
     )
     assert any(
@@ -9759,21 +9811,17 @@ def test_cli_uninstall_purge_dry_run_marks_custom_cache_override_as_configured(
     config_path.write_text(json.dumps(config_data), encoding="utf-8")
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
 
-    exit_code, stdout, stderr = _run_cli(
-        ["uninstall", "--purge", "--dry-run"], capsys
-    )
+    exit_code, stdout, stderr = _run_cli(["uninstall", "--purge", "--dry-run"], capsys)
 
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
     assert any(
-        item["path"] == str(custom_cache)
-        and item["reason"] == "custom_configured_path"
+        item["path"] == str(custom_cache) and item["reason"] == "custom_configured_path"
         for item in payload["data"]["purge"]["skipped"]
     )
     assert not any(
-        item["path"] == str(custom_cache)
-        and item["reason"] == "not_recollectium_owned"
+        item["path"] == str(custom_cache) and item["reason"] == "not_recollectium_owned"
         for item in payload["data"]["purge"]["skipped"]
     )
 
@@ -11516,11 +11564,13 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
     import recollectium.cli as cli_mod
     from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
 
-    spinner_events: list[tuple[str, object]] = []
+    spinner_events: list[tuple[str, None]] = []
+    spinner_inits: list[tuple[object, str, tuple[str, ...]]] = []
+    maintenance_calls: list[dict[str, object]] = []
 
     class FakeStatusSpinner:
         def __init__(self, stream, *, title, details):
-            spinner_events.append(("init", (stream, title, details)))
+            spinner_inits.append((stream, title, details))
 
         def __enter__(self):
             spinner_events.append(("enter", None))
@@ -11543,11 +11593,11 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
         "fetch_latest_release",
         lambda client, *, repo: ReleaseInfo("9.9.9", "v9.9.9", None),
     )
+    monkeypatch.setattr(cli_mod, "RecollectiumConfig", lambda *a, **kw: object())
     monkeypatch.setattr(
-        cli_mod,
-        "RecollectiumConfig",
-        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("missing")),
+        cli_mod, "check_running_service", lambda cfg: {"type": "mcp", "pid": 1}
     )
+    monkeypatch.setattr(cli_mod, "stop_service", lambda cfg: None)
     monkeypatch.setattr(
         cli_mod, "apply_update", lambda *a, **kw: CommandResult(0, "done", "")
     )
@@ -11555,8 +11605,11 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
     monkeypatch.setattr(
         cli_mod,
         "_run_installed_embedding_maintenance",
-        lambda **kw: CommandResult(0, '{"status":"ok"}', ""),
+        lambda **kw: (
+            maintenance_calls.append(kw) or CommandResult(0, '{"status":"ok"}', "")
+        ),
     )
+    monkeypatch.setattr(cli_mod, "start_service", lambda *a, **kw: None)
 
     exit_code, stdout, stderr = _run_cli(
         ["--human-readable", "--compact", "upgrade"],
@@ -11566,10 +11619,38 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
 
     assert exit_code == 0
     assert stderr == ""
-    assert [event for event, _ in spinner_events] == ["init", "enter", "exit"]
-    init_payload = spinner_events[0][1]
-    assert isinstance(init_payload, tuple)
-    assert init_payload[1:] == ("Upgrade in progress", ("running package update",))
+    assert spinner_events == [
+        ("enter", None),
+        ("exit", None),
+        ("enter", None),
+        ("exit", None),
+        ("enter", None),
+        ("exit", None),
+        ("enter", None),
+        ("exit", None),
+        ("enter", None),
+        ("exit", None),
+    ]
+    assert len(spinner_inits) == 5
+    assert [entry[1:] for entry in spinner_inits] == [
+        ("Upgrade in progress", ("resolving upgrade target",)),
+        ("Upgrade in progress", ("checking running services",)),
+        ("Upgrade in progress", ("stopping running services",)),
+        ("Upgrade in progress", ("applying package update",)),
+        ("Upgrade in progress", ("restarting running services",)),
+    ]
+    assert maintenance_calls
+    config_path = maintenance_calls[0]["config_path"]
+    assert maintenance_calls == [
+        {
+            "config_path": config_path,
+            "explicit": False,
+            "db_path": None,
+            "log_level": None,
+            "timeout_seconds": 600,
+            "output_format": cli_module.CLI_OUTPUT_HUMAN_READABLE,
+        }
+    ]
     assert stdout.strip() == "Recollectium was updated to the latest release: v9.9.9."
     assert "Target kind" not in stdout
 
@@ -11640,6 +11721,7 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
     from recollectium.update import CommandResult, InstallMetadata, ReleaseInfo
 
     apply_calls = 0
+    maintenance_calls: list[dict[str, object]] = []
     monkeypatch.setattr(cli_mod, "_setup_cli_logging", lambda *a, **kw: None)
     monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
     monkeypatch.setattr(
@@ -11671,7 +11753,9 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
     monkeypatch.setattr(
         cli_mod,
         "_run_installed_embedding_maintenance",
-        lambda **kw: CommandResult(0, '{"status":"ok"}', ""),
+        lambda **kw: (
+            maintenance_calls.append(kw) or CommandResult(0, '{"status":"ok"}', "")
+        ),
     )
 
     exit_code, stdout, stderr = _run_cli(["--json", "upgrade"], capsys)
@@ -11679,6 +11763,16 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
     assert exit_code == 0
     assert stderr == ""
     assert apply_calls == 1
+    assert maintenance_calls == [
+        {
+            "config_path": maintenance_calls[0]["config_path"],
+            "explicit": False,
+            "db_path": None,
+            "log_level": None,
+            "timeout_seconds": 600,
+            "output_format": cli_module.CLI_OUTPUT_JSON,
+        }
+    ]
     assert json.loads(stdout)["status"] == "updated"
 
 
@@ -12319,7 +12413,9 @@ def test_cli_upgrade_human_apply_failure_finishes_spinner_before_payload(
     assert exit_code == 7
     assert stdout == ""
     assert "Recollectium package upgrade failed." in stderr
-    assert events == ["init", "enter", "finish", "emit_failure_payload"]
+    assert events[-1] == "emit_failure_payload"
+    assert events.count("init") == events.count("finish")
+    assert events.count("enter") == events.count("finish")
 
 
 def test_cli_upgrade_success_restarts_running_service(capsys, monkeypatch) -> None:
@@ -12420,6 +12516,7 @@ def test_cli_upgrade_success_runs_installed_embedding_maintenance(
         "db_path": "/tmp/recollectium.db",
         "log_level": None,
         "timeout_seconds": 600,
+        "output_format": cli_module.CLI_OUTPUT_JSON,
     }
 
 
