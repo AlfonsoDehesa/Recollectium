@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import io
 import json
 import os
@@ -11684,6 +11685,284 @@ def test_run_command_with_tty_stderr_timeout_reaps_child(
     assert "timeout-stderr" in stream.getvalue()
     with pytest.raises(ChildProcessError):
         os.waitpid(pid, os.WNOHANG)
+
+
+def test_human_upgrade_progress_context_respects_output_format_and_stderr_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    spinner_inits: list[tuple[object, str, tuple[str, ...]]] = []
+
+    class FakeStatusSpinner:
+        def __init__(self, stream, *, title, details):
+            spinner_inits.append((stream, title, details))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    monkeypatch.setattr(cli_mod, "SingleLineStatusSpinner", FakeStatusSpinner)
+
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: False)
+    ctx = cli_mod._human_upgrade_progress_context(
+        cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+        details=("Resolving target",),
+    )
+    assert isinstance(ctx, contextlib.AbstractContextManager)
+    with ctx:
+        pass
+
+    monkeypatch.setattr(cli_mod, "_stderr_supports_live_progress", lambda: True)
+    ctx = cli_mod._human_upgrade_progress_context(
+        cli_mod.CLI_OUTPUT_JSON, details=("x",)
+    )
+    assert isinstance(ctx, contextlib.AbstractContextManager)
+    with ctx:
+        pass
+
+    ctx = cli_mod._human_upgrade_progress_context(
+        cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+        details=(),
+    )
+    assert isinstance(ctx, contextlib.AbstractContextManager)
+    with ctx:
+        pass
+
+    ctx = cli_mod._human_upgrade_progress_context(
+        cli_mod.CLI_OUTPUT_HUMAN_READABLE,
+        details=("Applying update",),
+    )
+    with ctx:
+        pass
+
+    assert spinner_inits == [
+        (cli_mod.sys.stderr, "Upgrade in progress", ("Applying update",))
+    ]
+
+
+def test_run_command_with_tty_stderr_falls_back_when_not_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], int, str | None]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd):
+            calls.append((command, timeout_seconds, cwd))
+            return CommandResult(17, "fallback-stdout", "fallback-stderr")
+
+    monkeypatch.setattr(cli_mod.os, "name", "nt")
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", lambda: FakeRunner())
+
+    result = cli_mod._run_command_with_tty_stderr(
+        ["demo"], timeout_seconds=9, cwd="/tmp"
+    )
+
+    assert result == CommandResult(17, "fallback-stdout", "fallback-stderr")
+    assert calls == [(["demo"], 9, "/tmp")]
+
+
+def test_run_command_with_tty_stderr_falls_back_when_pty_import_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], int, str | None]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd):
+            calls.append((command, timeout_seconds, cwd))
+            return CommandResult(18, "import-fallback-stdout", "import-fallback-stderr")
+
+    monkeypatch.setitem(sys.modules, "pty", None)
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", lambda: FakeRunner())
+
+    result = cli_mod._run_command_with_tty_stderr(["demo"], timeout_seconds=9)
+
+    assert result == CommandResult(
+        18, "import-fallback-stdout", "import-fallback-stderr"
+    )
+    assert calls == [(["demo"], 9, None)]
+
+
+def test_run_command_with_tty_stderr_falls_back_when_openpty_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[tuple[list[str], int, str | None]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd):
+            calls.append((command, timeout_seconds, cwd))
+            return CommandResult(
+                19, "openpty-fallback-stdout", "openpty-fallback-stderr"
+            )
+
+    fake_pty = SimpleNamespace(openpty=lambda: (_ for _ in ()).throw(OSError("no pty")))
+    monkeypatch.setitem(sys.modules, "pty", fake_pty)
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", lambda: FakeRunner())
+
+    result = cli_mod._run_command_with_tty_stderr(
+        ["demo"], timeout_seconds=9, cwd="/tmp"
+    )
+
+    assert result == CommandResult(
+        19, "openpty-fallback-stdout", "openpty-fallback-stderr"
+    )
+    assert calls == [(["demo"], 9, "/tmp")]
+
+
+def test_run_command_with_tty_stderr_returns_error_when_popen_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    fake_pty = SimpleNamespace(openpty=lambda: (21, 22))
+
+    monkeypatch.setitem(sys.modules, "pty", fake_pty)
+    monkeypatch.setattr(
+        cli_mod.subprocess,
+        "Popen",
+        lambda *a, **kw: (_ for _ in ()).throw(OSError("popen boom")),
+    )
+    monkeypatch.setattr(cli_mod.os, "close", lambda fd: None)
+
+    result = cli_mod._run_command_with_tty_stderr(["demo"], timeout_seconds=9)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "popen boom"
+
+
+def test_run_command_with_tty_stderr_handles_decoder_remainder_and_unexpected_oserror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    stderr_stream = io.StringIO()
+    fake_threads: list[Any] = []
+    read_chunks = [b"\xe2\x82", b""]
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self.target = target
+            self.daemon = daemon
+            self.exc: BaseException | None = None
+            fake_threads.append(self)
+
+        def start(self):
+            try:
+                self.target()
+            except BaseException as exc:  # pragma: no cover - recorded for assertion
+                self.exc = exc
+
+        def join(self):
+            return None
+
+    class FakeStdout:
+        def read(self, size: int):
+            return ""
+
+        def close(self):
+            return None
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = FakeStdout()
+
+        def wait(self, timeout):
+            return 0
+
+        def kill(self):
+            return None
+
+    fake_pty = SimpleNamespace(openpty=lambda: (31, 32))
+
+    monkeypatch.setitem(sys.modules, "pty", fake_pty)
+    monkeypatch.setattr(cli_mod.threading, "Thread", FakeThread)
+    monkeypatch.setattr(cli_mod.subprocess, "Popen", lambda *a, **kw: FakeProcess())
+    monkeypatch.setattr(cli_mod.os, "read", lambda fd, size: read_chunks.pop(0))
+    monkeypatch.setattr(cli_mod.os, "close", lambda fd: None)
+    monkeypatch.setattr(cli_mod.sys, "stderr", stderr_stream)
+
+    result = cli_mod._run_command_with_tty_stderr(["demo"], timeout_seconds=9)
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == "�"
+    assert stderr_stream.getvalue() == "�"
+    assert len(fake_threads) == 2
+    assert fake_threads[1].exc is None
+
+
+def test_run_command_with_tty_stderr_surfaces_unexpected_oserror_from_tty_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import recollectium.cli as cli_mod
+
+    fake_threads: list[Any] = []
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self.target = target
+            self.daemon = daemon
+            self.exc: BaseException | None = None
+            fake_threads.append(self)
+
+        def start(self):
+            try:
+                self.target()
+            except BaseException as exc:
+                self.exc = exc
+
+        def join(self):
+            return None
+
+    class FakeStdout:
+        def read(self, size: int):
+            return ""
+
+        def close(self):
+            return None
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = FakeStdout()
+
+        def wait(self, timeout):
+            return 0
+
+        def kill(self):
+            return None
+
+    fake_pty = SimpleNamespace(openpty=lambda: (41, 42))
+
+    monkeypatch.setitem(sys.modules, "pty", fake_pty)
+    monkeypatch.setattr(cli_mod.threading, "Thread", FakeThread)
+    monkeypatch.setattr(cli_mod.subprocess, "Popen", lambda *a, **kw: FakeProcess())
+    monkeypatch.setattr(
+        cli_mod.os,
+        "read",
+        lambda fd, size: (_ for _ in ()).throw(OSError(errno.EINVAL, "bad read")),
+    )
+    monkeypatch.setattr(cli_mod.os, "close", lambda fd: None)
+    monkeypatch.setattr(cli_mod.sys, "stderr", io.StringIO())
+    monkeypatch.setattr(cli_mod.threading, "excepthook", lambda args: None)
+
+    result = cli_mod._run_command_with_tty_stderr(["demo"], timeout_seconds=9)
+
+    assert result.returncode == 0
+    assert len(fake_threads) == 2
+    assert isinstance(fake_threads[1].exc, OSError)
+    assert fake_threads[1].exc.errno == errno.EINVAL
 
 
 def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
