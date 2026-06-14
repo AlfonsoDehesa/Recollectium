@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import shutil
+import threading
 from importlib.metadata import PackageNotFoundError, version as package_version
 import subprocess
 import sys
@@ -1340,6 +1341,8 @@ def _human_upgrade_progress_context(
         return contextlib.nullcontext()
     if not _stderr_supports_live_progress():
         return contextlib.nullcontext()
+    if not details:
+        return contextlib.nullcontext()
     return SingleLineStatusSpinner(
         sys.stderr,
         title="Upgrade in progress",
@@ -2332,35 +2335,64 @@ def _run_installed_embedding_maintenance(
     command.append("embedding-maintenance")
     if output_format == CLI_OUTPUT_HUMAN_READABLE and _stderr_supports_live_progress():
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
-                stderr=sys.stderr,
+                stderr=subprocess.PIPE,
                 text=True,
-                check=False,
-                timeout=timeout_seconds,
             )
-        except subprocess.TimeoutExpired as exc:
-            stdout = (
-                exc.stdout.decode("utf-8", errors="replace")
-                if isinstance(exc.stdout, bytes)
-                else (exc.stdout or "")
-            )
-            stderr = (
-                exc.stderr.decode("utf-8", errors="replace")
-                if isinstance(exc.stderr, bytes)
-                else (
-                    exc.stderr or f"command timed out after {timeout_seconds} seconds"
-                )
-            )
-            return CommandResult(returncode=124, stdout=stdout, stderr=stderr)
         except OSError as exc:
             return CommandResult(returncode=1, stdout="", stderr=str(exc))
-        return CommandResult(
-            returncode=completed.returncode,
-            stdout=completed.stdout or "",
-            stderr=completed.stderr or "",
+
+        stdout_buffer = StringIO()
+        stderr_buffer = StringIO()
+
+        def _tee_stream(source: Any, sink: Any | None, buffer: StringIO) -> None:
+            try:
+                while True:
+                    chunk = source.read(4096)
+                    if not chunk:
+                        break
+                    buffer.write(chunk)
+                    if sink is not None:
+                        sink.write(chunk)
+                        with contextlib.suppress(OSError, ValueError):
+                            sink.flush()
+            finally:
+                with contextlib.suppress(OSError, ValueError):
+                    source.close()
+
+        stdout_thread = threading.Thread(
+            target=_tee_stream,
+            args=(process.stdout, None, stdout_buffer),
+            daemon=True,
         )
+        stderr_thread = threading.Thread(
+            target=_tee_stream,
+            args=(process.stderr, sys.stderr, stderr_buffer),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        try:
+            returncode = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(OSError, ValueError):
+                process.kill()
+            returncode = 124
+        finally:
+            stdout_thread.join()
+            stderr_thread.join()
+        stdout = stdout_buffer.getvalue()
+        stderr = stderr_buffer.getvalue()
+        if returncode == 124:
+            timeout_message = f"command timed out after {timeout_seconds} seconds"
+            return CommandResult(
+                returncode=124,
+                stdout=stdout,
+                stderr=stderr or timeout_message,
+            )
+        return CommandResult(returncode=returncode, stdout=stdout, stderr=stderr)
     return SubprocessCommandRunner().run(command, timeout_seconds=timeout_seconds)
 
 
@@ -3226,7 +3258,7 @@ def _handle_upgrade_command(
     source_root = find_source_checkout_root(Path(__file__).resolve())
     main_ref = None
     latest_release: ReleaseInfo | None
-    with _upgrade_progress_context("resolving upgrade target"):
+    with _upgrade_progress_context("Resolving target"):
         try:
             latest_release = (
                 fetch_latest_release(GitHubReleaseClient(), repo=target.repo)
@@ -3304,8 +3336,8 @@ def _handle_upgrade_command(
         args.dry_run
         and (service_config_path is None or not service_config_path.exists())
     )
-    with _upgrade_progress_context("checking running services"):
-        if should_check_services:
+    if should_check_services:
+        with _upgrade_progress_context("Checking services"):
             try:
                 cfg = RecollectiumConfig(
                     service_config_path,
@@ -3359,8 +3391,8 @@ def _handle_upgrade_command(
         )
 
     service_stop_errors: list[dict[str, str]] = []
-    with _upgrade_progress_context("stopping running services"):
-        if cfg is not None:
+    if cfg is not None and services_to_restart:
+        with _upgrade_progress_context("Stopping services"):
             for service_type in services_to_restart:
                 try:
                     stop_service(cfg)
@@ -3380,7 +3412,7 @@ def _handle_upgrade_command(
             event="upgrade.service_stop_failed",
         )
 
-    with _upgrade_progress_context("applying package update"):
+    with _upgrade_progress_context("Applying update"):
         result = apply_update(
             plan, runner=SubprocessCommandRunner(), timeout_seconds=args.timeout
         )
@@ -3412,8 +3444,9 @@ def _handle_upgrade_command(
         payload["hint"] = (
             "Review stderr, check that the package manager is installed, and retry after resolving the error."
         )
-        with _upgrade_progress_context("restarting running services"):
-            _restart_services()
+        if cfg is not None and services_to_restart:
+            with _upgrade_progress_context("Restarting services"):
+                _restart_services()
         if service_restart_errors:
             payload["service_restart_errors"] = service_restart_errors
         return _emit_cli_failure(
@@ -3461,8 +3494,9 @@ def _handle_upgrade_command(
             "Recollectium package upgraded, but embedding maintenance failed."
         )
         payload["detail"] = maintenance.stderr or maintenance.stdout
-        with _upgrade_progress_context("restarting running services"):
-            _restart_services()
+        if cfg is not None and services_to_restart:
+            with _upgrade_progress_context("Restarting services"):
+                _restart_services()
         if service_restart_errors:
             payload["service_restart_errors"] = service_restart_errors
         return _emit_cli_failure(
@@ -3485,8 +3519,9 @@ def _handle_upgrade_command(
     except json.JSONDecodeError:
         payload["embedding_maintenance"] = {"raw_stdout": maintenance.stdout}
 
-    with _upgrade_progress_context("restarting running services"):
-        _restart_services()
+    if cfg is not None and services_to_restart:
+        with _upgrade_progress_context("Restarting services"):
+            _restart_services()
     if service_restart_errors:
         payload["service_restart_errors"] = service_restart_errors
         return _emit_cli_failure(
