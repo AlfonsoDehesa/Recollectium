@@ -507,7 +507,7 @@ Use the gate names below as addressable status labels when discussing release re
 #### Gate A: Product and surface readiness
 
 - [ ] A1. User-facing operations available on any one of the CLI, API, or MCP surfaces are available on all three surfaces, unless a documented exception exists.
-- [ ] A2. Every CLI, API, and MCP operation supports compact and verbose response modes, and compact responses include only the minimum information needed for product correctness plus useful returned information.
+- [ ] A2. Every CLI, API, and MCP operation supports compact and verbose response modes, and compact responses include at minimum all information required for product correctness and for the returned information to be useful and valuable.
 - [ ] A3. `recollectium config` get/set/unset covers every configurable key in `config.json`.
 - [ ] A4. Long-running human-readable CLI commands show detailed progress using existing codebase primitives, and transient progress disappears before final output is emitted.
 - [ ] A5. CLI failure contracts are still valid: non-argparse failures emit structured JSON on stderr, stdout JSON contracts stay unpolluted, and changed failure paths emit structured logs without sensitive payloads.
