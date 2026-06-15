@@ -23,7 +23,7 @@ import tempfile
 import time
 from io import StringIO
 from pathlib import Path
-from typing import Any, Iterator, NoReturn, Sequence, cast
+from typing import Any, Callable, Iterator, NoReturn, Sequence, cast
 
 from rich.console import Console
 from rich.text import Text
@@ -101,7 +101,10 @@ from recollectium.dev_seed import (
     seeded_dev_database_is_initialized,
 )
 import recollectium.embeddings as embeddings_module
-from recollectium.embeddings import BuiltinFastEmbedProvider
+from recollectium.embeddings import (
+    BUILTIN_FASTEMBED_MODEL_SPECS,
+    BuiltinFastEmbedProvider,
+)
 from recollectium.logging import setup_logging
 from recollectium.models import (
     ALL_MEMORY_TYPES,
@@ -4297,6 +4300,14 @@ def _is_suspicious_purge_path(path: Path) -> bool:
     return resolved in {Path(resolved.anchor), home, cwd}
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
 def _is_recollectium_owned_path(path: Path) -> bool:
     resolved = path.expanduser().resolve(strict=False)
     parts = {part.lower() for part in resolved.parts}
@@ -4314,6 +4325,24 @@ def _path_payload(
     if reason is not None:
         payload["reason"] = reason
     return payload
+
+
+_MANAGED_DIRECTORY_MARKER = ".recollectium-managed-directory.json"
+
+
+def _managed_directory_marker_path(path: Path) -> Path:
+    return path / _MANAGED_DIRECTORY_MARKER
+
+
+def directory_was_created_by_recollectium(path: Path) -> bool:
+    marker = _managed_directory_marker_path(path)
+    if not marker.is_file():
+        return False
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(payload, dict) and payload.get("created_by") == "recollectium"
 
 
 def _delete_purge_target(
@@ -4346,45 +4375,332 @@ def _delete_purge_target(
     return _path_payload(path, deleted=True)
 
 
+def _fastembed_cache_root_names() -> set[str]:
+    return {
+        layout.root[0]
+        for spec in BUILTIN_FASTEMBED_MODEL_SPECS.values()
+        for layout in spec.cache_layouts
+        if layout.root
+    }
+
+
+def _is_fastembed_cache_file(path: Path, model_cache_path: Path) -> bool:
+    if not _is_relative_to(path, model_cache_path):
+        return False
+    relative_parts = path.relative_to(model_cache_path).parts
+    return bool(relative_parts) and relative_parts[0] in _fastembed_cache_root_names()
+
+
 def _remove_model_cache(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
-    owned_paths = {plan.model_cache_path.expanduser().resolve(strict=False)}
-    result = _delete_purge_target(
-        plan.model_cache_path, dry_run=dry_run, owned_paths=owned_paths
-    )
+    resolved_model_cache_path = plan.model_cache_path.expanduser().resolve(strict=False)
+    if _is_suspicious_purge_path(plan.model_cache_path):
+        result = _path_payload(
+            plan.model_cache_path, deleted=False, reason="suspicious_path"
+        )
+        return {
+            "dry_run": dry_run,
+            "path": str(plan.model_cache_path),
+            "targets": [result],
+            "deleted": [],
+            "skipped": [result],
+        }
+
+    if not resolved_model_cache_path.exists():
+        result = _path_payload(plan.model_cache_path, deleted=False, reason="missing")
+        return {
+            "dry_run": dry_run,
+            "path": str(plan.model_cache_path),
+            "targets": [result],
+            "deleted": [],
+            "skipped": [result],
+        }
+
+    if dry_run:
+        result = _path_payload(plan.model_cache_path, deleted=False, reason="dry_run")
+        return {
+            "dry_run": dry_run,
+            "path": str(plan.model_cache_path),
+            "targets": [result],
+            "deleted": [],
+            "skipped": [result],
+        }
+
+    deleted_ops: list[dict[str, Any]] = []
+    skipped_ops: list[dict[str, Any]] = []
+    deleted_files: list[str] = []
+    deleted_directories: list[str] = []
+
+    if resolved_model_cache_path.is_file():
+        if _is_fastembed_cache_file(
+            resolved_model_cache_path, resolved_model_cache_path.parent
+        ):
+            resolved_model_cache_path.unlink()
+            result = _path_payload(resolved_model_cache_path, deleted=True)
+            deleted_ops.append(result)
+            deleted_files.append(str(resolved_model_cache_path))
+        else:
+            result = _path_payload(
+                plan.model_cache_path, deleted=False, reason="retained_directory"
+            )
+            skipped_ops.append(result)
+            return {
+                "dry_run": dry_run,
+                "path": str(plan.model_cache_path),
+                "targets": [result],
+                "deleted": deleted_ops,
+                "skipped": skipped_ops,
+            }
+    else:
+        files = sorted(
+            [path for path in resolved_model_cache_path.rglob("*") if path.is_file()],
+            key=lambda item: len(item.parts),
+            reverse=True,
+        )
+        for path in files:
+            if not _is_fastembed_cache_file(path, resolved_model_cache_path):
+                continue
+            path.unlink()
+            result = _path_payload(path, deleted=True)
+            deleted_ops.append(result)
+            deleted_files.append(str(path))
+
+        directories = sorted(
+            [path for path in resolved_model_cache_path.rglob("*") if path.is_dir()],
+            key=lambda item: len(item.parts),
+            reverse=True,
+        )
+        fastembed_root_names = _fastembed_cache_root_names()
+        for directory in directories:
+            relative_parts = directory.relative_to(resolved_model_cache_path).parts
+            if not relative_parts or relative_parts[0] not in fastembed_root_names:
+                continue
+            if directory_was_created_by_recollectium(directory):
+                entries = [
+                    entry
+                    for entry in directory.iterdir()
+                    if entry.name != ".recollectium-managed-directory.json"
+                ]
+            else:
+                try:
+                    entries = list(directory.iterdir())
+                except FileNotFoundError:
+                    continue
+            if entries:
+                continue
+            marker = directory / ".recollectium-managed-directory.json"
+            if marker.exists():
+                marker.unlink()
+            directory.rmdir()
+            result = _path_payload(directory, deleted=True)
+            deleted_ops.append(result)
+            deleted_directories.append(str(directory))
+
+        if directory_was_created_by_recollectium(resolved_model_cache_path):
+            try:
+                root_entries = [
+                    entry
+                    for entry in resolved_model_cache_path.iterdir()
+                    if entry.name != ".recollectium-managed-directory.json"
+                ]
+            except FileNotFoundError:
+                root_entries = []
+            if not root_entries:
+                marker = (
+                    resolved_model_cache_path / ".recollectium-managed-directory.json"
+                )
+                if marker.exists():
+                    marker.unlink()
+                resolved_model_cache_path.rmdir()
+                result = _path_payload(resolved_model_cache_path, deleted=True)
+                deleted_ops.append(result)
+                deleted_directories.append(str(resolved_model_cache_path))
+
+    summary_deleted = not resolved_model_cache_path.exists()
+    summary: dict[str, Any] = {
+        "path": str(plan.model_cache_path),
+        "deleted": summary_deleted,
+    }
+    if deleted_files:
+        summary["deleted_files"] = deleted_files
+    if deleted_directories:
+        summary["deleted_directories"] = deleted_directories
+    if not summary_deleted and (deleted_files or deleted_directories):
+        summary["reason"] = "retained_directory"
     return {
         "dry_run": dry_run,
         "path": str(plan.model_cache_path),
-        "targets": [result],
-        "deleted": [result] if result["deleted"] else [],
-        "skipped": [] if result["deleted"] else [result],
+        "targets": [summary],
+        "deleted": deleted_ops,
+        "skipped": skipped_ops,
     }
 
 
 def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
-    directory_overrides = plan.config.effective_config.get("directories", {})
-    default_dirs = _resolve_xdg_dirs(DEFAULTS["directories"])
-    default_config_dir = default_dirs["config"].expanduser().resolve(strict=False)
-    owned_paths = {default_config_dir}
-    custom_configured_paths = {
-        plan.config.xdg_dirs[key].expanduser().resolve(strict=False)
-        for key in ("data", "cache", "logs", "runtime")
-        if directory_overrides.get(key) is not None
-    }
-    resolved_config_path = plan.config_path.expanduser().resolve(strict=False)
-    if resolved_config_path.parent == default_config_dir:
-        owned_paths.add(resolved_config_path)
-    for key in ("data", "cache", "logs", "runtime"):
-        if directory_overrides.get(key) is None:
-            owned_paths.add(default_dirs[key].expanduser().resolve(strict=False))
-    if plan.config.xdg_dirs["data"].expanduser().resolve(strict=False) in owned_paths:
-        owned_paths.add(plan.database_path.expanduser().resolve(strict=False))
-    owned_paths.add(plan.install_metadata_path.expanduser().resolve(strict=False))
-    resolved_cache_dir = (
-        plan.config.xdg_dirs["cache"].expanduser().resolve(strict=False)
-    )
-    include_model_cache_target = resolved_cache_dir not in owned_paths
-    if include_model_cache_target:
-        owned_paths.add(plan.model_cache_path.expanduser().resolve(strict=False))
+    def _resolved(path: Path) -> Path:
+        return path.expanduser().resolve(strict=False)
+
+    def _is_relative_to(path: Path, parent: Path) -> bool:
+        try:
+            path.relative_to(parent)
+        except ValueError:
+            return False
+        return True
+
+    def _sqlite_sidecars(db_path: Path) -> list[Path]:
+        return [
+            db_path.with_name(f"{db_path.name}-wal"),
+            db_path.with_name(f"{db_path.name}-shm"),
+            db_path.with_name(f"{db_path.name}-journal"),
+        ]
+
+    def _directory_entries_without_marker(directory: Path) -> list[Path]:
+        marker_name = ".recollectium-managed-directory.json"
+        try:
+            return [entry for entry in directory.iterdir() if entry.name != marker_name]
+        except FileNotFoundError:
+            return []
+
+    def _managed_file_predicate(target: Path) -> Callable[[Path], bool]:
+        resolved_config_path = _resolved(plan.config_path)
+        resolved_data_dir = _resolved(plan.config.xdg_dirs["data"])
+        resolved_cache_dir = _resolved(plan.config.xdg_dirs["cache"])
+        resolved_logs_dir = _resolved(plan.config.xdg_dirs["logs"])
+        resolved_runtime_dir = _resolved(plan.config.xdg_dirs["runtime"])
+        resolved_metadata_path = _resolved(plan.install_metadata_path)
+        resolved_model_cache_path = _resolved(plan.model_cache_path)
+        resolved_database_path = _resolved(plan.database_path)
+        resolved_seeded_db_path = _resolved(
+            _resolve_seeded_dev_database_path(plan.config)
+        )
+        fastembed_root_names = {
+            layout.root[0]
+            for spec in BUILTIN_FASTEMBED_MODEL_SPECS.values()
+            for layout in spec.cache_layouts
+        }
+
+        def _is_fastembed_cache_file(path: Path) -> bool:
+            if not _is_relative_to(path, resolved_model_cache_path):
+                return False
+            relative_parts = path.relative_to(resolved_model_cache_path).parts
+            return bool(relative_parts) and relative_parts[0] in fastembed_root_names
+
+        def _is_sqlite_sidecar(path: Path, db_path: Path) -> bool:
+            return path in set(_sqlite_sidecars(db_path))
+
+        def _predicate(path: Path) -> bool:
+            resolved = _resolved(path)
+            if resolved == resolved_config_path:
+                return True
+            if resolved == resolved_metadata_path:
+                return True
+            if _is_relative_to(resolved, resolved_data_dir):
+                return (
+                    resolved == resolved_database_path
+                    or resolved == resolved_seeded_db_path
+                    or _is_sqlite_sidecar(resolved, resolved_database_path)
+                    or _is_sqlite_sidecar(resolved, resolved_seeded_db_path)
+                )
+            if _is_relative_to(resolved, resolved_logs_dir):
+                return (
+                    resolved.name == "recollectium.log"
+                    or resolved.name.startswith("recollectium.log.")
+                    or (
+                        resolved.name.startswith("service-")
+                        and resolved.name.endswith(".log")
+                    )
+                )
+            if _is_relative_to(resolved, resolved_runtime_dir):
+                return resolved.name in {"service.pid", "service-discovery.json"}
+            if _is_relative_to(resolved, resolved_cache_dir):
+                return _is_fastembed_cache_file(resolved)
+            return False
+
+        return _predicate
+
+    def _purge_target_root(
+        *,
+        target: Path,
+        root: Path,
+        summary_path: Path,
+        dry_run: bool,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+        deleted_ops: list[dict[str, Any]] = []
+        skipped_ops: list[dict[str, Any]] = []
+        deleted_files: list[str] = []
+        deleted_directories: list[str] = []
+        resolved_target = _resolved(target)
+        resolved_root = _resolved(root)
+
+        if _is_suspicious_purge_path(target):
+            payload = _path_payload(target, deleted=False, reason="suspicious_path")
+            skipped_ops.append(payload)
+            return payload, deleted_ops, skipped_ops
+
+        if not resolved_root.exists():
+            payload = _path_payload(target, deleted=False, reason="missing")
+            skipped_ops.append(payload)
+            return payload, deleted_ops, skipped_ops
+
+        if dry_run:
+            payload = _path_payload(target, deleted=False, reason="dry_run")
+            skipped_ops.append(payload)
+            return payload, deleted_ops, skipped_ops
+
+        managed_file = _managed_file_predicate(target)
+
+        if resolved_root.is_file():
+            if managed_file(resolved_root):
+                resolved_root.unlink()
+                payload = _path_payload(resolved_root, deleted=True)
+                deleted_ops.append(payload)
+                deleted_files.append(str(resolved_root))
+        else:
+            files = sorted(
+                [path for path in resolved_root.rglob("*") if path.is_file()],
+                key=lambda item: len(item.parts),
+                reverse=True,
+            )
+            for path in files:
+                if path.name == ".recollectium-managed-directory.json":
+                    continue
+                if not managed_file(path):
+                    continue
+                path.unlink()
+                payload = _path_payload(path, deleted=True)
+                deleted_ops.append(payload)
+                deleted_files.append(str(path))
+
+            if directory_was_created_by_recollectium(resolved_root):
+                directories = sorted(
+                    [path for path in resolved_root.rglob("*") if path.is_dir()],
+                    key=lambda item: len(item.parts),
+                    reverse=True,
+                )
+                for directory in [*directories, resolved_root]:
+                    if not directory.exists() or not directory.is_dir():
+                        continue
+                    if _directory_entries_without_marker(directory):
+                        continue
+                    marker = directory / ".recollectium-managed-directory.json"
+                    if marker.exists():
+                        marker.unlink()
+                    directory.rmdir()
+                    payload = _path_payload(directory, deleted=True)
+                    deleted_ops.append(payload)
+                    deleted_directories.append(str(directory))
+
+        summary_deleted = not resolved_target.exists()
+        summary: dict[str, Any] = {
+            "path": str(summary_path),
+            "deleted": summary_deleted,
+        }
+        if deleted_files:
+            summary["deleted_files"] = deleted_files
+        if deleted_directories:
+            summary["deleted_directories"] = deleted_directories
+        if not summary_deleted and (deleted_files or deleted_directories):
+            summary["reason"] = "retained_directory"
+        return summary, deleted_ops, skipped_ops
 
     raw_targets = [
         plan.config_path,
@@ -4394,36 +4710,53 @@ def _purge_targets(plan: _UninstallPlan, *, dry_run: bool) -> dict[str, Any]:
         plan.config.xdg_dirs["logs"],
         plan.config.xdg_dirs["runtime"],
         plan.install_metadata_path,
+        plan.model_cache_path,
     ]
-    if include_model_cache_target:
-        raw_targets.append(plan.model_cache_path)
     targets: list[Path] = []
     seen: set[Path] = set()
     for target in raw_targets:
-        resolved = target.expanduser().resolve(strict=False)
+        resolved = _resolved(target)
         if resolved in seen:
             continue
         seen.add(resolved)
         targets.append(target)
-    targets.sort(
-        key=lambda target: len(target.expanduser().resolve(strict=False).parts),
-        reverse=True,
-    )
+    targets.sort(key=lambda target: len(_resolved(target).parts), reverse=True)
 
-    results = [
-        _delete_purge_target(
-            target,
-            dry_run=dry_run,
-            owned_paths=owned_paths,
-            custom_configured_paths=custom_configured_paths,
-        )
-        for target in targets
-    ]
+    target_results: list[dict[str, Any]] = []
+    deleted: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for target in targets:
+        resolved_target = _resolved(target)
+        if resolved_target == _resolved(plan.config_path):
+            summary, deleted_ops, skipped_ops = _purge_target_root(
+                target=target,
+                root=plan.config_path.parent,
+                summary_path=plan.config_path,
+                dry_run=dry_run,
+            )
+        elif resolved_target == _resolved(plan.install_metadata_path):
+            summary, deleted_ops, skipped_ops = _purge_target_root(
+                target=target,
+                root=plan.install_metadata_path.parent,
+                summary_path=plan.install_metadata_path,
+                dry_run=dry_run,
+            )
+        else:
+            summary, deleted_ops, skipped_ops = _purge_target_root(
+                target=target,
+                root=target,
+                summary_path=target,
+                dry_run=dry_run,
+            )
+        target_results.append(summary)
+        deleted.extend(deleted_ops)
+        skipped.extend(skipped_ops)
+
     return {
         "dry_run": dry_run,
-        "targets": results,
-        "deleted": [item for item in results if item["deleted"]],
-        "skipped": [item for item in results if not item["deleted"]],
+        "targets": target_results,
+        "deleted": deleted,
+        "skipped": skipped,
     }
 
 
