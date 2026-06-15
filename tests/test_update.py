@@ -237,13 +237,14 @@ def test_source_checkout_dirty_tree_blocks_apply(tmp_path: Path) -> None:
     assert runner.calls == [(["git", "status", "--porcelain"], str(tmp_path))]
 
 
-def test_apply_update_returns_runner_output() -> None:
+def test_apply_update_returns_runner_output(monkeypatch) -> None:
     plan = build_update_plan(
         current_version="0.9.0",
         latest_release=ReleaseInfo(version="1.0.0", tag="v1.0.0", url=None),
         install_method="uv_tool",
         metadata=_metadata(),
     )
+    monkeypatch.setattr("recollectium.update.shutil.which", lambda executable: executable)
     runner = FakeRunner([CommandResult(0, "upgraded", "")])
 
     result = apply_update(plan, runner=runner)
@@ -252,13 +253,14 @@ def test_apply_update_returns_runner_output() -> None:
     assert runner.calls == [(["uv", "tool", "upgrade", "recollectium"], None)]
 
 
-def test_apply_update_logs_runner_failure() -> None:
+def test_apply_update_logs_runner_failure(monkeypatch) -> None:
     plan = build_update_plan(
         current_version="0.9.0",
         latest_release=ReleaseInfo(version="1.0.0", tag="v1.0.0", url=None),
         install_method="uv_tool",
         metadata=_metadata(),
     )
+    monkeypatch.setattr("recollectium.update.shutil.which", lambda executable: executable)
     runner = FakeRunner([CommandResult(9, "", "upgrade failed")])
 
     result = apply_update(plan, runner=runner)
