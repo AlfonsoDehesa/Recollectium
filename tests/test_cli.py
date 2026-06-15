@@ -250,6 +250,187 @@ def test_cli_internal_parser_helpers_reject_invalid_threshold_and_count() -> Non
     assert cli_module._parse_match_threshold("0.25") == 0.25
 
 
+def test_cli_purge_helpers_cover_edge_branches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert cli_module._is_relative_to(tmp_path / "child", tmp_path) is True
+    assert cli_module._is_relative_to(tmp_path / "child", tmp_path / "other") is False
+    assert (
+        cli_module._is_fastembed_cache_file(
+            tmp_path / "foreign.txt", tmp_path / "cache"
+        )
+        is False
+    )
+
+    missing = tmp_path / "missing"
+    missing_result = cli_module._delete_purge_target(
+        missing, dry_run=False, owned_paths={missing.resolve(strict=False)}
+    )
+    assert missing_result == {
+        "path": str(missing),
+        "deleted": False,
+        "reason": "missing",
+    }
+
+    managed_dir = tmp_path / "managed-dir"
+    managed_dir.mkdir()
+    (managed_dir / "file.txt").write_text("content", encoding="utf-8")
+    managed_dir_result = cli_module._delete_purge_target(
+        managed_dir,
+        dry_run=False,
+        owned_paths={managed_dir.resolve(strict=False)},
+    )
+    assert managed_dir_result == {"path": str(managed_dir), "deleted": True}
+    assert not managed_dir.exists()
+
+    def make_plan(model_cache_path: Path) -> cli_module._UninstallPlan:
+        config = cli_module._UninstallConfig(
+            effective_config={},
+            xdg_dirs={
+                "cache": model_cache_path.parent,
+                "data": tmp_path / "data",
+                "logs": tmp_path / "logs",
+                "runtime": tmp_path / "runtime",
+            },
+            config_path=tmp_path / "config.json",
+            database_path=tmp_path / "db.db",
+        )
+        return cli_module._UninstallPlan(
+            config=config,
+            config_path=tmp_path / "config.json",
+            database_path=tmp_path / "db.db",
+            install_metadata_path=tmp_path / "install.json",
+            model_cache_path=model_cache_path,
+        )
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    suspicious_result = cli_module._remove_model_cache(
+        make_plan(tmp_path / "home"), dry_run=False
+    )
+    assert suspicious_result["skipped"] == [
+        {
+            "path": str(tmp_path / "home"),
+            "deleted": False,
+            "reason": "suspicious_path",
+        }
+    ]
+
+    dry_run_cache = tmp_path / "cache" / "recollectium" / "models"
+    dry_run_cache.mkdir(parents=True)
+    dry_run_result = cli_module._remove_model_cache(
+        make_plan(dry_run_cache), dry_run=True
+    )
+    assert dry_run_result["skipped"] == [
+        {"path": str(dry_run_cache), "deleted": False, "reason": "dry_run"}
+    ]
+
+    managed_file_cache = tmp_path / "cache" / "models--qdrant--bge-base-en-v1.5-onnx-q"
+    managed_file_cache.parent.mkdir(parents=True, exist_ok=True)
+    managed_file_cache.write_text("derived", encoding="utf-8")
+    managed_file_result = cli_module._remove_model_cache(
+        make_plan(managed_file_cache), dry_run=False
+    )
+    assert managed_file_result["deleted"] == [
+        {"path": str(managed_file_cache), "deleted": True}
+    ]
+    assert not managed_file_cache.exists()
+
+    foreign_file_cache = tmp_path / "cache" / "foreign.txt"
+    foreign_file_cache.parent.mkdir(parents=True, exist_ok=True)
+    foreign_file_cache.write_text("foreign", encoding="utf-8")
+    foreign_file_result = cli_module._remove_model_cache(
+        make_plan(foreign_file_cache), dry_run=False
+    )
+    assert foreign_file_result["deleted"] == []
+    assert foreign_file_result["skipped"] == [
+        {
+            "path": str(foreign_file_cache),
+            "deleted": False,
+            "reason": "retained_directory",
+        }
+    ]
+    assert foreign_file_cache.exists()
+
+    marked_cache = tmp_path / "cache" / "recollectium" / "models-marked"
+    managed_root = marked_cache / "models--qdrant--bge-base-en-v1.5-onnx-q"
+    managed_root.mkdir(parents=True)
+    (marked_cache / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    managed_root_file = managed_root / "model_optimized.onnx"
+    managed_root_file.write_text("derived", encoding="utf-8")
+    marked_cache_result = cli_module._remove_model_cache(
+        make_plan(marked_cache), dry_run=False
+    )
+    assert marked_cache_result["deleted"] == [
+        {"path": str(managed_root_file), "deleted": True},
+        {"path": str(managed_root), "deleted": True},
+        {"path": str(marked_cache), "deleted": True},
+    ]
+    assert not marked_cache.exists()
+
+    branch_cache = tmp_path / "cache" / "branch" / "models"
+    ignored_dir = branch_cache / "not-fastembed"
+    missing_dir = branch_cache / "models--qdrant--bge-base-en-v1.5-onnx-q"
+    occupied_dir = branch_cache / "models--xenova--jina-embeddings-v2-small-en"
+    marked_dir = branch_cache / "fast-bge-base-en-v1.5"
+    for directory in (ignored_dir, missing_dir, occupied_dir, marked_dir):
+        directory.mkdir(parents=True)
+    (occupied_dir / "foreign.txt").write_text("foreign", encoding="utf-8")
+    (marked_dir / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+
+    original_iterdir = Path.iterdir
+    original_rglob = Path.rglob
+
+    def _branch_rglob(self: Path, pattern: str):
+        if self == branch_cache and pattern == "*":
+            return iter([ignored_dir, missing_dir, occupied_dir, marked_dir])
+        return original_rglob(self, pattern)
+
+    def _branch_iterdir(self: Path):
+        if self == missing_dir:
+            raise FileNotFoundError
+        return original_iterdir(self)
+
+    monkeypatch.setattr(Path, "rglob", _branch_rglob)
+    monkeypatch.setattr(Path, "iterdir", _branch_iterdir)
+    branch_result = cli_module._remove_model_cache(
+        make_plan(branch_cache), dry_run=False
+    )
+    assert any(item["path"] == str(marked_dir) for item in branch_result["deleted"])
+    assert ignored_dir.exists()
+    assert missing_dir.exists()
+    assert branch_cache.exists()
+
+    empty_marked_cache = tmp_path / "cache" / "empty-marked" / "models"
+    empty_marked_cache.mkdir(parents=True)
+    (empty_marked_cache / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+
+    def _root_rglob(self: Path, pattern: str):
+        if self == empty_marked_cache and pattern == "*":
+            return iter([])
+        return original_rglob(self, pattern)
+
+    def _root_missing_iterdir(self: Path):
+        if self == empty_marked_cache:
+            raise FileNotFoundError
+        return original_iterdir(self)
+
+    monkeypatch.setattr(Path, "rglob", _root_rglob)
+    monkeypatch.setattr(Path, "iterdir", _root_missing_iterdir)
+    empty_marked_result = cli_module._remove_model_cache(
+        make_plan(empty_marked_cache), dry_run=False
+    )
+    assert empty_marked_result["deleted"] == [
+        {"path": str(empty_marked_cache), "deleted": True}
+    ]
+    assert not empty_marked_cache.exists()
+
+
 def test_cli_memory_type_completer_prefers_known_space() -> None:
     from recollectium.cli import _memory_type_choices_for_space, _memory_type_completer
 
@@ -8457,9 +8638,11 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     assert payload["data"]["derived_artifacts_removed"] is True
     assert payload["data"]["paths"]["database"] == str(db_path)
     assert payload["data"]["paths"]["model_cache"] == str(model_cache_path)
-    assert payload["data"]["model_cache"]["deleted"] == [
-        {"path": str(model_cache_path), "deleted": True}
-    ]
+    assert payload["data"]["model_cache"]["deleted"] == []
+    assert any(
+        item["path"] == str(model_cache_path) and item.get("deleted") is False
+        for item in payload["data"]["model_cache"]["targets"]
+    )
     assert payload["package"]["install_method"] == "bootstrap"
     assert payload["package"]["source_ref"] == "main"
     assert payload["package"]["recommended"] == "uv tool uninstall recollectium"
@@ -8468,7 +8651,8 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
     assert config_path.exists()
     assert db_path.read_text(encoding="utf-8") == "preserved"
-    assert not model_cache_path.exists()
+    assert (model_cache_path / "model.bin").exists()
+    assert model_cache_path.exists()
 
 
 def test_cli_uninstall_uses_bootstrap_legacy_state_metadata_path(
@@ -10277,6 +10461,9 @@ def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     (data_dir / "recollectium.db").write_text("memory", encoding="utf-8")
     (data_dir / "keep.txt").write_text("keep", encoding="utf-8")
     (logs_dir / "recollectium.log").write_text("log", encoding="utf-8")
+    (logs_dir / "recollectium.log.1").write_text("rotated", encoding="utf-8")
+    (logs_dir / "service-api.log").write_text("service api", encoding="utf-8")
+    (logs_dir / "service-mcp.log").write_text("service mcp", encoding="utf-8")
     (logs_dir / "foreign.log").write_text("foreign", encoding="utf-8")
     (runtime_dir / "service.pid").write_text("1", encoding="utf-8")
     (runtime_dir / "notes.txt").write_text("notes", encoding="utf-8")
@@ -10291,6 +10478,9 @@ def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     assert not (data_dir / "recollectium.db").exists()
     assert (data_dir / "keep.txt").exists()
     assert not (logs_dir / "recollectium.log").exists()
+    assert not (logs_dir / "recollectium.log.1").exists()
+    assert not (logs_dir / "service-api.log").exists()
+    assert not (logs_dir / "service-mcp.log").exists()
     assert (logs_dir / "foreign.log").exists()
     assert not (runtime_dir / "service.pid").exists()
     assert (runtime_dir / "notes.txt").exists()
@@ -10399,17 +10589,62 @@ def test_cli_uninstall_purge_leaves_unmarked_directory_in_place_after_managed_cl
     )
 
 
+def test_cli_uninstall_preserves_foreign_files_in_model_cache(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    model_cache_path = tmp_path / "cache" / "recollectium" / "models"
+    managed_root = model_cache_path / "models--qdrant--bge-base-en-v1.5-onnx-q"
+    foreign_file = model_cache_path / "foreign.txt"
+    managed_file = managed_root / "model_optimized.onnx"
+    managed_root.mkdir(parents=True)
+    managed_file.write_text("derived", encoding="utf-8")
+    foreign_file.write_text("foreign", encoding="utf-8")
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert foreign_file.exists()
+    assert not managed_file.exists()
+    assert not managed_root.exists()
+    assert model_cache_path.exists()
+    assert any(
+        item["path"] == str(managed_file)
+        for item in payload["data"]["model_cache"]["deleted"]
+    )
+    assert any(
+        item["path"] == str(managed_root)
+        for item in payload["data"]["model_cache"]["deleted"]
+    )
+    assert any(
+        item["path"] == str(model_cache_path)
+        and item.get("deleted") is False
+        and item.get("reason") == "retained_directory"
+        for item in payload["data"]["model_cache"]["targets"]
+    )
+
+
 def test_cli_uninstall_reports_model_cache_cleanup_failure_after_package_removal(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
     model_cache_path = tmp_path / "cache" / "recollectium" / "models"
+    managed_root = model_cache_path / "models--qdrant--bge-base-en-v1.5-onnx-q"
+    managed_file = managed_root / "model_optimized.onnx"
     metadata_path = tmp_path / "state" / "recollectium" / "install.json"
     config_path.parent.mkdir(parents=True)
-    model_cache_path.mkdir(parents=True)
+    managed_root.mkdir(parents=True)
     metadata_path.parent.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    managed_file.write_text("derived", encoding="utf-8")
     metadata_path.write_text(
         json.dumps({"install_method": "bootstrap", "source_ref": "main"}),
         encoding="utf-8",
@@ -10421,12 +10656,21 @@ def test_cli_uninstall_reports_model_cache_cleanup_failure_after_package_removal
         run_calls.append(cmd)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    def _fail_rmtree(path: Path) -> None:
-        assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
-        raise OSError("permission denied")
+    original_unlink = Path.unlink
+
+    def _fail_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
+        if (
+            self
+            == model_cache_path
+            / "models--qdrant--bge-base-en-v1.5-onnx-q"
+            / "model_optimized.onnx"
+        ):
+            assert run_calls == [["uv", "tool", "uninstall", "recollectium"]]
+            raise OSError("permission denied")
+        return original_unlink(self, *args, **kwargs)
 
     monkeypatch.setattr("recollectium.cli.subprocess.run", _fake_run)
-    monkeypatch.setattr("recollectium.cli.shutil.rmtree", _fail_rmtree)
+    monkeypatch.setattr(Path, "unlink", _fail_unlink)
 
     exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
 
