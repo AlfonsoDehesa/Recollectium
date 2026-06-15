@@ -500,13 +500,13 @@ Release steps:
 
 ### Release gate
 
-Every item in this gate is checked against the version about to be released, not the currently published release or current `main`. Any release-gate fixes, docs updates, version bumps, and changelog edits belong in the release-prep PR.
+Every item in this gate is checked against the version about to be released, not the currently published release or current `main`. All release docs updates, along with release-gate fixes, version bumps, and changelog edits, belong in the release-prep PR for the version about to be released.
 
 Use the gate names below as addressable status labels when discussing release readiness.
 
 #### Gate A: Product and surface readiness
 
-- [ ] A1. Every operation reachable through the CLI is also reachable through the API and the MCP server, unless a documented exception exists.
+- [ ] A1. User-facing operations available on any one of the CLI, API, or MCP surfaces are available on all three surfaces, unless a documented exception exists.
 - [ ] A2. Every CLI, API, and MCP operation supports compact and verbose response modes, and compact responses include only the minimum information needed for product correctness plus useful returned information.
 - [ ] A3. `recollectium config` get/set/unset covers every configurable key in `config.json`.
 - [ ] A4. Long-running human-readable CLI commands show detailed progress using existing codebase primitives, and transient progress disappears before final output is emitted.
@@ -515,7 +515,7 @@ Use the gate names below as addressable status labels when discussing release re
 
 #### Gate B: Documentation readiness
 
-- [ ] B1. `README.md` is current for the release, welcoming, user-friendly, and brief, with detailed, reference, troubleshooting, and internals content deferred to the wiki or dedicated docs.
+- [ ] B1. `README.md` is current for the release, welcoming, user-friendly, and brief enough to route detailed reference, troubleshooting, and internals content to the wiki or dedicated docs.
 - [ ] B2. The GitHub Wiki reflects all release functionality, its surface pages cover every possible path, command, flag, and option available in code, and no wiki page contains stale information.
 - [ ] B3. `docs/local-service-api.md` matches the running service behavior, including the current request and response shapes actually served.
 - [ ] B4. `docs/local-service-openapi.json` matches the served OpenAPI contract byte for byte in the release candidate.
@@ -543,7 +543,7 @@ Use the gate names below as addressable status labels when discussing release re
 - [ ] D5. `uv tool install recollectium` works from the release candidate artifact.
 - [ ] D6. `recollectium upgrade --check` reports whether a newer release is available without mutating the install.
 - [ ] D7. `recollectium upgrade --dry-run` prints the planned upgrade command for each install method without applying changes.
-- [ ] D8. `recollectium upgrade --version latest`, `--version <release>`, and `--main` select the intended tracking target, and the selected target is tracked and persisted for future `recollectium upgrade` runs after a successful mutating upgrade.
+- [ ] D8. `recollectium upgrade --version latest`, `--version <release>`, and `--main` are mutually exclusive, select the intended tracking target, and the selected target is tracked and persisted for future `recollectium upgrade` runs after a successful mutating upgrade.
 - [ ] D9. `recollectium upgrade` applies package upgrades through bootstrap, pip, pipx, uv tool, and source checkout install methods while preserving running service state.
 - [ ] D10. `recollectium uninstall` stops managed services, removes managed completions, uninstalls the supported package or tool, and preserves data by default.
 - [ ] D11. `recollectium uninstall --purge` works correctly and safely.
@@ -553,9 +553,19 @@ Use the gate names below as addressable status labels when discussing release re
 
 - [ ] E1. If the release changes the SQLite schema, migration plans are shipped and tested for each schema change.
 - [ ] E2. Schema migrations are safe for lazy application on database open, or the release notes clearly explain the required operator action.
-- [ ] E3. If the release changes embeddings or re-embedding behavior, the release documents re-embedding checks for previously supported models and newly supported models, and the release notes explain any required operator action.
+- [ ] E3. If the release changes embeddings or re-embedding behavior, re-embedding works for previously supported models and newly supported models, with the checks documented in the release docs and any required operator action explained in the release notes.
 
 #### Gate F: Quality readiness
+
+Run the full PR code gate in the release-prep PR before merge:
+
+```bash
+uv run ruff format .
+uv run ruff check .
+uv run pyright
+uv run pytest
+uv run pytest --cov=src/recollectium --cov-report=term-missing
+```
 
 - [ ] F1. Formatting is clean.
 - [ ] F2. Ruff reports no lint failures.
@@ -565,13 +575,13 @@ Use the gate names below as addressable status labels when discussing release re
 - [ ] F6. CI is green on the release-prep PR before merge.
 - [ ] F7. After merge, local `main` is clean and CI is green for the merge commit before tagging.
 
-### Post-release checks
+#### Gate G: Post-release verification
 
 After the release workflow completes:
 
-- [ ] Confirm the GitHub Release exists and includes the changelog section.
-- [ ] Confirm package install paths work from the published artifact once available.
-- [ ] Confirm README and wiki links resolve.
-- [ ] Confirm the GitHub Wiki is current.
+- [ ] G1. Confirm the GitHub Release exists and includes the changelog section.
+- [ ] G2. Confirm package install paths work from the published artifact once available.
+- [ ] G3. Confirm README and wiki links resolve.
+- [ ] G4. Confirm the GitHub Wiki is current.
 
 For questions, open an issue using the available template. The repo docs and GitHub Wiki are the source of truth for public project docs.
