@@ -500,79 +500,70 @@ Release steps:
 
 ### Release gate
 
-Every item in this gate must be confirmed before the release-prep PR is merged.
+Every item in this gate is checked against the version about to be released, not the currently published release or current `main`. Any release-gate fixes, docs updates, version bumps, and changelog edits belong in the release-prep PR.
 
-#### Product and surface readiness
+Use the gate names below as addressable status labels when discussing release readiness.
 
-- [ ] Every functionality reachable through the CLI is also reachable through the API and the MCP server, unless a documented exception exists.
-- [ ] CLI, API, and MCP data-returning operations support both compact and verbose response modes.
-- [ ] `recollectium config` get/set/unset covers every configurable key in `config.json`.
-- [ ] CLI failure contracts are still valid: non-argparse failures emit structured JSON on stderr, stdout JSON contracts stay unpolluted, and changed failure paths emit structured logs without sensitive payloads.
-- [ ] Structured logging remains useful across changed major features, endpoints, code paths, and failure paths.
+#### Gate A: Product and surface readiness
 
-#### Documentation readiness
+- [ ] A1. Every operation reachable through the CLI is also reachable through the API and the MCP server, unless a documented exception exists.
+- [ ] A2. Every CLI, API, and MCP operation supports compact and verbose response modes, and compact responses include only the minimum information needed for product correctness plus useful returned information.
+- [ ] A3. `recollectium config` get/set/unset covers every configurable key in `config.json`.
+- [ ] A4. Long-running human-readable CLI commands show detailed progress using existing codebase primitives, and transient progress disappears before final output is emitted.
+- [ ] A5. CLI failure contracts are still valid: non-argparse failures emit structured JSON on stderr, stdout JSON contracts stay unpolluted, and changed failure paths emit structured logs without sensitive payloads.
+- [ ] A6. Structured logging remains useful across changed major features, endpoints, code paths, and failure paths.
 
-- [ ] `README.md` is current.
-- [ ] GitHub Wiki is current.
-- [ ] `docs/local-service-api.md` matches the running service.
-- [ ] `docs/local-service-openapi.json` matches the served OpenAPI contract.
-- [ ] `docs/opencode-adapter-contract.md` is current for adapter/plugin discovery, compatibility, remote Core addressing, and workspace UID behavior.
-- [ ] `SECURITY.md` accurately states supported versions, local access assumptions, vulnerability reporting, and security posture.
-- [ ] `ROADMAP.md` reflects current progress, completed work, release blockers, and upcoming version targets.
-- [ ] `CONTRIBUTING.md` reflects the current contributor and release process.
-- [ ] `CHANGELOG.md` has a target release section with `✨ Features`, `🐛 Fixes`, and `🧹 Chores` subsections in that order.
+#### Gate B: Documentation readiness
 
-#### CLI and completion readiness
+- [ ] B1. `README.md` is current for the release, welcoming, user-friendly, and brief, with detailed, reference, troubleshooting, and internals content deferred to the wiki or dedicated docs.
+- [ ] B2. The GitHub Wiki reflects all release functionality, its surface pages cover every possible path, command, flag, and option available in code, and no wiki page contains stale information.
+- [ ] B3. `docs/local-service-api.md` matches the running service behavior, including the current request and response shapes actually served.
+- [ ] B4. `docs/local-service-openapi.json` matches the served OpenAPI contract byte for byte in the release candidate.
+- [ ] B5. `docs/opencode-adapter-contract.md` is current for adapter and plugin discovery, compatibility, remote Core addressing, workspace UID behavior, and any contract changes exposed in the release.
+- [ ] B6. `SECURITY.md` accurately states supported versions, local access assumptions, vulnerability reporting, and security posture.
+- [ ] B7. `ROADMAP.md` reflects current progress, completed work, release blockers, and upcoming version targets.
+- [ ] B8. `CONTRIBUTING.md` reflects the current contributor and release process.
+- [ ] B9. `CHANGELOG.md` has a target release section with `✨ Features`, `🐛 Fixes`, and `🧹 Chores` subsections in that order, and entries are grouped by user-facing themes rather than mechanically one line per commit or PR.
 
-- [ ] Every CLI command, subcommand, flag, and positional argument has help text.
-- [ ] Every CLI command supports both human-readable and JSON output shapes.
-- [ ] Argcomplete reaches every CLI command and flag.
-- [ ] `recollectium config get/set/unset <TAB>` completes config keys.
-- [ ] PowerShell dynamic completion works through `Register-ArgumentCompleter`.
-- [ ] PowerShell `recollectium config get/set/unset <TAB>` completes config keys.
+#### Gate C: CLI and completion readiness
 
-#### Install, upgrade, uninstall, and service readiness
+- [ ] C1. Every CLI command, subcommand, flag, and positional argument has help text.
+- [ ] C2. Every CLI command supports both human-readable and JSON output shapes.
+- [ ] C3. Argcomplete reaches every CLI command and flag.
+- [ ] C4. `recollectium config get/set/unset <TAB>` completes config keys.
+- [ ] C5. PowerShell dynamic completion works through `Register-ArgumentCompleter`.
+- [ ] C6. PowerShell `recollectium config get/set/unset <TAB>` completes config keys.
 
-- [ ] Bootstrap install works on Linux and macOS.
-- [ ] Bootstrap install works on Windows.
-- [ ] `pip install recollectium` works from the release candidate artifact.
-- [ ] `pipx install recollectium` works from the release candidate artifact.
-- [ ] `uv tool install recollectium` works from the release candidate artifact.
-- [ ] `recollectium upgrade --check` reports whether a newer release is available without mutating the install.
-- [ ] `recollectium upgrade --dry-run` prints the planned upgrade command for each install method without applying changes.
-- [ ] `recollectium upgrade --version latest`, `--version <release>`, and `--main` select the intended tracking target, update install metadata only after a successful mutating upgrade, and remain mutually exclusive.
-- [ ] `recollectium upgrade` applies package upgrades through bootstrap, pip, pipx, uv tool, and source checkout install methods while preserving running service state.
-- [ ] `recollectium uninstall` stops managed services, removes managed completions, uninstalls the supported package/tool, and preserves data by default.
-- [ ] `recollectium uninstall --purge` works correctly and safely.
-- [ ] The service starts, responds to health checks, and stops cleanly on Linux, macOS, and Windows.
+#### Gate D: Install, upgrade, uninstall, and service readiness
 
-#### Migration readiness
+- [ ] D1. Bootstrap install works on Linux and macOS.
+- [ ] D2. Bootstrap install works on Windows.
+- [ ] D3. `pip install recollectium` works from the release candidate artifact.
+- [ ] D4. `pipx install recollectium` works from the release candidate artifact.
+- [ ] D5. `uv tool install recollectium` works from the release candidate artifact.
+- [ ] D6. `recollectium upgrade --check` reports whether a newer release is available without mutating the install.
+- [ ] D7. `recollectium upgrade --dry-run` prints the planned upgrade command for each install method without applying changes.
+- [ ] D8. `recollectium upgrade --version latest`, `--version <release>`, and `--main` select the intended tracking target, and the selected target is tracked and persisted for future `recollectium upgrade` runs after a successful mutating upgrade.
+- [ ] D9. `recollectium upgrade` applies package upgrades through bootstrap, pip, pipx, uv tool, and source checkout install methods while preserving running service state.
+- [ ] D10. `recollectium uninstall` stops managed services, removes managed completions, uninstalls the supported package or tool, and preserves data by default.
+- [ ] D11. `recollectium uninstall --purge` works correctly and safely.
+- [ ] D12. The service starts, responds to health checks, and stops cleanly on Linux, macOS, and Windows.
 
-- [ ] If the release changes the SQLite schema, migration plans are shipped and tested for each schema change.
-- [ ] Schema migrations are safe for lazy application on database open, or the release notes clearly explain the required operator action.
-- [ ] Re-embedding requirements, if any, are documented separately from SQLite schema migrations.
+#### Gate E: Migration readiness
 
-#### Quality readiness
+- [ ] E1. If the release changes the SQLite schema, migration plans are shipped and tested for each schema change.
+- [ ] E2. Schema migrations are safe for lazy application on database open, or the release notes clearly explain the required operator action.
+- [ ] E3. If the release changes embeddings or re-embedding behavior, the release documents re-embedding checks for previously supported models and newly supported models, and the release notes explain any required operator action.
 
-Run the full PR code gate in the release-prep PR before merge:
+#### Gate F: Quality readiness
 
-```bash
-uv run ruff format .
-uv run ruff check .
-uv run pyright
-uv run pytest
-uv run pytest --cov=src/recollectium --cov-report=term-missing
-```
-
-Confirm:
-
-- [ ] Formatting is clean.
-- [ ] Ruff reports no lint failures.
-- [ ] Pyright reports zero errors and zero warnings.
-- [ ] Pytest passes.
-- [ ] Coverage is 100 percent, or accepted misses are documented in the release notes.
-- [ ] CI is green on the release-prep PR before merge.
-- [ ] After merge, local `main` is clean and CI is green for the merge commit before tagging.
+- [ ] F1. Formatting is clean.
+- [ ] F2. Ruff reports no lint failures.
+- [ ] F3. Pyright reports zero errors and zero warnings.
+- [ ] F4. Pytest passes.
+- [ ] F5. Coverage is 100 percent, or accepted misses are documented in the release notes.
+- [ ] F6. CI is green on the release-prep PR before merge.
+- [ ] F7. After merge, local `main` is clean and CI is green for the merge commit before tagging.
 
 ### Post-release checks
 
