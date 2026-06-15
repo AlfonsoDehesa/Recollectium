@@ -513,31 +513,22 @@ Use the gate names below as addressable status labels when discussing release re
 
 #### Gate A: Product and surface readiness
 
-- [ ] A1. User-facing operations available on any one of the CLI, API, or MCP surfaces are available on all three surfaces, unless a documented exception exists.
-- [ ] A2. Every CLI, API, and MCP operation supports compact and verbose response modes, and compact responses include at minimum all information required for product correctness and for the returned information to be useful and valuable.
-- [ ] A3. `recollectium config` get/set/unset covers every configurable key in `config.json`.
-- [ ] A4. Long-running human-readable CLI commands show detailed progress using existing codebase primitives, and transient progress disappears before final output is emitted.
-- [ ] A5. CLI failure contracts are still valid: non-argparse failures emit structured JSON on stderr, stdout JSON contracts stay unpolluted, and changed failure paths emit structured logs without sensitive payloads.
-- [ ] A6. Structured logging remains useful across changed major features, endpoints, code paths, and failure paths.
-- [ ] A7. CLI, API, and MCP compact and verbose response shapes are audited across memory, search, list, get, archive, config, workspace, embedding, service, upgrade, uninstall, and dev operations.
-- [ ] A8. Human-readable progress and logging never pollute JSON, CSV, shell completion, MCP stdio, or API response contracts.
-- [ ] A9. Unknown, malformed, conflicting, or out-of-range inputs are rejected consistently across CLI, API, and MCP, with documented error envelopes where applicable.
-- [ ] A10. Indeterminate long-running work, including model readiness, re-embedding, upgrade, uninstall, and dev eval, uses honest indeterminate progress instead of determinate-looking counts.
-- [ ] A11. Human-readable final output starts and ends cleanly, without shell prompt collision, stray progress lines, provider download noise, or logging noise.
+- [ ] A1. Public contracts stay stable across the CLI, API, and MCP surfaces: help text, OpenAPI, MCP schemas, config keys, response shapes, capability and version discovery, client and adapter compatibility, deprecation policy, config/env/flag precedence, and semantic version classification for breaking, default, and behavior changes.
+  - Evidence must cover the affected surfaces and show the contract at each boundary: CLI help, API or OpenAPI, MCP schema, config precedence, and compatibility or deprecation wording.
+  - Evidence must show how the change is classified for semver impact when behavior, defaults, or breaking edges change.
+- [ ] A2. Workflow edge cases behave consistently: first-run and empty-state flows, workspace isolation, archive and delete semantics, Unicode and path oddities, large-output limits, timeouts and cancellation, exit/status/error-code consistency, noninteractive automation, agent-facing compact output usefulness, and stale-client behavior where supported.
+  - Evidence must cover first-run and empty-state flows, workspace isolation, destructive actions, Unicode or path oddities, large-output limits, timeouts, cancellation, and exit or status codes.
+  - Evidence must also show the noninteractive and agent-facing output remains useful, including any supported stale-client behavior.
+- [ ] A3. Output and logging contracts stay clean: compact and verbose modes, human-readable progress, structured logs, stdout and stderr pollution control, and honest handling of indeterminate work and malformed input.
+  - Evidence must cover compact versus verbose output, human-readable progress, and the stdout and stderr contract for the affected path.
+  - Evidence must show structured log shape, malformed input handling, and how indeterminate work is reported without pretending completion.
 
 #### Gate B: Documentation readiness
 
-- [ ] B1. `README.md` is current for the release, welcoming, user-friendly, and brief enough to route detailed reference, troubleshooting, and internals content to the wiki or dedicated docs.
-- [ ] B2. The GitHub Wiki reflects all release functionality, its surface pages cover every possible path, command, flag, and option available in code, and no wiki page contains stale information.
-- [ ] B3. `docs/local-service-api.md` matches the running service behavior, including the current request and response shapes actually served.
-- [ ] B4. `docs/local-service-openapi.json` matches the served OpenAPI contract byte for byte in the release candidate.
-- [ ] B5. `docs/opencode-adapter-contract.md` is current for adapter and plugin discovery, compatibility, remote Core addressing, workspace UID behavior, and any contract changes exposed in the release.
-- [ ] B6. `SECURITY.md` accurately states supported versions, local access assumptions, vulnerability reporting, and security posture.
-- [ ] B7. `ROADMAP.md` reflects current progress, completed work, release blockers, and upcoming version targets.
-- [ ] B8. `CONTRIBUTING.md` reflects the current contributor and release process.
-- [ ] B9. `CHANGELOG.md` has a target release section with `✨ Features`, `🐛 Fixes`, and `🧹 Chores` subsections in that order, and entries are grouped by user-facing themes rather than mechanically one line per commit or PR.
-- [ ] B10. Install, upgrade, uninstall, model readiness, cache ownership, logging sensitivity, and re-embedding docs match the release behavior and clearly distinguish automatic behavior from required operator action.
-- [ ] B11. Docs distinguish GitHub-tag-only releases from package-published releases, and post-release install checks match the actual publishing path.
+- [ ] B1. Examples, links, and release notes stay current: examples are verified or marked illustrative, docs links resolve, operator actions and rollback steps are explicit, known limitations are called out, the support window and compatibility matrix are current, changelog and release notes match the user-visible diff, and docs avoid vague or stale claims.
+  - The target release section in `CHANGELOG.md` has exactly `### ✨ Features`, `### 🐛 Fixes`, and `### 🧹 Chores` in that order.
+  - Changelog bullets are thematic user-facing entries, not one line per commit or PR.
+- [ ] B2. Canonical docs stay aligned with behavior for the release, including README, wiki, local API, OpenAPI, adapter contract, SECURITY.md, ROADMAP.md, CONTRIBUTING.md, and install or release-path notes.
 
 #### Gate C: CLI and completion readiness
 
@@ -550,33 +541,25 @@ Use the gate names below as addressable status labels when discussing release re
 
 #### Gate D: Install, upgrade, uninstall, and service readiness
 
-- [ ] D1. Bootstrap install works on Linux and macOS.
-- [ ] D2. Bootstrap install works on Windows.
-- [ ] D3. `pip install recollectium` works from the release candidate artifact.
-- [ ] D4. `pipx install recollectium` works from the release candidate artifact.
-- [ ] D5. `uv tool install recollectium` works from the release candidate artifact.
-- [ ] D6. `recollectium upgrade --check` reports whether a newer release is available without mutating the install.
-- [ ] D7. `recollectium upgrade --dry-run` prints the planned upgrade command for each install method without applying changes.
-- [ ] D8. `recollectium upgrade --version latest`, `--version <release>`, and `--main` are mutually exclusive, select the intended tracking target, and the selected target is tracked and persisted for future `recollectium upgrade` runs after a successful mutating upgrade.
-- [ ] D9. `recollectium upgrade` applies package upgrades through bootstrap, pip, pipx, uv tool, and source checkout install methods while preserving running service state.
-- [ ] D10. `recollectium uninstall` stops managed services, removes managed completions, uninstalls the supported package or tool, and preserves data by default.
-- [ ] D11. `recollectium uninstall --purge` works correctly and safely.
-- [ ] D12. The service starts, responds to health checks, and stops cleanly on Linux, macOS, and Windows.
-- [ ] D13. Bootstrap install metadata records install method, selected tracking target, selected version or commit, state directory, and model/cache ownership consistently across supported platforms.
-- [ ] D14. main-tracking installs compare installed and remote commit SHAs and no-op when already current unless --force is used.
-- [ ] D15. Install and successful upgrade flows prepare the configured embedding model and refresh stale or missing embeddings durably before reporting success.
-- [ ] D16. Uninstall reports Recollectium-owned cache paths accurately and removes only Recollectium-managed files during purge or cache cleanup.
-- [ ] D17. Purge behavior preserves foreign files in configured directories and never treats a configured cleanup root as permission to delete unrelated user data.
+- [ ] D1. Lifecycle reliability holds across supported install paths: upgrade from the previous supported release, failed operation recovery, idempotency, offline or degraded network behavior, destructive actions requiring explicit intent, active-client and service lifecycle, managed files manifest, and cross-platform path, shell, and state behavior.
+  - Evidence must cover upgrade recovery, failed-operation recovery, idempotency, and how the install behaves when the network is offline or degraded.
+  - Evidence must also cover explicit-intent destructive actions, active-client and service lifecycle, managed files, and cross-platform path, shell, and state differences.
+- [ ] D2. A clean canary workflow works on a fresh machine or no-dev-state checkout using the real release artifact and no leftover local development state.
+  - Evidence must show the canary starts from a fresh machine or no-dev-state checkout, uses the real release artifact, and does not depend on leftover developer state.
+  - Evidence must identify the exact bootstrap path used on each supported platform.
+- [ ] D3. Bootstrap install, `pip install`, `pipx install`, and `uv tool install` smoke tests pass from the release candidate artifact on supported platforms.
+  - Evidence must cover Linux or macOS bootstrap, Windows bootstrap, `pip install`, `pipx install`, and `uv tool install`.
+  - Evidence must cover `upgrade --check`, `upgrade --dry-run`, mutating upgrades across install methods, and the upgrade target selector behavior.
+  - Evidence must show the upgrade target selector is mutually exclusive and that `latest`, pinned releases, and `main` persist as intended across runs.
+- [ ] D4. Service start, health, stop, uninstall, purge, and managed cache cleanup behave correctly and preserve foreign files.
+  - Evidence must cover `service start`, health checks, and `service stop`.
+  - Evidence must cover uninstall preserving data by default, `uninstall --purge` safety, and cleanup that removes only managed cache or managed files while preserving foreign files.
 
 #### Gate E: Migration, embedding, and model readiness
 
-- [ ] E1. If the release changes the SQLite schema, migration plans are shipped and tested for each schema change.
-- [ ] E2. Schema migrations are safe for lazy application on database open, or the release notes clearly explain the required operator action.
-- [ ] E3. If the release changes embeddings or re-embedding behavior, re-embedding works for previously supported models and newly supported models, with the checks documented in the release docs and any required operator action explained in the release notes.
-- [ ] E4. Default embedding model changes document model name, profile ID, dimensions, max tokens, chunking, overlap, cache behavior, and compatibility expectations.
-- [ ] E5. Existing memories with stale, missing, or legacy embeddings are refreshed durably through CLI, API, and MCP triggering paths.
-- [ ] E6. Re-embedding preserves memory identity, metadata, workspace association, timestamps, archival state, and queryability unless a documented migration intentionally changes them.
-- [ ] E7. Recollectium-owned model cache behavior is documented and tested separately from user memory/data preservation.
+- [ ] E1. Migration posture is safe for backups, corruption, and newer-database cases, with clear operator guidance and tests for upgrade, downgrade or forward-only behavior, and recovery after failure.
+- [ ] E2. If import, export, or backup features exist, they work with release data and are documented for operator use and recovery.
+- [ ] E3. Embedding and model readiness cover provider availability, cache reuse, fallback behavior, custom providers, default model changes, and re-embedding of stale or legacy embeddings through CLI, API, and MCP.
 
 #### Gate F: Quality readiness
 
@@ -590,25 +573,22 @@ uv run pytest
 uv run pytest --cov=src/recollectium --cov-report=term-missing
 ```
 
-- [ ] F1. Formatting is clean.
-- [ ] F2. Ruff reports no lint failures.
-- [ ] F3. Pyright reports zero errors and zero warnings.
-- [ ] F4. Pytest passes.
-- [ ] F5. Coverage is 100 percent, or accepted misses are documented in the release notes.
-- [ ] F6. CI is green on the release-prep PR before merge.
-- [ ] F7. After merge, local `main` is clean and CI is green for the merge commit before tagging.
-- [ ] F8. Release-prep verification runs from a clean checkout of the final release-prep branch or final main merge commit.
-- [ ] F9. Stale background processes, old test output, dirty worktrees, and uncommitted local edits are not used as release evidence.
-- [ ] F10. Checked-in contract artifacts, including OpenAPI and any schema snapshots, are regenerated or explicitly verified unchanged.
+- [ ] F1. The release-prep PR includes a gate evidence table that marks every gate ID Pass, Fail, Blocked, or N/A with a short rationale and evidence link or command.
+- [ ] F2. Privacy, security, supply-chain, and artifact checks cover secrets and private memory leakage, local path exposure, privacy defaults, dependency and license review, package metadata integrity, wheel, sdist, and installer asset inspection, reproducibility from tag, and minimum supported Python and OS boundaries.
+  - Evidence must cover secret and private memory leakage checks, local path exposure, and privacy defaults.
+  - Evidence must cover dependency and license review, package metadata integrity, wheel and sdist inspection, installer asset inspection, reproducibility from tag, and minimum supported Python and OS boundaries.
+- [ ] F3. Risk-based changed-area audit covers performance, concurrency, interruption, partial writes, atomicity, concurrent writers, filesystem limits, clock and timestamp assumptions, log and disk growth, test isolation, generated-doc determinism, cleanup after failed dev tooling, troubleshooting diagnostics, and observability.
+  - Evidence must cover the changed areas that can fail in production: performance, concurrency, interruption, partial writes, atomicity, concurrent writers, filesystem limits, clock or timestamp assumptions, and log or disk growth.
+  - Evidence must also cover test isolation, generated-doc determinism, cleanup after failed dev tooling, troubleshooting diagnostics, and observability.
+- [ ] F4. The full code gate passes with formatting, lint, type, tests, coverage, and CI evidence recorded.
+  - Evidence must record the exact command or CI job for formatting, lint, type, tests, coverage, and overall CI status.
 
 #### Gate G: Post-release verification
 
-After the release workflow completes:
-
-- [ ] G1. Confirm the GitHub Release exists and includes the changelog section.
-- [ ] G2. Confirm package install paths work from the published artifact once available.
-- [ ] G3. Confirm README and wiki links resolve.
-- [ ] G4. Confirm the GitHub Wiki is current.
+- [ ] G1. Versioning is consistent across the tag, package version, changelog section, docs, and GitHub Release title.
+- [ ] G2. The release workflow, tag trigger, and artifact publishing behavior are verified, including failure recovery and rerun expectations.
+- [ ] G3. A clean canary or fresh-machine install check confirms the published artifact works without dev-state leftovers.
+- [ ] G4. Post-release links, wiki, and package install paths are confirmed after the workflow completes.
 
 #### Gate H: Development tooling readiness
 
