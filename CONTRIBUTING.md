@@ -104,12 +104,19 @@ Use descriptive branch names:
 
 Each commit should be one logical, verified change. Do not save all work for one large end-of-branch commit when the work can be split into clean slices.
 
+Preferred commit messages use `type(scope): summary`.
+
+- Use a short lowercase type such as `docs`, `fix`, `feat`, `test`, `chore`, or `refactor`.
+- Keep the scope short, lowercase, and specific to the touched area, such as `release`, `logging`, `cli`, `api`, `mcp`, `install`, or `docs`.
+- Write the summary in imperative or concise present tense. Make it human-readable and specific.
+
 Good commit messages:
 
 ```text
-docs: clarify local service security model
+docs(contributing): clarify commit message shape
+docs(release): clarify release gate checklist
 fix(logging): propagate log level to service restart
-feat: expose workspace alias removal through mcp
+feat(mcp): expose workspace alias removal
 ```
 
 Avoid vague messages such as `updates`, `fix stuff`, or `address feedback`.
