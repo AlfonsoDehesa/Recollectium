@@ -480,7 +480,7 @@ The release-prep PR is the single PR for the release sweep. It is a normal PR wi
 Release steps:
 
 1. Choose the target version and confirm the intended tag, such as `v1.0.0`.
-2. Open the release-prep PR against `main` with the normal PR template and summarize the status of the applicable gates.
+2. Open the release-prep PR against `main` with the release template, for example with `?template=release.md`, and summarize the status of the applicable gates by gate name.
 3. Complete the release gate below in the release-prep PR. Fix any release-blocking gaps in that same PR.
 4. Bump the version and prepare the changelog in the release-prep PR after the audit scope is known.
 5. Run the required quality gates in the release-prep PR before merge and record the results in the PR.
