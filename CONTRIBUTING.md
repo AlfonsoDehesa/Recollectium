@@ -512,6 +512,11 @@ Use the gate names below as addressable status labels when discussing release re
 - [ ] A4. Long-running human-readable CLI commands show detailed progress using existing codebase primitives, and transient progress disappears before final output is emitted.
 - [ ] A5. CLI failure contracts are still valid: non-argparse failures emit structured JSON on stderr, stdout JSON contracts stay unpolluted, and changed failure paths emit structured logs without sensitive payloads.
 - [ ] A6. Structured logging remains useful across changed major features, endpoints, code paths, and failure paths.
+- [ ] A7. CLI, API, and MCP compact and verbose response shapes are audited across memory, search, list, get, archive, config, workspace, embedding, service, upgrade, uninstall, and dev operations.
+- [ ] A8. Human-readable progress and logging never pollute JSON, CSV, shell completion, MCP stdio, or API response contracts.
+- [ ] A9. Unknown, malformed, conflicting, or out-of-range inputs are rejected consistently across CLI, API, and MCP, with documented error envelopes where applicable.
+- [ ] A10. Indeterminate long-running work, including model readiness, re-embedding, upgrade, uninstall, and dev eval, uses honest indeterminate progress instead of determinate-looking counts.
+- [ ] A11. Human-readable final output starts and ends cleanly, without shell prompt collision, stray progress lines, provider download noise, or logging noise.
 
 #### Gate B: Documentation readiness
 
@@ -524,6 +529,8 @@ Use the gate names below as addressable status labels when discussing release re
 - [ ] B7. `ROADMAP.md` reflects current progress, completed work, release blockers, and upcoming version targets.
 - [ ] B8. `CONTRIBUTING.md` reflects the current contributor and release process.
 - [ ] B9. `CHANGELOG.md` has a target release section with `✨ Features`, `🐛 Fixes`, and `🧹 Chores` subsections in that order, and entries are grouped by user-facing themes rather than mechanically one line per commit or PR.
+- [ ] B10. Install, upgrade, uninstall, model readiness, cache ownership, logging sensitivity, and re-embedding docs match the release behavior and clearly distinguish automatic behavior from required operator action.
+- [ ] B11. Docs distinguish GitHub-tag-only releases from package-published releases, and post-release install checks match the actual publishing path.
 
 #### Gate C: CLI and completion readiness
 
@@ -548,12 +555,21 @@ Use the gate names below as addressable status labels when discussing release re
 - [ ] D10. `recollectium uninstall` stops managed services, removes managed completions, uninstalls the supported package or tool, and preserves data by default.
 - [ ] D11. `recollectium uninstall --purge` works correctly and safely.
 - [ ] D12. The service starts, responds to health checks, and stops cleanly on Linux, macOS, and Windows.
+- [ ] D13. Bootstrap install metadata records install method, selected tracking target, selected version or commit, state directory, and model/cache ownership consistently across supported platforms.
+- [ ] D14. main-tracking installs compare installed and remote commit SHAs and no-op when already current unless --force is used.
+- [ ] D15. Install and successful upgrade flows prepare the configured embedding model and refresh stale or missing embeddings durably before reporting success.
+- [ ] D16. Uninstall reports Recollectium-owned cache paths accurately and removes only Recollectium-managed files during purge or cache cleanup.
+- [ ] D17. Purge behavior preserves foreign files in configured directories and never treats a configured cleanup root as permission to delete unrelated user data.
 
-#### Gate E: Migration readiness
+#### Gate E: Migration, embedding, and model readiness
 
 - [ ] E1. If the release changes the SQLite schema, migration plans are shipped and tested for each schema change.
 - [ ] E2. Schema migrations are safe for lazy application on database open, or the release notes clearly explain the required operator action.
 - [ ] E3. If the release changes embeddings or re-embedding behavior, re-embedding works for previously supported models and newly supported models, with the checks documented in the release docs and any required operator action explained in the release notes.
+- [ ] E4. Default embedding model changes document model name, profile ID, dimensions, max tokens, chunking, overlap, cache behavior, and compatibility expectations.
+- [ ] E5. Existing memories with stale, missing, or legacy embeddings are refreshed durably through CLI, API, and MCP triggering paths.
+- [ ] E6. Re-embedding preserves memory identity, metadata, workspace association, timestamps, archival state, and queryability unless a documented migration intentionally changes them.
+- [ ] E7. Recollectium-owned model cache behavior is documented and tested separately from user memory/data preservation.
 
 #### Gate F: Quality readiness
 
@@ -574,6 +590,9 @@ uv run pytest --cov=src/recollectium --cov-report=term-missing
 - [ ] F5. Coverage is 100 percent, or accepted misses are documented in the release notes.
 - [ ] F6. CI is green on the release-prep PR before merge.
 - [ ] F7. After merge, local `main` is clean and CI is green for the merge commit before tagging.
+- [ ] F8. Release-prep verification runs from a clean checkout of the final release-prep branch or final main merge commit.
+- [ ] F9. Stale background processes, old test output, dirty worktrees, and uncommitted local edits are not used as release evidence.
+- [ ] F10. Checked-in contract artifacts, including OpenAPI and any schema snapshots, are regenerated or explicitly verified unchanged.
 
 #### Gate G: Post-release verification
 
@@ -583,5 +602,12 @@ After the release workflow completes:
 - [ ] G2. Confirm package install paths work from the published artifact once available.
 - [ ] G3. Confirm README and wiki links resolve.
 - [ ] G4. Confirm the GitHub Wiki is current.
+
+#### Gate H: Development tooling readiness
+
+- [ ] H1. recollectium dev eval reports Exact MRR, Semantic MRR, Thematic Weighted Precision@10, Thematic Weighted Recall@10, and Ranked-set NDCG@5 according to docs.
+- [ ] H2. recollectium dev eval compact, verbose, JSON, and human-readable progress modes preserve their documented stdout and stderr contracts.
+- [ ] H3. recollectium dev optimize-threshold documents and verifies its recommendation objective, F-beta precision/recall tradeoff, CSV output, PNG output, progress behavior, and --write-config behavior.
+- [ ] H4. Seeded development fixtures remain public-safe, deterministic, isolated from real memory databases, and free of private memory contents.
 
 For questions, open an issue using the available template. The repo docs and GitHub Wiki are the source of truth for public project docs.
