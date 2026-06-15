@@ -191,7 +191,7 @@ One or two sentences describing the change.
 - Follow-up: ...
 ```
 
-For docs-only PRs, still list every gate as passed, skipped with a reason, or not applicable. Do not make the reviewer infer that a gate was skipped.
+For docs-only PRs, still list the gates that apply as passed, skipped with a reason, or not applicable. Do not make the reviewer infer that a gate was skipped.
 
 ### Broad PR and red-to-green CI iteration
 
@@ -200,7 +200,7 @@ Prefer small PRs. When a broad PR is unavoidable, keep CI red-to-green work disc
 - Keep every required gate enabled. Do not add path filters, `continue-on-error`, matrix reductions, draft skips, warning suppression, or deleted tests to get a green check.
 - Push focused commits that each address one root cause, then rerun the failed local gate before pushing again.
 - Let superseded PR CI runs cancel; do not use cancellation to avoid investigating the newest failing run.
-- Record which CI job failed, the first relevant error, the suspected root cause, and the local command that reproduced or ruled it out.
+- Note which CI job failed, the first relevant error, the suspected root cause, and the local command that reproduced or ruled it out.
 - If CI fails only on one OS or architecture, preserve the matrix and isolate the platform-specific assumption.
 
 Common red-to-green root causes:
@@ -216,7 +216,7 @@ Common red-to-green root causes:
 
 ### PR submittal gates
 
-Before marking a PR ready for review, complete the gates that match the changed surface. Record every gate in the PR template.
+Before marking a PR ready for review, complete the gates that match the changed surface. Summarize the applicable gate status in the PR template.
 
 #### Required for every PR
 
@@ -480,7 +480,7 @@ The release-prep PR is the single PR for the release sweep. It is a normal PR wi
 Release steps:
 
 1. Choose the target version and confirm the intended tag, such as `v1.0.0`.
-2. Open the release-prep PR against `main` with the normal PR template and list the status of every gate.
+2. Open the release-prep PR against `main` with the normal PR template and summarize the status of the applicable gates.
 3. Complete the release gate below in the release-prep PR. Fix any release-blocking gaps in that same PR.
 4. Bump the version and prepare the changelog in the release-prep PR after the audit scope is known.
 5. Run the required quality gates in the release-prep PR before merge and record the results in the PR.
@@ -509,26 +509,51 @@ Release steps:
 
 Every item in this gate is checked against the version about to be released, not the currently published release or current `main`. All release docs updates, along with release-gate fixes, version bumps, and changelog edits, belong in the release-prep PR for the version about to be released.
 
-Use the gate names below as addressable status labels when discussing release readiness.
+Use the gate names below as addressable status labels when discussing release readiness. Mark the applicable items Pass, Fail, Blocked, or N/A in the release-prep PR, with a short reason for Blocked or N/A.
 
 #### Gate A: Product and surface readiness
 
-- [ ] A1. Public contracts stay stable across the CLI, API, and MCP surfaces: help text, OpenAPI, MCP schemas, config keys, response shapes, capability and version discovery, client and adapter compatibility, deprecation policy, config/env/flag precedence, and semantic version classification for breaking, default, and behavior changes.
-  - Evidence must cover the affected surfaces and show the contract at each boundary: CLI help, API or OpenAPI, MCP schema, config precedence, and compatibility or deprecation wording.
-  - Evidence must show how the change is classified for semver impact when behavior, defaults, or breaking edges change.
-- [ ] A2. Workflow edge cases behave consistently: first-run and empty-state flows, workspace isolation, archive and delete semantics, Unicode and path oddities, large-output limits, timeouts and cancellation, exit/status/error-code consistency, noninteractive automation, agent-facing compact output usefulness, and stale-client behavior where supported.
-  - Evidence must cover first-run and empty-state flows, workspace isolation, destructive actions, Unicode or path oddities, large-output limits, timeouts, cancellation, and exit or status codes.
-  - Evidence must also show the noninteractive and agent-facing output remains useful, including any supported stale-client behavior.
-- [ ] A3. Output and logging contracts stay clean: compact and verbose modes, human-readable progress, structured logs, stdout and stderr pollution control, and honest handling of indeterminate work and malformed input.
-  - Evidence must cover compact versus verbose output, human-readable progress, and the stdout and stderr contract for the affected path.
-  - Evidence must show structured log shape, malformed input handling, and how indeterminate work is reported without pretending completion.
+- [ ] A1. User-facing operations available through CLI, API, or MCP stay symmetric unless the release notes call out a documented exception.
+- [ ] A2. Every operation that supports compact output also supports verbose output where applicable.
+- [ ] A3. Compact responses include the information required for product correctness and useful returned info.
+- [ ] A4. `config get`, `config set`, and `config unset` cover every supported config key.
+- [ ] A5. CLI failures emit structured stderr JSON when that surface is documented, keep stdout clean, and avoid leaking sensitive logs.
+- [ ] A6. Structured logging stays useful across the paths changed in the release.
+- [ ] A7. Human-readable progress for long-running CLI work uses the existing progress primitives and clears before final output.
+- [ ] A8. Human-facing progress and logs never pollute JSON, CSV, completion output, MCP stdio, or API responses.
+- [ ] A9. Indeterminate work uses honest indeterminate progress instead of implying completion.
+- [ ] A10. Final human-readable output starts and ends cleanly without prompt collisions, provider noise, or stray log output.
+- [ ] A11. Unknown, malformed, conflicting, and out-of-range inputs are rejected consistently across surfaces with documented error envelopes.
+- [ ] A12. Public contract changes across CLI help, OpenAPI, MCP schemas, config keys, and output shapes are intentional and backward-compatible or documented as breaking.
+- [ ] A13. Version and capability discovery are explicit for the release, including the user-visible version string, supported commands, surfaced capabilities, and any changed defaults.
+- [ ] A14. Deprecation and removal policy is documented for changed defaults, removed commands, renamed fields, config changes, and any behavior incompatibility.
+- [ ] A15. Semver classification is explicit for changed defaults, removed commands, renamed fields, config changes, and any behavior incompatibility.
+- [ ] A16. Config compatibility and precedence remain correct for supported config files, flags, environment variables, defaults, and API or MCP overrides.
+- [ ] A17. Known client and adapter compatibility stays intact, including OpenCode and other supported MCP clients.
+- [ ] A18. Stale supported clients either continue working or fail gracefully when new fields, capabilities, config, or model metadata are added.
+- [ ] A19. First-run and empty-state workflows are correct and documented.
+- [ ] A20. Workspace isolation works across aliases, UID changes, moved or renamed directories, and cross-workspace behavior.
+- [ ] A21. Archive and delete semantics, Unicode and path weirdness, large output and limits, timeouts and cancellation, exit and status codes, noninteractive automation, and agent-facing compact responses behave correctly.
 
 #### Gate B: Documentation readiness
 
-- [ ] B1. Examples, links, and release notes stay current: examples are verified or marked illustrative, docs links resolve, operator actions and rollback steps are explicit, known limitations are called out, the support window and compatibility matrix are current, changelog and release notes match the user-visible diff, and docs avoid vague or stale claims.
-  - The target release section in `CHANGELOG.md` has exactly `### ✨ Features`, `### 🐛 Fixes`, and `### 🧹 Chores` in that order.
-  - Changelog bullets are thematic user-facing entries, not one line per commit or PR.
-- [ ] B2. Canonical docs stay aligned with behavior for the release, including README, wiki, local API, OpenAPI, adapter contract, SECURITY.md, ROADMAP.md, CONTRIBUTING.md, and install or release-path notes.
+- [ ] B1. README is current, welcoming, and brief.
+- [ ] B2. Wiki pages cover every command, flag, and user workflow touched by the release.
+- [ ] B3. Wiki content matches current behavior with no stale or contradictory instructions.
+- [ ] B4. `docs/local-service-api.md` matches the service behavior shipped in the release.
+- [ ] B5. `docs/local-service-openapi.json` matches the served API contract.
+- [ ] B6. The OpenCode adapter contract is current.
+- [ ] B7. `SECURITY.md` is current.
+- [ ] B8. `ROADMAP.md` is current.
+- [ ] B9. `CONTRIBUTING.md` is current.
+- [ ] B10. The target release section in `CHANGELOG.md` has exactly `### ✨ Features`, `### 🐛 Fixes`, and `### 🧹 Chores` in that order.
+- [ ] B11. Changelog bullets are thematic user-facing entries, not one line per commit or PR.
+- [ ] B12. Install, upgrade, uninstall, model, cache, logging, and re-embedding docs distinguish automatic behavior from operator action.
+- [ ] B13. Docs distinguish GitHub-tag-only releases from package-published releases, and the post-release checks match the actual publishing path.
+- [ ] B14. User-facing examples are executable or clearly marked illustrative.
+- [ ] B15. Docs links resolve.
+- [ ] B16. Release notes call out operator actions, rollback guidance, known limitations, the support window, and the compatibility matrix.
+- [ ] B17. Changelog and release notes describe the user-visible diff and omit internal noise.
 
 #### Gate C: CLI and completion readiness
 
@@ -541,25 +566,48 @@ Use the gate names below as addressable status labels when discussing release re
 
 #### Gate D: Install, upgrade, uninstall, and service readiness
 
-- [ ] D1. Lifecycle reliability holds across supported install paths: upgrade from the previous supported release, failed operation recovery, idempotency, offline or degraded network behavior, destructive actions requiring explicit intent, active-client and service lifecycle, managed files manifest, and cross-platform path, shell, and state behavior.
-  - Evidence must cover upgrade recovery, failed-operation recovery, idempotency, and how the install behaves when the network is offline or degraded.
-  - Evidence must also cover explicit-intent destructive actions, active-client and service lifecycle, managed files, and cross-platform path, shell, and state differences.
-- [ ] D2. A clean canary workflow works on a fresh machine or no-dev-state checkout using the real release artifact and no leftover local development state.
-  - Evidence must show the canary starts from a fresh machine or no-dev-state checkout, uses the real release artifact, and does not depend on leftover developer state.
-  - Evidence must identify the exact bootstrap path used on each supported platform.
-- [ ] D3. Bootstrap install, `pip install`, `pipx install`, and `uv tool install` smoke tests pass from the release candidate artifact on supported platforms.
-  - Evidence must cover Linux or macOS bootstrap, Windows bootstrap, `pip install`, `pipx install`, and `uv tool install`.
-  - Evidence must cover `upgrade --check`, `upgrade --dry-run`, mutating upgrades across install methods, and the upgrade target selector behavior.
-  - Evidence must show the upgrade target selector is mutually exclusive and that `latest`, pinned releases, and `main` persist as intended across runs.
-- [ ] D4. Service start, health, stop, uninstall, purge, and managed cache cleanup behave correctly and preserve foreign files.
-  - Evidence must cover `service start`, health checks, and `service stop`.
-  - Evidence must cover uninstall preserving data by default, `uninstall --purge` safety, and cleanup that removes only managed cache or managed files while preserving foreign files.
+- [ ] D1. Bootstrap install works on supported Linux and macOS paths.
+- [ ] D2. Bootstrap install works on supported Windows paths.
+- [ ] D3. `pip install` from the release candidate artifact works.
+- [ ] D4. `pipx install` from the release candidate artifact works.
+- [ ] D5. `uv tool install` from the release candidate artifact works.
+- [ ] D6. `recollectium --version`, `init`, and minimal add, search, and list workflows work after each supported install path.
+- [ ] D7. Upgrade from the previous supported release preserves memories, config, services, completions, metadata, and embeddings.
+- [ ] D8. `upgrade --check` is non-mutating.
+- [ ] D9. `upgrade --dry-run` shows the planned command and is non-mutating.
+- [ ] D10. Upgrade selectors `latest`, pinned, and `main` are mutually exclusive.
+- [ ] D11. A successful mutating upgrade persists the chosen future target for the next run.
+- [ ] D12. `main` tracking compares installed and remote SHAs and no-ops unless forced.
+- [ ] D13. Mutating upgrade works across bootstrap, `pip`, `pipx`, `uv tool`, and source installs.
+- [ ] D14. Mutating upgrade preserves the running service state when applicable.
+- [ ] D15. Failed install, upgrade, uninstall, model readiness, and re-embedding operations leave a recoverable state with clear guidance.
+- [ ] D16. Install, upgrade, uninstall, service, completion, model readiness, and re-embedding operations are idempotent where expected.
+- [ ] D17. Offline or degraded network behavior is correct for install, upgrade, model download, and version checks.
+- [ ] D18. Destructive or data-removing operations require explicit intent, report what was removed, and preserve user memory by default.
+- [ ] D19. Uninstall preserves data by default.
+- [ ] D20. `uninstall --purge` is safe and removes only the intended managed data.
+- [ ] D21. Purge and cache cleanup remove only managed files and keep foreign files safe.
+- [ ] D22. Managed files are discoverable through the documented manifest or equivalent listing.
+- [ ] D23. `service start`, health checks, and `service stop` work on Linux, macOS, and Windows.
+- [ ] D24. Service lifecycle behavior is correct when active clients are connected or recently connected.
+- [ ] D25. A fresh-machine or no-dev-state canary passes from the release artifact.
+- [ ] D26. Cross-platform path, shell, and state behavior is correct, including bash, zsh, fish, and PowerShell where supported.
 
 #### Gate E: Migration, embedding, and model readiness
 
-- [ ] E1. Migration posture is safe for backups, corruption, and newer-database cases, with clear operator guidance and tests for upgrade, downgrade or forward-only behavior, and recovery after failure.
-- [ ] E2. If import, export, or backup features exist, they work with release data and are documented for operator use and recovery.
-- [ ] E3. Embedding and model readiness cover provider availability, cache reuse, fallback behavior, custom providers, default model changes, and re-embedding of stale or legacy embeddings through CLI, API, and MCP.
+- [ ] E1. Schema migration plans and tests exist for any schema change.
+- [ ] E2. Downgrade and forward-only migration behavior are documented, including what happens when a database is newer than the installed package.
+- [ ] E3. Migration recovery guidance covers failure during apply, interrupted upgrades, and how to restore or re-run safely after a failed migration.
+- [ ] E4. Lazy migration is safe and documented for the operator.
+- [ ] E5. Re-embedding is separate from SQLite migrations.
+- [ ] E6. Re-embedding works for the previous supported model and the newly supported model.
+- [ ] E7. Default model changes document model, profile, dimensions, max tokens, chunking, overlap, cache, and compatibility effects.
+- [ ] E8. Stale, missing, or legacy embeddings refresh durably through CLI, API, and MCP.
+- [ ] E9. Re-embedding preserves memory identity, metadata, workspace, timestamps, archive state, and queryability unless a documented exception applies.
+- [ ] E10. Model cache behavior is documented and tested separately from memory preservation.
+- [ ] E11. Backup, corruption, and newer-database posture includes recovery guidance.
+- [ ] E12. Import, export, and backup features, if present, work with release data and operator recovery workflows.
+- [ ] E13. Model provider availability, cache reuse, fallback behavior, and custom provider behavior work as documented.
 
 #### Gate F: Quality readiness
 
@@ -573,28 +621,61 @@ uv run pytest
 uv run pytest --cov=src/recollectium --cov-report=term-missing
 ```
 
-- [ ] F1. The release-prep PR includes a gate evidence table that marks every gate ID Pass, Fail, Blocked, or N/A with a short rationale and evidence link or command.
-- [ ] F2. Privacy, security, supply-chain, and artifact checks cover secrets and private memory leakage, local path exposure, privacy defaults, dependency and license review, package metadata integrity, wheel, sdist, and installer asset inspection, reproducibility from tag, and minimum supported Python and OS boundaries.
-  - Evidence must cover secret and private memory leakage checks, local path exposure, and privacy defaults.
-  - Evidence must cover dependency and license review, package metadata integrity, wheel and sdist inspection, installer asset inspection, reproducibility from tag, and minimum supported Python and OS boundaries.
-- [ ] F3. Risk-based changed-area audit covers performance, concurrency, interruption, partial writes, atomicity, concurrent writers, filesystem limits, clock and timestamp assumptions, log and disk growth, test isolation, generated-doc determinism, cleanup after failed dev tooling, troubleshooting diagnostics, and observability.
-  - Evidence must cover the changed areas that can fail in production: performance, concurrency, interruption, partial writes, atomicity, concurrent writers, filesystem limits, clock or timestamp assumptions, and log or disk growth.
-  - Evidence must also cover test isolation, generated-doc determinism, cleanup after failed dev tooling, troubleshooting diagnostics, and observability.
-- [ ] F4. The full code gate passes with formatting, lint, type, tests, coverage, and CI evidence recorded.
-  - Evidence must record the exact command or CI job for formatting, lint, type, tests, coverage, and overall CI status.
+The remaining checks happen after merge and before tagging.
+
+- [ ] F1. Formatting is clean.
+- [ ] F2. Ruff check is clean.
+- [ ] F3. Pyright reports zero errors and warnings.
+- [ ] F4. Pytest passes.
+- [ ] F5. Coverage is 100 percent or any accepted misses are documented.
+- [ ] F6. CI is green on the release-prep PR.
+- [ ] F7. After merge and before tagging, local `main` is clean.
+- [ ] F8. After merge and before tagging, CI is green on `main`.
+- [ ] F9. Post-merge verification comes from a clean checkout of the final branch or merge commit.
+- [ ] F10. Post-merge verification uses fresh outputs: no stale background processes, old output, dirty worktrees, or uncommitted edits remain.
+- [ ] F11. Contract artifacts are regenerated or verified unchanged.
+- [ ] F12. Secrets, private memory, local path, and privacy leaks are scanned across artifacts, docs, fixtures, logs, and generated files.
+- [ ] F13. Security and privacy behavior is correct for localhost defaults, unauthenticated service assumptions, redaction, private path handling, and docs warnings.
+- [ ] F14. Dependency review covers direct, transitive, and dev dependencies plus any new pins or constraints.
+- [ ] F15. GitHub Actions and release automation changes are reviewed for workflow, tag-trigger, or platform impact.
+- [ ] F16. Installer and packaging changes are reviewed for build inputs, install paths, and release safety.
+- [ ] F17. License review covers third-party license changes and bundled notices.
+- [ ] F18. Platform support review covers supported OS, Python, and shell assumptions.
+- [ ] F19. Reproducibility review covers pinned inputs and deterministic release behavior.
+- [ ] F20. Wheel and sdist contents are inspected for missing, unintended, stale, or version-mismatched files.
+- [ ] F21. Installers and release assets are inspected for missing, unintended, stale, or version-mismatched files.
+- [ ] F22. Generated contracts and docs are inspected for stale or mismatched content.
+- [ ] F23. Package metadata is correct, including entry points, dependency constraints, Python classifiers, license, project URLs, and package data.
+- [ ] F24. Minimum and latest supported Python and OS boundaries are verified.
+- [ ] F25. The release is reproducible from the tagged commit.
+- [ ] F26. The changed areas are audited for performance.
+- [ ] F27. The changed areas are audited for concurrency and interruption handling.
+- [ ] F28. The changed areas are audited for atomicity and concurrent writer behavior.
+- [ ] F29. The changed areas are audited for filesystem limits and clock or timestamp assumptions.
+- [ ] F30. The changed areas are audited for log growth.
+- [ ] F31. The changed areas are audited for test isolation and generated-doc determinism.
+- [ ] F32. The changed areas are audited for cleanup after failed dev tooling, troubleshooting, and observability.
 
 #### Gate G: Post-release verification
 
-- [ ] G1. Versioning is consistent across the tag, package version, changelog section, docs, and GitHub Release title.
-- [ ] G2. The release workflow, tag trigger, and artifact publishing behavior are verified, including failure recovery and rerun expectations.
-- [ ] G3. A clean canary or fresh-machine install check confirms the published artifact works without dev-state leftovers.
-- [ ] G4. Post-release links, wiki, and package install paths are confirmed after the workflow completes.
+- [ ] G1. A GitHub Release exists and includes the curated changelog.
+- [ ] G2. Published package install paths work from the released artifact when available.
+- [ ] G3. README and wiki links resolve after release.
+- [ ] G4. Wiki content is current after release.
+- [ ] G5. Version strings, dates, changelog, tag, package metadata, docs, and GitHub Release title all match.
+- [ ] G6. The release workflow and tag trigger are verified.
+- [ ] G7. Changelog extraction and generated release notes are verified.
+- [ ] G8. Artifact publishing is verified on the actual release path.
+- [ ] G9. Failure recovery and rerun behavior are verified.
+- [ ] G10. A clean canary on the published artifact works and uninstalls cleanly.
 
 #### Gate H: Development tooling readiness
 
-- [ ] H1. recollectium dev eval reports Exact MRR, Semantic MRR, Thematic Weighted Precision@10, Thematic Weighted Recall@10, and Ranked-set NDCG@5 according to docs.
-- [ ] H2. recollectium dev eval compact, verbose, JSON, and human-readable progress modes preserve their documented stdout and stderr contracts.
-- [ ] H3. recollectium dev optimize-threshold documents and verifies its recommendation objective, F-beta precision/recall tradeoff, CSV output, PNG output, progress behavior, and --write-config behavior.
+- [ ] H1. `recollectium dev eval` reports Exact MRR, Semantic MRR, Thematic Weighted Precision@10, Thematic Weighted Recall@10, and Ranked-set NDCG@5 according to the docs.
+- [ ] H2. `recollectium dev eval` compact, verbose, JSON, and human-readable progress modes preserve their documented stdout and stderr contracts.
+- [ ] H3. `recollectium dev optimize-threshold` documents and verifies its recommendation objective, F-beta precision and recall tradeoff, CSV output, PNG output, progress behavior, and `--write-config` behavior.
 - [ ] H4. Seeded development fixtures remain public-safe, deterministic, isolated from real memory databases, and free of private memory contents.
+- [ ] H5. Dev tooling cleans up generated artifacts, temp DBs, and reports after success or failure, or clearly documents where they are left.
+- [ ] H6. Seeded and CI fixtures exercise realistic user, workspace, metadata, malformed, stale-embedding, and cross-surface cases.
 
 For questions, open an issue using the available template. The repo docs and GitHub Wiki are the source of truth for public project docs.
