@@ -21,6 +21,7 @@ from packaging.version import InvalidVersion, Version
 from platformdirs import user_state_dir
 
 import logging
+from recollectium.managed_dirs import ensure_managed_directory
 
 _log = logging.getLogger(__name__)
 
@@ -849,7 +850,7 @@ def write_install_metadata_update(
         if plan.metadata_path
         else _default_metadata_path(platform_name)
     )
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ensure_managed_directory(path.parent, purpose="install-metadata")
     existing: dict[str, object]
     try:
         loaded = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}

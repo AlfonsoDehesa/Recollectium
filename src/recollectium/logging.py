@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from recollectium.config import LOGGING_SENSITIVITY_FULL
+from recollectium.managed_dirs import ensure_managed_directory
 
 
 _REDACTED = "[redacted]"
@@ -233,7 +234,7 @@ def setup_logging(
     effective configured level.
     """
     log_dir = config.xdg_dirs["logs"]
-    log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ensure_managed_directory(log_dir, purpose="logs")
     log_dir.chmod(0o700)
 
     log_file = log_dir / "recollectium.log"

@@ -9672,6 +9672,9 @@ def test_cli_uninstall_purge_deletes_recollectium_owned_paths(
     for directory in (config_path.parent, data_dir, cache_dir, logs_dir, runtime_dir):
         directory.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    (config_path.parent / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
     (data_dir / "recollectium.db").write_text("memory", encoding="utf-8")
     metadata_path.write_text("{}", encoding="utf-8")
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
@@ -9685,10 +9688,10 @@ def test_cli_uninstall_purge_deletes_recollectium_owned_paths(
     assert stderr == ""
     assert payload["data"]["purge"]["deleted"]
     assert not config_path.parent.exists()
-    assert not data_dir.exists()
-    assert not cache_dir.exists()
-    assert not logs_dir.exists()
-    assert not runtime_dir.exists()
+    assert data_dir.exists()
+    assert cache_dir.exists()
+    assert logs_dir.exists()
+    assert runtime_dir.exists()
     assert (tmp_path / "config").exists()
     assert (tmp_path / "data").exists()
 
@@ -9712,6 +9715,12 @@ def test_cli_uninstall_purge_deletes_macos_application_support_install_metadata(
     config_path.parent.mkdir(parents=True)
     logs_dir.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    (config_path.parent / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (logs_dir / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
     metadata_path.write_text(
         json.dumps({"install_method": "bootstrap"}), encoding="utf-8"
     )
@@ -9723,6 +9732,10 @@ def test_cli_uninstall_purge_deletes_macos_application_support_install_metadata(
         lambda _app_name: str(metadata_path.parent),
     )
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
 
     exit_code, stdout, stderr = _run_cli(
         ["uninstall", "--purge", "--yes-delete-all-recollectium-data"], capsys
@@ -9733,13 +9746,7 @@ def test_cli_uninstall_purge_deletes_macos_application_support_install_metadata(
     assert exit_code == 0
     assert stderr == ""
     assert not metadata_path.exists()
-    assert (
-        sum(
-            item["path"] == str(metadata_path)
-            for item in payload["data"]["purge"]["deleted"]
-        )
-        == 1
-    )
+    assert application_support_dir.exists()
     assert not any(item["path"] == str(metadata_path) for item in skipped)
 
 
@@ -9752,10 +9759,13 @@ def test_cli_uninstall_purge_reports_delete_errors(
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
 
-    def _raise_remove(_path: Path) -> None:
-        raise OSError("delete failed")
+    def _raise_unlink(path: Path, *args: Any, **kwargs: Any) -> None:
+        if path == config_path:
+            raise OSError("delete failed")
+        original_unlink(path, *args, **kwargs)
 
-    monkeypatch.setattr("recollectium.cli.shutil.rmtree", _raise_remove)
+    original_unlink = Path.unlink
+    monkeypatch.setattr(Path, "unlink", _raise_unlink)
 
     exit_code, stdout, stderr = _run_cli(
         ["uninstall", "--purge", "--yes-delete-all-recollectium-data"], capsys
@@ -9772,8 +9782,9 @@ def test_cli_uninstall_purge_deletes_shared_cache_override(
     _set_xdg_home(monkeypatch, tmp_path)
     shared_cache = tmp_path / "recollectium" / "shared-cache"
     model_cache = shared_cache / "models"
-    model_cache.mkdir(parents=True)
-    (model_cache / "model.bin").write_text("derived", encoding="utf-8")
+    model_root = model_cache / "models--qdrant--bge-base-en-v1.5-onnx-q"
+    model_root.mkdir(parents=True)
+    (model_root / "model_optimized.onnx").write_text("derived", encoding="utf-8")
     config_path = tmp_path / "config" / "recollectium" / "config.json"
     config_path.parent.mkdir(parents=True)
     config_data = deepcopy(DEFAULTS)
@@ -9790,13 +9801,11 @@ def test_cli_uninstall_purge_deletes_shared_cache_override(
     assert stderr == ""
     assert f"  {shared_cache}\n" not in stderr
     assert str(model_cache) not in stderr
-    assert not shared_cache.exists()
-    assert not model_cache.exists()
+    assert not (model_root / "model_optimized.onnx").exists()
+    assert model_cache.exists()
+    assert shared_cache.exists()
     assert any(
-        item["path"] == str(model_cache) for item in payload["data"]["purge"]["deleted"]
-    )
-    assert any(
-        item["path"] == str(shared_cache)
+        item["path"] == str(model_root / "model_optimized.onnx")
         for item in payload["data"]["purge"]["deleted"]
     )
 
@@ -9965,33 +9974,166 @@ def test_cli_uninstall_dry_run_without_purge_prints_instructions(
     assert model_cache_path.exists()
 
 
-def test_cli_uninstall_removes_model_cache_inside_custom_cache_dir(
+def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
-    custom_cache = tmp_path / "shared-cache"
-    model_cache_path = custom_cache / "models"
-    model_cache_path.mkdir(parents=True)
-    (custom_cache / "keep.txt").write_text("keep", encoding="utf-8")
-    (model_cache_path / "model.bin").write_text("derived", encoding="utf-8")
-    config_path = tmp_path / "config" / "recollectium" / "config.json"
-    config_path.parent.mkdir(parents=True)
-    config_data = deepcopy(DEFAULTS)
-    config_data["directories"] = {"cache": str(custom_cache)}
-    config_path.write_text(json.dumps(config_data), encoding="utf-8")
     monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    data_dir = tmp_path / "data" / "recollectium"
+    cache_dir = tmp_path / "cache" / "recollectium"
+    logs_dir = tmp_path / "state" / "recollectium" / "logs"
+    runtime_dir = tmp_path / "runtime" / "recollectium"
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    for directory in (
+        config_path.parent,
+        data_dir,
+        cache_dir,
+        logs_dir,
+        runtime_dir,
+        metadata_path.parent,
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    (config_path.parent / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (cache_dir / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (data_dir / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (logs_dir / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (runtime_dir / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    metadata_path.write_text("{}", encoding="utf-8")
+    (data_dir / "recollectium.db").write_text("memory", encoding="utf-8")
+    (data_dir / "keep.txt").write_text("keep", encoding="utf-8")
+    (logs_dir / "recollectium.log").write_text("log", encoding="utf-8")
+    (logs_dir / "foreign.log").write_text("foreign", encoding="utf-8")
+    (runtime_dir / "service.pid").write_text("1", encoding="utf-8")
+    (runtime_dir / "notes.txt").write_text("notes", encoding="utf-8")
 
-    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys)
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--purge", "--yes-delete-all-recollectium-data"], capsys
+    )
 
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert payload["data"]["model_cache"]["deleted"] == [
-        {"path": str(model_cache_path), "deleted": True}
-    ]
-    assert custom_cache.exists()
-    assert (custom_cache / "keep.txt").exists()
+    assert not (data_dir / "recollectium.db").exists()
+    assert (data_dir / "keep.txt").exists()
+    assert not (logs_dir / "recollectium.log").exists()
+    assert (logs_dir / "foreign.log").exists()
+    assert not (runtime_dir / "service.pid").exists()
+    assert (runtime_dir / "notes.txt").exists()
+    assert data_dir.exists()
+    assert logs_dir.exists()
+    assert runtime_dir.exists()
+    assert any(
+        item["path"] == str(data_dir / "recollectium.db")
+        for item in payload["data"]["purge"]["deleted"]
+    )
+    assert any(
+        item["path"] == str(logs_dir / "recollectium.log")
+        for item in payload["data"]["purge"]["deleted"]
+    )
+    assert any(
+        item["path"] == str(runtime_dir / "service.pid")
+        for item in payload["data"]["purge"]["deleted"]
+    )
+    assert any(
+        item["path"] == str(data_dir) and item.get("deleted") is False
+        for item in payload["data"]["purge"]["targets"]
+    )
+
+
+def test_cli_uninstall_purge_removes_marked_directory_when_only_managed_files_remain(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    cache_dir = tmp_path / "cache" / "recollectium"
+    model_cache_path = cache_dir / "models"
+    for directory in (config_path.parent, cache_dir, model_cache_path):
+        directory.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    (cache_dir / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (model_cache_path / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (model_cache_path / "models--qdrant--bge-base-en-v1.5-onnx-q").mkdir(parents=True)
+    (
+        model_cache_path
+        / "models--qdrant--bge-base-en-v1.5-onnx-q"
+        / "model_optimized.onnx"
+    ).write_text("derived", encoding="utf-8")
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--purge", "--yes-delete-all-recollectium-data"], capsys
+    )
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert not cache_dir.exists()
     assert not model_cache_path.exists()
+    assert any(
+        item["path"] == str(cache_dir) for item in payload["data"]["purge"]["deleted"]
+    )
+    assert any(
+        item["path"] == str(model_cache_path)
+        for item in payload["data"]["purge"]["deleted"]
+    )
+
+
+def test_cli_uninstall_purge_leaves_unmarked_directory_in_place_after_managed_cleanup(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    config_path = tmp_path / "config" / "recollectium" / "config.json"
+    cache_dir = tmp_path / "cache" / "recollectium"
+    model_cache_path = cache_dir / "models"
+    for directory in (config_path.parent, cache_dir, model_cache_path):
+        directory.mkdir(parents=True)
+    config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    (model_cache_path / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (model_cache_path / "models--qdrant--bge-base-en-v1.5-onnx-q").mkdir(parents=True)
+    (
+        model_cache_path
+        / "models--qdrant--bge-base-en-v1.5-onnx-q"
+        / "model_optimized.onnx"
+    ).write_text("derived", encoding="utf-8")
+    (cache_dir / "keep.txt").write_text("keep", encoding="utf-8")
+
+    exit_code, stdout, stderr = _run_cli(
+        ["uninstall", "--purge", "--yes-delete-all-recollectium-data"], capsys
+    )
+
+    payload = json.loads(stdout)
+    assert exit_code == 0
+    assert stderr == ""
+    assert cache_dir.exists()
+    assert (cache_dir / "keep.txt").exists()
+    assert not model_cache_path.exists()
+    assert any(
+        item["path"] == str(model_cache_path)
+        for item in payload["data"]["purge"]["deleted"]
+    )
+    assert any(
+        item["path"] == str(cache_dir) and item.get("deleted") is False
+        for item in payload["data"]["purge"]["targets"]
+    )
 
 
 def test_cli_uninstall_reports_model_cache_cleanup_failure_after_package_removal(

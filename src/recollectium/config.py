@@ -25,6 +25,7 @@ from recollectium.embeddings import (
     BUILTIN_FASTEMBED_MODEL_SPECS,
     DEFAULT_BUILTIN_FASTEMBED_MODEL,
 )
+from recollectium.managed_dirs import ensure_managed_directory
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -371,7 +372,7 @@ def _validate_section(
 
 def _write_starter_config(path: Path) -> None:
     """Create a starter config file at *path* with all defaults."""
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ensure_managed_directory(path.parent, purpose="config")
     path.parent.chmod(0o700)
     path.write_text(json.dumps(DEFAULTS, indent=2) + "\n", encoding="utf-8")
     path.chmod(0o600)
@@ -379,8 +380,8 @@ def _write_starter_config(path: Path) -> None:
 
 def _ensure_config_directories(paths: dict[str, Path]) -> None:
     """Create resolved config directories with private permissions."""
-    for path in paths.values():
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for name, path in paths.items():
+        ensure_managed_directory(path, purpose=name)
         path.chmod(0o700)
 
 

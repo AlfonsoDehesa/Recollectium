@@ -11,6 +11,7 @@ from pathlib import Path
 import tempfile
 from datetime import datetime, timezone
 
+from recollectium.managed_dirs import ensure_managed_directory
 
 _MODEL_STATE_FILENAME = "model-state.json"
 
@@ -35,7 +36,7 @@ def write_model_state(
     model_cache_path: str | None = None,
 ) -> None:
     """Write the prepared model state atomically."""
-    state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ensure_managed_directory(state_dir, purpose="model-state")
     payload = {
         "prepared_model": model,
         "prepared_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

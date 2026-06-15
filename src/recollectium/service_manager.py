@@ -21,6 +21,7 @@ from typing import Any
 from recollectium import __version__
 from recollectium.config import RecollectiumConfig
 from recollectium.errors import ServiceConflictError, ServiceError
+from recollectium.managed_dirs import ensure_managed_directory
 from recollectium.service_contract import SERVICE_API_PREFIX, SERVICE_API_VERSION
 
 _log = logging.getLogger(__name__)
@@ -257,7 +258,7 @@ def write_pid_file(
 
     Creates parent directories if they do not exist.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_managed_directory(path.parent, purpose="runtime")
     path.write_text(
         json.dumps(
             {
@@ -350,7 +351,7 @@ def service_discovery_payload(
 def write_discovery_file(config: RecollectiumConfig, running: dict[str, Any]) -> None:
     """Write the service discovery file atomically."""
     path = get_discovery_file_path(config)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_managed_directory(path.parent, purpose="runtime")
     payload = service_discovery_payload(config, running)
     temp_path = path.with_name(f".{path.name}.tmp")
     temp_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")

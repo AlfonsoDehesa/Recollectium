@@ -21,6 +21,7 @@ from recollectium.errors import (
     EmbeddingProviderUnavailableError,
     EmbeddingReadinessTimeoutError,
 )
+from recollectium.managed_dirs import ensure_managed_directory
 
 
 class EmbeddingProvider(Protocol):
@@ -247,6 +248,8 @@ class BuiltinFastEmbedProvider:
         self._cache_layouts = spec.cache_layouts
         self.query_prompt_policy = spec.query_prompt_policy
         self.cache_dir = str(cache_dir) if cache_dir is not None else None
+        if cache_dir is not None:
+            ensure_managed_directory(Path(cache_dir), purpose="model-cache")
         self._embedder: Any | None = None
 
     @property
