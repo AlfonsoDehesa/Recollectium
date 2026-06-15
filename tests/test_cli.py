@@ -9766,7 +9766,7 @@ def test_cli_uninstall_purge_reports_delete_errors(
     assert "delete failed" in stderr
 
 
-def test_cli_uninstall_purge_skips_shared_cache_override(
+def test_cli_uninstall_purge_deletes_shared_cache_override(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
@@ -9786,23 +9786,22 @@ def test_cli_uninstall_purge_skips_shared_cache_override(
     )
 
     payload = json.loads(stdout)
-    skipped = payload["data"]["purge"]["skipped"]
     assert exit_code == 0
     assert stderr == ""
     assert f"  {shared_cache}\n" not in stderr
     assert str(model_cache) not in stderr
-    assert shared_cache.exists()
+    assert not shared_cache.exists()
     assert not model_cache.exists()
-    assert any(
-        item["path"] == str(shared_cache) and item["reason"] == "custom_configured_path"
-        for item in skipped
-    )
     assert any(
         item["path"] == str(model_cache) for item in payload["data"]["purge"]["deleted"]
     )
+    assert any(
+        item["path"] == str(shared_cache)
+        for item in payload["data"]["purge"]["deleted"]
+    )
 
 
-def test_cli_uninstall_purge_dry_run_marks_custom_cache_override_as_configured(
+def test_cli_uninstall_purge_dry_run_marks_custom_cache_override_as_target(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_xdg_home(monkeypatch, tmp_path)
@@ -9820,16 +9819,12 @@ def test_cli_uninstall_purge_dry_run_marks_custom_cache_override_as_configured(
     assert exit_code == 0
     assert stderr == ""
     assert any(
-        item["path"] == str(custom_cache) and item["reason"] == "custom_configured_path"
-        for item in payload["data"]["purge"]["skipped"]
-    )
-    assert not any(
-        item["path"] == str(custom_cache) and item["reason"] == "not_recollectium_owned"
+        item["path"] == str(custom_cache) and item["reason"] == "dry_run"
         for item in payload["data"]["purge"]["skipped"]
     )
 
 
-def test_cli_uninstall_purge_skips_explicit_config_outside_recollectium_dir(
+def test_cli_uninstall_purge_deletes_explicit_config_outside_recollectium_dir(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config_path = tmp_path / "config.json"
@@ -9851,10 +9846,9 @@ def test_cli_uninstall_purge_skips_explicit_config_outside_recollectium_dir(
     assert exit_code == 0
     assert stderr == ""
     assert str(config_path) not in stderr
-    assert config_path.exists()
+    assert not config_path.exists()
     assert any(
-        item["path"] == str(config_path) and item["reason"] == "not_recollectium_owned"
-        for item in payload["data"]["purge"]["skipped"]
+        item["path"] == str(config_path) for item in payload["data"]["purge"]["deleted"]
     )
 
 
@@ -9899,23 +9893,24 @@ def test_cli_uninstall_purge_marks_suspicious_path(
     }
 
 
-def test_cli_uninstall_purge_marks_custom_configured_path_requires_confirmation(
+def test_cli_uninstall_purge_marks_configured_path_as_target(
     tmp_path: Path,
 ) -> None:
     from recollectium.cli import _delete_purge_target
 
     custom_cache = tmp_path / "shared-cache"
+    custom_cache.mkdir()
 
     payload = _delete_purge_target(
         custom_cache,
         dry_run=True,
-        custom_configured_paths={custom_cache.resolve(strict=False)},
+        owned_paths={custom_cache.resolve(strict=False)},
     )
 
     assert payload == {
         "path": str(custom_cache),
         "deleted": False,
-        "reason": "custom_configured_path",
+        "reason": "dry_run",
     }
 
 
