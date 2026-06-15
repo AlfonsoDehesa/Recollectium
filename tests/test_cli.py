@@ -9923,6 +9923,269 @@ def test_cli_uninstall_purge_marks_custom_configured_path_as_dry_run(
     }
 
 
+def test_directory_was_created_by_recollectium_handles_invalid_marker_payload(
+    tmp_path: Path,
+) -> None:
+    from recollectium.cli import directory_was_created_by_recollectium
+
+    managed_dir = tmp_path / "managed"
+    managed_dir.mkdir()
+    (managed_dir / ".recollectium-managed-directory.json").write_text(
+        "not-json", encoding="utf-8"
+    )
+
+    assert directory_was_created_by_recollectium(managed_dir) is False
+
+
+def test_directory_was_created_by_recollectium_handles_marker_read_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.cli import directory_was_created_by_recollectium
+
+    managed_dir = tmp_path / "managed"
+    managed_dir.mkdir()
+    marker = managed_dir / ".recollectium-managed-directory.json"
+    marker.write_text(json.dumps({"created_by": "recollectium"}), encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def _raise_for_marker(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == marker:
+            raise OSError("unreadable marker")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _raise_for_marker)
+
+    assert directory_was_created_by_recollectium(managed_dir) is False
+
+
+def test_delete_purge_target_reports_custom_configured_path(
+    tmp_path: Path,
+) -> None:
+    from recollectium.cli import _delete_purge_target
+
+    custom_cache = tmp_path / "shared-cache"
+    custom_cache.mkdir()
+
+    payload = _delete_purge_target(
+        custom_cache,
+        dry_run=False,
+        custom_configured_paths={custom_cache.resolve(strict=False)},
+    )
+
+    assert payload == {
+        "path": str(custom_cache),
+        "deleted": False,
+        "reason": "custom_configured_path",
+    }
+    assert custom_cache.exists()
+
+
+def test_delete_purge_target_reports_unmanaged_path(
+    tmp_path: Path,
+) -> None:
+    from recollectium.cli import _delete_purge_target
+
+    unmanaged = tmp_path / "unmanaged"
+    unmanaged.mkdir()
+
+    payload = _delete_purge_target(unmanaged, dry_run=False)
+
+    assert payload == {
+        "path": str(unmanaged),
+        "deleted": False,
+        "reason": "not_recollectium_owned",
+    }
+    assert unmanaged.exists()
+
+
+def test_delete_purge_target_deletes_owned_file(
+    tmp_path: Path,
+) -> None:
+    from recollectium.cli import _delete_purge_target
+
+    owned_file = tmp_path / "config.json"
+    owned_file.write_text("{}", encoding="utf-8")
+
+    payload = _delete_purge_target(
+        owned_file,
+        dry_run=False,
+        owned_paths={owned_file.resolve(strict=False)},
+    )
+
+    assert payload == {"path": str(owned_file), "deleted": True}
+    assert not owned_file.exists()
+
+
+def test_purge_targets_skips_missing_directory_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.cli import _UninstallConfig, _UninstallPlan, _purge_targets
+
+    root = tmp_path / "recollectium"
+    nested = root / "nested"
+    nested.mkdir(parents=True)
+    (root / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (nested / "recollectium.db").write_text("data", encoding="utf-8")
+    config = _UninstallConfig(
+        effective_config=deepcopy(DEFAULTS),
+        xdg_dirs={
+            "data": root,
+            "cache": tmp_path / "cache",
+            "logs": tmp_path / "logs",
+            "runtime": tmp_path / "runtime",
+        },
+        config_path=tmp_path / "config.json",
+        database_path=nested / "recollectium.db",
+    )
+    plan = _UninstallPlan(
+        config=config,
+        config_path=config._config_file_path,
+        database_path=config._resolved_db_path,
+        install_metadata_path=tmp_path / "install.json",
+        model_cache_path=tmp_path / "models",
+    )
+
+    def _iterdir(self: Path):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(Path, "iterdir", _iterdir)
+
+    payload = _purge_targets(plan, dry_run=False)
+
+    assert any(
+        item["path"] == str(nested / "recollectium.db") for item in payload["deleted"]
+    )
+    assert any(
+        item["path"] == str(root) and item["deleted"] for item in payload["targets"]
+    )
+
+
+def test_purge_targets_skips_suspicious_config_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.cli import _UninstallConfig, _UninstallPlan, _purge_targets
+
+    suspicious_root = tmp_path / "current"
+    monkeypatch.setattr(Path, "cwd", lambda: suspicious_root)
+    config = _UninstallConfig(
+        effective_config=deepcopy(DEFAULTS),
+        xdg_dirs={
+            "data": tmp_path / "data",
+            "cache": tmp_path / "cache",
+            "logs": tmp_path / "logs",
+            "runtime": tmp_path / "runtime",
+        },
+        config_path=suspicious_root / "config.json",
+        database_path=tmp_path / "data" / "recollectium.db",
+    )
+    plan = _UninstallPlan(
+        config=config,
+        config_path=suspicious_root,
+        database_path=config._resolved_db_path,
+        install_metadata_path=tmp_path / "install.json",
+        model_cache_path=tmp_path / "models",
+    )
+
+    payload = _purge_targets(plan, dry_run=False)
+
+    assert any(
+        item
+        == {
+            "path": str(suspicious_root),
+            "deleted": False,
+            "reason": "suspicious_path",
+        }
+        for item in payload["skipped"]
+    )
+
+
+def test_purge_targets_deletes_managed_file_target(
+    tmp_path: Path,
+) -> None:
+    from recollectium.cli import _UninstallConfig, _UninstallPlan, _purge_targets
+
+    managed_file = tmp_path / "managed.db"
+    managed_file.write_text("data", encoding="utf-8")
+    config = _UninstallConfig(
+        effective_config=deepcopy(DEFAULTS),
+        xdg_dirs={
+            "data": managed_file,
+            "cache": tmp_path / "other-cache",
+            "logs": tmp_path / "other-logs",
+            "runtime": tmp_path / "other-runtime",
+        },
+        config_path=tmp_path / "configroot" / "config.json",
+        database_path=managed_file,
+    )
+    plan = _UninstallPlan(
+        config=config,
+        config_path=config._config_file_path,
+        database_path=config._resolved_db_path,
+        install_metadata_path=tmp_path / "install.json",
+        model_cache_path=tmp_path / "models",
+    )
+
+    payload = _purge_targets(plan, dry_run=False)
+
+    assert not managed_file.exists()
+    assert any(item["path"] == str(managed_file) for item in payload["deleted"])
+
+
+def test_purge_targets_continues_when_directory_entry_disappears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium.cli import _UninstallConfig, _UninstallPlan, _purge_targets
+
+    root = tmp_path / "recollectium"
+    child = root / "child"
+    child.mkdir(parents=True)
+    (root / ".recollectium-managed-directory.json").write_text(
+        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
+    )
+    (child / "recollectium.db").write_text("data", encoding="utf-8")
+    config = _UninstallConfig(
+        effective_config=deepcopy(DEFAULTS),
+        xdg_dirs={
+            "data": root,
+            "cache": tmp_path / "cache",
+            "logs": tmp_path / "logs",
+            "runtime": tmp_path / "runtime",
+        },
+        config_path=tmp_path / "config.json",
+        database_path=child / "recollectium.db",
+    )
+    plan = _UninstallPlan(
+        config=config,
+        config_path=config._config_file_path,
+        database_path=config._resolved_db_path,
+        install_metadata_path=tmp_path / "install.json",
+        model_cache_path=tmp_path / "models",
+    )
+    original_is_dir = Path.is_dir
+    root_is_dir_calls = 0
+
+    def _is_dir(self: Path) -> bool:
+        nonlocal root_is_dir_calls
+        if self == root:
+            root_is_dir_calls += 1
+            return root_is_dir_calls == 1
+        return original_is_dir(self)
+
+    monkeypatch.setattr(Path, "is_dir", _is_dir)
+
+    payload = _purge_targets(plan, dry_run=False)
+
+    assert any(
+        item["path"] == str(child / "recollectium.db") for item in payload["deleted"]
+    )
+    assert all(item["path"] != str(child) for item in payload["deleted"])
+    assert any(
+        item["path"] == str(root) and not item["deleted"] for item in payload["targets"]
+    )
+
+
 def test_cli_reinstall_after_safe_uninstall_reuses_existing_config_and_database(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
