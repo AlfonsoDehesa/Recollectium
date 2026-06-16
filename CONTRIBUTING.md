@@ -470,9 +470,11 @@ Pull request workflow runs use concurrency cancellation for superseded PR commit
 
 Releases are created automatically when a version tag is pushed. Maintainers should do the tag and release from a clean `main` checkout after the release-prep PR is merged.
 
-The release-prep PR is the single PR for the release sweep. It is a normal PR with a release-specific scope and should contain the Phase A audit, any fixes required by that audit, and the version and changelog preparation for the target release:
+The release-prep PR is the single PR for the release sweep. It is a normal PR with a release-specific scope and should use the release template, which already contains the full release gate checklist plus the quality checks, version, changelog, and post-release sections. Fill that template in one place instead of duplicating the gate elsewhere.
 
-- Confirm every item in the release gate below or fix the gap in the release-prep PR.
+The release-prep PR should contain the Phase A audit, any fixes required by that audit, and the version and changelog preparation for the target release:
+
+- Confirm every item in the release gate in the release template below or fix the gap in the release-prep PR.
 - Bump `version` in `pyproject.toml`.
 - Move the curated `CHANGELOG.md` entries into the target release section.
 - Update docs for gaps found during the release gate.
@@ -480,7 +482,7 @@ The release-prep PR is the single PR for the release sweep. It is a normal PR wi
 Release steps:
 
 1. Choose the target version and confirm the intended tag, such as `v1.0.0`.
-2. Open the release-prep PR against `main` with the release template, for example with `?template=release.md`, and summarize the status of the applicable gates by gate name.
+2. Open the release-prep PR against `main` with the release template, for example with `?template=release.md`, and fill the full gate checklist, quality checks, version, changelog, and release sections in that template.
 3. Complete the release gate below in the release-prep PR. Fix any release-blocking gaps in that same PR.
 4. Bump the version and prepare the changelog in the release-prep PR after the audit scope is known.
 5. Run the required quality gates in the release-prep PR before merge and record the results in the PR.
