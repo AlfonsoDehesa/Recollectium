@@ -141,6 +141,13 @@ SearchUser = Callable[[str, int], list[SearchResult]]
 SearchWorkspace = Callable[[str, str, int], list[SearchResult]]
 
 
+def _format_threshold(value: float) -> str:
+    """Format threshold values without padding trailing zeros."""
+
+    formatted = format(Decimal(str(value)).normalize(), "f")
+    return formatted.rstrip("0").rstrip(".") or "0"
+
+
 def threshold_cases_from_fixture() -> tuple[ThematicContextLabelCase, ...]:
     """Return the validated PR1 thematic label cases."""
 
@@ -614,7 +621,7 @@ def write_threshold_png(
         color="black",
         linestyle="--",
         linewidth=1.5,
-        label=f"recommended {report.recommended_threshold:.2f}",
+        label=f"recommended {_format_threshold(report.recommended_threshold)}",
     )
     ax_main.set_ylabel("score")
     ax_main.set_ylim(0.0, 1.05)
@@ -684,7 +691,7 @@ def report_summary_lines(
     lines.extend(
         [
             f"  Output: {output_path}",
-            f"  Recommendation: {report.recommended_threshold:.2f}",
+            f"  Recommendation: {_format_threshold(report.recommended_threshold)}",
         ]
     )
     if recommended_row is not None:
@@ -708,7 +715,7 @@ def report_summary_lines(
             [
                 format_footer("Result not applied. To apply recommendation, use:"),
                 "recollectium config set retrieval.match_threshold "
-                f"{report.recommended_threshold:.2f}",
+                f"{_format_threshold(report.recommended_threshold)}",
             ]
         )
     lines.append("")
