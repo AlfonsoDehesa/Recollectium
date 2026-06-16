@@ -79,6 +79,7 @@ from recollectium.dev_eval_thematic_weighted import (
     evaluate_thematic_weighted_metrics_for_core,
 )
 from recollectium.dev_optimize_threshold import (
+    DEFAULT_THRESHOLD_BETA,
     build_threshold_optimization_report,
     build_threshold_search_bundles,
     generate_threshold_values,
@@ -5789,7 +5790,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "  Weighted recall: Checks how much of the total useful labeled set the returned "
             "set captures, using the same relevance weights.\n"
             "  Weighted F-beta: Combines weighted precision and weighted recall so the sweep "
-            "can rank thresholds by the chosen precision-recall balance.\n"
+            "can rank thresholds by the chosen precision-recall balance. The default is F0.5, "
+            "which biases toward precision.\n"
             "  Exposure: Checks the share of the returned set that is confuser or unrelated, "
             "where lower is better. Confuser exposure and unrelated exposure are reported "
             "separately.\n"
@@ -5831,8 +5833,8 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_optimize_parser.add_argument(
         "--beta",
         type=float,
-        default=1.0,
-        help="F-beta beta value. Must be > 0. Default: 1.0.",
+        default=DEFAULT_THRESHOLD_BETA,
+        help="F-beta beta value. Must be > 0. Default: 0.5 (F0.5).",
     )
     dev_optimize_parser.add_argument(
         "--write-config",

@@ -88,7 +88,7 @@ def test_resolve_match_threshold_accepts_all_sources() -> None:
             config_value=0.6,
             embedding_model="BAAI/bge-base-en-v1.5",
         )
-        == 0.58
+        == 0.63
     )
 
     assert (
@@ -106,7 +106,7 @@ def test_resolve_match_threshold_accepts_all_sources() -> None:
             config_value="model_recommended_default",
             embedding_model="BAAI/bge-base-en-v1.5",
         )
-        == 0.58
+        == 0.63
     )
 
 
@@ -115,13 +115,13 @@ def test_recommended_match_threshold_matches_builtin_model_specs() -> None:
         BUILTIN_FASTEMBED_MODEL_SPECS[
             "BAAI/bge-base-en-v1.5"
         ].recommended_match_threshold
-        == 0.58
+        == 0.63
     )
     assert (
         BUILTIN_FASTEMBED_MODEL_SPECS[
             "jinaai/jina-embeddings-v2-small-en"
         ].recommended_match_threshold
-        == 0.775
+        == 0.78
     )
 
     assert (
@@ -130,7 +130,7 @@ def test_recommended_match_threshold_matches_builtin_model_specs() -> None:
             config_value="model_recommended_default",
             embedding_model="jinaai/jina-embeddings-v2-small-en",
         )
-        == 0.775
+        == 0.78
     )
 
 
@@ -166,7 +166,7 @@ def test_resolve_retrieval_policy_reports_source_precedence() -> None:
         config_match_threshold="model_recommended_default",
         embedding_model="BAAI/bge-base-en-v1.5",
     )
-    assert model_default_policy.match_threshold == 0.58
+    assert model_default_policy.match_threshold == 0.63
     assert model_default_policy.match_threshold_source == "model_recommended_default"
     assert model_default_policy.threshold_filtering_enabled is True
 
@@ -177,7 +177,7 @@ def test_resolve_retrieval_policy_reports_source_precedence() -> None:
         config_match_threshold="model_recommended_default",
         embedding_model="jinaai/jina-embeddings-v2-small-en",
     )
-    assert legacy_model_default_policy.match_threshold == 0.775
+    assert legacy_model_default_policy.match_threshold == 0.78
     assert (
         legacy_model_default_policy.match_threshold_source
         == "model_recommended_default"

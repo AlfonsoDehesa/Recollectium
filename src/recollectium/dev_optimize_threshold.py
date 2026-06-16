@@ -21,6 +21,8 @@ from recollectium.models import SearchResult
 
 ThresholdFormat = Literal["png", "csv"]
 
+DEFAULT_THRESHOLD_BETA = 0.5
+
 _LABEL_USEFUL_VALUE: Mapping[int, float] = {2: 1.0, 1: 0.5, -1: 0.0, -2: 0.0}
 _LABEL_RETRIEVED_COST: Mapping[int, float] = {2: 1.0, 1: 1.0, -1: 1.0, -2: 1.5}
 _LABEL_ORDER: tuple[int, int, int, int] = (2, 1, -1, -2)
@@ -177,7 +179,9 @@ def generate_threshold_values(
 ) -> tuple[float, ...]:
     """Generate inclusive threshold values using Decimal arithmetic."""
 
-    validate_threshold_sweep_parameters(start=start, end=end, step=step, beta=1.0)
+    validate_threshold_sweep_parameters(
+        start=start, end=end, step=step, beta=DEFAULT_THRESHOLD_BETA
+    )
     start_decimal = Decimal(str(start))
     end_decimal = Decimal(str(end))
     step_decimal = Decimal(str(step))

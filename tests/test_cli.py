@@ -553,8 +553,9 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
         in normalized_optimize_help
     )
     assert (
-        "Weighted F-beta: Combines weighted precision and weighted recall"
-        in normalized_optimize_help
+        "Weighted F-beta: Combines weighted precision and weighted recall so the sweep "
+        "can rank thresholds by the chosen precision-recall balance. The default is F0.5, "
+        "which biases toward precision." in normalized_optimize_help
     )
     assert (
         "Exposure: Checks the share of the returned set that is confuser or unrelated"
@@ -2826,6 +2827,9 @@ def test_cli_dev_json_readiness_suppresses_provider_output(
     )
 
     def fake_optimize_threshold(*args: object, **kwargs: object) -> int:
+        if dev_args == ["dev", "optimize-threshold", "--format", "csv"]:
+            optimize_args = cast(Any, kwargs["args"])
+            assert optimize_args.beta == 0.5
         cli_module._emit_success(
             {"status": "optimized"},
             output_format=str(kwargs["output_format"]),
