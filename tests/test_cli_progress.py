@@ -118,8 +118,48 @@ def test_single_line_progress_normal_frame_uses_cr_padding_not_clear_line() -> N
     assert output.count("\r") == 3
     assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
-    assert "A much longer label" in frames[1]
-    assert frames[2].endswith(" ")
+    assert "A much longer label" in output
+    assert "Short" in output
+    assert "working" in output
+    assert "╺" not in output
+    assert "━" not in output
+    assert "%" not in output
+    assert any(frame in output for frame in ("⠋", "⠙", "⠹", "⠸", "⠼"))
+    assert len(frames) == 4
+
+
+def test_single_line_progress_update_with_unknown_total_uses_spinner() -> None:
+    stream = io.StringIO()
+    progress = SingleLineProgressReporter(stream, min_render_interval=0)
+
+    with progress:
+        progress.update("Unknown total", completed=0, total=0)
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Unknown total" in output
+    assert "working" in output
+    assert "%" not in output
+    assert "╺" not in output
+    assert "━" not in output
+
+
+def test_single_line_progress_update_with_known_total_keeps_determinate_bar() -> None:
+    stream = io.StringIO()
+    progress = SingleLineProgressReporter(stream, min_render_interval=0)
+
+    with progress:
+        progress.update("Counted work", completed=0, total=5)
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Counted work" in output
+    assert "0/5" in output
+    assert "%" in output
+    assert "╺" in output or "━" in output
+    assert "working" not in output
 
 
 def test_single_line_progress_does_not_suppress_echo_for_non_tty_streams(

@@ -1906,6 +1906,27 @@ def test_reembedding_progress_reporter_uses_single_line_for_tty() -> None:
     assert "1/2" in output
 
 
+def test_dev_eval_progress_reporter_phase_uses_spinner_without_fake_progress() -> None:
+    stream = io.StringIO()
+    reporter = cli_module._DevEvalProgressReporter(stream, min_render_interval=0)
+
+    with reporter:
+        reporter.phase("Checking embedding provider readiness")
+        reporter.phase("Preparing seeded development database")
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Checking embedding provider readiness" in output
+    assert "Preparing seeded development database" in output
+    assert "working" in output
+    assert "%" not in output
+    assert "╺" not in output
+    assert "━" not in output
+    assert any(frame in output for frame in ("⠋", "⠙", "⠹", "⠸", "⠼"))
+
+
 def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
     stream = _OSErrorIsattyStream()
     reporter = cli_module._DevEvalProgressReporter(stream, min_render_interval=0)
@@ -1939,6 +1960,8 @@ def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
     assert "Semantic" in output
     assert "1/2" in output
     assert "Results" in output
+    assert "%" in output
+    assert "╺" in output or "━" in output
 
 
 def test_live_progress_title_limit_returns_none_when_terminal_size_errors(
@@ -2004,6 +2027,8 @@ def test_dev_eval_progress_reporter_uses_dynamic_line_for_narrow_terminal(
     assert "Exact MRR: workspace" in output
     assert "…" not in output
     assert "49/90" in output
+    assert "%" in output
+    assert "╺" in output or "━" in output
 
 
 def test_dev_eval_progress_reporter_keeps_curated_labels_whole_on_narrow_terminal(
@@ -3669,6 +3694,27 @@ def test_cli_dev_eval_refuses_relative_regular_database_overlap(
 
     with pytest.raises(AssertionError, match="provider should not be constructed"):
         ProviderMustNotBeConstructed()
+
+
+def test_cli_dev_optimize_threshold_progress_reporter_phase_uses_spinner_without_fake_progress() -> None:
+    stream = io.StringIO()
+    reporter = cli_module._ThresholdOptimizationProgressReporter(stream)
+
+    with reporter:
+        reporter.phase("Checking embedding provider readiness")
+        reporter.phase("Loading candidate pools")
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Checking" in output
+    assert "Loading candidate pools" in output
+    assert "working" in output
+    assert "%" not in output
+    assert "╺" not in output
+    assert "━" not in output
+    assert any(frame in output for frame in ("⠋", "⠙", "⠹", "⠸", "⠼"))
 
 
 def test_cli_dev_optimize_threshold_progress_reporter_uses_single_line_and_clears() -> (
