@@ -1355,6 +1355,20 @@ def _human_upgrade_progress_context(
     )
 
 
+def _human_uninstall_progress_context(
+    output_format: str,
+) -> contextlib.AbstractContextManager[object]:
+    if output_format != CLI_OUTPUT_HUMAN_READABLE:
+        return contextlib.nullcontext()
+    if not _stderr_supports_live_progress():
+        return contextlib.nullcontext()
+    return SingleLineStatusSpinner(
+        sys.stderr,
+        title="Uninstall in progress...",
+        details=(),
+    )
+
+
 def _run_command_with_tty_stderr(
     command: list[str], *, timeout_seconds: int, cwd: str | None = None
 ) -> CommandResult:
@@ -4119,6 +4133,7 @@ def _remove_installed_package(
     *,
     dry_run: bool,
     emit_progress: bool = False,
+    output_format: str = CLI_OUTPUT_HUMAN_READABLE,
 ) -> dict[str, Any]:
     metadata = _metadata_with_detected_install_method(metadata)
     payload = _uninstall_package_instructions(metadata)
@@ -4142,13 +4157,16 @@ def _remove_installed_package(
         }
         return payload
 
+    progress_context: contextlib.AbstractContextManager[object]
     if emit_progress:
-        sys.stderr.write("Uninstall in progress...\n")
-        sys.stderr.flush()
+        progress_context = _human_uninstall_progress_context(output_format)
+    else:
+        progress_context = contextlib.nullcontext()
 
     if sys.platform.startswith("win"):
         try:
-            payload["uninstall"] = _schedule_windows_package_removal(command)
+            with progress_context:
+                payload["uninstall"] = _schedule_windows_package_removal(command)
         except FileNotFoundError as exc:
             payload["uninstall"] = {
                 "status": "failed",
@@ -4161,13 +4179,14 @@ def _remove_installed_package(
         return payload
 
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        with progress_context:
+            completed = subprocess.run(
+                command,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
     except FileNotFoundError as exc:
         payload["uninstall"] = {
             "status": "failed",
@@ -4873,6 +4892,7 @@ def _handle_uninstall_command(
         metadata,
         dry_run=args.dry_run,
         emit_progress=compact_human_output,
+        output_format=output_format,
     )
     package_status = package_payload["uninstall"]["status"]
     if not args.purge:
