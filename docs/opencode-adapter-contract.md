@@ -51,11 +51,15 @@ A Recollectium adapter should:
 ## Service discovery contract
 
 For same-machine workflows, use the machine-readable discovery command rather
-than hardcoding host, port, or service paths:
+than hardcoding host, port, or service paths. Use `recollectium service discover --json`
+for adapter parsing, and add `--verbose` when you need the full payload:
 
 ```bash
-recollectium service discover
+recollectium service discover --json
 ```
+
+The bare `recollectium service discover` command is for human-readable output,
+not adapter parsing.
 
 Local discovery is the first step for same-machine adapter workflows. For
 same-machine installs, discovery should be automatic and the adapter should not
@@ -70,9 +74,10 @@ health, version, and capability validation described below. Because Recollectium
 v1 services are unauthenticated, that endpoint should only be reachable through
 private networking and external access controls.
 
-Discovery returns JSON with a top-level `status` field (`"running"` or `"not_running"`)
-and nested `service`, `versions`, and `paths` objects. See
-`docs/local-service-api.md` for the complete running and not-running response
+Verbose discovery returns JSON with a top-level `status` field (`"running"` or
+`"not_running"`) and nested `service`, `versions`, and `paths` objects. Compact
+JSON can be minimal, so use `--verbose` when you need the full payload. See
+`docs/local-service-api.md` for the verbose running and not-running response
 shapes.
 
 Adapter behavior:
@@ -93,7 +98,7 @@ service in this order. This validation checks compatibility only; it does not
 authenticate the adapter or authorize access:
 
 1. Resolve the endpoint:
-   - For same-machine use, run `recollectium service discover` and use the returned
+   - For same-machine use, run `recollectium service discover --json` and use the returned
      `health_url`, `version_url`, and `capabilities_url`.
    - For private-network split-machine Core use, read the explicit plugin configuration and
      derive `/v1/health`, `/v1/version`, and `/v1/capabilities` from the
@@ -269,10 +274,11 @@ identity.
 2. Start the local service or configure the plugin with the remote Core base URL.
    Remote Core endpoints must be protected with private networking and external
    access controls because Recollectium v1 services are unauthenticated.
-3. For same-machine use, run `recollectium service discover`. If the plugin is set
+3. For same-machine use, run `recollectium service discover --json`. If the plugin is set
    to local autodiscovery and discovery reports `not_running`, attempt
    `recollectium service start api` and then rerun discovery. For remote Core use,
-   read the explicit plugin endpoint.
+   read the configured base URL and continue with the health, version, and
+   capability validation.
 4. Validate health, version, and capabilities against the resolved endpoint.
 5. Prompt the model to select the active workspace UID candidate from the
    project it is currently working in: use the project base folder name, prefer

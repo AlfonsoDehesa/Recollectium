@@ -43,10 +43,12 @@ recollectium --db /path/to/recollectium.db dev serve --host 127.0.0.1 --port 876
 Adapters and plugins should discover the local service with:
 
 ```bash
-recollectium service discover
+recollectium service discover --json
 ```
 
-The command exits `0` when a managed service is running, exits `1` when no service is running, and exits `2` when config or discovery metadata is invalid. It prints human-readable output on stdout by default and does not create a config file just to inspect discovery state. Use `recollectium service discover --json` in adapters and scripts.
+The bare command prints human-readable output on stdout by default and does not create a config file just to inspect discovery state. Use `recollectium service discover --json` in adapters and scripts for machine-readable discovery. Add `--verbose` or set `response_verbosity=verbose` when you need the full payload shown below. The command exits `0` when a managed service is running, exits `1` when no service is running, and exits `2` when config or discovery metadata is invalid.
+
+Compact JSON output can be minimal. For example, when no service is running it may return `{"status":"not_running"}`.
 
 Running response shape:
 

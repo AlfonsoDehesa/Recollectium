@@ -1,8 +1,8 @@
 # Roadmap
 
-## v1.0.0: Core release
+## v1.0.0: Historical core release
 
-Recollectium Core is at v1.0.0. The release includes the local memory core, CLI, Python API, local HTTP API, MCP stdio, managed MCP service, local embeddings, service lifecycle, install, upgrade, uninstall, logging, shell completion, workspace UID management, configuration, and adapter discovery contract.
+Recollectium Core is now at v1.1.0. The v1.0.0 section below is historical and records the local memory core, CLI, Python API, local HTTP API, MCP stdio, managed MCP service, local embeddings, service lifecycle, install, upgrade, uninstall, logging, shell completion, workspace UID management, configuration, and adapter discovery contract that shipped in the initial release.
 
 Completed in v1.0.0:
 
