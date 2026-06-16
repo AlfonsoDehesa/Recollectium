@@ -195,8 +195,10 @@ class SingleLineProgressReporter:
         line = _format_status_line(frame, label, elapsed, "working")
         if line == self._last_rendered_line:
             return
-        if self._write(f"\r{line}"):
-            self._last_line_width = _visible_width(line)
+        line_width = _visible_width(line)
+        padding = " " * max(self._last_line_width - line_width, 0)
+        if self._write(f"\r{line}{padding}"):
+            self._last_line_width = line_width
             self._last_render_at = self._clock()
             self._last_rendered_line = line
 
@@ -433,45 +435,6 @@ class SingleLineStatusSpinner:
         elapsed = self._elapsed_seconds()
         detail = self._current_detail(elapsed)
         return _format_status_line(frame, self._title, elapsed, detail)
-
-    def _fit_line(self, frame: str, title: str, elapsed: int, detail: str) -> str:
-        columns = _terminal_columns()
-        frame_prefix = f"{frame} "
-        elapsed_text = f" — {elapsed}s"
-        detail_separator = " — "
-
-        minimum_status_width = len(frame_prefix) + len(elapsed_text) + 1
-        if columns < minimum_status_width:
-            visible = _truncate_visible(f"{frame_prefix}{title}", columns)
-            return f"\x1b[36m{visible}\x1b[0m"
-
-        available = columns - len(frame_prefix) - len(elapsed_text)
-        compact_title = " ".join(title.split())
-        compact_detail = " ".join(detail.split())
-
-        if (
-            len(compact_title) + len(detail_separator) + len(compact_detail)
-            <= available
-        ):
-            rendered_title = compact_title
-            rendered_detail = compact_detail
-        elif len(compact_title) + len(detail_separator) + 1 <= available:
-            detail_width = available - len(compact_title) - len(detail_separator)
-            rendered_title = compact_title
-            rendered_detail = _truncate_visible(compact_detail, detail_width)
-        elif available >= len(detail_separator) + 2:
-            detail_width = max(1, min(len(compact_detail), available // 3))
-            title_width = available - len(detail_separator) - detail_width
-            rendered_title = _truncate_visible(compact_title, title_width)
-            rendered_detail = _truncate_visible(compact_detail, detail_width)
-        else:
-            rendered_title = _truncate_visible(compact_title, available)
-            rendered_detail = ""
-
-        colored_status = f"\x1b[36m{frame_prefix}{rendered_title}\x1b[0m{elapsed_text}"
-        if rendered_detail:
-            return f"{colored_status}{detail_separator}{rendered_detail}"
-        return colored_status
 
     def _elapsed_seconds(self) -> int:
         start_at = self._start_at

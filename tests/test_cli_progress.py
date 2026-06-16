@@ -47,6 +47,16 @@ class FlushErrorStream(io.StringIO):
         raise OSError("stream flush failed")
 
 
+class RecordingStream(io.StringIO):
+    def __init__(self) -> None:
+        super().__init__()
+        self.writes: list[str] = []
+
+    def write(self, text: str) -> int:
+        self.writes.append(text)
+        return super().write(text)
+
+
 class TTYStringIO(io.StringIO):
     def __init__(
         self,
@@ -126,6 +136,38 @@ def test_single_line_progress_normal_frame_uses_cr_padding_not_clear_line() -> N
     assert "%" not in output
     assert any(frame in output for frame in ("⠋", "⠙", "⠹", "⠸", "⠼"))
     assert len(frames) == 4
+
+
+def test_single_line_progress_status_shorter_render_pads_previous_width(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_progress, "_STATUS_SPINNER_FRAMES", ("⠋",))
+    current_time = 100.0
+
+    def clock() -> float:
+        return current_time
+
+    stream = RecordingStream()
+    progress = SingleLineProgressReporter(
+        stream,
+        clock=clock,
+        min_render_interval=0,
+        title_limit=40,
+    )
+
+    with progress:
+        progress.phase("A much longer label")
+        current_time = 101.0
+        progress.phase("Short")
+
+    first_line = cli_progress._format_status_line("⠋", "A much longer label", 0, "working")
+    second_line = cli_progress._format_status_line("⠋", "Short", 1, "working")
+    padding = len(visible_text(first_line)) - len(visible_text(second_line))
+
+    assert stream.writes[0] == f"\r{first_line}"
+    assert stream.writes[1] == f"\r{second_line}{' ' * padding}"
+    assert stream.writes[2] == "\r\x1b[2K"
+    assert visible_text(stream.getvalue()).endswith("Short" + (" " * padding))
 
 
 def test_single_line_progress_update_with_unknown_total_uses_spinner() -> None:
