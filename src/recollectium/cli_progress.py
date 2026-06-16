@@ -150,6 +150,7 @@ class SingleLineProgressReporter:
         self._last_render_at: float | None = None
         self._last_rendered_line = ""
         self._last_progress_key: tuple[str, int] | None = None
+        self._last_progress_completed: int | None = None
         self._phase_started_at: float | None = None
         self._phase_frame_index = 0
         self._echo_fd: int | None = None
@@ -192,7 +193,13 @@ class SingleLineProgressReporter:
         ]
         elapsed = max(0, int(self._clock() - self._phase_started_at))
         self._phase_frame_index += 1
-        line = _format_status_line(frame, label, elapsed, "working")
+        display_label, curated = self._progress_label(label)
+        short_label = (
+            display_label
+            if curated
+            else compact_live_title(display_label, self._title_limit)
+        )
+        line = _format_status_line(frame, short_label, elapsed, "working")
         if line == self._last_rendered_line:
             return
         line_width = _visible_width(line)
@@ -222,19 +229,26 @@ class SingleLineProgressReporter:
         progress_key = (label, counted_total)
         first_progress_for_key = progress_key != self._last_progress_key
         completed_eval = counted_completed >= counted_total
+        first_nonzero_after_zero = (
+            progress_key == self._last_progress_key
+            and self._last_progress_completed == 0
+            and counted_completed > 0
+        )
         if completed_eval:
             self._position = 100
         else:
             fraction = min(max(counted_completed / counted_total, 0), 1)
             self._position = 5 + int(fraction * 93)
-        self._render(
+        rendered = self._render(
             label,
             self._position,
             counted_completed,
             counted_total,
-            force=first_progress_for_key or completed_eval,
+            force=first_progress_for_key or completed_eval or first_nonzero_after_zero,
         )
-        self._last_progress_key = progress_key
+        if rendered:
+            self._last_progress_key = progress_key
+            self._last_progress_completed = counted_completed
 
     def _render(
         self,
@@ -244,22 +258,24 @@ class SingleLineProgressReporter:
         total: int | None,
         *,
         force: bool = False,
-    ) -> None:
+    ) -> bool:
         line = self._format_line(label, percent, completed, total)
         if line == self._last_rendered_line:
-            return
+            return False
         now = self._clock()
         if (
             not force
             and self._last_render_at is not None
             and now - self._last_render_at < self._min_render_interval
         ):
-            return
+            return False
         padding = " " * max(self._last_line_width - len(line), 0)
         if self._write(f"\r{line}{padding}"):
             self._last_line_width = len(line)
             self._last_render_at = now
             self._last_rendered_line = line
+            return True
+        return False
 
     def _write(self, text: str) -> bool:
         try:

@@ -1918,8 +1918,8 @@ def test_dev_eval_progress_reporter_phase_uses_spinner_without_fake_progress() -
     assert "\n" not in output
     assert "Status:" not in output
     assert output.endswith("\r\x1b[2K")
-    assert "Checking embedding provider readiness" in output
-    assert "Preparing seeded development database" in output
+    assert "Checking provider" in output
+    assert "Preparing dev DB" in output
     assert "working" in output
     assert "%" not in output
     assert "╺" not in output
@@ -3708,8 +3708,8 @@ def test_cli_dev_optimize_threshold_progress_reporter_phase_uses_spinner_without
     assert "\n" not in output
     assert "Status:" not in output
     assert output.endswith("\r\x1b[2K")
-    assert "Checking" in output
-    assert "Loading candidate pools" in output
+    assert "Checking provider" in output
+    assert "Loading candidates" in output
     assert "working" in output
     assert "%" not in output
     assert "╺" not in output
