@@ -8,30 +8,29 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### ✨ Features
 
-- Changed the default built-in FastEmbed model to `BAAI/bge-base-en-v1.5`, with a new default profile tuned for faster, higher-quality embeddings and a legacy supported profile kept available for older installs.
-- Added `recollectium dev eval` and `recollectium dev optimize-threshold` for seeded retrieval quality measurement, threshold sweeps, and recommendation export, with clearer progress reporting and concise or verbose output modes.
-- Expanded embedding maintenance flows so install, upgrade, search, refresh, and dev reset can prepare models, refresh stale embeddings, and clean up embedding jobs with visible human-readable progress.
-- Added product-wide response verbosity controls across the CLI, HTTP API, and MCP surfaces, including compact defaults, verbose overrides, and consistent token-efficient payloads.
-- Added a Recollectium-owned FastEmbed model cache, install metadata that tracks upgrade targets, and uninstall handling that can report and remove cached model artifacts while preserving user memories by default.
-- Added `logging.sensitivity` for redacted default logging with an opt-in full mode, plus workspace alias listing parity through the HTTP API.
+- **NEW DEFAULT MODEL:** switched the built-in FastEmbed default to `BAAI/bge-base-en-v1.5`, with a legacy profile still available for older installs.
+- **MODEL PERFORMANCE EVALUATION:** added `recollectium dev eval` and `recollectium dev optimize-threshold` for seeded quality checks, threshold sweeps, and recommendation exports.
+- **EMBEDDING MAINTENANCE:** expanded install, upgrade, search, refresh, and dev reset flows to prepare models, refresh stale embeddings, and clean up embedding jobs with visible progress.
+- **RESPONSE VERBOSITY CONTROLS:** added compact defaults and verbose overrides across the CLI, HTTP API, and MCP surfaces for cleaner payloads.
+- **MODEL CACHE AND UNINSTALL CLEANUP:** added a Recollectium-owned FastEmbed cache, upgrade tracking metadata, and uninstall handling for cached model artifacts while preserving user memories by default.
+- **SAFER LOGGING:** added `logging.sensitivity` for redacted default logs with an opt-in full mode, plus workspace alias listing parity through the HTTP API.
 
 ### 🐛 Fixes
 
-- Tightened validation and error parity across CLI, HTTP API, and MCP surfaces for invalid fields, enum values, protected thresholds, body-less archive requests, and malformed JSON handling.
-- Fixed OpenAPI and schema coverage so validation errors, search overrides, embedding job filters, and MCP tool arguments are rejected and documented consistently.
-- Improved compact and verbose output parity across workspace operations, lifecycle commands, config and version output, completion handling, and other adapter-facing responses.
-- Fixed foreground serve and MCP startup logging so stderr respects the effective log level, suppresses routine FastMCP noise, and keeps memory-sensitive details redacted.
-- Fixed model readiness, init, and re-embedding flows so progress remains readable, stale cache state is handled correctly, and long refreshes complete inline instead of being stranded in a background daemon queue.
-- Fixed install, upgrade, and uninstall edge cases for macOS state paths, shell PATH repair, `main` tracking, source install detection, and cleanup when metadata is missing.
-- Fixed human-readable CLI output framing and progress rendering so eval, model prep, and memory result lists stay readable without breaking JSON, CSV, or protocol output.
+- **API, MCP, AND CLI PARITY:** tightened validation and error handling for invalid fields, enum values, protected thresholds, archive requests, and malformed JSON.
+- **SCHEMA AND TOOL CONTRACTS:** fixed OpenAPI and schema coverage so validation errors, search overrides, embedding job filters, and MCP tool arguments are rejected and documented consistently.
+- **CONSISTENT OUTPUT FORMATS:** improved compact and verbose output parity across workspace operations, lifecycle commands, config and version output, completion handling, and adapter responses.
+- **QUIETER PROTOCOL OUTPUT:** fixed foreground serve and MCP startup logging so stderr follows the effective log level, hides routine FastMCP noise, and keeps memory-sensitive details redacted.
+- **BETTER PROGRESS REPORTING:** fixed model readiness, init, and re-embedding flows so progress stays readable, stale cache state is handled correctly, and long refreshes complete inline.
+- **INSTALL, UPGRADE, AND UNINSTALL CLEANUP:** fixed macOS state paths, shell PATH repair, `main` tracking, source install detection, and cleanup when metadata is missing.
+- **HUMAN-FRIENDLY CLI OUTPUT:** kept eval, model prep, and memory result lists readable without breaking JSON, CSV, or protocol output.
 
 ### 🧹 Chores
 
-- Removed top-level `recollectium serve`; use `recollectium dev serve` for foreground development work or `recollectium service start api` for managed service startup.
-- Refreshed docs for foreground serving, service discovery, API and MCP parity, the OpenCode adapter contract, and the broader release notes and contributor guidance.
-- Hardened CI and release automation, including Node 24 GitHub Actions, release workflow checks, and installer smoke coverage.
-- Added test and fixture updates for installer selection, seeded evaluation metadata, and retrieval-quality scoring datasets.
-- Refreshed seeded development memories and public-safe fixtures for repeatable local testing and retrieval experiments.
+- **SERVICE COMMANDS:** removed top-level `recollectium serve`; use `recollectium dev serve` for foreground development or `recollectium service start api` for managed startup.
+- **RELEASE DOCS AND ADAPTER GUIDANCE:** refreshed docs for foreground serving, service discovery, API and MCP parity, the OpenCode adapter contract, and release notes guidance.
+- **CI AND FIXTURE HARDENING:** hardened release automation, Node 24 GitHub Actions, installer smoke coverage, and test fixtures for installer selection and seeded evaluation data.
+- **REPEATABLE DEV DATA:** refreshed seeded development memories and public-safe fixtures for local testing and retrieval experiments.
 
 ## v1.0.0
 
