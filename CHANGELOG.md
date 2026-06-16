@@ -8,61 +8,30 @@ This release provides working embedding-powered semantic memory for agents, expo
 
 ### ✨ Features
 
-- Changed the default built-in FastEmbed model to `BAAI/bge-base-en-v1.5`.
-  - Default profile: `builtin-fastembed-bge-base-en-v1-5-v1`, 768 dimensions, 512 max tokens, 384 chunk tokens, 64 overlap tokens.
-  - Legacy supported profile: `jinaai/jina-embeddings-v2-small-en`, `builtin-fastembed-jina-v2-small-en-v1`, 512 dimensions, 8192 max tokens, 6144 chunk tokens, 512 overlap tokens.
-- Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Weighted Precision@10, Thematic Weighted Recall@10, and Ranked-set NDCG@5 separately without a combined score; it now uses live progress indicators for preparation and counted phases, and concise mode is much shorter while verbose mode preserves the detailed seeded-db/diagnostics view.
-- Added counted seeded database preparation progress for interactive `recollectium dev true`, `dev reset`, and seeded dev fixture preparation while preserving quiet JSON and redirected-stderr contracts.
-- Added `recollectium dev optimize-threshold`, a seeded threshold optimizer that writes CSV or PNG sweep reports, marks a recommended `retrieval.match_threshold`, supports configurable F-beta precision/recall tradeoffs, shows human-readable progress with scoring ETA, and can optionally persist the recommendation with `--write-config`.
-- Added explicit stale-embedding refresh and embedding job cleanup controls across CLI, HTTP API, and MCP.
-- Added human-readable CLI re-embedding progress on search and embedding refresh commands while preserving JSON stdout contracts.
-- Added install and upgrade embedding maintenance so bootstrap installs and successful package upgrades prepare the configured model and refresh stale or missing embeddings inline when needed.
-- Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
-- Added compact `recollectium upgrade` and `recollectium uninstall` human-readable sentences while preserving detailed verbose and structured JSON plans.
-- Added product-wide response verbosity controls. CLI, API, and MCP now default to compact payloads for token efficiency, with `response_verbosity`, `--compact`/`--verbose`, API query/header controls, and MCP `verbosity` tool parameters for full-detail inspection when needed.
-- Added a Recollectium-owned FastEmbed model cache under `directories.cache` so heavy model artifacts can be reported and removed on uninstall while preserving memories by default.
-- Added `logging.sensitivity` with a redacted default for memory-sensitive log context and an explicit `full` mode for local debugging.
-- Added an HTTP endpoint for listing all workspace aliases to match CLI and MCP alias-listing parity.
+- Changed the default built-in FastEmbed model to `BAAI/bge-base-en-v1.5`, with a new default profile tuned for faster, higher-quality embeddings and a legacy supported profile kept available for older installs.
+- Added `recollectium dev eval` and `recollectium dev optimize-threshold` for seeded retrieval quality measurement, threshold sweeps, and recommendation export, with clearer progress reporting and concise or verbose output modes.
+- Expanded embedding maintenance flows so install, upgrade, search, refresh, and dev reset can prepare models, refresh stale embeddings, and clean up embedding jobs with visible human-readable progress.
+- Added product-wide response verbosity controls across the CLI, HTTP API, and MCP surfaces, including compact defaults, verbose overrides, and consistent token-efficient payloads.
+- Added a Recollectium-owned FastEmbed model cache, install metadata that tracks upgrade targets, and uninstall handling that can report and remove cached model artifacts while preserving user memories by default.
+- Added `logging.sensitivity` for redacted default logging with an opt-in full mode, plus workspace alias listing parity through the HTTP API.
 
 ### 🐛 Fixes
 
-- Fixed surface-audit polish gaps across CLI argparse JSON errors, deterministic output flag conflicts, API validation details and body-less archive validation, MCP error envelopes and schemas, embedding job clear state constraints, memory type schemas, and log redaction.
-- Fixed local API OpenAPI validation-error responses to advertise the Recollectium 400 `validation_error` envelope and tightened MCP search override schemas for protected minimum and match threshold constraints.
-- Fixed local API request validation to reject unknown JSON body fields and documented search threshold request options consistently.
-- Fixed API/CLI/MCP list and embedding-job filters to reject invalid enum values consistently, tightened bool/int query docs and OpenAPI, and documented the malformed JSON error message accurately.
-- Fixed MCP tool runtime argument handling so unknown extra tool arguments are rejected at execution time, not only in schemas.
-- Fixed Recollectium MCP stdio startup so routine FastMCP/Rich INFO noise is suppressed from stderr while warnings and errors are preserved.
-- Fixed foreground `recollectium dev serve` logging so stderr follows the effective configured log level and includes successful HTTP access logs at info/debug while one-shot CLI commands keep warning-only stderr logs.
-- Fixed remaining response-verbosity audit gaps for CLI version/config/completion/dev/db-status output, API route documentation coverage, API search default-limit docs, and MCP compact/verbose regression tests.
-- Fixed `recollectium config --validate --help` to describe effective read-only config validation instead of stale exit-code details.
-- Fixed compact response parity for workspace operations, embedding job counts, config JSON mutations, and lifecycle command JSON so adapters receive consistent token-efficient payloads across CLI, API, and MCP.
-- Tightened compact human init and config UX with one-sentence success/no-op messages, config validation output, skipped config mutations, and init stale-embedding refresh coverage.
-- Re-embedding now runs inline for the triggering CLI command, API request, or MCP tool call so large refreshes finish durably instead of being stranded in a process-local background daemon queue.
-- Fixed bootstrap install metadata on macOS so `recollectium upgrade` reads installs from the same state directory the installer writes.
-- Fixed `main`-tracking bootstrap installs to record the installed commit SHA so immediate `recollectium upgrade` no-ops when remote `main` has not moved.
-- Fixed `main`-tracking upgrades to compare installed and remote commit SHAs so `--check`, `--dry-run`, and plain upgrades skip work when already current unless `--force` is used.
-- Fixed uninstall planning for direct pip, pipx, and uv tool installs when install metadata is missing.
-- Fixed source upgrade detection so package installs launched from a Recollectium checkout are not misclassified as source checkouts.
-- Fixed bootstrap installs for macOS zsh users so the Recollectium CLI path is added to zsh startup files.
-- Fixed bootstrap PATH repair so malformed or empty managed path blocks are rewritten with the current uv tool bin export.
-- Suppressed uv bootstrap PATH warnings while keeping durable shell PATH edits based on the user's original terminal environment.
-- Clarified bootstrap installer PATH guidance when the current shell cannot see the installed command yet.
-- Fixed model cache status and uninstall cleanup reporting for custom embedding providers and Recollectium-owned FastEmbed cache paths.
-- Fixed `recollectium dev eval` human-readable TTY progress so it updates one pretty stderr line and clears before the final summary instead of printing a line per progress update.
-- Fixed human-readable CLI output framing so final output and argparse help start with a blank line and end with a trailing blank line while JSON, CSV, completion, and protocol output stay byte-clean.
-- Fixed model readiness progress so human-readable CLI model preparation uses an honest spinner/status line with model and cache state instead of a determinate-looking progress bar, while still clearing before final output.
-- Fixed `recollectium init` so interactive runs show transient re-embedding progress after model readiness while JSON and non-TTY output stay quiet.
-- Fixed CLI embedding readiness so stale model state no longer hides missing FastEmbed cache artifacts and development commands no longer leak raw provider download output.
-- Fixed human-readable memory result lists so the result count and each memory entry are separated by a blank line.
+- Tightened validation and error parity across CLI, HTTP API, and MCP surfaces for invalid fields, enum values, protected thresholds, body-less archive requests, and malformed JSON handling.
+- Fixed OpenAPI and schema coverage so validation errors, search overrides, embedding job filters, and MCP tool arguments are rejected and documented consistently.
+- Improved compact and verbose output parity across workspace operations, lifecycle commands, config and version output, completion handling, and other adapter-facing responses.
+- Fixed foreground serve and MCP startup logging so stderr respects the effective log level, suppresses routine FastMCP noise, and keeps memory-sensitive details redacted.
+- Fixed model readiness, init, and re-embedding flows so progress remains readable, stale cache state is handled correctly, and long refreshes complete inline instead of being stranded in a background daemon queue.
+- Fixed install, upgrade, and uninstall edge cases for macOS state paths, shell PATH repair, `main` tracking, source install detection, and cleanup when metadata is missing.
+- Fixed human-readable CLI output framing and progress rendering so eval, model prep, and memory result lists stay readable without breaking JSON, CSV, or protocol output.
 
 ### 🧹 Chores
 
-- Removed top-level `recollectium serve`; use `recollectium dev serve` for foreground development/debug serving or `recollectium service start api` for the managed service.
-- Hardened CI diagnostics, contributor guardrails, and Node 24-based GitHub Actions.
-- Added installer selector metadata test coverage and CI install-smoke metadata assertions.
-- Added stable seeded-memory `eval_key` metadata and a checked-in thematic query-memory label dataset for future retrieval-quality scoring work.
-- Updated seeded development memory fixtures with unique fictional user and project memories safe for public repositories, without visible deterministic label prefixes in stored content.
-- Refreshed workspace seeded development memories so each dummy workspace has three 10-memory themes for retrieval efficacy testing.
+- Removed top-level `recollectium serve`; use `recollectium dev serve` for foreground development work or `recollectium service start api` for managed service startup.
+- Refreshed docs for foreground serving, service discovery, API and MCP parity, the OpenCode adapter contract, and the broader release notes and contributor guidance.
+- Hardened CI and release automation, including Node 24 GitHub Actions, release workflow checks, and installer smoke coverage.
+- Added test and fixture updates for installer selection, seeded evaluation metadata, and retrieval-quality scoring datasets.
+- Refreshed seeded development memories and public-safe fixtures for repeatable local testing and retrieval experiments.
 
 ## v1.0.0
 
