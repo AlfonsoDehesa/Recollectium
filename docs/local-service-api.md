@@ -50,7 +50,7 @@ The bare command prints human-readable output on stdout by default and does not 
 
 Compact JSON output can be minimal. For example, when no service is running it may return `{"status":"not_running"}`.
 
-Running response shape:
+Verbose running response shape:
 
 ```json
 {
@@ -78,7 +78,7 @@ Running response shape:
 }
 ```
 
-Not-running response shape:
+Verbose not-running response shape:
 
 ```json
 {
