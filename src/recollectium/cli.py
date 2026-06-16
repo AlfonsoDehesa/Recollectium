@@ -4891,7 +4891,7 @@ def _handle_uninstall_command(
     package_payload = _remove_installed_package(
         metadata,
         dry_run=args.dry_run,
-        emit_progress=compact_human_output,
+        emit_progress=compact_human_output or verbose_human_output,
         output_format=output_format,
     )
     package_status = package_payload["uninstall"]["status"]

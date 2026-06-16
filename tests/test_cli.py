@@ -9140,6 +9140,46 @@ def test_cli_uninstall_compact_mutating_tty_progress_clears_before_output(
     assert "\n" not in stderr
 
 
+def test_cli_uninstall_verbose_mutating_tty_progress_clears_before_output(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
+    original_spinner = cli_module.SingleLineStatusSpinner
+    monkeypatch.setattr(
+        cli_module,
+        "SingleLineStatusSpinner",
+        lambda *args, **kwargs: original_spinner(
+            *args, autostart_thread=False, **kwargs
+        ),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--verbose", "uninstall"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout.startswith("\nUninstall\n")
+    assert "Status: uninstalled" in stdout
+    assert "Install method: bootstrap" in stdout
+    assert "Uninstall in progress..." in stderr
+    assert stderr.endswith("\r\x1b[2K")
+    assert "\n" not in stderr
+
+
 def test_cli_uninstall_compact_purge_mutating_success_reports_deleted_data(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
