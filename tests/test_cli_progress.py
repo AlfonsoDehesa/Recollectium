@@ -160,7 +160,9 @@ def test_single_line_progress_status_shorter_render_pads_previous_width(
         current_time = 101.0
         progress.phase("Short")
 
-    first_line = cli_progress._format_status_line("⠋", "A much longer label", 0, "working")
+    first_line = cli_progress._format_status_line(
+        "⠋", "A much longer label", 0, "working"
+    )
     second_line = cli_progress._format_status_line("⠋", "Short", 1, "working")
     padding = len(visible_text(first_line)) - len(visible_text(second_line))
 

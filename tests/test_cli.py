@@ -3696,7 +3696,9 @@ def test_cli_dev_eval_refuses_relative_regular_database_overlap(
         ProviderMustNotBeConstructed()
 
 
-def test_cli_dev_optimize_threshold_progress_reporter_phase_uses_spinner_without_fake_progress() -> None:
+def test_cli_dev_optimize_threshold_progress_reporter_phase_uses_spinner_without_fake_progress() -> (
+    None
+):
     stream = io.StringIO()
     reporter = cli_module._ThresholdOptimizationProgressReporter(stream)
 
