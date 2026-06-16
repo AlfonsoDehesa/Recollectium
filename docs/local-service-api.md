@@ -94,6 +94,10 @@ Verbose not-running response shape:
     "pid_file": "/run/user/1000/recollectium/service.pid",
     "discovery_file": "/run/user/1000/recollectium/service-discovery.json"
   },
+  "stale": {
+    "pid_file_removed": true,
+    "discovery_file_removed": true
+  },
   "next_step": "Run `recollectium service start api` to start the local API service."
 }
 ```
