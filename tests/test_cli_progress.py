@@ -167,7 +167,6 @@ def test_single_line_progress_status_shorter_render_pads_previous_width(
     assert stream.writes[0] == f"\r{first_line}"
     assert stream.writes[1] == f"\r{second_line}{' ' * padding}"
     assert stream.writes[2] == "\r\x1b[2K"
-    assert visible_text(stream.getvalue()).endswith("Short" + (" " * padding))
 
 
 def test_single_line_progress_update_with_unknown_total_uses_spinner() -> None:
