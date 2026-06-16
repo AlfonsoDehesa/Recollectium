@@ -1,35 +1,33 @@
 # Changelog
 
-Recollectium v1.0 is here! 🎉
-
-This release provides working embedding-powered semantic memory for agents, exposed through a pretty CLI, JSON CLI, MCP stdio, MCP HTTP, and an HTTP API. It gives agents a local place to remember useful context across sessions, search it semantically, and keep workspace knowledge separate from user-level memory.
+Recollectium gives AI tools a local memory they can search across sessions. It keeps useful context on your machine, separates personal memory from workspace memory, and exposes the same memory system through the CLI, API, and MCP integrations.
 
 ## Unreleased
 
 ### ✨ Features
 
-- **NEW DEFAULT MODEL:** switched the built-in FastEmbed default to `BAAI/bge-base-en-v1.5`, with a legacy profile still available for older installs.
-- **MODEL PERFORMANCE EVALUATION:** added `recollectium dev eval` and `recollectium dev optimize-threshold` for seeded quality checks, threshold sweeps, and recommendation exports.
-- **EMBEDDING MAINTENANCE:** expanded install, upgrade, search, refresh, and dev reset flows to prepare models, refresh stale embeddings, and clean up embedding jobs with visible progress.
-- **RESPONSE VERBOSITY CONTROLS:** added compact defaults and verbose overrides across the CLI, HTTP API, and MCP surfaces for cleaner payloads.
-- **MODEL CACHE AND UNINSTALL CLEANUP:** added a Recollectium-owned FastEmbed cache, upgrade tracking metadata, and uninstall handling for cached model artifacts while preserving user memories by default.
-- **SAFER LOGGING:** added `logging.sensitivity` for redacted default logs with an opt-in full mode, plus workspace alias listing parity through the HTTP API.
+- **BETTER DEFAULT SEARCH MODEL:** the built-in default is now `BAAI/bge-base-en-v1.5`, which gives better search results while keeping memory lookups fast and inexpensive. If you prefer speed over accuracy, you can still choose the lighter older model in your settings.
+- **TOOLS FOR TESTING SEARCH QUALITY:** added `recollectium dev eval` and `recollectium dev optimize-threshold` to compare search models and tune the cutoff for what counts as a match. These are the tools used before adding model support, and users can run them too when they want to test their own data.
+- **SEARCH THRESHOLD CUTOFF:** added a match cutoff for search results, so Recollectium can favor either more recall or fewer false matches. Advanced users can set a number, turn the cutoff off with `null`, or let Recollectium follow the recommended default for the selected model when one is provided.
+- **CHECK AND PREPARE WHAT IT NEEDS:** install, upgrade, search, refresh, and reset flows now check and prepare the model and memory pieces they need, which helps avoid stale-model and stale-memory problems and makes recovery clearer when something needs attention.
+- **CLEARER OUTPUT OPTIONS:** compact output is now the default, with verbose output still available when you want more detail in the CLI, API, or MCP tools.
+- **MODEL DOWNLOADS AND CLEANUP:** Recollectium now manages its own FastEmbed cache, keeps track of upgrades, and cleans up cached model files during uninstall without removing your memories.
+- **SAFER LOGGING:** added `logging.sensitivity` so normal logs stay redacted by default, with a full-detail option when you need it. Workspace alias listing now matches across the HTTP API too.
 
 ### 🐛 Fixes
 
-- **API, MCP, AND CLI PARITY:** tightened validation and error handling for invalid fields, enum values, protected thresholds, archive requests, and malformed JSON.
-- **SCHEMA AND TOOL CONTRACTS:** fixed OpenAPI and schema coverage so validation errors, search overrides, embedding job filters, and MCP tool arguments are rejected and documented consistently.
-- **CONSISTENT OUTPUT FORMATS:** improved compact and verbose output parity across workspace operations, lifecycle commands, config and version output, completion handling, and adapter responses.
-- **QUIETER PROTOCOL OUTPUT:** fixed foreground serve and MCP startup logging so stderr follows the effective log level, hides routine FastMCP noise, and keeps memory-sensitive details redacted.
-- **BETTER PROGRESS REPORTING:** fixed model readiness, init, and re-embedding flows so progress stays readable, stale cache state is handled correctly, and long refreshes complete inline.
-- **INSTALL, UPGRADE, AND UNINSTALL CLEANUP:** fixed macOS state paths, shell PATH repair, `main` tracking, source install detection, and cleanup when metadata is missing.
-- **HUMAN-FRIENDLY CLI OUTPUT:** kept eval, model prep, and memory result lists readable without breaking JSON, CSV, or protocol output.
+- **MORE CONSISTENT INPUT CHECKS:** tightened validation and error handling for bad field names, invalid option values, protected thresholds, archive requests, and malformed JSON.
+- **MATCHES ARE EASIER TO READ:** improved search, model setup, and re-embedding progress so long-running work is easier to follow and stale cache state is handled correctly.
+- **MATCHING OUTPUT ACROSS INTERFACES:** kept CLI, API, and MCP responses aligned for workspace operations, service commands, config and version output, completions, and adapters.
+- **LESS NOISE IN LOGS:** foreground service and MCP startup logs now follow the active log level, hide routine FastMCP noise, and keep sensitive memory details redacted.
+- **BETTER FAILURE MESSAGES:** improved install and model readiness errors so offline setups, model downloads, and recovery steps are easier to understand.
+- **CLEANER CLI LISTS:** eval results, model prep output, and memory lists stay readable without breaking JSON, CSV, or protocol output.
 
 ### 🧹 Chores
 
-- **SERVICE COMMANDS:** removed top-level `recollectium serve`; use `recollectium dev serve` for foreground development or `recollectium service start api` for managed startup.
-- **RELEASE DOCS AND ADAPTER GUIDANCE:** refreshed docs for foreground serving, service discovery, API and MCP parity, the OpenCode adapter contract, and release notes guidance.
-- **CI AND FIXTURE HARDENING:** hardened release automation, Node 24 GitHub Actions, installer smoke coverage, and test fixtures for installer selection and seeded evaluation data.
+- **SERVICE COMMANDS:** removed top-level `recollectium serve`; use `recollectium dev serve` for local development or `recollectium service start api` for managed startup.
+- **DOCS AND RELEASE NOTES:** refreshed the docs for foreground serving, service discovery, API and MCP parity, the OpenCode adapter contract, and release notes guidance.
+- **TESTS AND RELEASE SUPPORT:** strengthened release automation, Node 24 GitHub Actions, installer smoke tests, and fixtures for installer selection and seeded evaluation data.
 - **REPEATABLE DEV DATA:** refreshed seeded development memories and public-safe fixtures for local testing and retrieval experiments.
 
 ## v1.0.0
