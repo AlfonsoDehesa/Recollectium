@@ -123,7 +123,7 @@ Read [SECURITY.md](SECURITY.md) before changing service host settings or exposin
 
 ## Project status
 
-Recollectium Core v1.1.0 is the current release. Core includes the CLI, Python API, local HTTP API, MCP stdio, managed MCP service, local embeddings, service lifecycle, install, upgrade, uninstall, logging, and adapter discovery contract.
+Recollectium Core v1.1.1 is the current release. Core includes the CLI, Python API, local HTTP API, MCP stdio, managed MCP service, local embeddings, service lifecycle, install, upgrade, uninstall, logging, and adapter discovery contract.
 
 OpenCode plugin implementation remains a roadmap item.
 
