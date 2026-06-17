@@ -481,6 +481,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--dry-run" in upgrade_help
     assert "--install-method" in upgrade_help
     assert "--version" in upgrade_help
+    assert "--target-version" in upgrade_help
     assert "--main" in upgrade_help
     assert "--allow-main" in upgrade_help
 
@@ -4854,6 +4855,8 @@ def test_completion_help_documents_raw_output_json_exception(capsys) -> None:
     assert "--json is supported only with --install" in normalized_help
     assert "emitted as-is" in completion_help
     assert "omit --json" in completion_help
+    assert "--complete-line" in completion_help
+    assert "--point" in completion_help
 
 
 def test_completion_source_rejects_json_output_flag(capsys) -> None:
@@ -11469,6 +11472,7 @@ def test_cli_completion_dynamic_helper_completes_config_keys(
     assert json.loads(stdout) == [
         "logging.level",
         "logging.format",
+        "logging.sensitivity",
         "logging.max_bytes",
         "logging.backup_count",
     ]
@@ -11840,6 +11844,8 @@ def test_cli_completion_help_includes_completion(
     assert "--source" in completion_help
     assert "--install" in completion_help
     assert "--yes" in completion_help
+    assert "--complete-line" in completion_help
+    assert "--point" in completion_help
     assert "bash" in completion_help
     assert "zsh" in completion_help
     assert "fish" in completion_help

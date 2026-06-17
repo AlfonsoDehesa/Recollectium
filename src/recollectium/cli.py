@@ -200,6 +200,7 @@ _COMPLETABLE_CONFIG_KEYS = [
     "service.port",
     "logging.level",
     "logging.format",
+    "logging.sensitivity",
     "logging.max_bytes",
     "logging.backup_count",
     "directories.data",
@@ -5499,7 +5500,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--target-version",
         dest="version",
         metavar="VERSION",
-        help=argparse.SUPPRESS,
+        help="Compatibility alias for --version. Use the same values as --version.",
     )
     target_group.add_argument(
         "--main",
@@ -6081,16 +6082,20 @@ def _build_parser() -> argparse.ArgumentParser:
             "modifying any file."
         ),
     )
-    # Internal dynamic-completion protocol flags used by generated shell hooks;
-    # hidden from public help because users should invoke completion via shell setup.
+    # Internal dynamic-completion protocol flags used by generated shell hooks.
     action_group.add_argument(
         "--complete-line",
-        help=argparse.SUPPRESS,
+        help=(
+            "Internal completion protocol flag. Pass the current command line to "
+            "generate completions."
+        ),
     )
     completion_parser.add_argument(
         "--point",
         type=int,
-        help=argparse.SUPPRESS,
+        help=(
+            "Internal completion protocol flag. Cursor position within --complete-line."
+        ),
     )
     completion_parser.add_argument(
         "--yes",
