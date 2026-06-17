@@ -66,11 +66,11 @@ def test_ci_service_smoke_script_covers_api_and_mcp_surfaces() -> None:
     assert "def _exercise_api_service" in script
     assert "def _exercise_mcp_service" in script
     assert (
-        "[\n                *recollectium,\n                \"--config\",\n                str(config_path),\n                \"service\",\n                \"start\",\n                \"api\",\n                \"--json\",\n            ]"
+        '[\n                *recollectium,\n                "--config",\n                str(config_path),\n                "service",\n                "start",\n                "api",\n                "--json",\n            ]'
         in script
     )
     assert (
-        "[\n                *recollectium,\n                \"--config\",\n                str(config_path),\n                \"service\",\n                \"start\",\n                \"mcp\",\n                \"--json\",\n            ]"
+        '[\n                *recollectium,\n                "--config",\n                str(config_path),\n                "service",\n                "start",\n                "mcp",\n                "--json",\n            ]'
         in script
     )
     assert '"service", "stop", "--json"' in script
