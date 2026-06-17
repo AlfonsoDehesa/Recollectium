@@ -20,6 +20,8 @@ Clock = Callable[[], float]
 
 _ANSI_SEQUENCE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
+_STATUS_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
 
 def _visible_width(text: str) -> int:
     """Return terminal-visible width for the narrow glyphs used here."""
@@ -47,6 +49,45 @@ def _truncate_visible(text: str, width: int) -> str:
     if width == 1:
         return "…"
     return compact[: width - 1].rstrip() + "…"
+
+
+def _format_status_line(frame: str, title: str, elapsed: int, detail: str) -> str:
+    """Format a compact, honest spinner/status line."""
+
+    columns = _terminal_columns()
+    frame_prefix = f"{frame} "
+    elapsed_text = f" — {elapsed}s"
+    detail_separator = " — "
+
+    minimum_status_width = len(frame_prefix) + len(elapsed_text) + 1
+    if columns < minimum_status_width:
+        visible = _truncate_visible(f"{frame_prefix}{title}", columns)
+        return f"\x1b[36m{visible}\x1b[0m"
+
+    available = columns - len(frame_prefix) - len(elapsed_text)
+    compact_title = " ".join(title.split())
+    compact_detail = " ".join(detail.split())
+
+    if len(compact_title) + len(detail_separator) + len(compact_detail) <= available:
+        rendered_title = compact_title
+        rendered_detail = compact_detail
+    elif len(compact_title) + len(detail_separator) + 1 <= available:
+        detail_width = available - len(compact_title) - len(detail_separator)
+        rendered_title = compact_title
+        rendered_detail = _truncate_visible(compact_detail, detail_width)
+    elif available >= len(detail_separator) + 2:
+        detail_width = max(1, min(len(compact_detail), available // 3))
+        title_width = available - len(detail_separator) - detail_width
+        rendered_title = _truncate_visible(compact_title, title_width)
+        rendered_detail = _truncate_visible(compact_detail, detail_width)
+    else:
+        rendered_title = _truncate_visible(compact_title, available)
+        rendered_detail = ""
+
+    colored_status = f"\x1b[36m{frame_prefix}{rendered_title}\x1b[0m{elapsed_text}"
+    if rendered_detail:
+        return f"{colored_status}{detail_separator}{rendered_detail}"
+    return colored_status
 
 
 def _termios_error_types() -> tuple[type[BaseException], ...]:
@@ -109,11 +150,16 @@ class SingleLineProgressReporter:
         self._last_render_at: float | None = None
         self._last_rendered_line = ""
         self._last_progress_key: tuple[str, int] | None = None
+        self._last_progress_completed: int | None = None
+        self._phase_started_at: float | None = None
+        self._phase_frame_index = 0
         self._echo_fd: int | None = None
         self._echo_attrs: list[Any] | None = None
 
     def __enter__(self) -> SingleLineProgressReporter:
         self._active = True
+        self._phase_started_at = self._clock()
+        self._phase_frame_index = 0
         self._suppress_input_echo()
         return self
 
@@ -128,6 +174,7 @@ class SingleLineProgressReporter:
                 self._last_line_width = 0
                 self._last_rendered_line = ""
             self._active = False
+            self._phase_started_at = None
         finally:
             self._restore_input_echo()
 
@@ -136,9 +183,31 @@ class SingleLineProgressReporter:
 
         if not self._active:
             return
-        if self._position < 5:
-            self._position = min(self._position + 1, 5)
-        self._render(label, self._position, None, None, force=True)
+        self._render_status(label)
+
+    def _render_status(self, label: str) -> None:
+        if self._phase_started_at is None:
+            self._phase_started_at = self._clock()
+        frame = _STATUS_SPINNER_FRAMES[
+            self._phase_frame_index % len(_STATUS_SPINNER_FRAMES)
+        ]
+        elapsed = max(0, int(self._clock() - self._phase_started_at))
+        self._phase_frame_index += 1
+        display_label, curated = self._progress_label(label)
+        short_label = (
+            display_label
+            if curated
+            else compact_live_title(display_label, self._title_limit)
+        )
+        line = _format_status_line(frame, short_label, elapsed, "working")
+        if line == self._last_rendered_line:
+            return
+        line_width = _visible_width(line)
+        padding = " " * max(self._last_line_width - line_width, 0)
+        if self._write(f"\r{line}{padding}"):
+            self._last_line_width = line_width
+            self._last_render_at = self._clock()
+            self._last_rendered_line = line
 
     def update(
         self,
@@ -153,27 +222,33 @@ class SingleLineProgressReporter:
             return
         counted_total = int(total or 0)
         counted_completed = int(completed or 0)
-        if counted_total <= 0 or counted_completed <= 0:
-            self._position = min(self._position + 1, 98)
-            self._render(label, self._position, None, None)
+        if counted_total <= 0:
+            self._render_status(label)
             return
 
         progress_key = (label, counted_total)
         first_progress_for_key = progress_key != self._last_progress_key
         completed_eval = counted_completed >= counted_total
+        first_nonzero_after_zero = (
+            progress_key == self._last_progress_key
+            and self._last_progress_completed == 0
+            and counted_completed > 0
+        )
         if completed_eval:
             self._position = 100
         else:
             fraction = min(max(counted_completed / counted_total, 0), 1)
             self._position = 5 + int(fraction * 93)
-        self._render(
+        rendered = self._render(
             label,
             self._position,
             counted_completed,
             counted_total,
-            force=first_progress_for_key or completed_eval,
+            force=first_progress_for_key or completed_eval or first_nonzero_after_zero,
         )
-        self._last_progress_key = progress_key
+        if rendered:
+            self._last_progress_key = progress_key
+            self._last_progress_completed = counted_completed
 
     def _render(
         self,
@@ -183,22 +258,24 @@ class SingleLineProgressReporter:
         total: int | None,
         *,
         force: bool = False,
-    ) -> None:
+    ) -> bool:
         line = self._format_line(label, percent, completed, total)
         if line == self._last_rendered_line:
-            return
+            return False
         now = self._clock()
         if (
             not force
             and self._last_render_at is not None
             and now - self._last_render_at < self._min_render_interval
         ):
-            return
+            return False
         padding = " " * max(self._last_line_width - len(line), 0)
         if self._write(f"\r{line}{padding}"):
             self._last_line_width = len(line)
             self._last_render_at = now
             self._last_rendered_line = line
+            return True
+        return False
 
     def _write(self, text: str) -> bool:
         try:
@@ -286,7 +363,6 @@ class SingleLineStatusSpinner:
     """Render an honest single-line spinner for indeterminate status work."""
 
     _clear_line = "\r\x1b[2K"
-    _frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
     def __init__(
         self,
@@ -371,49 +447,10 @@ class SingleLineStatusSpinner:
             self._frame_index += 1
 
     def _format_line(self) -> str:
-        frame = self._frames[self._frame_index % len(self._frames)]
+        frame = _STATUS_SPINNER_FRAMES[self._frame_index % len(_STATUS_SPINNER_FRAMES)]
         elapsed = self._elapsed_seconds()
         detail = self._current_detail(elapsed)
-        return self._fit_line(frame, self._title, elapsed, detail)
-
-    def _fit_line(self, frame: str, title: str, elapsed: int, detail: str) -> str:
-        columns = _terminal_columns()
-        frame_prefix = f"{frame} "
-        elapsed_text = f" — {elapsed}s"
-        detail_separator = " — "
-
-        minimum_status_width = len(frame_prefix) + len(elapsed_text) + 1
-        if columns < minimum_status_width:
-            visible = _truncate_visible(f"{frame_prefix}{title}", columns)
-            return f"\x1b[36m{visible}\x1b[0m"
-
-        available = columns - len(frame_prefix) - len(elapsed_text)
-        compact_title = " ".join(title.split())
-        compact_detail = " ".join(detail.split())
-
-        if (
-            len(compact_title) + len(detail_separator) + len(compact_detail)
-            <= available
-        ):
-            rendered_title = compact_title
-            rendered_detail = compact_detail
-        elif len(compact_title) + len(detail_separator) + 1 <= available:
-            detail_width = available - len(compact_title) - len(detail_separator)
-            rendered_title = compact_title
-            rendered_detail = _truncate_visible(compact_detail, detail_width)
-        elif available >= len(detail_separator) + 2:
-            detail_width = max(1, min(len(compact_detail), available // 3))
-            title_width = available - len(detail_separator) - detail_width
-            rendered_title = _truncate_visible(compact_title, title_width)
-            rendered_detail = _truncate_visible(compact_detail, detail_width)
-        else:
-            rendered_title = _truncate_visible(compact_title, available)
-            rendered_detail = ""
-
-        colored_status = f"\x1b[36m{frame_prefix}{rendered_title}\x1b[0m{elapsed_text}"
-        if rendered_detail:
-            return f"{colored_status}{detail_separator}{rendered_detail}"
-        return colored_status
+        return _format_status_line(frame, self._title, elapsed, detail)
 
     def _elapsed_seconds(self) -> int:
         start_at = self._start_at

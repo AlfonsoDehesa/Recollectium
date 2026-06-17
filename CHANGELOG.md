@@ -1,68 +1,39 @@
 # Changelog
 
-Recollectium v1.0 is here! 🎉
-
-This release provides working embedding-powered semantic memory for agents, exposed through a pretty CLI, JSON CLI, MCP stdio, MCP HTTP, and an HTTP API. It gives agents a local place to remember useful context across sessions, search it semantically, and keep workspace knowledge separate from user-level memory.
+Recollectium gives AI tools a local memory they can search across sessions. It keeps useful context on your machine, separates personal memory from workspace memory, and exposes the same memory system through the CLI, API, and MCP integrations.
 
 ## Unreleased
 
+Recollectium v1.1.0 is a quality-of-life release focused on making everyday memory workflows smoother, clearer, and more predictable. Memory lookup is cleaner by default, CLI feedback is easier to follow, shell completion is more complete, and install, upgrade, uninstall, and recovery paths are easier to understand.
+
+This release also tightens cross-platform behavior and documentation so Recollectium feels less surprising when something changes, fails, or needs operator action. Overall, it reduces friction and makes the tool feel more dependable in real agent workflows.
+
 ### ✨ Features
 
-- Changed the default built-in FastEmbed model to `BAAI/bge-base-en-v1.5`.
-  - Default profile: `builtin-fastembed-bge-base-en-v1-5-v1`, 768 dimensions, 512 max tokens, 384 chunk tokens, 64 overlap tokens.
-  - Legacy supported profile: `jinaai/jina-embeddings-v2-small-en`, `builtin-fastembed-jina-v2-small-en-v1`, 512 dimensions, 8192 max tokens, 6144 chunk tokens, 512 overlap tokens.
-- Added `recollectium dev eval`, a seeded retrieval-quality evaluator that reports Exact MRR, Semantic MRR, Thematic Weighted Precision@10, Thematic Weighted Recall@10, and Ranked-set NDCG@5 separately without a combined score; it now uses live progress indicators for preparation and counted phases, and concise mode is much shorter while verbose mode preserves the detailed seeded-db/diagnostics view.
-- Added counted seeded database preparation progress for interactive `recollectium dev true`, `dev reset`, and seeded dev fixture preparation while preserving quiet JSON and redirected-stderr contracts.
-- Added `recollectium dev optimize-threshold`, a seeded threshold optimizer that writes CSV or PNG sweep reports, marks a recommended `retrieval.match_threshold`, supports configurable F-beta precision/recall tradeoffs, shows human-readable progress with scoring ETA, and can optionally persist the recommendation with `--write-config`.
-- Added explicit stale-embedding refresh and embedding job cleanup controls across CLI, HTTP API, and MCP.
-- Added human-readable CLI re-embedding progress on search and embedding refresh commands while preserving JSON stdout contracts.
-- Added install and upgrade embedding maintenance so bootstrap installs and successful package upgrades prepare the configured model and refresh stale or missing embeddings inline when needed.
-- Added upgrade target tracking in install metadata. Bootstrap installs now default to the latest release, explicit upgrades can track latest, a pinned release, or `main`, and `--check`/`--dry-run` remain non-mutating.
-- Added compact `recollectium upgrade` and `recollectium uninstall` human-readable sentences while preserving detailed verbose and structured JSON plans.
-- Added product-wide response verbosity controls. CLI, API, and MCP now default to compact payloads for token efficiency, with `response_verbosity`, `--compact`/`--verbose`, API query/header controls, and MCP `verbosity` tool parameters for full-detail inspection when needed.
-- Added a Recollectium-owned FastEmbed model cache under `directories.cache` so heavy model artifacts can be reported and removed on uninstall while preserving memories by default.
-- Added `logging.sensitivity` with a redacted default for memory-sensitive log context and an explicit `full` mode for local debugging.
-- Added an HTTP endpoint for listing all workspace aliases to match CLI and MCP alias-listing parity.
+- **BETTER DEFAULT SEARCH MODEL:** the built-in default is now `BAAI/bge-base-en-v1.5`, which gives better search results while keeping memory lookups fast and inexpensive. If you prefer speed over accuracy, you can still choose the lighter older model in your settings. Related PRs: [#54](https://github.com/AlfonsoDehesa/Recollectium/pull/54).
+- **TOOLS FOR TESTING SEARCH QUALITY:** added `recollectium dev eval` and `recollectium dev optimize-threshold` so users can compare search models and tune the cutoff for what counts as a match before choosing a setup for their own data. Related PRs: [#53](https://github.com/AlfonsoDehesa/Recollectium/pull/53), [#63](https://github.com/AlfonsoDehesa/Recollectium/pull/63), [#69](https://github.com/AlfonsoDehesa/Recollectium/pull/69), [#70](https://github.com/AlfonsoDehesa/Recollectium/pull/70), [#83](https://github.com/AlfonsoDehesa/Recollectium/pull/83).
+- **PRECISION-BIASED THRESHOLD DEFAULTS:** `recollectium dev optimize-threshold` now defaults to F0.5 when no beta is supplied, and the built-in FastEmbed thresholds now reflect the latest recommended F0.5 cutoffs. Related PRs: [#117](https://github.com/AlfonsoDehesa/Recollectium/pull/117).
+- **SEARCH THRESHOLD CUTOFF:** added a match cutoff for search results, so Recollectium can favor either more recall or fewer false matches. Advanced users can set a number, turn the cutoff off with `null`, or let Recollectium follow the recommended default for the selected model. The built-in FastEmbed models now provide recommended cutoffs too. Related PRs: [#65](https://github.com/AlfonsoDehesa/Recollectium/pull/65), [#69](https://github.com/AlfonsoDehesa/Recollectium/pull/69), [#70](https://github.com/AlfonsoDehesa/Recollectium/pull/70), [#83](https://github.com/AlfonsoDehesa/Recollectium/pull/83).
+- **SAFE MODEL SWITCHING:** if your memories were embedded with one model and you switch to another later, Recollectium keeps the memories and re-embeds them on the next search, so you can change models without losing anything. Related PRs: [#55](https://github.com/AlfonsoDehesa/Recollectium/pull/55), [#56](https://github.com/AlfonsoDehesa/Recollectium/pull/56), [#57](https://github.com/AlfonsoDehesa/Recollectium/pull/57), [#99](https://github.com/AlfonsoDehesa/Recollectium/pull/99).
+- **CLEARER OUTPUT OPTIONS:** compact output is now the default, with verbose output still available when you want more detail in the CLI, API, or MCP tools. Related PRs: [#62](https://github.com/AlfonsoDehesa/Recollectium/pull/62), [#96](https://github.com/AlfonsoDehesa/Recollectium/pull/96), [#102](https://github.com/AlfonsoDehesa/Recollectium/pull/102), [#103](https://github.com/AlfonsoDehesa/Recollectium/pull/103).
+- **MODEL DOWNLOADS AND CLEANUP:** Recollectium now manages its own FastEmbed cache, keeps track of upgrades, and cleans up cached model files during uninstall without removing your memories. Related PRs: [#64](https://github.com/AlfonsoDehesa/Recollectium/pull/64), [#91](https://github.com/AlfonsoDehesa/Recollectium/pull/91), [#92](https://github.com/AlfonsoDehesa/Recollectium/pull/92), [#113](https://github.com/AlfonsoDehesa/Recollectium/pull/113).
+- **SAFER LOGGING:** added `logging.sensitivity` so normal logs stay redacted by default, with a full-detail option when you need it. Workspace alias listing now matches across the HTTP API too. Related PRs: [#105](https://github.com/AlfonsoDehesa/Recollectium/pull/105), [#108](https://github.com/AlfonsoDehesa/Recollectium/pull/108), [#111](https://github.com/AlfonsoDehesa/Recollectium/pull/111).
 
 ### 🐛 Fixes
 
-- Fixed surface-audit polish gaps across CLI argparse JSON errors, deterministic output flag conflicts, API validation details and body-less archive validation, MCP error envelopes and schemas, embedding job clear state constraints, memory type schemas, and log redaction.
-- Fixed local API OpenAPI validation-error responses to advertise the Recollectium 400 `validation_error` envelope and tightened MCP search override schemas for protected minimum and match threshold constraints.
-- Fixed local API request validation to reject unknown JSON body fields and documented search threshold request options consistently.
-- Fixed API/CLI/MCP list and embedding-job filters to reject invalid enum values consistently, tightened bool/int query docs and OpenAPI, and documented the malformed JSON error message accurately.
-- Fixed MCP tool runtime argument handling so unknown extra tool arguments are rejected at execution time, not only in schemas.
-- Fixed Recollectium MCP stdio startup so routine FastMCP/Rich INFO noise is suppressed from stderr while warnings and errors are preserved.
-- Fixed foreground `recollectium dev serve` logging so stderr follows the effective configured log level and includes successful HTTP access logs at info/debug while one-shot CLI commands keep warning-only stderr logs.
-- Fixed remaining response-verbosity audit gaps for CLI version/config/completion/dev/db-status output, API route documentation coverage, API search default-limit docs, and MCP compact/verbose regression tests.
-- Fixed `recollectium config --validate --help` to describe effective read-only config validation instead of stale exit-code details.
-- Fixed compact response parity for workspace operations, embedding job counts, config JSON mutations, and lifecycle command JSON so adapters receive consistent token-efficient payloads across CLI, API, and MCP.
-- Tightened compact human init and config UX with one-sentence success/no-op messages, config validation output, skipped config mutations, and init stale-embedding refresh coverage.
-- Re-embedding now runs inline for the triggering CLI command, API request, or MCP tool call so large refreshes finish durably instead of being stranded in a process-local background daemon queue.
-- Fixed bootstrap install metadata on macOS so `recollectium upgrade` reads installs from the same state directory the installer writes.
-- Fixed `main`-tracking bootstrap installs to record the installed commit SHA so immediate `recollectium upgrade` no-ops when remote `main` has not moved.
-- Fixed `main`-tracking upgrades to compare installed and remote commit SHAs so `--check`, `--dry-run`, and plain upgrades skip work when already current unless `--force` is used.
-- Fixed uninstall planning for direct pip, pipx, and uv tool installs when install metadata is missing.
-- Fixed source upgrade detection so package installs launched from a Recollectium checkout are not misclassified as source checkouts.
-- Fixed bootstrap installs for macOS zsh users so the Recollectium CLI path is added to zsh startup files.
-- Fixed bootstrap PATH repair so malformed or empty managed path blocks are rewritten with the current uv tool bin export.
-- Suppressed uv bootstrap PATH warnings while keeping durable shell PATH edits based on the user's original terminal environment.
-- Clarified bootstrap installer PATH guidance when the current shell cannot see the installed command yet.
-- Fixed model cache status and uninstall cleanup reporting for custom embedding providers and Recollectium-owned FastEmbed cache paths.
-- Fixed `recollectium dev eval` human-readable TTY progress so it updates one pretty stderr line and clears before the final summary instead of printing a line per progress update.
-- Fixed human-readable CLI output framing so final output and argparse help start with a blank line and end with a trailing blank line while JSON, CSV, completion, and protocol output stay byte-clean.
-- Fixed model readiness progress so human-readable CLI model preparation uses an honest spinner/status line with model and cache state instead of a determinate-looking progress bar, while still clearing before final output.
-- Fixed `recollectium init` so interactive runs show transient re-embedding progress after model readiness while JSON and non-TTY output stay quiet.
-- Fixed CLI embedding readiness so stale model state no longer hides missing FastEmbed cache artifacts and development commands no longer leak raw provider download output.
-- Fixed human-readable memory result lists so the result count and each memory entry are separated by a blank line.
+- **MORE CONSISTENT INPUT CHECKS:** tightened validation and error handling for bad field names, invalid option values, protected thresholds, archive requests, and malformed JSON. Related PRs: [#106](https://github.com/AlfonsoDehesa/Recollectium/pull/106), [#107](https://github.com/AlfonsoDehesa/Recollectium/pull/107), [#108](https://github.com/AlfonsoDehesa/Recollectium/pull/108), [#109](https://github.com/AlfonsoDehesa/Recollectium/pull/109).
+- **MATCHES ARE EASIER TO READ:** improved search, model setup, and re-embedding progress so long-running work is easier to follow and stale cache state is handled correctly. Related PRs: [#87](https://github.com/AlfonsoDehesa/Recollectium/pull/87), [#88](https://github.com/AlfonsoDehesa/Recollectium/pull/88), [#89](https://github.com/AlfonsoDehesa/Recollectium/pull/89), [#99](https://github.com/AlfonsoDehesa/Recollectium/pull/99).
+- **MATCHING OUTPUT ACROSS INTERFACES:** kept CLI, API, and MCP responses aligned for workspace operations, service commands, config and version output, completions, and adapters. Related PRs: [#96](https://github.com/AlfonsoDehesa/Recollectium/pull/96), [#102](https://github.com/AlfonsoDehesa/Recollectium/pull/102), [#103](https://github.com/AlfonsoDehesa/Recollectium/pull/103), [#108](https://github.com/AlfonsoDehesa/Recollectium/pull/108), [#111](https://github.com/AlfonsoDehesa/Recollectium/pull/111).
+- **LESS NOISE IN LOGS:** foreground service and MCP startup logs now follow the active log level, hide routine FastMCP noise, and keep sensitive memory details redacted. Related PRs: [#105](https://github.com/AlfonsoDehesa/Recollectium/pull/105), [#108](https://github.com/AlfonsoDehesa/Recollectium/pull/108), [#111](https://github.com/AlfonsoDehesa/Recollectium/pull/111).
+- **BETTER FAILURE MESSAGES:** improved install and model readiness errors so offline setups, model downloads, and recovery steps are easier to understand. Related PRs: [#88](https://github.com/AlfonsoDehesa/Recollectium/pull/88), [#89](https://github.com/AlfonsoDehesa/Recollectium/pull/89), [#95](https://github.com/AlfonsoDehesa/Recollectium/pull/95), [#100](https://github.com/AlfonsoDehesa/Recollectium/pull/100).
+- **CLEANER CLI LISTS:** eval results, model prep output, and memory lists stay readable without breaking JSON, CSV, or protocol output. Related PRs: [#84](https://github.com/AlfonsoDehesa/Recollectium/pull/84), [#85](https://github.com/AlfonsoDehesa/Recollectium/pull/85), [#90](https://github.com/AlfonsoDehesa/Recollectium/pull/90).
 
 ### 🧹 Chores
 
-- Removed top-level `recollectium serve`; use `recollectium dev serve` for foreground development/debug serving or `recollectium service start api` for the managed service.
-- Hardened CI diagnostics, contributor guardrails, and Node 24-based GitHub Actions.
-- Added installer selector metadata test coverage and CI install-smoke metadata assertions.
-- Added stable seeded-memory `eval_key` metadata and a checked-in thematic query-memory label dataset for future retrieval-quality scoring work.
-- Updated seeded development memory fixtures with unique fictional user and project memories safe for public repositories, without visible deterministic label prefixes in stored content.
-- Refreshed workspace seeded development memories so each dummy workspace has three 10-memory themes for retrieval efficacy testing.
+- **SERVICE COMMANDS:** removed top-level `recollectium serve`; use `recollectium dev serve` for local development or `recollectium service start api` for managed startup. Related PRs: [#104](https://github.com/AlfonsoDehesa/Recollectium/pull/104).
+- **DOCS AND RELEASE NOTES:** refreshed the docs for foreground serving, service discovery, API and MCP parity, the OpenCode adapter contract, and release notes guidance. Related PRs: [#27](https://github.com/AlfonsoDehesa/Recollectium/pull/27), [#67](https://github.com/AlfonsoDehesa/Recollectium/pull/67), [#114](https://github.com/AlfonsoDehesa/Recollectium/pull/114), [#115](https://github.com/AlfonsoDehesa/Recollectium/pull/115), [#116](https://github.com/AlfonsoDehesa/Recollectium/pull/116).
+- **TESTS AND RELEASE SUPPORT:** strengthened release automation, Node 24 GitHub Actions, installer smoke tests, and fixtures for installer selection and seeded evaluation data. Related PRs: [#101](https://github.com/AlfonsoDehesa/Recollectium/pull/101), [#115](https://github.com/AlfonsoDehesa/Recollectium/pull/115), [#116](https://github.com/AlfonsoDehesa/Recollectium/pull/116).
+- **REPEATABLE DEV DATA:** refreshed seeded development memories and public-safe fixtures for local testing and retrieval experiments. Related PRs: [#50](https://github.com/AlfonsoDehesa/Recollectium/pull/50), [#51](https://github.com/AlfonsoDehesa/Recollectium/pull/51), [#63](https://github.com/AlfonsoDehesa/Recollectium/pull/63).
 
 ## v1.0.0
 

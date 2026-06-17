@@ -48,12 +48,12 @@ def test_workflows_use_node24_action_versions() -> None:
 
     assert "actions/checkout@v6" in combined
     assert "actions/setup-python@v6" in ci
-    assert "astral-sh/setup-uv@v8.2.0" in ci
+    assert "python -m pip install uv==0.11.15" in ci
     assert "softprops/action-gh-release@v3" in release
 
     assert "actions/checkout@v4" not in combined
     assert "actions/setup-python@v5" not in combined
-    assert "astral-sh/setup-uv@v5" not in combined
+    assert "astral-sh/setup-uv@" not in combined
     assert "softprops/action-gh-release@v2" not in combined
 
 

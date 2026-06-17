@@ -1,8 +1,8 @@
 # Roadmap
 
-## v1.0.0: Core release
+## v1.0.0: Historical core release
 
-Recollectium Core is at v1.0.0. The release includes the local memory core, CLI, Python API, local HTTP API, MCP stdio, managed MCP service, local embeddings, service lifecycle, install, upgrade, uninstall, logging, shell completion, workspace UID management, configuration, and adapter discovery contract.
+Recollectium Core is now at v1.1.0. The v1.0.0 section below is historical and records the local memory core, CLI, Python API, local HTTP API, MCP stdio, managed MCP service, local embeddings, service lifecycle, install, upgrade, uninstall, logging, shell completion, workspace UID management, configuration, and adapter discovery contract that shipped in the initial release.
 
 Completed in v1.0.0:
 
@@ -43,18 +43,20 @@ Phase 1.5 is limited to follow-up work that happens after the 1.0.0 release path
 - [ ] Harden Windows service, PATH, shell, and profile behavior discovered during real usage.
 - [ ] Harden Windows smoke tests based on failures that appear after 1.0.0.
 
-### PyPI publication
+### Package index publication, future path
+
+This is a separate release path from the current tag-triggered GitHub Release flow.
 
 - [ ] Verify `pyproject.toml` package metadata: name, version, license, Python version, dependencies, and CLI entry point.
 - [ ] Confirm `CHANGELOG.md` and `pyproject.toml` version match.
 - [ ] Build a wheel and source distribution from the release state.
-- [ ] Upload to the intended package index after the release is cut.
-- [ ] Verify `pip install recollectium` from the published package.
-- [ ] Verify `pipx install recollectium` from the published package.
-- [ ] Verify `uv tool install recollectium` from the published package.
+- [ ] Upload to the intended package index after the release is cut, if that publish path is enabled.
+- [ ] Verify `pip install recollectium` from the published package, if package publication is enabled.
+- [ ] Verify `pipx install recollectium` from the published package, if package publication is enabled.
+- [ ] Verify `uv tool install recollectium` from the published package, if package publication is enabled.
 - [ ] Confirm `recollectium --version` works after each install method.
 - [ ] Confirm `recollectium init` works after each install method.
-- [ ] Confirm bootstrap installers can install the published package or release tag.
+- [ ] Confirm bootstrap installers can install the published package or release tag, if that path is enabled.
 
 ### OpenCode plugin work
 

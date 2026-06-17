@@ -47,6 +47,16 @@ class FlushErrorStream(io.StringIO):
         raise OSError("stream flush failed")
 
 
+class RecordingStream(io.StringIO):
+    def __init__(self) -> None:
+        super().__init__()
+        self.writes: list[str] = []
+
+    def write(self, text: str) -> int:
+        self.writes.append(text)
+        return super().write(text)
+
+
 class TTYStringIO(io.StringIO):
     def __init__(
         self,
@@ -118,8 +128,81 @@ def test_single_line_progress_normal_frame_uses_cr_padding_not_clear_line() -> N
     assert output.count("\r") == 3
     assert output.count("\x1b[2K") == 1
     assert output.endswith("\r\x1b[2K")
-    assert "A much longer label" in frames[1]
-    assert frames[2].endswith(" ")
+    assert "A much longer label" in output
+    assert "Short" in output
+    assert "working" in output
+    assert "╺" not in output
+    assert "━" not in output
+    assert "%" not in output
+    assert any(frame in output for frame in ("⠋", "⠙", "⠹", "⠸", "⠼"))
+    assert len(frames) == 4
+
+
+def test_single_line_progress_status_shorter_render_pads_previous_width(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_progress, "_STATUS_SPINNER_FRAMES", ("⠋",))
+    current_time = 100.0
+
+    def clock() -> float:
+        return current_time
+
+    stream = RecordingStream()
+    progress = SingleLineProgressReporter(
+        stream,
+        clock=clock,
+        min_render_interval=0,
+        title_limit=40,
+    )
+
+    with progress:
+        progress.phase("A much longer label")
+        current_time = 101.0
+        progress.phase("Short")
+
+    first_line = cli_progress._format_status_line(
+        "⠋", "A much longer label", 0, "working"
+    )
+    second_line = cli_progress._format_status_line("⠋", "Short", 1, "working")
+    padding = len(visible_text(first_line)) - len(visible_text(second_line))
+
+    assert stream.writes[0] == f"\r{first_line}"
+    assert stream.writes[1] == f"\r{second_line}{' ' * padding}"
+    assert stream.writes[2] == "\r\x1b[2K"
+
+
+def test_single_line_progress_update_with_unknown_total_uses_spinner() -> None:
+    stream = io.StringIO()
+    progress = SingleLineProgressReporter(stream, min_render_interval=0)
+
+    with progress:
+        progress.update("Unknown total", completed=0, total=0)
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Unknown total" in output
+    assert "working" in output
+    assert "%" not in output
+    assert "╺" not in output
+    assert "━" not in output
+
+
+def test_single_line_progress_update_with_known_total_keeps_determinate_bar() -> None:
+    stream = io.StringIO()
+    progress = SingleLineProgressReporter(stream, min_render_interval=0)
+
+    with progress:
+        progress.update("Counted work", completed=0, total=5)
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Counted work" in output
+    assert "0/5" in output
+    assert "%" in output
+    assert "╺" in output or "━" in output
+    assert "working" not in output
 
 
 def test_single_line_progress_does_not_suppress_echo_for_non_tty_streams(
@@ -700,6 +783,48 @@ def test_single_line_status_spinner_ignores_ticks_after_finish() -> None:
     spinner.tick()
 
     assert stream.getvalue() == output
+
+
+def test_progress_reporter_initializes_phase_clock_when_missing() -> None:
+    times = iter((10.0, 12.5, 12.5))
+    stream = io.StringIO()
+    reporter = cli_progress.SingleLineProgressReporter(
+        stream, clock=lambda: next(times)
+    )
+    reporter._active = True
+    reporter._phase_started_at = None
+
+    reporter.phase("Downloading model cache")
+
+    assert "2s" in stream.getvalue()
+    assert reporter._phase_started_at == 10.0
+
+
+def test_progress_reporter_skips_duplicate_status_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_progress, "_STATUS_SPINNER_FRAMES", ("⠋",))
+    stream = io.StringIO()
+    reporter = cli_progress.SingleLineProgressReporter(
+        stream,
+        clock=lambda: 1.0,
+        min_render_interval=0,
+    )
+    reporter._active = True
+
+    reporter.phase("Downloading model cache")
+    output = stream.getvalue()
+    reporter.phase("Downloading model cache")
+
+    assert stream.getvalue() == output
+
+
+def test_progress_reporter_returns_false_when_write_fails() -> None:
+    stream = io.StringIO()
+    reporter = cli_progress.SingleLineProgressReporter(stream)
+    reporter._write = lambda _text: False  # type: ignore[method-assign]
+
+    assert reporter._render("Downloading model cache", 10, 1, 10, force=True) is False
 
 
 def test_single_line_status_spinner_disables_on_stream_error() -> None:

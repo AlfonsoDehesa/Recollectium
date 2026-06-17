@@ -481,6 +481,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--dry-run" in upgrade_help
     assert "--install-method" in upgrade_help
     assert "--version" in upgrade_help
+    assert "--target-version" in upgrade_help
     assert "--main" in upgrade_help
     assert "--allow-main" in upgrade_help
 
@@ -553,8 +554,9 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
         in normalized_optimize_help
     )
     assert (
-        "Weighted F-beta: Combines weighted precision and weighted recall"
-        in normalized_optimize_help
+        "Weighted F-beta: Combines weighted precision and weighted recall so the sweep "
+        "can rank thresholds by the chosen precision-recall balance. The default is F0.5, "
+        "which biases toward precision." in normalized_optimize_help
     )
     assert (
         "Exposure: Checks the share of the returned set that is confuser or unrelated"
@@ -1906,6 +1908,27 @@ def test_reembedding_progress_reporter_uses_single_line_for_tty() -> None:
     assert "1/2" in output
 
 
+def test_dev_eval_progress_reporter_phase_uses_spinner_without_fake_progress() -> None:
+    stream = io.StringIO()
+    reporter = cli_module._DevEvalProgressReporter(stream, min_render_interval=0)
+
+    with reporter:
+        reporter.phase("Checking embedding provider readiness")
+        reporter.phase("Preparing seeded development database")
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Checking provider" in output
+    assert "Preparing dev DB" in output
+    assert "working" in output
+    assert "%" not in output
+    assert "╺" not in output
+    assert "━" not in output
+    assert any(frame in output for frame in ("⠋", "⠙", "⠹", "⠸", "⠼"))
+
+
 def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
     stream = _OSErrorIsattyStream()
     reporter = cli_module._DevEvalProgressReporter(stream, min_render_interval=0)
@@ -1939,6 +1962,8 @@ def test_dev_eval_progress_reporter_handles_isatty_errors() -> None:
     assert "Semantic" in output
     assert "1/2" in output
     assert "Results" in output
+    assert "%" in output
+    assert "╺" in output or "━" in output
 
 
 def test_live_progress_title_limit_returns_none_when_terminal_size_errors(
@@ -2004,6 +2029,8 @@ def test_dev_eval_progress_reporter_uses_dynamic_line_for_narrow_terminal(
     assert "Exact MRR: workspace" in output
     assert "…" not in output
     assert "49/90" in output
+    assert "%" in output
+    assert "╺" in output or "━" in output
 
 
 def test_dev_eval_progress_reporter_keeps_curated_labels_whole_on_narrow_terminal(
@@ -2801,6 +2828,9 @@ def test_cli_dev_json_readiness_suppresses_provider_output(
     )
 
     def fake_optimize_threshold(*args: object, **kwargs: object) -> int:
+        if dev_args == ["dev", "optimize-threshold", "--format", "csv"]:
+            optimize_args = cast(Any, kwargs["args"])
+            assert optimize_args.beta == 0.5
         cli_module._emit_success(
             {"status": "optimized"},
             output_format=str(kwargs["output_format"]),
@@ -3669,6 +3699,29 @@ def test_cli_dev_eval_refuses_relative_regular_database_overlap(
 
     with pytest.raises(AssertionError, match="provider should not be constructed"):
         ProviderMustNotBeConstructed()
+
+
+def test_cli_dev_optimize_threshold_progress_reporter_phase_uses_spinner_without_fake_progress() -> (
+    None
+):
+    stream = io.StringIO()
+    reporter = cli_module._ThresholdOptimizationProgressReporter(stream)
+
+    with reporter:
+        reporter.phase("Checking embedding provider readiness")
+        reporter.phase("Loading candidate pools")
+
+    output = stream.getvalue()
+    assert "\n" not in output
+    assert "Status:" not in output
+    assert output.endswith("\r\x1b[2K")
+    assert "Checking provider" in output
+    assert "Loading candidates" in output
+    assert "working" in output
+    assert "%" not in output
+    assert "╺" not in output
+    assert "━" not in output
+    assert any(frame in output for frame in ("⠋", "⠙", "⠹", "⠸", "⠼"))
 
 
 def test_cli_dev_optimize_threshold_progress_reporter_uses_single_line_and_clears() -> (
@@ -4802,6 +4855,8 @@ def test_completion_help_documents_raw_output_json_exception(capsys) -> None:
     assert "--json is supported only with --install" in normalized_help
     assert "emitted as-is" in completion_help
     assert "omit --json" in completion_help
+    assert "--complete-line" in completion_help
+    assert "--point" in completion_help
 
 
 def test_completion_source_rejects_json_output_flag(capsys) -> None:
@@ -9083,6 +9138,12 @@ def test_cli_uninstall_compact_flag_overrides_verbose_config(
     assert stderr == ""
 
 
+def test_human_uninstall_progress_context_is_noop_for_json_output() -> None:
+    context = cli_module._human_uninstall_progress_context("json")
+
+    assert isinstance(context, contextlib.nullcontext)
+
+
 def test_cli_uninstall_compact_mutating_success_reports_progress_and_sentence(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -9103,7 +9164,81 @@ def test_cli_uninstall_compact_mutating_success_reports_progress_and_sentence(
 
     assert exit_code == 0
     assert stdout == "\nUninstalled. Data preserved.\n\n"
-    assert stderr == "Uninstall in progress...\n"
+    assert stderr == ""
+
+
+def test_cli_uninstall_compact_mutating_tty_progress_clears_before_output(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
+    original_spinner = cli_module.SingleLineStatusSpinner
+    monkeypatch.setattr(
+        cli_module,
+        "SingleLineStatusSpinner",
+        lambda *args, **kwargs: original_spinner(
+            *args, autostart_thread=False, **kwargs
+        ),
+    )
+
+    exit_code, stdout, stderr = _run_cli(["uninstall"], capsys, json_by_default=False)
+
+    assert exit_code == 0
+    assert stdout == "\nUninstalled. Data preserved.\n\n"
+    assert "Uninstall in progress..." in stderr
+    assert stderr.endswith("\r\x1b[2K")
+    assert "\n" not in stderr
+
+
+def test_cli_uninstall_verbose_mutating_tty_progress_clears_before_output(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_xdg_home(monkeypatch, tmp_path)
+    monkeypatch.setattr("recollectium.cli.stop_service", lambda _config: None)
+    metadata_path = tmp_path / "state" / "recollectium" / "install.json"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps({"install_method": "bootstrap", "managed_path_edits": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "recollectium.cli.subprocess.run",
+        lambda _cmd, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: True)
+    original_spinner = cli_module.SingleLineStatusSpinner
+    monkeypatch.setattr(
+        cli_module,
+        "SingleLineStatusSpinner",
+        lambda *args, **kwargs: original_spinner(
+            *args, autostart_thread=False, **kwargs
+        ),
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--verbose", "uninstall"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stdout.startswith("\nUninstall\n")
+    assert "Status: uninstalled" in stdout
+    assert "Install method: bootstrap" in stdout
+    assert "Uninstall in progress..." in stderr
+    assert stderr.endswith("\r\x1b[2K")
+    assert "\n" not in stderr
 
 
 def test_cli_uninstall_compact_purge_mutating_success_reports_deleted_data(
@@ -9137,7 +9272,7 @@ def test_cli_uninstall_compact_purge_mutating_success_reports_deleted_data(
 
     assert exit_code == 0
     assert stdout == "\nUninstalled. All Recollectium data was deleted.\n\n"
-    assert stderr == "Uninstall in progress...\n"
+    assert stderr == ""
     assert str(tmp_path) not in stderr
 
 
@@ -11343,6 +11478,7 @@ def test_cli_completion_dynamic_helper_completes_config_keys(
     assert json.loads(stdout) == [
         "logging.level",
         "logging.format",
+        "logging.sensitivity",
         "logging.max_bytes",
         "logging.backup_count",
     ]
@@ -11714,6 +11850,8 @@ def test_cli_completion_help_includes_completion(
     assert "--source" in completion_help
     assert "--install" in completion_help
     assert "--yes" in completion_help
+    assert "--complete-line" in completion_help
+    assert "--point" in completion_help
     assert "bash" in completion_help
     assert "zsh" in completion_help
     assert "fish" in completion_help

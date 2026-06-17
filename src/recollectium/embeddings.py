@@ -134,6 +134,7 @@ BUILTIN_FASTEMBED_MODEL_SPECS: dict[str, FastEmbedModelSpec] = {
         max_tokens=512,
         chunk_tokens=384,
         chunk_overlap_tokens=64,
+        recommended_match_threshold=0.63,
         cache_layouts=(
             FastEmbedCacheLayout(
                 root=("models--qdrant--bge-base-en-v1.5-onnx-q",),
@@ -152,6 +153,7 @@ BUILTIN_FASTEMBED_MODEL_SPECS: dict[str, FastEmbedModelSpec] = {
         max_tokens=8192,
         chunk_tokens=6144,
         chunk_overlap_tokens=512,
+        recommended_match_threshold=0.78,
         cache_layouts=(
             FastEmbedCacheLayout(
                 root=("models--xenova--jina-embeddings-v2-small-en",),

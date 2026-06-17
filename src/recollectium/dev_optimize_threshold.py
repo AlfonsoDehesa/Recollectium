@@ -21,6 +21,8 @@ from recollectium.models import SearchResult
 
 ThresholdFormat = Literal["png", "csv"]
 
+DEFAULT_THRESHOLD_BETA = 0.5
+
 _LABEL_USEFUL_VALUE: Mapping[int, float] = {2: 1.0, 1: 0.5, -1: 0.0, -2: 0.0}
 _LABEL_RETRIEVED_COST: Mapping[int, float] = {2: 1.0, 1: 1.0, -1: 1.0, -2: 1.5}
 _LABEL_ORDER: tuple[int, int, int, int] = (2, 1, -1, -2)
@@ -141,6 +143,13 @@ SearchUser = Callable[[str, int], list[SearchResult]]
 SearchWorkspace = Callable[[str, str, int], list[SearchResult]]
 
 
+def _format_threshold(value: float) -> str:
+    """Format threshold values without padding trailing zeros."""
+
+    formatted = format(Decimal(str(value)).normalize(), "f")
+    return formatted.rstrip("0").rstrip(".") or "0"
+
+
 def threshold_cases_from_fixture() -> tuple[ThematicContextLabelCase, ...]:
     """Return the validated PR1 thematic label cases."""
 
@@ -170,7 +179,9 @@ def generate_threshold_values(
 ) -> tuple[float, ...]:
     """Generate inclusive threshold values using Decimal arithmetic."""
 
-    validate_threshold_sweep_parameters(start=start, end=end, step=step, beta=1.0)
+    validate_threshold_sweep_parameters(
+        start=start, end=end, step=step, beta=DEFAULT_THRESHOLD_BETA
+    )
     start_decimal = Decimal(str(start))
     end_decimal = Decimal(str(end))
     step_decimal = Decimal(str(step))
@@ -614,7 +625,7 @@ def write_threshold_png(
         color="black",
         linestyle="--",
         linewidth=1.5,
-        label=f"recommended {report.recommended_threshold:.2f}",
+        label=f"recommended {_format_threshold(report.recommended_threshold)}",
     )
     ax_main.set_ylabel("score")
     ax_main.set_ylim(0.0, 1.05)
@@ -684,7 +695,7 @@ def report_summary_lines(
     lines.extend(
         [
             f"  Output: {output_path}",
-            f"  Recommendation: {report.recommended_threshold:.2f}",
+            f"  Recommendation: {_format_threshold(report.recommended_threshold)}",
         ]
     )
     if recommended_row is not None:
@@ -708,7 +719,7 @@ def report_summary_lines(
             [
                 format_footer("Result not applied. To apply recommendation, use:"),
                 "recollectium config set retrieval.match_threshold "
-                f"{report.recommended_threshold:.2f}",
+                f"{_format_threshold(report.recommended_threshold)}",
             ]
         )
     lines.append("")

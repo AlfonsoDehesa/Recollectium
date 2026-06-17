@@ -503,7 +503,7 @@ def test_generate_threshold_values_raises_when_sweep_would_exceed_max_points(
 
 def test_report_summary_lines_wrap_with_blank_lines_and_formatters() -> None:
     row = ThresholdSweepRow(
-        threshold=0.5,
+        threshold=0.775,
         weighted_precision=0.8,
         weighted_recall=0.6,
         weighted_f_score=0.7,
@@ -523,7 +523,7 @@ def test_report_summary_lines_wrap_with_blank_lines_and_formatters() -> None:
         step=1.0,
         beta=2.0,
         tested_thresholds=1,
-        recommended_threshold=0.5,
+        recommended_threshold=0.775,
         output_format="csv",
         output_path=None,
         wrote_config=False,
@@ -543,5 +543,11 @@ def test_report_summary_lines_wrap_with_blank_lines_and_formatters() -> None:
     assert lines[0] == ""
     assert lines[-1] == ""
     assert lines[1] == "TITLE:Recollectium dev optimize-threshold"
+    assert "  Recommendation: 0.775" in lines
+    assert any(
+        line == "recollectium config set retrieval.match_threshold 0.775"
+        for line in lines
+    )
+    assert "0.78" not in "\n".join(lines)
     assert "FOOTER:Result not applied. To apply recommendation, use:" in lines
     assert all("Objective:" not in line for line in lines)

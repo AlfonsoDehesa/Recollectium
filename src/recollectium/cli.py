@@ -79,6 +79,7 @@ from recollectium.dev_eval_thematic_weighted import (
     evaluate_thematic_weighted_metrics_for_core,
 )
 from recollectium.dev_optimize_threshold import (
+    DEFAULT_THRESHOLD_BETA,
     build_threshold_optimization_report,
     build_threshold_search_bundles,
     generate_threshold_values,
@@ -199,6 +200,7 @@ _COMPLETABLE_CONFIG_KEYS = [
     "service.port",
     "logging.level",
     "logging.format",
+    "logging.sensitivity",
     "logging.max_bytes",
     "logging.backup_count",
     "directories.data",
@@ -1352,6 +1354,20 @@ def _human_upgrade_progress_context(
         sys.stderr,
         title="Upgrade in progress",
         details=details,
+    )
+
+
+def _human_uninstall_progress_context(
+    output_format: str,
+) -> contextlib.AbstractContextManager[object]:
+    if output_format != CLI_OUTPUT_HUMAN_READABLE:
+        return contextlib.nullcontext()
+    if not _stderr_supports_live_progress():
+        return contextlib.nullcontext()
+    return SingleLineStatusSpinner(
+        sys.stderr,
+        title="Uninstall in progress...",
+        details=(),
     )
 
 
@@ -4119,6 +4135,7 @@ def _remove_installed_package(
     *,
     dry_run: bool,
     emit_progress: bool = False,
+    output_format: str = CLI_OUTPUT_HUMAN_READABLE,
 ) -> dict[str, Any]:
     metadata = _metadata_with_detected_install_method(metadata)
     payload = _uninstall_package_instructions(metadata)
@@ -4142,13 +4159,16 @@ def _remove_installed_package(
         }
         return payload
 
+    progress_context: contextlib.AbstractContextManager[object]
     if emit_progress:
-        sys.stderr.write("Uninstall in progress...\n")
-        sys.stderr.flush()
+        progress_context = _human_uninstall_progress_context(output_format)
+    else:
+        progress_context = contextlib.nullcontext()
 
     if sys.platform.startswith("win"):
         try:
-            payload["uninstall"] = _schedule_windows_package_removal(command)
+            with progress_context:
+                payload["uninstall"] = _schedule_windows_package_removal(command)
         except FileNotFoundError as exc:
             payload["uninstall"] = {
                 "status": "failed",
@@ -4161,13 +4181,14 @@ def _remove_installed_package(
         return payload
 
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        with progress_context:
+            completed = subprocess.run(
+                command,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
     except FileNotFoundError as exc:
         payload["uninstall"] = {
             "status": "failed",
@@ -4872,7 +4893,8 @@ def _handle_uninstall_command(
     package_payload = _remove_installed_package(
         metadata,
         dry_run=args.dry_run,
-        emit_progress=compact_human_output,
+        emit_progress=compact_human_output or verbose_human_output,
+        output_format=output_format,
     )
     package_status = package_payload["uninstall"]["status"]
     if not args.purge:
@@ -5478,7 +5500,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--target-version",
         dest="version",
         metavar="VERSION",
-        help=argparse.SUPPRESS,
+        help="Compatibility alias for --version. Use the same values as --version.",
     )
     target_group.add_argument(
         "--main",
@@ -5769,7 +5791,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "  Weighted recall: Checks how much of the total useful labeled set the returned "
             "set captures, using the same relevance weights.\n"
             "  Weighted F-beta: Combines weighted precision and weighted recall so the sweep "
-            "can rank thresholds by the chosen precision-recall balance.\n"
+            "can rank thresholds by the chosen precision-recall balance. The default is F0.5, "
+            "which biases toward precision.\n"
             "  Exposure: Checks the share of the returned set that is confuser or unrelated, "
             "where lower is better. Confuser exposure and unrelated exposure are reported "
             "separately.\n"
@@ -5811,8 +5834,8 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_optimize_parser.add_argument(
         "--beta",
         type=float,
-        default=1.0,
-        help="F-beta beta value. Must be > 0. Default: 1.0.",
+        default=DEFAULT_THRESHOLD_BETA,
+        help="F-beta beta value. Must be > 0. Default: 0.5 (F0.5).",
     )
     dev_optimize_parser.add_argument(
         "--write-config",
@@ -6059,16 +6082,20 @@ def _build_parser() -> argparse.ArgumentParser:
             "modifying any file."
         ),
     )
-    # Internal dynamic-completion protocol flags used by generated shell hooks;
-    # hidden from public help because users should invoke completion via shell setup.
+    # Internal dynamic-completion protocol flags used by generated shell hooks.
     action_group.add_argument(
         "--complete-line",
-        help=argparse.SUPPRESS,
+        help=(
+            "Internal completion protocol flag. Pass the current command line to "
+            "generate completions."
+        ),
     )
     completion_parser.add_argument(
         "--point",
         type=int,
-        help=argparse.SUPPRESS,
+        help=(
+            "Internal completion protocol flag. Cursor position within --complete-line."
+        ),
     )
     completion_parser.add_argument(
         "--yes",

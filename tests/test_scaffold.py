@@ -5,7 +5,7 @@ import sys
 def test_import_recollectium() -> None:
     import recollectium
 
-    assert recollectium.__version__ == "1.0.0"
+    assert recollectium.__version__ == "1.1.0"
 
 
 def test_module_entrypoint_runs() -> None:

@@ -38,17 +38,27 @@ recollectium --db /path/to/recollectium.db dev serve --host 127.0.0.1 --port 876
 - API prefix: `/v1`
 - Service API version value: `1`
 
+## Database migration behavior
+
+The API service applies pending SQLite schema migrations automatically when it opens the database during `init`, `upgrade`, or service startup. Pending migrations run in order and each completed step is recorded before the next one starts.
+
+If a migration fails, the current step is rolled back and the database remains on the last successful version. Rerun the same command after fixing the problem.
+
+If the database is newer than the installed Recollectium build, startup fails instead of guessing a downgrade path. Upgrade Recollectium or restore a backup from before the newer schema was written. For recovery after corruption, stop the service and restore a manual copy of the data directory or SQLite file, because v1 does not have a dedicated backup command.
+
 ## Adapter discovery workflow
 
 Adapters and plugins should discover the local service with:
 
 ```bash
-recollectium service discover
+recollectium service discover --json
 ```
 
-The command exits `0` when a managed service is running, exits `1` when no service is running, and exits `2` when config or discovery metadata is invalid. It prints human-readable output on stdout by default and does not create a config file just to inspect discovery state. Use `recollectium service discover --json` in adapters and scripts.
+The bare command prints human-readable output on stdout by default and does not create a config file just to inspect discovery state. Use `recollectium service discover --json` in adapters and scripts for machine-readable discovery. Add `--verbose` or set `response_verbosity=verbose` when you need the full payload shown below. The command exits `0` when a managed service is running, exits `1` when no service is running, and exits `2` when config or discovery metadata is invalid.
 
-Running response shape:
+Compact JSON output can be minimal. For example, when no service is running it may return `{"status":"not_running"}`.
+
+Verbose running response shape:
 
 ```json
 {
@@ -65,7 +75,7 @@ Running response shape:
   },
   "versions": {
     "service_api_version": "1",
-    "recollectium_version": "1.0.0"
+    "recollectium_version": "1.1.0"
   },
   "paths": {
     "config": "/home/user/.config/recollectium/config.json",
@@ -76,7 +86,7 @@ Running response shape:
 }
 ```
 
-Not-running response shape:
+Verbose not-running response shape:
 
 ```json
 {
@@ -84,13 +94,17 @@ Not-running response shape:
   "service": null,
   "versions": {
     "service_api_version": "1",
-    "recollectium_version": "1.0.0"
+    "recollectium_version": "1.1.0"
   },
   "paths": {
     "config": "/home/user/.config/recollectium/config.json",
     "runtime_dir": "/run/user/1000/recollectium",
     "pid_file": "/run/user/1000/recollectium/service.pid",
     "discovery_file": "/run/user/1000/recollectium/service-discovery.json"
+  },
+  "stale": {
+    "pid_file_removed": true,
+    "discovery_file_removed": true
   },
   "next_step": "Run `recollectium service start api` to start the local API service."
 }
@@ -120,7 +134,7 @@ configured endpoint by calling `/v1/health`, `/v1/version`, and
 Core. See `docs/opencode-adapter-contract.md` for the adapter contract and
 workspace UID rules.
 
-The v1.0.0 API is local-first and unauthenticated. Binding to a non-local interface can expose memory contents and memory-changing operations. Remote or split-machine access should use private networking with external access controls; see [`../SECURITY.md`](../SECURITY.md).
+The v1.1.0 API is local-first and unauthenticated. Binding to a non-local interface can expose memory contents and memory-changing operations. Remote or split-machine access should use private networking with external access controls; see [`../SECURITY.md`](../SECURITY.md).
 
 ## Envelope shapes
 
@@ -232,7 +246,7 @@ Response example:
 {
   "data": {
     "service_api_version": "1",
-    "recollectium_version": "1.0.0"
+    "recollectium_version": "1.1.0"
   }
 }
 ```
