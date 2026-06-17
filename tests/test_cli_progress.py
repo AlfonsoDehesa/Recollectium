@@ -785,6 +785,48 @@ def test_single_line_status_spinner_ignores_ticks_after_finish() -> None:
     assert stream.getvalue() == output
 
 
+def test_progress_reporter_initializes_phase_clock_when_missing() -> None:
+    times = iter((10.0, 12.5, 12.5))
+    stream = io.StringIO()
+    reporter = cli_progress.SingleLineProgressReporter(
+        stream, clock=lambda: next(times)
+    )
+    reporter._active = True
+    reporter._phase_started_at = None
+
+    reporter.phase("Downloading model cache")
+
+    assert "2s" in stream.getvalue()
+    assert reporter._phase_started_at == 10.0
+
+
+def test_progress_reporter_skips_duplicate_status_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_progress, "_STATUS_SPINNER_FRAMES", ("⠋",))
+    stream = io.StringIO()
+    reporter = cli_progress.SingleLineProgressReporter(
+        stream,
+        clock=lambda: 1.0,
+        min_render_interval=0,
+    )
+    reporter._active = True
+
+    reporter.phase("Downloading model cache")
+    output = stream.getvalue()
+    reporter.phase("Downloading model cache")
+
+    assert stream.getvalue() == output
+
+
+def test_progress_reporter_returns_false_when_write_fails() -> None:
+    stream = io.StringIO()
+    reporter = cli_progress.SingleLineProgressReporter(stream)
+    reporter._write = lambda _text: False  # type: ignore[method-assign]
+
+    assert reporter._render("Downloading model cache", 10, 1, 10, force=True) is False
+
+
 def test_single_line_status_spinner_disables_on_stream_error() -> None:
     stream = OSErrorStream()
     spinner = SingleLineStatusSpinner(

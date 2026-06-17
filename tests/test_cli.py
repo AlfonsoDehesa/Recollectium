@@ -9138,6 +9138,12 @@ def test_cli_uninstall_compact_flag_overrides_verbose_config(
     assert stderr == ""
 
 
+def test_human_uninstall_progress_context_is_noop_for_json_output() -> None:
+    context = cli_module._human_uninstall_progress_context("json")
+
+    assert isinstance(context, contextlib.nullcontext)
+
+
 def test_cli_uninstall_compact_mutating_success_reports_progress_and_sentence(
     tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
