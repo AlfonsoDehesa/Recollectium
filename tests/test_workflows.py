@@ -98,6 +98,9 @@ def test_ci_service_smoke_workflow_keeps_required_gates_and_matrix() -> None:
     assert "windows-arm64" in workflow
     assert "scripts/ci_service_smoke.py api" in workflow
     assert "scripts/ci_service_smoke.py mcp" in workflow
+    assert '$uv = Join-Path $env:LOCALAPPDATA "uv\\uv.exe"' in workflow
+    assert "& $uv run python scripts/ci_service_smoke.py api" in workflow
+    assert "& $uv run python scripts/ci_service_smoke.py mcp" in workflow
     assert "Verify service surface smoke on Unix" in workflow
     assert "Verify service surface smoke on Windows" in workflow
     assert "service start api" in workflow

@@ -19,8 +19,10 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
         encoding="utf-8"
     )
 
-    assert "uv run python scripts/ci_service_smoke.py api" in workflow
-    assert "uv run python scripts/ci_service_smoke.py mcp" in workflow
+    assert "scripts/ci_service_smoke.py api" in workflow
+    assert "scripts/ci_service_smoke.py mcp" in workflow
+    assert '$uv = Join-Path $env:LOCALAPPDATA "uv\\uv.exe"' in workflow
+    assert "& $uv run python scripts/ci_service_smoke.py api" in workflow
     assert '"service",\n                "discover",' in service_smoke
     assert '"service", "status", "--json"' in service_smoke
     assert '"service", "stop", "--json"' in service_smoke

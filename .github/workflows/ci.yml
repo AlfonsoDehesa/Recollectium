@@ -278,8 +278,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          uv run python scripts/ci_service_smoke.py api
-          uv run python scripts/ci_service_smoke.py mcp
+          $ErrorActionPreference = "Stop"
+          $uv = Join-Path $env:LOCALAPPDATA "uv\uv.exe"
+          if (-not (Test-Path $uv)) { throw "uv executable was not installed at $uv" }
+          & $uv run python scripts/ci_service_smoke.py api
+          & $uv run python scripts/ci_service_smoke.py mcp
 
       - name: Verify uninstall on Unix
         if: runner.os != 'Windows'
