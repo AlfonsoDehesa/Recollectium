@@ -75,7 +75,7 @@ Verbose running response shape:
   },
   "versions": {
     "service_api_version": "1",
-    "recollectium_version": "1.1.0"
+    "recollectium_version": "1.1.1"
   },
   "paths": {
     "config": "/home/user/.config/recollectium/config.json",
@@ -94,7 +94,7 @@ Verbose not-running response shape:
   "service": null,
   "versions": {
     "service_api_version": "1",
-    "recollectium_version": "1.1.0"
+    "recollectium_version": "1.1.1"
   },
   "paths": {
     "config": "/home/user/.config/recollectium/config.json",
@@ -246,7 +246,7 @@ Response example:
 {
   "data": {
     "service_api_version": "1",
-    "recollectium_version": "1.1.0"
+    "recollectium_version": "1.1.1"
   }
 }
 ```
