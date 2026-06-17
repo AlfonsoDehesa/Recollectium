@@ -15,29 +15,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_install_smoke_asserts_compact_service_discover_shape() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-
-    assert 'recollectium --config "$config" service discover --json' in workflow
-    assert (
-        'recollectium --verbose --config "$config" service discover --json' in workflow
+    service_smoke = (ROOT / "scripts" / "ci_service_smoke.py").read_text(
+        encoding="utf-8"
     )
-    assert "service-discover-verbose.json" in workflow
-    assert "service-status-verbose.json" in workflow
-    assert "service-stopped-verbose.json" in workflow
-    assert 'discover_payload["status"] == "running"' in workflow
-    assert "set(discover_payload) == {" in workflow
-    assert 'discover_payload["type"] == "api"' in workflow
-    assert 'discover_payload["pid"] > 0' in workflow
-    assert '"endpoint", "health_url", "version_url", "capabilities_url"' in workflow
-    assert 'for omitted_key in ("service", "versions", "paths")' in workflow
-    assert 'verbose_payload["service"]["api_prefix"] == "/v1"' in workflow
-    assert 'assert_http_json(discover_payload["version_url"])' in workflow
-    assert 'assert_http_json(discover_payload["capabilities_url"])' in workflow
-    assert 'verbose_stopped["status"] == "not_running"' in workflow
-    assert 'verbose_stopped["service"] is None' in workflow
-    assert '"running" not in verbose_stopped' in workflow
-    assert '"last_service" in verbose_stopped' in workflow
-    assert 'discover_payload["service"]' not in workflow
-    assert "discover['service']" not in workflow
+
+    assert "uv run python scripts/ci_service_smoke.py api" in workflow
+    assert "uv run python scripts/ci_service_smoke.py mcp" in workflow
+    assert '"service",\n                "discover",' in service_smoke
+    assert '"service", "status", "--json"' in service_smoke
+    assert '"service", "stop", "--json"' in service_smoke
+    assert 'discover_payload["status"] == "running"' in service_smoke
+    assert 'discover_payload["type"] == service_type' in service_smoke
+    assert 'discover_payload["pid"]' in service_smoke
+    assert (
+        '"endpoint", "health_url", "version_url", "capabilities_url"' in service_smoke
+    )
+    assert 'version["data"]["service_api_version"] == "1"' in service_smoke
+    assert 'capabilities["data"]["service_api_version"] == "1"' in service_smoke
+    assert 'stopped_payload["running"] is False' in service_smoke
+    assert 'stop_result["status"] == "stopped"' in service_smoke
+    assert 'discover_payload["service"]' not in service_smoke
+    assert "discover['service']" not in service_smoke
 
 
 def test_install_smoke_uses_uv_tool_dir_and_explicit_macos_path_cases() -> None:
