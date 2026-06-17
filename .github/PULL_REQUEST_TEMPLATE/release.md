@@ -59,7 +59,7 @@ Fill every item below in the release-prep PR. Use the checkbox itself for status
 - [ ] B10. The target release section in `CHANGELOG.md` has exactly `### ✨ Features`, `### 🐛 Fixes`, and `### 🧹 Chores` in that order.
 - [ ] B11. Changelog bullets are thematic user-facing entries, not one line per commit or PR.
 - [ ] B12. Install, upgrade, uninstall, model, cache, logging, and re-embedding docs distinguish automatic behavior from operator action.
-- [ ] B13. Docs distinguish GitHub-tag-only releases from package-published releases, and the post-release checks match the actual publishing path.
+- [ ] B13. Docs distinguish the tag-triggered GitHub Release path from any future package-published release path, and the post-release checks match the path actually in use.
 - [ ] B14. User-facing examples are executable or clearly marked illustrative.
 - [ ] B15. Docs links resolve.
 - [ ] B16. Release notes call out operator actions, rollback guidance, known limitations, the support window, and the compatibility matrix.
@@ -84,9 +84,9 @@ Fill every item below in the release-prep PR. Use the checkbox itself for status
 
 - [ ] D1. Bootstrap install works on supported Linux and macOS paths.
 - [ ] D2. Bootstrap install works on supported Windows paths.
-- [ ] D3. `pip install` from the release candidate artifact works.
-- [ ] D4. `pipx install` from the release candidate artifact works.
-- [ ] D5. `uv tool install` from the release candidate artifact works.
+- [ ] D3. `pip install` from the release candidate artifact works, if that artifact is available for install smoke testing.
+- [ ] D4. `pipx install` from the release candidate artifact works, if that artifact is available for install smoke testing.
+- [ ] D5. `uv tool install` from the release candidate artifact works, if that artifact is available for install smoke testing.
 - [ ] D6. `recollectium --version`, `init`, and minimal add, search, and list workflows work after each supported install path.
 - [ ] D7. Upgrade from the previous supported release preserves memories, config, services, completions, metadata, and embeddings.
 - [ ] D8. `upgrade --check` is non-mutating.
@@ -184,15 +184,15 @@ Run the full quality gate in this release-prep PR before merge.
 <summary>Gate G: Post-release verification</summary>
 
 - [ ] G1. A GitHub Release exists and includes the curated changelog.
-- [ ] G2. Published package install paths work from the released artifact when available.
+- [ ] G2. Package install paths are verified only when a package-published release path is enabled for that release.
 - [ ] G3. README and wiki links resolve after release.
 - [ ] G4. Wiki content is current after release.
 - [ ] G5. Version strings, dates, changelog, tag, package metadata, docs, and GitHub Release title all match.
 - [ ] G6. The release workflow and tag trigger are verified.
 - [ ] G7. Changelog extraction and generated release notes are verified.
-- [ ] G8. Artifact publishing is verified on the actual release path.
+- [ ] G8. GitHub Release publication is verified on the actual tag-triggered release path.
 - [ ] G9. Failure recovery and rerun behavior are verified.
-- [ ] G10. A clean canary on the published artifact works and uninstalls cleanly.
+- [ ] G10. A clean canary on the GitHub Release tag or bootstrap release path works and uninstalls cleanly; package artifact canaries run only when package publication is enabled.
 
 </details>
 

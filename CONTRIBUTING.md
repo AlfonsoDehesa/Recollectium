@@ -669,7 +669,7 @@ The remaining checks happen after merge and before tagging.
 - [ ] G7. Changelog extraction and generated release notes are verified.
 - [ ] G8. GitHub Release publication is verified on the actual tag-triggered release path.
 - [ ] G9. Failure recovery and rerun behavior are verified.
-- [ ] G10. A clean canary on the published artifact works and uninstalls cleanly.
+- [ ] G10. A clean canary on the GitHub Release tag or bootstrap release path works and uninstalls cleanly; package artifact canaries run only when package publication is enabled.
 
 #### Gate H: Development tooling readiness
 
