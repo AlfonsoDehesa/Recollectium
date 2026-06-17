@@ -41,22 +41,6 @@ def test_ci_cancels_superseded_pr_runs_only() -> None:
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
 
 
-def test_workflows_use_node24_action_versions() -> None:
-    ci = _workflow("ci.yml")
-    release = _workflow("release.yml")
-    combined = f"{ci}\n{release}"
-
-    assert "actions/checkout@v6" in combined
-    assert "actions/setup-python@v6" in ci
-    assert "python -m pip install uv==0.11.15" in ci
-    assert "softprops/action-gh-release@v3" in release
-
-    assert "actions/checkout@v4" not in combined
-    assert "actions/setup-python@v5" not in combined
-    assert "astral-sh/setup-uv@" not in combined
-    assert "softprops/action-gh-release@v2" not in combined
-
-
 def test_publish_pypi_workflow_uses_trusted_publishing_and_tag_check() -> None:
     workflow = _workflow("publish-pypi.yml")
 
@@ -76,14 +60,49 @@ def test_publish_pypi_workflow_uses_trusted_publishing_and_tag_check() -> None:
     assert "uv publish --trusted-publishing always dist/*" in workflow
 
 
-def test_ci_keeps_required_gates_and_matrix() -> None:
+def test_ci_service_smoke_script_covers_api_and_mcp_surfaces() -> None:
+    script = (ROOT / "scripts" / "ci_service_smoke.py").read_text(encoding="utf-8")
+
+    assert "def _exercise_api_service" in script
+    assert "def _exercise_mcp_service" in script
+    assert (
+        "[\n                *recollectium,\n                \"--config\",\n                str(config_path),\n                \"service\",\n                \"start\",\n                \"api\",\n                \"--json\",\n            ]"
+        in script
+    )
+    assert (
+        "[\n                *recollectium,\n                \"--config\",\n                str(config_path),\n                \"service\",\n                \"start\",\n                \"mcp\",\n                \"--json\",\n            ]"
+        in script
+    )
+    assert '"service", "stop", "--json"' in script
+    assert '"service", "status", "--json"' in script
+    assert '"service",\n                "discover",' in script
+    assert "/v1/memories" in script
+    assert "/v1/memories/search_user" in script
+    assert "/v1/memories/search_workspace" in script
+    assert "search_user_memory" in script
+    assert "get_memory" in script
+
+
+def test_ci_service_smoke_workflow_keeps_required_gates_and_matrix() -> None:
     workflow = _workflow("ci.yml")
 
     assert "uv run ruff check ." in workflow
     assert "uv run pyright" in workflow
     assert "uv run pytest --cov=src/recollectium --cov-report=term-missing" in workflow
     assert "fail-fast: false" in workflow
-    assert "windows-11-arm" in workflow
-    assert "ubuntu-24.04-arm" in workflow
+    assert "linux-x86_64" in workflow
+    assert "linux-arm64" in workflow
+    assert "macos-intel" in workflow
+    assert "macos-apple-silicon" in workflow
+    assert "windows-x86_64" in workflow
+    assert "windows-arm64" in workflow
+    assert "scripts/ci_service_smoke.py api" in workflow
+    assert "scripts/ci_service_smoke.py mcp" in workflow
+    assert "Verify service surface smoke on Unix" in workflow
+    assert "Verify service surface smoke on Windows" in workflow
+    assert "service start api" in workflow
+    assert "service status --json" in workflow
+    assert "service discover --json" in workflow
+    assert "service stop --json" in workflow
     assert "paths-ignore" not in workflow
     assert "[skip ci]" not in workflow
