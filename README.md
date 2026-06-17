@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/recollectium-banner.png" alt="Recollectium" width="100%">
+  <img src="https://raw.githubusercontent.com/AlfonsoDehesa/Recollectium/main/docs/assets/recollectium-banner.png" alt="Recollectium" width="100%">
 </p>
 
 ## About
