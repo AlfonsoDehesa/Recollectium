@@ -251,7 +251,7 @@ ${path}
 
 ensure_path_file() {
   profile="$1"
-  line="export PATH=\"${TOOL_BIN_DIR}:\$PATH\""
+  line="${2:-export PATH=\"${TOOL_BIN_DIR}:\$PATH\"}"
   start_marker="# >>> recollectium path >>>"
   end_marker="# <<< recollectium path <<<"
 
@@ -319,6 +319,10 @@ ensure_path_hint() {
     ensure_path_file "${zdotdir}/.zprofile"
     ensure_path_file "${zdotdir}/.zshrc"
     info "Added ${TOOL_BIN_DIR} to ${zdotdir}/.zprofile and ${zdotdir}/.zshrc for future shells."
+  elif [ "$detected_shell" = "fish" ]; then
+    profile="${HOME}/.config/fish/config.fish"
+    ensure_path_file "$profile" "set -gx PATH \"${TOOL_BIN_DIR}\" \$PATH"
+    info "Added ${TOOL_BIN_DIR} to ${profile} for future shells."
   else
     profile="${HOME}/.profile"
     ensure_path_file "$profile"

@@ -130,6 +130,41 @@ def test_unix_bootstrap_adds_path_to_zsh_startup_files() -> None:
     assert 'ensure_path_file "${zdotdir}/.zshrc"' in script
 
 
+def test_unix_bootstrap_adds_path_to_fish_config_file(tmp_path: Path) -> None:
+    helpers = _unix_bootstrap_helpers()
+    home = tmp_path / "home"
+    tool_bin = tmp_path / "uv-tools"
+    home.mkdir()
+    tool_bin.mkdir()
+
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            f'{helpers}\nTOOL_BIN_DIR="$1"\nORIGINAL_PATH="/usr/bin:/bin"\nensure_path_hint',
+            "sh",
+            str(tool_bin),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(home),
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/usr/bin/fish",
+        },
+    )
+
+    profile = home / ".config" / "fish" / "config.fish"
+    expected_line = f'set -gx PATH "{tool_bin}" $PATH'
+    content = profile.read_text(encoding="utf-8")
+
+    assert f"Added {tool_bin} to {profile} for future shells." in result.stdout
+    assert expected_line in content
+    assert f'export PATH="{tool_bin}:$PATH"' not in content
+    assert content.count(expected_line) == 1
+
+
 def test_unix_bootstrap_records_managed_path_edit_paths() -> None:
     script = (ROOT / "install.sh").read_text(encoding="utf-8")
 
