@@ -17,7 +17,7 @@ In v1, Recollectium services are not hardened as public network services:
 ## Supported versions
 
 Only the latest released version of Recollectium receives security updates.
-For the v1.1.0 release, this is the only supported version. Older versions
+For the v1.1.1 release, this is the only supported version. Older versions
 are not patched for security issues.
 
 ## Supported security model for v1
