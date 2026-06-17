@@ -2,6 +2,22 @@
 
 Recollectium gives AI tools a local memory they can search across sessions. It keeps useful context on your machine, separates personal memory from workspace memory, and exposes the same memory system through the CLI, API, and MCP integrations.
 
+## v1.1.1
+
+Recollectium v1.1.1 is a patch release that prepares the project for PyPI publication with trusted publishing. It adds release automation only and makes no product behavior changes.
+
+### ✨ Features
+
+- Added a PyPI Trusted Publishing workflow for tag-based and manual release publishes.
+
+### 🐛 Fixes
+
+- No product behavior changes.
+
+### 🧹 Chores
+
+- Bumped the project version to v1.1.1 for the release cut.
+
 ## v1.1.0
 
 Recollectium v1.1.0 is a quality-of-life release focused on making everyday memory workflows smoother, clearer, and more predictable. Memory lookup is cleaner by default, CLI feedback is easier to follow, shell completion is more complete, and install, upgrade, uninstall, and recovery paths are easier to understand.
