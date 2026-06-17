@@ -45,6 +45,16 @@ The bootstrap installer tracks the latest release by default. It also prepares t
 
 For the full setup flow, including first memory, service startup, MCP, API, logs, and troubleshooting, see the [Quick Start](https://github.com/AlfonsoDehesa/Recollectium/wiki/Quick-Start) in the GitHub Wiki.
 
+## Database upgrades and recovery
+
+Recollectium applies SQLite schema migrations automatically when `init`, `upgrade`, or a service start opens the database. Pending migrations run in order and only once. There is no separate manual migrate command.
+
+Upgrades are forward-only. If the database is newer than the installed Recollectium build, startup fails with a migration error. In that case, upgrade Recollectium to a build that understands the newer schema or restore a backup from before the newer schema was written. Downgrades are not supported.
+
+If a migration fails or startup is interrupted while it is applying, the failed step is rolled back and the database stays on the last successful version. After you fix the underlying problem, rerun the same command. Recollectium resumes from the last applied migration.
+
+Before upgrading in production, stop the service and make a manual backup of the Recollectium data directory or the SQLite database file. There is no dedicated backup command in v1. If the database becomes corrupted, restore that copy and start Recollectium again.
+
 Common next steps:
 
 - Install details: [Installation](https://github.com/AlfonsoDehesa/Recollectium/wiki/Installation)

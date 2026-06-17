@@ -38,6 +38,14 @@ recollectium --db /path/to/recollectium.db dev serve --host 127.0.0.1 --port 876
 - API prefix: `/v1`
 - Service API version value: `1`
 
+## Database migration behavior
+
+The API service applies pending SQLite schema migrations automatically when it opens the database during `init`, `upgrade`, or service startup. Pending migrations run in order and each completed step is recorded before the next one starts.
+
+If a migration fails, the current step is rolled back and the database remains on the last successful version. Rerun the same command after fixing the problem.
+
+If the database is newer than the installed Recollectium build, startup fails instead of guessing a downgrade path. Upgrade Recollectium or restore a backup from before the newer schema was written. For recovery after corruption, stop the service and restore a manual copy of the data directory or SQLite file, because v1 does not have a dedicated backup command.
+
 ## Adapter discovery workflow
 
 Adapters and plugins should discover the local service with:
