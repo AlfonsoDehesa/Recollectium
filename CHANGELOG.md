@@ -4,6 +4,10 @@ Recollectium gives AI tools a local memory they can search across sessions. It k
 
 ## Unreleased
 
+Recollectium v1.1.0 is a quality-of-life release focused on making everyday memory workflows smoother, clearer, and more predictable. Memory lookup is cleaner by default, CLI feedback is easier to follow, shell completion is more complete, and install, upgrade, uninstall, and recovery paths are easier to understand.
+
+This release also tightens cross-platform behavior and documentation so Recollectium feels less surprising when something changes, fails, or needs operator action. Overall, it reduces friction and makes the tool feel more dependable in real agent workflows.
+
 ### ✨ Features
 
 - **BETTER DEFAULT SEARCH MODEL:** the built-in default is now `BAAI/bge-base-en-v1.5`, which gives better search results while keeping memory lookups fast and inexpensive. If you prefer speed over accuracy, you can still choose the lighter older model in your settings. Related PRs: [#54](https://github.com/AlfonsoDehesa/Recollectium/pull/54).
