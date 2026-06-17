@@ -2,7 +2,7 @@
 
 Recollectium gives AI tools a local memory they can search across sessions. It keeps useful context on your machine, separates personal memory from workspace memory, and exposes the same memory system through the CLI, API, and MCP integrations.
 
-## Unreleased
+## v1.1.0
 
 Recollectium v1.1.0 is a quality-of-life release focused on making everyday memory workflows smoother, clearer, and more predictable. Memory lookup is cleaner by default, CLI feedback is easier to follow, shell completion is more complete, and install, upgrade, uninstall, and recovery paths are easier to understand.
 
