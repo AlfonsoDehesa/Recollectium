@@ -103,7 +103,7 @@ def _run_json(args: list[str]) -> Any:
 
 def _run_json_allow_not_running(args: list[str]) -> Any:
     completed = _run_command(args, check=False)
-    if completed.returncode not in {0, 1}:
+    if completed.returncode != 1:
         raise RuntimeError(
             f"command failed ({completed.returncode}): {' '.join(args)}\n"
             f"stdout:\n{completed.stdout}\n"

@@ -76,6 +76,7 @@ def test_ci_service_smoke_script_covers_api_and_mcp_surfaces() -> None:
     assert '"service", "stop", "--json"' in script
     assert '"service", "status", "--json"' in script
     assert '"service",\n                "discover",' in script
+    assert "completed.returncode != 1" in script
     assert "_assert_not_running_discover_payload(post_stop_discover)" in script
     assert "search_workspace_memory" in script
     assert 'workspace_uid = "ci-service-smoke-workspace"' in script

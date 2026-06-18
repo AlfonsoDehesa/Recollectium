@@ -26,6 +26,7 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
     assert '"service",\n                "discover",' in service_smoke
     assert '"service", "status", "--json"' in service_smoke
     assert '"service", "stop", "--json"' in service_smoke
+    assert "completed.returncode != 1" in service_smoke
     assert "_assert_not_running_discover_payload(post_stop_discover)" in service_smoke
     assert "search_workspace_memory" in service_smoke
     assert 'workspace_uid = "ci-service-smoke-workspace"' in service_smoke
