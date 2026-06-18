@@ -76,10 +76,14 @@ def test_ci_service_smoke_script_covers_api_and_mcp_surfaces() -> None:
     assert '"service", "stop", "--json"' in script
     assert '"service", "status", "--json"' in script
     assert '"service",\n                "discover",' in script
+    assert "_assert_not_running_discover_payload(post_stop_discover)" in script
+    assert "search_workspace_memory" in script
+    assert 'workspace_uid = "ci-service-smoke-workspace"' in script
     assert "/v1/memories" in script
     assert "/v1/memories/search_user" in script
     assert "/v1/memories/search_workspace" in script
     assert "search_user_memory" in script
+    assert "search_workspace_memory" in script
     assert "get_memory" in script
 
 

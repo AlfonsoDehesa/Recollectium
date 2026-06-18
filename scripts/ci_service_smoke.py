@@ -101,6 +101,21 @@ def _run_json(args: list[str]) -> Any:
     return json.loads(completed.stdout)
 
 
+def _run_json_allow_not_running(args: list[str]) -> Any:
+    completed = _run_command(args, check=False)
+    if completed.returncode not in {0, 1}:
+        raise RuntimeError(
+            f"command failed ({completed.returncode}): {' '.join(args)}\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    if completed.stderr:
+        raise RuntimeError(
+            f"unexpected stderr from {' '.join(args)}:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout)
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((SERVICE_HOST, 0))
@@ -161,6 +176,14 @@ def _assert_service_payloads(
         value = discover_payload.get(key)
         assert isinstance(value, str) and value.startswith("http://"), discover_payload
     return status_payload["endpoint"]
+
+
+def _assert_not_running_discover_payload(payload: dict[str, Any]) -> None:
+    assert payload["status"] == "not_running", payload
+    if set(payload) == {"status"}:
+        return
+    assert payload.get("service") is None, payload
+    assert payload.get("running") is False, payload
 
 
 def _wait_for_health(health_url: str) -> dict[str, Any]:
@@ -296,8 +319,19 @@ def _exercise_api_service(root: Path) -> None:
         stopped_payload = _run_json(
             [*recollectium, "--config", str(config_path), "service", "status", "--json"]
         )
+        post_stop_discover = _run_json_allow_not_running(
+            [
+                *recollectium,
+                "--config",
+                str(config_path),
+                "service",
+                "discover",
+                "--json",
+            ]
+        )
         assert stop_result["status"] == "stopped", stop_result
         assert stopped_payload["running"] is False, stopped_payload
+        _assert_not_running_discover_payload(post_stop_discover)
         stop_payload = stop_result
     finally:
         if stop_payload is None:
@@ -358,8 +392,19 @@ async def _exercise_mcp_service(root: Path) -> None:
         stopped_payload = _run_json(
             [*recollectium, "--config", str(config_path), "service", "status", "--json"]
         )
+        post_stop_discover = _run_json_allow_not_running(
+            [
+                *recollectium,
+                "--config",
+                str(config_path),
+                "service",
+                "discover",
+                "--json",
+            ]
+        )
         assert stop_result["status"] == "stopped", stop_result
         assert stopped_payload["running"] is False, stopped_payload
+        _assert_not_running_discover_payload(post_stop_discover)
         stop_payload = stop_result
     finally:
         if stop_payload is None:
@@ -389,9 +434,12 @@ async def _wait_for_mcp_ready(endpoint: str) -> None:
                     await session.initialize()
                     tools = await session.list_tools()
                     tool_names = {tool.name for tool in tools.tools}
-                    assert {"add_memory", "get_memory", "search_user_memory"}.issubset(
-                        tool_names
-                    ), tools
+                    assert {
+                        "add_memory",
+                        "get_memory",
+                        "search_user_memory",
+                        "search_workspace_memory",
+                    }.issubset(tool_names), tools
                     return
         except Exception as exc:  # pragma: no cover - smoke retry
             last_error = exc
@@ -442,6 +490,57 @@ async def _exercise_mcp_memory_round_trip(
             get_payload = json.loads(get_content.text)
             assert get_payload["id"] == memory_id, get_payload
             assert get_payload["content"] == "CI MCP user memory", get_payload
+
+            workspace_uid = "ci-service-smoke-workspace"
+            workspace_add_result = await session.call_tool(
+                "add_memory",
+                {
+                    "space": "workspace",
+                    "workspace_uid": workspace_uid,
+                    "type": "decision",
+                    "content": "CI MCP workspace memory",
+                },
+            )
+            assert not workspace_add_result.isError, workspace_add_result
+            workspace_add_content = workspace_add_result.content[0]
+            assert isinstance(workspace_add_content, TextContent), workspace_add_content
+            workspace_added_memory = json.loads(workspace_add_content.text)
+            assert workspace_added_memory["status"] == "saved", workspace_added_memory
+            workspace_memory_id = workspace_added_memory["id"]
+
+            workspace_search_result = await session.call_tool(
+                "search_workspace_memory",
+                {
+                    "query": "CI MCP workspace memory",
+                    "workspace_uid": workspace_uid,
+                    "type": "decision",
+                    "verbosity": "verbose",
+                },
+            )
+            assert not workspace_search_result.isError, workspace_search_result
+            workspace_search_content = workspace_search_result.content[0]
+            assert isinstance(workspace_search_content, TextContent), (
+                workspace_search_content
+            )
+            workspace_search_payload = json.loads(workspace_search_content.text)
+            assert workspace_search_payload[0]["memory"]["id"] == workspace_memory_id, (
+                workspace_search_payload
+            )
+
+            workspace_get_result = await session.call_tool(
+                "get_memory",
+                {"id": workspace_memory_id, "verbosity": "verbose"},
+            )
+            assert not workspace_get_result.isError, workspace_get_result
+            workspace_get_content = workspace_get_result.content[0]
+            assert isinstance(workspace_get_content, TextContent), workspace_get_content
+            workspace_get_payload = json.loads(workspace_get_content.text)
+            assert workspace_get_payload["id"] == workspace_memory_id, (
+                workspace_get_payload
+            )
+            assert workspace_get_payload["content"] == "CI MCP workspace memory", (
+                workspace_get_payload
+            )
 
     stop_payload = _run_json(
         [*recollectium, "--config", str(config_path), "service", "stop", "--json"]
