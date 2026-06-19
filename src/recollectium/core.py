@@ -40,6 +40,11 @@ from recollectium.models import (
 )
 from recollectium.config import RecollectiumConfig
 from recollectium.dev_seed import ensure_seeded_dev_database
+from recollectium.memory_spaces import (
+    MemorySpaceResolution,
+    MemorySpaceResolver,
+    validate_memory_space_key,
+)
 from recollectium.retrieval import (
     UNSET,
     UnsetType,
@@ -95,9 +100,44 @@ class RecollectiumCore:
         else:
             selected_path = self.config.resolved_database_path
 
+        development = self.config.effective_config.get("development", {})
+        use_seeded_database = bool(
+            isinstance(development, dict)
+            and development.get("use_seeded_database") is True
+        )
+        self._store_cache: dict[str, SQLiteMemoryStore] = {}
+        self._memory_space_resolver: MemorySpaceResolver | None
+        self._default_memory_space_resolution: MemorySpaceResolution
+        self._db_path_compat_mode = (
+            db_path is not None
+            or self.config.uses_legacy_database_path
+            or use_seeded_database
+        )
+        if self._db_path_compat_mode:
+            self.store = SQLiteMemoryStore(selected_path)
+            self._store_cache[self.config.default_memory_space_key] = self.store
+            self._default_memory_space_resolution = MemorySpaceResolution(
+                key=self.config.default_memory_space_key,
+                db_path=self.store.db_path,
+                is_default=True,
+            )
+            self._memory_space_resolver = None
+        else:
+            self._memory_space_resolver = MemorySpaceResolver(
+                self.config.resolved_database_folder,
+                self.config.default_memory_space_key,
+            )
+            self.store, self._default_memory_space_resolution = self._store_for(None)
+
         _log.info(
             "RecollectiumCore initialised",
-            extra={"event": "core.init", "context": {"db_path": str(selected_path)}},
+            extra={
+                "event": "core.init",
+                "context": {
+                    "db_path": str(selected_path),
+                    "db_path_compat_mode": self._db_path_compat_mode,
+                },
+            },
         )
 
         configured_embedding = self.config.effective_config.get("embedding", {})
@@ -110,19 +150,40 @@ class RecollectiumCore:
         self.embedding_provider = embedding_provider or BuiltinFastEmbedProvider(
             str(configured_model), cache_dir=self.config.model_cache_path
         )
-        development = self.config.effective_config.get("development", {})
         if (
             db_path is None
             and isinstance(development, dict)
             and development.get("use_seeded_database") is True
         ):
             ensure_seeded_dev_database(selected_path, self.embedding_provider)
-        self.store = SQLiteMemoryStore(selected_path)
         self.immediate_reembedding_threshold = immediate_reembedding_threshold
         startup_job = (
             self._start_startup_reembedding() if auto_startup_reembedding else None
         )
         self._startup_reembedding_job_id = startup_job[0] if startup_job else None
+
+    def _store_for(
+        self, memory_space_key: str | None = None
+    ) -> tuple[SQLiteMemoryStore, MemorySpaceResolution]:
+        if self._memory_space_resolver is None:
+            key = (
+                self.config.default_memory_space_key
+                if memory_space_key is None
+                else validate_memory_space_key(memory_space_key)
+            )
+            resolution = MemorySpaceResolution(
+                key=key,
+                db_path=self.store.db_path,
+                is_default=key == self.config.default_memory_space_key,
+            )
+            return self.store, resolution
+
+        resolution = self._memory_space_resolver.resolve(memory_space_key)
+        store = self._store_cache.get(resolution.key)
+        if store is None:
+            store = SQLiteMemoryStore(resolution.db_path)
+            self._store_cache[resolution.key] = store
+        return store, resolution
 
     def add_memory(
         self,
@@ -134,10 +195,13 @@ class RecollectiumCore:
         source: str | None = None,
         confidence: float | None = None,
         sensitivity: str | None = None,
+        *,
+        memory_space_key: str | None = None,
     ) -> Memory:
+        store, _ = self._store_for(memory_space_key)
         normalized_uid = self._normalize_uid(workspace_uid)
         if space == SPACE_WORKSPACE:
-            normalized_uid = self._resolve_workspace_uid(normalized_uid)
+            normalized_uid = self._resolve_workspace_uid(store, normalized_uid)
         payload = validate_memory_create_input(
             space=space,
             memory_type=type,
@@ -163,10 +227,10 @@ class RecollectiumCore:
         )
         chunk_embeddings = self._chunk_embed_pairs(memory.content)
         first_embedding = chunk_embeddings[0][1]
-        inserted = self.store.insert_memory(
+        inserted = store.insert_memory(
             memory, first_embedding, self.embedding_provider.embedding_profile
         )
-        self.store.replace_memory_chunks(
+        store.replace_memory_chunks(
             memory_id=inserted.id,
             embedding_profile=self.embedding_provider.embedding_profile,
             chunk_embeddings=chunk_embeddings,
@@ -192,15 +256,19 @@ class RecollectiumCore:
         | Literal["model_recommended_default"]
         | UnsetType = UNSET,
         progress_callback: ReembeddingProgressCallback | None = None,
+        *,
+        memory_space_key: str | None = None,
     ) -> list[SearchResult]:
+        store, _ = self._store_for(memory_space_key)
         validated_type = validate_memory_type_filter(type) if type is not None else None
         self._ensure_scope_embeddings_ready(
+            store=store,
             space=SPACE_USER,
             include_archived=include_archived,
             status_path="/v1/embedding/jobs",
             progress_callback=progress_callback,
         )
-        candidates = self.store.list_chunk_candidates(
+        candidates = store.list_chunk_candidates(
             space=SPACE_USER,
             memory_type=validated_type,
             embedding_profile=self.embedding_provider.embedding_profile,
@@ -259,22 +327,26 @@ class RecollectiumCore:
         | Literal["model_recommended_default"]
         | UnsetType = UNSET,
         progress_callback: ReembeddingProgressCallback | None = None,
+        *,
+        memory_space_key: str | None = None,
     ) -> list[SearchResult]:
+        store, _ = self._store_for(memory_space_key)
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
         if workspace_uid is None:
             raise ValidationError("workspace_uid is required for workspace search")
-        workspace_uid = self._resolve_workspace_uid(workspace_uid)
+        workspace_uid = self._resolve_workspace_uid(store, workspace_uid)
         assert workspace_uid is not None
         validated_type = validate_memory_type_filter(type) if type is not None else None
 
         self._ensure_scope_embeddings_ready(
+            store=store,
             space=SPACE_WORKSPACE,
             workspace_uid=workspace_uid,
             include_archived=include_archived,
             status_path="/v1/embedding/jobs",
             progress_callback=progress_callback,
         )
-        candidates = self.store.list_chunk_candidates(
+        candidates = store.list_chunk_candidates(
             space=SPACE_WORKSPACE,
             workspace_uid=workspace_uid,
             memory_type=validated_type,
@@ -330,10 +402,13 @@ class RecollectiumCore:
         workspace_uid: str | None = None,
         include_archived: bool = False,
         limit: int | None = None,
+        *,
+        memory_space_key: str | None = None,
     ) -> list[Memory]:
+        store, _ = self._store_for(memory_space_key)
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
         if workspace_uid is not None and (space is None or space == SPACE_WORKSPACE):
-            workspace_uid = self._resolve_workspace_uid(workspace_uid)
+            workspace_uid = self._resolve_workspace_uid(store, workspace_uid)
         else:
             workspace_uid = self._normalize_uid(workspace_uid)
         if space is not None and space not in {SPACE_USER, SPACE_WORKSPACE}:
@@ -342,7 +417,7 @@ class RecollectiumCore:
             validate_memory_type_filter(type, space=space) if type is not None else None
         )
 
-        return self.store.list_memories(
+        return store.list_memories(
             space=space,
             memory_type=validated_type,
             status=status,
@@ -351,9 +426,15 @@ class RecollectiumCore:
             limit=validate_limit(limit),
         )
 
-    def get_memory(self, memory_id: str) -> Memory:
-        memory = self.store.get_memory(memory_id)
-        touched = self.store.touch_last_accessed_at(memory_id)
+    def get_memory(
+        self,
+        memory_id: str,
+        *,
+        memory_space_key: str | None = None,
+    ) -> Memory:
+        store, _ = self._store_for(memory_space_key)
+        memory = store.get_memory(memory_id)
+        touched = store.touch_last_accessed_at(memory_id)
         if touched is not None:
             memory = touched
         return memory
@@ -367,8 +448,11 @@ class RecollectiumCore:
         source: str | None = None,
         confidence: float | None = None,
         sensitivity: str | None = None,
+        *,
+        memory_space_key: str | None = None,
     ) -> Memory:
-        existing_memory = self.get_memory(memory_id)
+        store, _ = self._store_for(memory_space_key)
+        existing_memory = self.get_memory(memory_id, memory_space_key=memory_space_key)
         has_model_updates = any(
             value is not None for value in (type, content, metadata, confidence)
         )
@@ -400,8 +484,8 @@ class RecollectiumCore:
             chunk_embeddings = self._chunk_embed_pairs(content_update)
             validated["embedding"] = chunk_embeddings[0][1]
             validated["embedding_profile"] = self.embedding_provider.embedding_profile
-            updated_memory = self.store.update_memory(memory_id, **validated)
-            self.store.replace_memory_chunks(
+            updated_memory = store.update_memory(memory_id, **validated)
+            store.replace_memory_chunks(
                 memory_id=memory_id,
                 embedding_profile=self.embedding_provider.embedding_profile,
                 chunk_embeddings=chunk_embeddings,
@@ -418,7 +502,7 @@ class RecollectiumCore:
             )
             return updated_memory
 
-        result = self.store.update_memory(memory_id, **validated)
+        result = store.update_memory(memory_id, **validated)
         _log.info(
             "memory updated",
             extra={
@@ -428,8 +512,14 @@ class RecollectiumCore:
         )
         return result
 
-    def archive_memory(self, memory_id: str) -> Memory:
-        result = self.store.archive_memory(memory_id)
+    def archive_memory(
+        self,
+        memory_id: str,
+        *,
+        memory_space_key: str | None = None,
+    ) -> Memory:
+        store, _ = self._store_for(memory_space_key)
+        result = store.archive_memory(memory_id)
         _log.info(
             "memory archived",
             extra={
@@ -439,13 +529,24 @@ class RecollectiumCore:
         )
         return result
 
-    def get_embedding_job(self, job_id: str) -> dict[str, Any]:
-        return self.store.get_embedding_job(job_id)
+    def get_embedding_job(
+        self,
+        job_id: str,
+        *,
+        memory_space_key: str | None = None,
+    ) -> dict[str, Any]:
+        store, _ = self._store_for(memory_space_key)
+        return store.get_embedding_job(job_id)
 
     def list_embedding_jobs(
-        self, *, state: str | None = None, limit: int | None = None
+        self,
+        *,
+        state: str | None = None,
+        limit: int | None = None,
+        memory_space_key: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.store.list_embedding_jobs(state=state, limit=validate_limit(limit))
+        store, _ = self._store_for(memory_space_key)
+        return store.list_embedding_jobs(state=state, limit=validate_limit(limit))
 
     def refresh_stale_embeddings(
         self,
@@ -454,8 +555,10 @@ class RecollectiumCore:
         workspace_uid: str | None = None,
         include_archived: bool = False,
         progress_callback: ReembeddingProgressCallback | None = None,
+        memory_space_key: str | None = None,
     ) -> dict[str, Any]:
         """Force an inline refresh of stale embeddings for the active profile."""
+        store, _ = self._store_for(memory_space_key)
         if space is not None and space not in {SPACE_USER, SPACE_WORKSPACE}:
             raise ValidationError("space must be user or workspace")
         workspace_uid = _validate_optional_string("workspace_uid", workspace_uid)
@@ -464,9 +567,9 @@ class RecollectiumCore:
                 space = SPACE_WORKSPACE
             if space != SPACE_WORKSPACE:
                 raise ValidationError("workspace_uid requires workspace space")
-            workspace_uid = self._resolve_workspace_uid(workspace_uid)
+            workspace_uid = self._resolve_workspace_uid(store, workspace_uid)
 
-        stale_count = self.store.count_memories_needing_profile_reembedding(
+        stale_count = store.count_memories_needing_profile_reembedding(
             embedding_profile=self.embedding_provider.embedding_profile,
             space=space,
             workspace_uid=workspace_uid,
@@ -481,6 +584,7 @@ class RecollectiumCore:
             }
 
         job_result = self._reembed_stale_memories(
+            store=store,
             reason="force-refresh",
             space=space,
             workspace_uid=workspace_uid,
@@ -506,14 +610,18 @@ class RecollectiumCore:
         return {
             "refreshed": True,
             "stale_count": stale_count,
-            "job": self.store.get_embedding_job(job_id),
+            "job": store.get_embedding_job(job_id),
             "status_path": status_path,
         }
 
     def clear_embedding_jobs(
-        self, *, states: tuple[str, ...] | list[str] | None = None
+        self,
+        *,
+        states: tuple[str, ...] | list[str] | None = None,
+        memory_space_key: str | None = None,
     ) -> dict[str, Any]:
         """Delete embedding job audit records without deleting memories."""
+        store, _ = self._store_for(memory_space_key)
         selected_states = (
             ("completed", "failed", "pending") if states is None else tuple(states)
         )
@@ -529,14 +637,17 @@ class RecollectiumCore:
                 "invalid embedding job state: "
                 f"{', '.join(invalid_states)}; states must be one of: {allowed_values}"
             )
-        deleted_job_ids = self.store.delete_embedding_jobs(states=selected_states)
+        deleted_job_ids = store.delete_embedding_jobs(states=selected_states)
         return {
             "deleted_count": len(deleted_job_ids),
             "states": list(selected_states),
             "deleted_job_ids": deleted_job_ids,
         }
 
-    def active_embedding_status(self) -> dict[str, Any]:
+    def active_embedding_status(
+        self, *, memory_space_key: str | None = None
+    ) -> dict[str, Any]:
+        store, resolution = self._store_for(memory_space_key)
         startup_status_path = None
         if self._startup_reembedding_job_id is not None:
             startup_status_path = (
@@ -570,11 +681,22 @@ class RecollectiumCore:
             "startup_reembedding_job_id": self._startup_reembedding_job_id,
             "startup_reembedding_status_path": startup_status_path,
             "embedding_jobs_status_path": "/v1/embedding/jobs",
-            "recent_embedding_jobs": self.list_embedding_jobs(limit=5),
+            "recent_embedding_jobs": store.list_embedding_jobs(limit=5),
+            "memory_space_key": resolution.key,
+            "memory_space_db_path": str(resolution.db_path),
         }
 
-    def database_status(self) -> dict[str, object]:
-        return self.store.migration_status()
+    def database_status(
+        self,
+        *,
+        memory_space_key: str | None = None,
+    ) -> dict[str, object]:
+        store, resolution = self._store_for(memory_space_key)
+        status = store.migration_status()
+        status["memory_space_key"] = resolution.key
+        status["memory_space_db_path"] = str(resolution.db_path)
+        status["memory_space_is_default"] = resolution.is_default
+        return status
 
     # -- workspace operations ------------------------------------------------
 
@@ -602,16 +724,24 @@ class RecollectiumCore:
             )
         return normalized
 
-    def _resolve_workspace_uid(self, workspace_uid: str | None) -> str | None:
+    def _resolve_workspace_uid(
+        self, store: SQLiteMemoryStore, workspace_uid: str | None
+    ) -> str | None:
         normalized_uid = self._normalize_uid(workspace_uid)
         if normalized_uid is None:
             return None
-        return self.store.resolve_workspace_uid(normalized_uid)
+        return store.resolve_workspace_uid(normalized_uid)
 
-    def resolve_workspace(self, uid: str) -> dict[str, object]:
+    def resolve_workspace(
+        self,
+        uid: str,
+        *,
+        memory_space_key: str | None = None,
+    ) -> dict[str, object]:
+        store, _resolution = self._store_for(memory_space_key)
         normalized_uid = self._normalize_uid(uid)
         assert normalized_uid is not None
-        canonical_uid = self.store.resolve_workspace_uid(normalized_uid)
+        canonical_uid = store.resolve_workspace_uid(normalized_uid)
         return {
             "input_uid": uid,
             "normalized_uid": normalized_uid,
@@ -625,11 +755,13 @@ class RecollectiumCore:
         alias_uid: str,
         *,
         migrate_existing: bool = False,
+        memory_space_key: str | None = None,
     ) -> dict[str, object]:
+        store, _ = self._store_for(memory_space_key)
         norm_canonical = self._normalize_uid(canonical_uid)
         norm_alias = self._normalize_uid(alias_uid)
         assert norm_canonical is not None and norm_alias is not None
-        result = self.store.add_workspace_alias(
+        result = store.add_workspace_alias(
             canonical_uid=norm_canonical,
             alias_uid=norm_alias,
             migrate_existing=migrate_existing,
@@ -648,15 +780,25 @@ class RecollectiumCore:
         return result
 
     def list_workspace_aliases(
-        self, canonical_uid: str | None = None
+        self,
+        canonical_uid: str | None = None,
+        *,
+        memory_space_key: str | None = None,
     ) -> list[dict[str, str]]:
-        norm_canonical = self._resolve_workspace_uid(canonical_uid)
-        return self.store.list_workspace_aliases(canonical_uid=norm_canonical)
+        store, _ = self._store_for(memory_space_key)
+        norm_canonical = self._resolve_workspace_uid(store, canonical_uid)
+        return store.list_workspace_aliases(canonical_uid=norm_canonical)
 
-    def remove_workspace_alias(self, alias_uid: str) -> dict[str, str]:
+    def remove_workspace_alias(
+        self,
+        alias_uid: str,
+        *,
+        memory_space_key: str | None = None,
+    ) -> dict[str, str]:
+        store, _ = self._store_for(memory_space_key)
         norm_alias = self._normalize_uid(alias_uid)
         assert norm_alias is not None
-        return self.store.remove_workspace_alias(norm_alias)
+        return store.remove_workspace_alias(norm_alias)
 
     def list_workspaces(
         self,
@@ -664,16 +806,24 @@ class RecollectiumCore:
         include_archived: bool = False,
         include_aliases: bool = False,
         include_alias_records: bool = False,
+        memory_space_key: str | None = None,
     ) -> list[str] | list[dict[str, object]]:
         """Return distinct workspace UIDs, optionally with aliases."""
+        store, _ = self._store_for(memory_space_key)
         if include_aliases:
-            return self.store.list_workspace_inventory(
+            return store.list_workspace_inventory(
                 include_archived=include_archived,
                 include_alias_records=include_alias_records,
             )
-        return self.store.list_workspace_uids(include_archived=include_archived)
+        return store.list_workspace_uids(include_archived=include_archived)
 
-    def rename_workspace(self, old_uid: str, new_uid: str) -> dict[str, Any]:
+    def rename_workspace(
+        self,
+        old_uid: str,
+        new_uid: str,
+        *,
+        memory_space_key: str | None = None,
+    ) -> dict[str, Any]:
         """Rename all workspace memories from old_uid to new_uid.
 
         Both UIDs are normalized per config before the operation.
@@ -681,6 +831,7 @@ class RecollectiumCore:
         Raises ValidationError if either UID normalizes to empty.
         Raises NotFoundError if old_uid has no matching workspace memories.
         """
+        store, _ = self._store_for(memory_space_key)
         norm_old = self._normalize_uid(old_uid)
         norm_new = self._normalize_uid(new_uid)
         assert (
@@ -695,7 +846,7 @@ class RecollectiumCore:
                 "aliases_updated": 0,
             }
 
-        rename_result = self.store.rename_workspace(norm_old, norm_new)
+        rename_result = store.rename_workspace(norm_old, norm_new)
         count = rename_result["memories_updated"]
         aliases_updated = rename_result["aliases_updated"]
         _log.info(
@@ -845,13 +996,14 @@ class RecollectiumCore:
     def _ensure_scope_embeddings_ready(
         self,
         *,
+        store: SQLiteMemoryStore,
         space: str,
         workspace_uid: str | None = None,
         include_archived: bool = False,
         status_path: str,
         progress_callback: ReembeddingProgressCallback | None = None,
     ) -> None:
-        stale_count = self.store.count_memories_needing_profile_reembedding(
+        stale_count = store.count_memories_needing_profile_reembedding(
             embedding_profile=self.embedding_provider.embedding_profile,
             space=space,
             workspace_uid=workspace_uid,
@@ -861,6 +1013,7 @@ class RecollectiumCore:
             return
 
         job_result = self._reembed_stale_memories(
+            store=store,
             reason="search",
             space=space,
             workspace_uid=workspace_uid,
@@ -877,12 +1030,15 @@ class RecollectiumCore:
             )
 
     def _start_startup_reembedding(self) -> tuple[str, bool] | None:
-        stale_count = self.store.count_memories_needing_profile_reembedding(
+        store = self.store
+        stale_count = store.count_memories_needing_profile_reembedding(
             embedding_profile=self.embedding_provider.embedding_profile,
         )
         if stale_count == 0:
             return None
-        job_result = self._reembed_stale_memories(reason="startup", fail_on_error=True)
+        job_result = self._reembed_stale_memories(
+            store=store, reason="startup", fail_on_error=True
+        )
         if job_result is not None and job_result[1]:
             job_id = job_result[0]
             raise ReembeddingFailedError(
@@ -895,6 +1051,7 @@ class RecollectiumCore:
     def _reembed_stale_memories(
         self,
         *,
+        store: SQLiteMemoryStore | None = None,
         reason: str,
         space: str | None = None,
         workspace_uid: str | None = None,
@@ -902,7 +1059,8 @@ class RecollectiumCore:
         fail_on_error: bool = False,
         progress_callback: ReembeddingProgressCallback | None = None,
     ) -> tuple[str, bool] | None:
-        stale_memories = self.store.list_memories_needing_profile_reembedding(
+        store = self.store if store is None else store
+        stale_memories = store.list_memories_needing_profile_reembedding(
             embedding_profile=self.embedding_provider.embedding_profile,
             space=space,
             workspace_uid=workspace_uid,
@@ -913,7 +1071,7 @@ class RecollectiumCore:
 
         now = utc_now_iso()
         job_id = str(uuid4())
-        self.store.create_embedding_job(
+        store.create_embedding_job(
             job_id=job_id,
             state="in_progress",
             total_count=len(stale_memories),
@@ -951,6 +1109,7 @@ class RecollectiumCore:
         )
 
         failed = self._process_reembedding_job(
+            store=store,
             job_id=job_id,
             reason=reason,
             space=space,
@@ -974,6 +1133,7 @@ class RecollectiumCore:
     def _process_reembedding_job(
         self,
         *,
+        store: SQLiteMemoryStore | None = None,
         job_id: str,
         reason: str,
         space: str | None = None,
@@ -983,15 +1143,16 @@ class RecollectiumCore:
         stale_memories: list[Memory] | None = None,
         progress_callback: ReembeddingProgressCallback | None = None,
     ) -> bool:
+        store = self.store if store is None else store
         if stale_memories is None:
-            stale_memories = self.store.list_memories_needing_profile_reembedding(
+            stale_memories = store.list_memories_needing_profile_reembedding(
                 embedding_profile=self.embedding_provider.embedding_profile,
                 space=space,
                 workspace_uid=workspace_uid,
                 include_archived=include_archived,
             )
 
-        self.store.update_embedding_job(
+        store.update_embedding_job(
             job_id,
             state="in_progress",
             total_count=len(stale_memories),
@@ -1012,12 +1173,12 @@ class RecollectiumCore:
             processed += 1
             try:
                 chunk_embeddings = self._chunk_embed_pairs(memory.content)
-                self.store.refresh_memory_embedding_derived_fields(
+                store.refresh_memory_embedding_derived_fields(
                     memory.id,
                     embedding=chunk_embeddings[0][1],
                     embedding_profile=self.embedding_provider.embedding_profile,
                 )
-                self.store.replace_memory_chunks(
+                store.replace_memory_chunks(
                     memory_id=memory.id,
                     embedding_profile=self.embedding_provider.embedding_profile,
                     chunk_embeddings=chunk_embeddings,
@@ -1027,7 +1188,7 @@ class RecollectiumCore:
                 failed += 1
                 failure_message = str(exc)
 
-            self.store.update_embedding_job(
+            store.update_embedding_job(
                 job_id,
                 processed_count=processed,
                 succeeded_count=succeeded,
@@ -1054,7 +1215,7 @@ class RecollectiumCore:
 
         completed_at = utc_now_iso()
         final_state = "completed" if failed == 0 else "failed"
-        self.store.update_embedding_job(
+        store.update_embedding_job(
             job_id,
             state=final_state,
             error_message=failure_message,

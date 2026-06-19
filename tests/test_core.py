@@ -21,6 +21,7 @@ from recollectium.errors import (
     ValidationError,
 )
 from recollectium.model_state import read_model_state, write_model_state
+from recollectium.memory_spaces import DEFAULT_MEMORY_SPACE_KEY
 from recollectium.models import SPACE_USER, SPACE_WORKSPACE, STATUS_ARCHIVED
 
 
@@ -282,6 +283,86 @@ def test_core_user_memory_flow_add_get_search_list_update_archive(
     assert [result.memory.id for result in archived_results] == [created.id]
 
 
+def test_core_memory_space_routing_isolates_default_and_explicit_stores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_core_xdg_dirs(tmp_path, monkeypatch)
+    core = RecollectiumCore(embedding_provider=FakeEmbeddingProvider())
+
+    default_memory = core.add_memory(
+        space="user",
+        type="note",
+        content="default space alpha",
+    )
+    explicit_memory = core.add_memory(
+        space="user",
+        type="note",
+        content="team space beta",
+        memory_space_key="team-a",
+    )
+
+    assert [memory.id for memory in core.list_memories(space="user")] == [
+        default_memory.id
+    ]
+    assert [
+        memory.id
+        for memory in core.list_memories(space="user", memory_space_key="team-a")
+    ] == [explicit_memory.id]
+
+    assert [
+        result.memory.id for result in core.search_user_memories("default space alpha")
+    ] == [default_memory.id]
+    assert [
+        result.memory.id
+        for result in core.search_user_memories(
+            "team space beta", memory_space_key="team-a"
+        )
+    ] == [explicit_memory.id]
+
+    assert (
+        core.get_memory(explicit_memory.id, memory_space_key="team-a").id
+        == explicit_memory.id
+    )
+
+    default_status = core.database_status()
+    explicit_status = core.database_status(memory_space_key="team-a")
+    assert default_status["memory_space_key"] == DEFAULT_MEMORY_SPACE_KEY
+    assert explicit_status["memory_space_key"] == "team-a"
+    assert default_status["db_path"] != explicit_status["db_path"]
+
+
+def test_core_workspace_aliases_are_scoped_per_memory_space(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_core_xdg_dirs(tmp_path, monkeypatch)
+    core = RecollectiumCore(embedding_provider=FakeEmbeddingProvider())
+
+    core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="task_context",
+        content="team-a workspace content",
+        workspace_uid="team-a-workspace",
+        memory_space_key="team-a",
+    )
+    alias_result = core.add_workspace_alias(
+        "team-a-workspace",
+        "team-a-alias",
+        memory_space_key="team-a",
+    )
+
+    assert alias_result["migrated_memories"] == 0
+    assert (
+        core.resolve_workspace("team-a-alias", memory_space_key="team-a")[
+            "canonical_uid"
+        ]
+        == "team-a-workspace"
+    )
+    assert core.list_workspace_aliases(memory_space_key="team-a")[0]["alias_uid"] == (
+        "team-a-alias"
+    )
+    assert core.list_workspace_aliases() == []
+
+
 def test_core_workspace_search_isolation_by_workspace_uid(
     tmp_path: Path,
 ) -> None:
@@ -411,7 +492,9 @@ def test_core_rejects_invalid_list_space(tmp_path: Path) -> None:
         core.list_memories(space="project")
 
 
-def test_default_db_path_uses_xdg_style_data_home(monkeypatch, tmp_path: Path) -> None:
+def test_default_db_path_uses_xdg_style_data_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
@@ -419,7 +502,11 @@ def test_default_db_path_uses_xdg_style_data_home(monkeypatch, tmp_path: Path) -
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
     core = RecollectiumCore(embedding_provider=FakeEmbeddingProvider())
 
-    assert core.store.db_path == tmp_path / "data" / "recollectium" / "recollectium.db"
+    assert (
+        core.store.db_path.parent
+        == tmp_path / "data" / "recollectium" / "memory-spaces"
+    )
+    assert core.store.db_path.name.startswith("default--")
 
 
 def test_core_default_provider_uses_recollectium_model_cache(
