@@ -126,10 +126,6 @@ class MemorySpaceResolver:
                 )
             safe_filename = _validate_manifest_filename(filename)
             db_path = self.database_folder / safe_filename
-            if db_path.parent != self.database_folder:
-                raise ValidationError(
-                    f"memory space manifest entry for {key!r} resolves outside the database folder"
-                )
             created_at = entry.get("created_at")
             updated_at = entry.get("updated_at")
             infos.append(

@@ -362,6 +362,12 @@ class TestValidateConfigValue:
         with pytest.raises(ValidationError, match="database must be an object"):
             _validate_config_value(data)
 
+    def test_non_object_embedding_section_raises(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["embedding"] = []
+        with pytest.raises(ValidationError, match="embedding must be an object"):
+            _validate_config_value(data)
+
 
 # ---------------------------------------------------------------------------
 # _write_starter_config / load_config_file
@@ -663,6 +669,35 @@ class TestRecollectiumConfig:
         cfg = RecollectiumConfig(config_path)
 
         assert cfg.resolved_database_path == dev_db
+
+    def test_seeded_dev_database_relative_path_resolves_under_data_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "development": {
+                        "use_seeded_database": True,
+                        "seeded_database_path": "seeded.db",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = RecollectiumConfig(config_path)
+
+        expected_db = tmp_path / "data" / "recollectium" / "seeded.db"
+        assert cfg.resolved_database_path == expected_db
+        assert cfg.resolved_database_folder == expected_db.parent
 
     def test_resolved_database_path_absolute(self, tmp_path: Path) -> None:
         config_path = tmp_path / "config.json"

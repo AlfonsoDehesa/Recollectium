@@ -289,6 +289,47 @@ def test_cli_load_uninstall_plan_uses_resolved_database_path(
     assert plan.config.resolved_database_folder == expected_cfg.resolved_database_folder
 
 
+def test_cli_load_uninstall_plan_uses_seeded_database_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "development": {
+                    "use_seeded_database": True,
+                    "seeded_database_path": "seeded.db",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = cli_module._load_uninstall_plan(config_path, explicit=True)
+
+    expected_db = Path("seeded.db")
+    assert plan.database_path == tmp_path / "data" / "recollectium" / expected_db
+
+
+def test_cli_load_uninstall_plan_uses_legacy_database_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"path": "legacy.db"}}),
+        encoding="utf-8",
+    )
+
+    plan = cli_module._load_uninstall_plan(config_path, explicit=True)
+
+    assert plan.database_path == tmp_path / "data" / "recollectium" / "legacy.db"
+
+
 def test_cli_purge_helpers_cover_edge_branches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -6198,6 +6239,55 @@ def test_cli_embedding_maintenance_prepares_model_and_refreshes(
     ]
 
 
+def test_cli_embedding_maintenance_uses_explicit_memory_space_key(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    calls: list[str] = []
+    config_path = tmp_path / "config.json"
+    memory_space_key = "team-a"
+
+    class FakeProvider:
+        embedding_profile = {"provider": "fake", "model": "fake-model", "dimensions": 3}
+
+    class FakeCore:
+        def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
+            self.config = cli_mod.RecollectiumConfig(config_path, log_level=log_level)
+            self.store = type("FakeStore", (), {"db_path": db_path})()
+            self.embedding_provider = FakeProvider()
+
+        def _ensure_model_ready(
+            self, *, suppress_provider_output: bool = False
+        ) -> None:
+            calls.append("model_state")
+
+        def refresh_stale_embeddings(self, *, include_archived=False, **kwargs):
+            calls.append(f"refresh:{include_archived}:{kwargs.get('memory_space_key')}")
+            return {"refreshed": False, "stale_count": 0, "job": None}
+
+    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", lambda path: None)
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", FakeCore)
+
+    result = cli_mod._run_embedding_maintenance(
+        config_path,
+        explicit=True,
+        db_path=None,
+        memory_space_key=memory_space_key,
+        log_level=None,
+        output_format=cli_mod.CLI_OUTPUT_JSON,
+    )
+
+    expected_db = cli_mod.resolve_memory_space_database_path(
+        tmp_path / "data" / "recollectium" / "memory-spaces",
+        memory_space_key,
+    )
+    assert result["memory_space_key"] == memory_space_key
+    assert result["database"] == str(expected_db)
+    assert calls == ["model_state", f"refresh:True:{memory_space_key}"]
+
+
 def test_cli_embedding_maintenance_human_tty_refresh_progress_after_readiness(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -6799,6 +6889,53 @@ def test_run_installed_embedding_maintenance_uses_human_readable_process_command
             42,
             None,
         )
+    ]
+
+
+def test_run_installed_embedding_maintenance_passes_memory_space_key(
+    tmp_path, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[list[str]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd=None):
+            calls.append(command)
+            assert timeout_seconds == 42
+            assert cwd is None
+            return CommandResult(0, '{"status":"ok"}', "")
+
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", FakeRunner)
+    monkeypatch.setattr(cli_mod.sys, "executable", "/tmp/python")
+
+    result = cli_mod._run_installed_embedding_maintenance(
+        config_path=tmp_path / "config.json",
+        explicit=True,
+        db_path=str(tmp_path / "memory.db"),
+        memory_space_key="team-a",
+        log_level="debug",
+        timeout_seconds=42,
+    )
+
+    assert result.returncode == 0
+    assert calls == [
+        [
+            "/tmp/python",
+            "-m",
+            "recollectium",
+            "--json",
+            "--config",
+            str(tmp_path / "config.json"),
+            "--db",
+            str(tmp_path / "memory.db"),
+            "--memory-space",
+            "team-a",
+            "--log-level",
+            "debug",
+            "embedding-maintenance",
+        ]
     ]
 
 
