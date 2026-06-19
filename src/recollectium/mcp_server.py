@@ -291,7 +291,9 @@ def create_mcp_server(core: RecollectiumCore) -> FastMCP:
     def capabilities(verbosity: ResponseVerbosityArg = None) -> str:
         """Return local service capabilities and memory type enums."""
         resolved = _resolve_verbosity(verbosity)
-        data = capabilities_payload()["data"]
+        data = capabilities_payload(
+            default_memory_space_key=core.config.default_memory_space_key,
+        )["data"]
         if resolved == RESPONSE_VERBOSITY_VERBOSE:
             data["response_verbosity"] = resolved
         return _json(

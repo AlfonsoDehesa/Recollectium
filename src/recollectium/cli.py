@@ -5744,11 +5744,11 @@ def _build_parser() -> argparse.ArgumentParser:
     # -- db-status ---------------------------------------------------------
     db_status_parser = subparsers.add_parser(
         "db-status",
-        help="show database schema migration status",
+        help="show memory-space database schema migration status",
         description=(
-            "Show SQLite migration status in the selected output format for the selected database path. "
-            "This command initializes the database if needed and reports current "
-            "and pending schema versions."
+            "Show SQLite migration status in the selected output format for the selected memory-space. "
+            "This command resolves the configured memory-space key to its database path, initializes the database if needed, "
+            "and reports current and pending schema versions."
         ),
     )
     db_status_parser.add_argument(

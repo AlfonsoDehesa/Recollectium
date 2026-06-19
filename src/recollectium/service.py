@@ -65,6 +65,7 @@ from recollectium.service_contract import (
     SERVICE_DEFAULT_HOST,
     SERVICE_DEFAULT_PORT,
     capabilities_payload,
+    embedding_status_example_payload,
     error_payload,
     health_payload,
     serialize_embedding_job,
@@ -78,6 +79,7 @@ from recollectium.service_contract import (
     version_payload,
 )
 
+from recollectium.memory_spaces import DEFAULT_MEMORY_SPACE_KEY
 from recollectium.models import (
     SPACE_USER,
     SPACE_WORKSPACE,
@@ -663,6 +665,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+    default_memory_space_key = getattr(
+        core.config, "default_memory_space_key", DEFAULT_MEMORY_SPACE_KEY
+    )
 
     @app.exception_handler(StarletteHTTPException)
     async def handle_http_exception(
@@ -772,7 +777,21 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         )
         return version_payload()
 
-    @app.get(f"{SERVICE_API_PREFIX}/capabilities", tags=["service"])
+    @app.get(
+        f"{SERVICE_API_PREFIX}/capabilities",
+        tags=["service"],
+        responses={
+            200: {
+                "content": {
+                    "application/json": {
+                        "example": capabilities_payload(
+                            default_memory_space_key=default_memory_space_key,
+                        )
+                    }
+                }
+            }
+        },
+    )
     def capabilities(
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
@@ -782,7 +801,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        payload = capabilities_payload()
+        payload = capabilities_payload(
+            default_memory_space_key=default_memory_space_key,
+        )
         if resolved == ResponseVerbosity.VERBOSE.value:
             payload["data"]["response_verbosity"] = resolved
         return payload
@@ -865,7 +886,17 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             )
         )
 
-    @app.get(f"{SERVICE_API_PREFIX}/embedding/status", tags=["embedding"])
+    @app.get(
+        f"{SERVICE_API_PREFIX}/embedding/status",
+        tags=["embedding"],
+        responses={
+            200: {
+                "content": {
+                    "application/json": {"example": embedding_status_example_payload()}
+                }
+            }
+        },
+    )
     def embedding_status(
         memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,

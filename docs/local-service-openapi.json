@@ -280,6 +280,44 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Capabilities V1 Capabilities Get"
+                },
+                "example": {
+                  "data": {
+                    "service_api_version": "1",
+                    "capabilities": [
+                      "health.read",
+                      "version.read",
+                      "capabilities.read",
+                      "memories.search_user",
+                      "memories.search_workspace",
+                      "memories.add",
+                      "memories.update",
+                      "memories.archive",
+                      "memories.list",
+                      "memories.get",
+                      "embedding.status",
+                      "embedding.jobs.list",
+                      "embedding.jobs.get",
+                      "embedding.refresh",
+                      "embedding.jobs.clear",
+                      "workspaces.list",
+                      "workspaces.rename",
+                      "workspaces.resolve",
+                      "workspaces.aliases.list",
+                      "workspaces.aliases.add",
+                      "workspaces.aliases.remove"
+                    ],
+                    "memory_spaces": {
+                      "supported": true,
+                      "default_key": "default",
+                      "raw_database_paths": false
+                    },
+                    "memory_types": {
+                      "user": ["fact", "preference", "personal_fact", "social_context", "goal", "communication_style", "note"],
+                      "workspace": ["fact", "decision", "task_context", "configuration", "bug_finding", "note"],
+                      "all": ["fact", "preference", "personal_fact", "social_context", "goal", "communication_style", "note", "decision", "task_context", "configuration", "bug_finding"]
+                    }
+                  }
                 }
               }
             }
@@ -637,6 +675,27 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Embedding Status V1 Embedding Status Get"
+                },
+                "example": {
+                  "data": {
+                    "embedding_profile": {
+                      "provider": "builtin-fastembed",
+                      "model": "BAAI/bge-base-en-v1.5",
+                      "dimensions": 768,
+                      "version": "1",
+                      "profile": "builtin-fastembed-bge-base-en-v1-5-v1",
+                      "max_tokens": 512,
+                      "chunk_tokens": 384,
+                      "chunk_overlap_tokens": 64,
+                      "query_prompt_policy": "raw"
+                    },
+                    "provider_status": "configured",
+                    "model_status": "managed_by_recollectium_cache",
+                    "model_cache_path": "/home/alice/.cache/recollectium/models",
+                    "memory_space_key": "default",
+                    "memory_space_db_path": "/home/alice/.local/share/recollectium/memory-spaces/default--abc123.db",
+                    "embedding_jobs_status_path": "/v1/embedding/jobs"
+                  }
                 }
               }
             }

@@ -137,6 +137,30 @@ def test_metadata_payload_helpers_are_stable() -> None:
             "all": list(ALL_MEMORY_TYPES),
         },
     }
+    assert (
+        capabilities_payload(default_memory_space_key="alpha")["data"]["memory_spaces"][
+            "default_key"
+        ]
+        == "alpha"
+    )
+
+
+def test_service_capabilities_use_configured_default_memory_space(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"default_memory_space": "alpha"}}),
+        encoding="utf-8",
+    )
+
+    core = RecollectiumCore(config_path=config_path)
+    client = _client(core)
+
+    status, payload = _request_json(client, "GET", "/v1/capabilities")
+    assert status == 200
+    assert payload["data"]["memory_spaces"]["default_key"] == "alpha"
 
 
 def test_error_payload_shape_is_stable() -> None:

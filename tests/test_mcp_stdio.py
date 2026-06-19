@@ -826,6 +826,23 @@ def test_mcp_health_version_capabilities_tools_return_json(tmp_path: Path) -> No
     assert "memory_types" in capabilities
 
 
+def test_mcp_capabilities_use_configured_default_memory_space(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"default_memory_space": "alpha"}}),
+        encoding="utf-8",
+    )
+
+    core = RecollectiumCore(config_path=config_path)
+    mcp = create_mcp_server(core)
+
+    capabilities = json.loads(mcp._tool_manager._tools["capabilities"].fn())
+    assert capabilities["memory_spaces"]["default_key"] == "alpha"
+
+
 def test_mcp_embedding_status_returns_json(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)

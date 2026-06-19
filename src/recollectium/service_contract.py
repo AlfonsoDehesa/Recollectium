@@ -172,14 +172,16 @@ def version_payload() -> dict[str, Any]:
     )
 
 
-def capabilities_payload() -> dict[str, Any]:
+def capabilities_payload(
+    *, default_memory_space_key: str = DEFAULT_MEMORY_SPACE_KEY
+) -> dict[str, Any]:
     return success_payload(
         {
             "service_api_version": SERVICE_API_VERSION,
             "capabilities": list(SERVICE_CAPABILITIES),
             "memory_spaces": {
                 "supported": True,
-                "default_key": DEFAULT_MEMORY_SPACE_KEY,
+                "default_key": default_memory_space_key,
                 "raw_database_paths": False,
             },
             "memory_types": {
@@ -187,6 +189,30 @@ def capabilities_payload() -> dict[str, Any]:
                 "workspace": list(WORKSPACE_MEMORY_TYPES),
                 "all": list(ALL_MEMORY_TYPES),
             },
+        }
+    )
+
+
+def embedding_status_example_payload() -> dict[str, Any]:
+    return success_payload(
+        {
+            "embedding_profile": {
+                "provider": "builtin-fastembed",
+                "model": "BAAI/bge-base-en-v1.5",
+                "dimensions": 768,
+                "version": "1",
+                "profile": "builtin-fastembed-bge-base-en-v1-5-v1",
+                "max_tokens": 512,
+                "chunk_tokens": 384,
+                "chunk_overlap_tokens": 64,
+                "query_prompt_policy": "raw",
+            },
+            "provider_status": "configured",
+            "model_status": "managed_by_recollectium_cache",
+            "model_cache_path": "/home/alice/.cache/recollectium/models",
+            "memory_space_key": "default",
+            "memory_space_db_path": "/home/alice/.local/share/recollectium/memory-spaces/default--abc123.db",
+            "embedding_jobs_status_path": "/v1/embedding/jobs",
         }
     )
 
