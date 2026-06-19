@@ -8,6 +8,10 @@ Recollectium gives AI tools a local memory they can search across sessions. It k
 
 - Added logical memory-space keys across the CLI, HTTP API, and MCP surfaces so ordinary memory and database-backed commands can target named logical databases without changing the default routing behavior.
 
+### 🐛 Fixes
+
+### 🧹 Chores
+
 ## v1.1.1
 
 Recollectium v1.1.1 is a patch release that prepares the project for PyPI publication with trusted publishing. It adds release automation only and makes no product behavior changes.
