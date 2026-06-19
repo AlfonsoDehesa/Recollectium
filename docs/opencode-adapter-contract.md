@@ -181,7 +181,9 @@ or nested internals:
 - `workspaces.rename` returns `{old_uid, new_uid, memories_updated,
   aliases_updated, status}` with `status` set to `renamed`.
 
-Compact embedding job payloads use the public count field names `total_count`,
+Compact embedding status payloads include `memory_space_key` and
+`memory_space_db_path` alongside the active profile and provider status. Compact
+embedding job payloads use the public count field names `total_count`,
 `succeeded_count`, and `failed_count` with `id`, `state`, and `reason` when
 present. Use verbose mode when an adapter needs `processed_count`, provider,
 model, timestamps, error messages, or full embedding profile details.
