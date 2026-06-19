@@ -62,6 +62,7 @@ from recollectium.config import (
     set_config_value,
     unset_config_value,
 )
+from recollectium.memory_spaces import resolve_memory_space_database_path
 from recollectium.cli_progress import (
     SingleLineProgressReporter,
     SingleLineStatusSpinner,
@@ -281,6 +282,7 @@ class _UninstallConfig(RecollectiumConfig):
         self._xdg_dirs = xdg_dirs
         self._config_file_path = config_path
         self._resolved_db_path = database_path
+        self._resolved_db_folder = database_path.parent
 
 
 class _UninstallPlan:
@@ -3934,10 +3936,29 @@ def _load_uninstall_plan(config_path: Path, *, explicit: bool) -> _UninstallPlan
     effective_config = _deep_merge(deepcopy(DEFAULTS), raw)
     _validate_config_value(effective_config)
     xdg_dirs = _resolve_xdg_dirs(effective_config.get("directories", {}))
+    raw_database = raw.get("database", {})
 
-    database_path = Path(effective_config["database"]["path"])
-    if not database_path.is_absolute():
-        database_path = xdg_dirs["data"] / database_path
+    development = effective_config.get("development", {})
+    if isinstance(development, dict) and development.get("use_seeded_database") is True:
+        database_path = Path(development["seeded_database_path"]).expanduser()
+        if not database_path.is_absolute():
+            database_path = xdg_dirs["data"] / database_path
+    elif (
+        isinstance(raw_database, dict)
+        and "path" in raw_database
+        and "folder" not in raw_database
+    ):
+        database_path = Path(raw_database["path"]).expanduser()
+        if not database_path.is_absolute():
+            database_path = xdg_dirs["data"] / database_path
+    else:
+        database_folder = Path(effective_config["database"]["folder"]).expanduser()
+        if not database_folder.is_absolute():
+            database_folder = xdg_dirs["data"] / database_folder
+        database_path = resolve_memory_space_database_path(
+            database_folder,
+            default_key=effective_config["database"]["default_memory_space"],
+        )
 
     model_cache_path = resolve_model_cache_path(xdg_dirs["cache"])
     install_metadata_path = _resolve_install_metadata_path()
@@ -5056,8 +5077,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--db",
         dest="db_path",
         help=(
-            "SQLite database path. Overrides the database.path config value. "
-            "Defaults to ~/.local/share/recollectium/recollectium.db."
+            "SQLite database path override. Recollectium normally uses the "
+            "configured database.folder plus the default memory-space key "
+            "(or legacy database.path when present). Use this flag for a "
+            "one-off admin/legacy path override."
         ),
     )
     parser.add_argument(

@@ -268,6 +268,27 @@ def test_cli_resolve_regular_database_path_uses_resolved_database_path(
     )
 
 
+def test_cli_load_uninstall_plan_uses_resolved_database_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setenv("HOME", str(home))
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"folder": "~/memory-spaces"}}),
+        encoding="utf-8",
+    )
+
+    expected_cfg = RecollectiumConfig(config_path)
+    plan = cli_module._load_uninstall_plan(config_path, explicit=True)
+
+    assert plan.database_path == expected_cfg.resolved_database_path
+    assert plan.config.resolved_database_path == expected_cfg.resolved_database_path
+    assert plan.config.resolved_database_folder == expected_cfg.resolved_database_folder
+
+
 def test_cli_purge_helpers_cover_edge_branches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -592,6 +613,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     top_level_help_2 = _run_help(["--help"], capsys)
     assert "--config" in top_level_help_2
     assert "--db" in top_level_help_2
+    assert "database.path config value" not in top_level_help_2
 
     embedding_status_help = _run_help(["embedding-status", "--help"], capsys)
     assert "built-in local FastEmbed" in embedding_status_help
@@ -7911,6 +7933,9 @@ class TestConfigCommand:
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
 
+        db_folder = tmp_path / "data" / "recollectium" / "memory-spaces"
+        db_folder.mkdir(parents=True)
+
         exit_code, stdout, stderr = _run_cli(["config", "doctor"], capsys)
 
         config_path = config_home / "recollectium" / "config.json"
@@ -7934,6 +7959,9 @@ class TestConfigCommand:
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        db_folder = tmp_path / "data" / "recollectium" / "memory-spaces"
+        db_folder.mkdir(parents=True)
 
         exit_code, stdout, stderr = _run_cli(
             ["--human-readable", "--compact", "config", "doctor"],
@@ -8382,15 +8410,15 @@ def test_cli_init_creates_runtime_files_and_downloads_model(
 
     payload = json.loads(stdout)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
-    db_path = tmp_path / "data" / "recollectium" / "recollectium.db"
+    expected_db_path = RecollectiumConfig(config_path).resolved_database_path
     assert exit_code == 0
     assert stderr == ""
     assert payload["status"] == "initialized"
     assert payload["config"] == str(config_path)
-    assert payload["database"] == str(db_path)
+    assert payload["database"] == str(expected_db_path)
     assert payload["embedding_model"] == "BAAI/bge-base-en-v1.5"
     assert config_path.exists()
-    assert db_path.exists()
+    assert expected_db_path.exists()
     assert (tmp_path / "cache" / "recollectium").is_dir()
     assert (tmp_path / "state" / "recollectium" / "logs").is_dir()
     assert ready_calls
@@ -8669,10 +8697,11 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     model_cache_path = tmp_path / "cache" / "recollectium" / "models"
     metadata_path = tmp_path / "state" / "recollectium" / "install.json"
     config_path.parent.mkdir(parents=True)
-    db_path.parent.mkdir(parents=True)
     model_cache_path.mkdir(parents=True)
     metadata_path.parent.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    db_path = RecollectiumConfig(config_path).resolved_database_path
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     db_path.write_text("preserved", encoding="utf-8")
     (model_cache_path / "model.bin").write_text("derived", encoding="utf-8")
     metadata_path.write_text(
@@ -10535,7 +10564,7 @@ def test_cli_reinstall_after_safe_uninstall_reuses_existing_config_and_database(
 
     assert _run_cli(["init"], capsys)[0] == 0
     config_path = tmp_path / "config" / "recollectium" / "config.json"
-    db_path = tmp_path / "data" / "recollectium" / "recollectium.db"
+    db_path = RecollectiumConfig(config_path).resolved_database_path
     config_data = json.loads(config_path.read_text(encoding="utf-8"))
     config_data["service"]["port"] = 9090
     config_path.write_text(json.dumps(config_data), encoding="utf-8")
@@ -10585,33 +10614,16 @@ def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     logs_dir = tmp_path / "state" / "recollectium" / "logs"
     runtime_dir = tmp_path / "runtime" / "recollectium"
     metadata_path = tmp_path / "state" / "recollectium" / "install.json"
-    for directory in (
-        config_path.parent,
-        data_dir,
-        cache_dir,
-        logs_dir,
-        runtime_dir,
-        metadata_path.parent,
-    ):
-        directory.mkdir(parents=True, exist_ok=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
-    (config_path.parent / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    (cache_dir / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    (data_dir / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    (logs_dir / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    (runtime_dir / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    metadata_path.write_text("{}", encoding="utf-8")
-    (data_dir / "recollectium.db").write_text("memory", encoding="utf-8")
+    db_path = RecollectiumConfig(config_path).resolved_database_path
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_text("memory", encoding="utf-8")
     (data_dir / "keep.txt").write_text("keep", encoding="utf-8")
     (logs_dir / "recollectium.log").write_text("log", encoding="utf-8")
     (logs_dir / "recollectium.log.1").write_text("rotated", encoding="utf-8")
@@ -10628,7 +10640,7 @@ def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert not (data_dir / "recollectium.db").exists()
+    assert not db_path.exists()
     assert (data_dir / "keep.txt").exists()
     assert not (logs_dir / "recollectium.log").exists()
     assert not (logs_dir / "recollectium.log.1").exists()
@@ -10641,8 +10653,7 @@ def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     assert logs_dir.exists()
     assert runtime_dir.exists()
     assert any(
-        item["path"] == str(data_dir / "recollectium.db")
-        for item in payload["data"]["purge"]["deleted"]
+        item["path"] == str(db_path) for item in payload["data"]["purge"]["deleted"]
     )
     assert any(
         item["path"] == str(logs_dir / "recollectium.log")

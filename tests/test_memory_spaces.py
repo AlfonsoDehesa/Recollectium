@@ -90,6 +90,21 @@ def test_resolver_maps_keys_under_database_folder_and_updates_manifest(
     )
 
 
+def test_resolver_expands_user_home_in_database_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+
+    resolver = MemorySpaceResolver(Path("~/memory-spaces"))
+    resolution = resolver.resolve()
+
+    expected_folder = home / "memory-spaces"
+    assert resolver.database_folder == expected_folder
+    assert resolution.db_path.parent == expected_folder
+    assert (expected_folder / "memory-spaces.json").exists()
+
+
 def test_list_spaces_uses_manifest_entries(tmp_path: Path) -> None:
     resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
     default_resolution = resolver.resolve()

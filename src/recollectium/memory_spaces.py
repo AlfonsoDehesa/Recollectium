@@ -84,7 +84,7 @@ class MemorySpaceResolver:
     def __init__(
         self, database_folder: Path, default_key: str = DEFAULT_MEMORY_SPACE_KEY
     ) -> None:
-        self.database_folder = Path(database_folder)
+        self.database_folder = Path(database_folder).expanduser()
         self.default_key = validate_memory_space_key(default_key)
         self._manifest_path = self.database_folder / _MANIFEST_FILENAME
 
@@ -203,6 +203,7 @@ def resolve_memory_space_database_path(
 ) -> Path:
     """Return the deterministic database path for a memory-space key."""
 
+    database_folder = Path(database_folder).expanduser()
     key = (
         default_key
         if memory_space_key is None

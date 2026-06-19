@@ -557,7 +557,9 @@ class RecollectiumConfig:
             self._uses_legacy_database_path = False
             self._memory_space_resolver = None
         else:
-            folder_value = Path(self._effective_config["database"]["folder"])
+            folder_value = Path(
+                self._effective_config["database"]["folder"]
+            ).expanduser()
             if not folder_value.is_absolute():
                 folder_value = self._xdg_dirs["data"] / folder_value
             self._resolved_db_folder = folder_value
@@ -567,7 +569,7 @@ class RecollectiumConfig:
                 and "folder" not in raw_database
             )
             if self._uses_legacy_database_path:
-                db_path = Path(raw_database["path"])
+                db_path = Path(raw_database["path"]).expanduser()
                 if not db_path.is_absolute():
                     db_path = self._xdg_dirs["data"] / db_path
                 self._resolved_db_path = db_path

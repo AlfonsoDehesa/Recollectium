@@ -567,8 +567,56 @@ class TestRecollectiumConfig:
         assert cfg.resolved_database_path.parent == cfg.resolved_database_folder
         assert cfg.resolved_database_path.name.startswith("default--")
 
+    def test_resolved_database_folder_expands_user_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "home"
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps({"version": 1, "database": {"folder": "~/memory-spaces"}}),
+            encoding="utf-8",
+        )
+
+        cfg = RecollectiumConfig(config_path)
+
+        expected_folder = home / "memory-spaces"
+        assert cfg.resolved_database_folder == expected_folder
+        assert cfg.resolved_database_path.parent == expected_folder
+        assert not (tmp_path / "data" / "~/memory-spaces").exists()
+
+    def test_legacy_database_path_expands_user_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "home"
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps({"version": 1, "database": {"path": "~/legacy.db"}}),
+            encoding="utf-8",
+        )
+
+        cfg = RecollectiumConfig(config_path)
+
+        expected_db = home / "legacy.db"
+        assert cfg.uses_legacy_database_path is True
+        assert cfg.resolved_database_path == expected_db
+        assert cfg.resolved_database_folder == expected_db.parent
+
     def test_default_database_resolution_is_passive(
-        self, tmp_path: Path, monkeypatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         config_home = tmp_path / "config"
         data_home = tmp_path / "data"
