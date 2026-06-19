@@ -283,6 +283,51 @@ def test_core_user_memory_flow_add_get_search_list_update_archive(
     assert [result.memory.id for result in archived_results] == [created.id]
 
 
+def test_core_db_path_compat_mode_rejects_memory_space_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_core_xdg_dirs(tmp_path, monkeypatch)
+    core = RecollectiumCore(
+        db_path=tmp_path / "compat.db", embedding_provider=FakeEmbeddingProvider()
+    )
+
+    created = core.add_memory(space="user", type="note", content="compat default")
+    assert created.id
+
+    with pytest.raises(ValidationError, match="memory-space routing is unavailable"):
+        core.add_memory(
+            space="user",
+            type="note",
+            content="compat explicit",
+            memory_space_key="team-a",
+        )
+
+    with pytest.raises(ValidationError, match="memory-space routing is unavailable"):
+        core.database_status(memory_space_key="team-a")
+
+
+def test_core_database_status_marks_legacy_database_path_configs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _isolate_core_xdg_dirs(tmp_path, monkeypatch)
+    config_path = tmp_path / "config.json"
+    legacy_db = tmp_path / "legacy.db"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"path": str(legacy_db)}}),
+        encoding="utf-8",
+    )
+
+    core = RecollectiumCore(
+        config_path=config_path, embedding_provider=FakeEmbeddingProvider()
+    )
+    status = core.database_status()
+
+    assert status["db_path"] == str(legacy_db)
+    assert status["memory_space_key"] == DEFAULT_MEMORY_SPACE_KEY
+    assert status["uses_legacy_database_path"] is True
+
+
 def test_core_memory_space_routing_isolates_default_and_explicit_stores(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -329,6 +374,8 @@ def test_core_memory_space_routing_isolates_default_and_explicit_stores(
     assert default_status["memory_space_key"] == DEFAULT_MEMORY_SPACE_KEY
     assert explicit_status["memory_space_key"] == "team-a"
     assert default_status["db_path"] != explicit_status["db_path"]
+    assert default_status["uses_legacy_database_path"] is False
+    assert explicit_status["uses_legacy_database_path"] is False
 
 
 def test_core_workspace_aliases_are_scoped_per_memory_space(

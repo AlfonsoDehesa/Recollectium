@@ -32,7 +32,7 @@ Or run the foreground server with explicit host/port/database path for legacy/ad
 recollectium --db /path/to/recollectium.db dev serve --host 127.0.0.1 --port 8765
 ```
 
-For normal memory routing, prefer `--memory-space KEY` on the relevant command instead of `--db`, which is retained for legacy/admin path override workflows.
+For normal memory routing, prefer `--memory-space KEY` on the relevant command instead of `--db`, which is retained only as a legacy/admin path override workflow.
 
 ## Base URL and versioning
 

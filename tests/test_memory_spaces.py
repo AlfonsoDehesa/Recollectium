@@ -97,6 +97,22 @@ def test_resolver_maps_keys_under_database_folder_and_updates_manifest(
     )
 
 
+def test_resolver_rejects_paths_that_escape_database_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium import memory_spaces as memory_spaces_mod
+
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+    monkeypatch.setattr(
+        memory_spaces_mod,
+        "_database_filename",
+        lambda key: "../escape.db",
+    )
+
+    with pytest.raises(ValidationError, match="escaped the configured database folder"):
+        resolver.resolve("default")
+
+
 def test_resolver_expands_user_home_in_database_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

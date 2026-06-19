@@ -38,6 +38,7 @@ Completed in v1.0.0:
 Phase 1.5 is limited to follow-up work that happens after the 1.0.0 release path is proven.
 
 - [x] Expose logical memory-space keys across CLI/API/MCP and document them as the preferred routing mechanism for ordinary memory and database-backed operations.
+- [ ] Add explicit admin copy/move migration from legacy `database.path` installs into the new folder layout; v1.2 currently keeps compatibility plus diagnostics only.
 
 ### Windows hardening after real user testing
 

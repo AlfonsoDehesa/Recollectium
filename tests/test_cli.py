@@ -199,6 +199,7 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "--version" in top_level_help
     assert "--json" in top_level_help
     assert "--human-readable" in top_level_help
+    assert "--db" in top_level_help
     assert "initialize Recollectium config" in top_level_help
     assert "add a user or workspace memory" in top_level_help
     assert "search memories for one workspace UID" in top_level_help
@@ -2611,6 +2612,29 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["latest_version"] == 3
     assert payload["pending_versions"] == []
     assert payload["up_to_date"] is True
+    assert payload["uses_legacy_database_path"] is False
+
+
+def test_cli_db_status_reports_legacy_database_path_diagnostics(
+    tmp_path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    legacy_db = tmp_path / "legacy.db"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"path": str(legacy_db)}}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "db-status"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["db_path"] == str(legacy_db)
+    assert payload["uses_legacy_database_path"] is True
 
 
 def test_cli_db_status_verbose_reports_migration_internals(tmp_path, capsys) -> None:

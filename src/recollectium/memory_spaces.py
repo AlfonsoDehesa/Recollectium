@@ -200,12 +200,18 @@ def resolve_memory_space_database_path(
     """Return the deterministic database path for a memory-space key."""
 
     database_folder = Path(database_folder).expanduser()
+    resolved_database_folder = database_folder.resolve(strict=False)
     key = (
         default_key
         if memory_space_key is None
         else validate_memory_space_key(memory_space_key)
     )
-    return Path(database_folder) / _database_filename(key)
+    db_path = (resolved_database_folder / _database_filename(key)).resolve(strict=False)
+    if not db_path.is_relative_to(resolved_database_folder):
+        raise ValidationError(
+            "resolved memory space database path escaped the configured database folder"
+        )
+    return db_path
 
 
 def _validate_manifest_filename(filename: str) -> str:

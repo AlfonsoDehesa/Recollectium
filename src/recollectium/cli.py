@@ -5103,10 +5103,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--db",
         dest="db_path",
         help=(
-            "SQLite database path override. Recollectium normally uses the "
-            "configured database.folder plus the default memory-space key "
-            "(or legacy database.path when present). Use this flag for a "
-            "one-off admin/legacy path override."
+            "Legacy/admin SQLite database path override. Recollectium normally uses the "
+            "configured database.folder plus the default memory-space key; prefer "
+            "--memory-space for normal routing. Use this flag for one-off path "
+            "override, repair, or migration work."
         ),
     )
     parser.add_argument(
@@ -5166,7 +5166,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--db",
         dest="db_path",
         help=(
-            "SQLite database path for initialization. Also available as the global "
+            "Legacy/admin SQLite database path for initialization. Also available as the global "
             "--db flag before the command."
         ),
     )
@@ -6867,6 +6867,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE
                     else store.migration_status()
                 )
+                status_payload["uses_legacy_database_path"] = False
             else:
                 try:
                     RecollectiumConfig(core_config_path, log_level=args.log_level)

@@ -72,7 +72,7 @@ Common next steps:
 - Local SQLite memory storage.
 - Explicit `user` and `workspace` memory scopes.
 - Canonical memory buckets for preferences, facts, decisions, task context, configuration, bug findings, and notes.
-- Logical memory-space keys that route CLI, API, and MCP memory/database operations without changing the default behavior.
+- Logical memory-space keys are the normal routing mechanism for CLI, API, and MCP memory/database operations; raw `--db` overrides remain only as legacy/admin escape hatches.
 - Create, search, list, get, update, and archive memory operations.
 - Local FastEmbed embeddings. Default: `BAAI/bge-base-en-v1.5` with 768 dimensions, profile `builtin-fastembed-bge-base-en-v1-5-v1`, 512 max tokens, 384 chunk tokens, and 64 overlap tokens.
 - Legacy FastEmbed support for `jinaai/jina-embeddings-v2-small-en` with 512 dimensions, profile `builtin-fastembed-jina-v2-small-en-v1`, 8192 max tokens, 6144 chunk tokens, and 512 overlap tokens.

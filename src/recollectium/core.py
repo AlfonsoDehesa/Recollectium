@@ -43,7 +43,6 @@ from recollectium.dev_seed import ensure_seeded_dev_database
 from recollectium.memory_spaces import (
     MemorySpaceResolution,
     MemorySpaceResolver,
-    validate_memory_space_key,
 )
 from recollectium.retrieval import (
     UNSET,
@@ -108,8 +107,9 @@ class RecollectiumCore:
         self._store_cache: dict[str, SQLiteMemoryStore] = {}
         self._memory_space_resolver: MemorySpaceResolver | None
         self._default_memory_space_resolution: MemorySpaceResolution
+        self._explicit_db_path_compat_mode = db_path is not None
         self._db_path_compat_mode = (
-            db_path is not None
+            self._explicit_db_path_compat_mode
             or self.config.uses_legacy_database_path
             or use_seeded_database
         )
@@ -166,15 +166,14 @@ class RecollectiumCore:
         self, memory_space_key: str | None = None
     ) -> tuple[SQLiteMemoryStore, MemorySpaceResolution]:
         if self._memory_space_resolver is None:
-            key = (
-                self.config.default_memory_space_key
-                if memory_space_key is None
-                else validate_memory_space_key(memory_space_key)
-            )
+            if memory_space_key is not None:
+                raise ValidationError(
+                    "memory-space routing is unavailable in explicit database-path compatibility mode; omit memory_space_key or migrate to database.folder"
+                )
             resolution = MemorySpaceResolution(
-                key=key,
+                key=self.config.default_memory_space_key,
                 db_path=self.store.db_path,
-                is_default=key == self.config.default_memory_space_key,
+                is_default=True,
             )
             return self.store, resolution
 
@@ -696,6 +695,7 @@ class RecollectiumCore:
         status["memory_space_key"] = resolution.key
         status["memory_space_db_path"] = str(resolution.db_path)
         status["memory_space_is_default"] = resolution.is_default
+        status["uses_legacy_database_path"] = self.config.uses_legacy_database_path
         return status
 
     # -- workspace operations ------------------------------------------------
