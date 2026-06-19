@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -114,6 +116,108 @@ def _run_json_allow_not_running(args: list[str]) -> Any:
             f"unexpected stderr from {' '.join(args)}:\n{completed.stderr}"
         )
     return json.loads(completed.stdout)
+
+
+def _format_command(args: list[str]) -> str:
+    return " ".join(shlex.quote(arg) for arg in args)
+
+
+def _force_kill_pid(pid: int) -> None:
+    if os.name == "nt":
+        completed = _run_command(
+            ["taskkill", "/PID", str(pid), "/T", "/F"], check=False
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"taskkill failed for PID {pid}: {completed.returncode}\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
+        return
+
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            return
+        time.sleep(0.1)
+    raise RuntimeError(f"PID {pid} was still alive after SIGKILL")
+
+
+def _cleanup_service_process(
+    recollectium: list[str], config_path: Path, service_type: str, pid: int | None
+) -> Exception | None:
+    stop_args = [
+        *recollectium,
+        "--config",
+        str(config_path),
+        "service",
+        "stop",
+        "--json",
+    ]
+    try:
+        stop_payload = _run_json(stop_args)
+    except Exception as exc:
+        details = (
+            f"service stop cleanup failed for {service_type} service: {exc!s}"
+            f"\ncommand: {_format_command(stop_args)}"
+        )
+        print(details, file=sys.stderr)
+        if pid is None:
+            return RuntimeError(details)
+        print(
+            f"trying PID fallback cleanup for {service_type} service (PID {pid})",
+            file=sys.stderr,
+        )
+        try:
+            _force_kill_pid(pid)
+        except Exception as kill_exc:
+            error = RuntimeError(
+                f"service stop cleanup failed for {service_type} service and PID fallback "
+                f"also failed for PID {pid}"
+            )
+            error.__cause__ = kill_exc
+            return error
+        print(
+            f"PID fallback cleanup succeeded for {service_type} service (PID {pid})",
+            file=sys.stderr,
+        )
+        return None
+
+    if not isinstance(stop_payload, dict) or stop_payload.get("status") != "stopped":
+        details = (
+            f"unexpected service stop cleanup payload for {service_type} service: {stop_payload!r}"
+            f"\ncommand: {_format_command(stop_args)}"
+        )
+        print(details, file=sys.stderr)
+        if pid is None:
+            return RuntimeError(details)
+        print(
+            f"trying PID fallback cleanup for {service_type} service (PID {pid})",
+            file=sys.stderr,
+        )
+        try:
+            _force_kill_pid(pid)
+        except Exception as kill_exc:
+            error = RuntimeError(
+                f"unexpected service stop cleanup payload for {service_type} service and PID "
+                f"fallback also failed for PID {pid}"
+            )
+            error.__cause__ = kill_exc
+            return error
+        print(
+            f"PID fallback cleanup succeeded for {service_type} service (PID {pid})",
+            file=sys.stderr,
+        )
+    return None
 
 
 def _free_port() -> int:
@@ -223,6 +327,10 @@ def _exercise_api_service(root: Path) -> None:
     _configure_smoke_root(recollectium, config_path, root, port)
 
     stop_payload: dict[str, Any] | None = None
+    primary_exc: Exception | None = None
+    primary_tb = None
+    cleanup_error: Exception | None = None
+    started_pid: int | None = None
     try:
         start_payload = _run_json(
             [
@@ -235,6 +343,7 @@ def _exercise_api_service(root: Path) -> None:
                 "--json",
             ]
         )
+        started_pid = start_payload["pid"]
         status_payload = _run_json(
             [*recollectium, "--config", str(config_path), "service", "status", "--json"]
         )
@@ -333,19 +442,21 @@ def _exercise_api_service(root: Path) -> None:
         assert stopped_payload["running"] is False, stopped_payload
         _assert_not_running_discover_payload(post_stop_discover)
         stop_payload = stop_result
+    except Exception as exc:
+        primary_exc = exc
+        primary_tb = exc.__traceback__
     finally:
         if stop_payload is None:
-            _run_command(
-                [
-                    *recollectium,
-                    "--config",
-                    str(config_path),
-                    "service",
-                    "stop",
-                    "--json",
-                ],
-                check=False,
+            cleanup_error = _cleanup_service_process(
+                recollectium, config_path, "api", started_pid
             )
+
+    if cleanup_error is not None:
+        if primary_exc is None:
+            raise cleanup_error
+        print(f"cleanup error after primary failure: {cleanup_error}", file=sys.stderr)
+    if primary_exc is not None:
+        raise primary_exc.with_traceback(primary_tb)
 
 
 async def _exercise_mcp_service(root: Path) -> None:
@@ -355,6 +466,10 @@ async def _exercise_mcp_service(root: Path) -> None:
     _configure_smoke_root(recollectium, config_path, root, port)
 
     stop_payload: dict[str, Any] | None = None
+    primary_exc: Exception | None = None
+    primary_tb = None
+    cleanup_error: Exception | None = None
+    started_pid: int | None = None
     try:
         start_payload = _run_json(
             [
@@ -367,6 +482,7 @@ async def _exercise_mcp_service(root: Path) -> None:
                 "--json",
             ]
         )
+        started_pid = start_payload["pid"]
         status_payload = _run_json(
             [*recollectium, "--config", str(config_path), "service", "status", "--json"]
         )
@@ -406,19 +522,21 @@ async def _exercise_mcp_service(root: Path) -> None:
         assert stopped_payload["running"] is False, stopped_payload
         _assert_not_running_discover_payload(post_stop_discover)
         stop_payload = stop_result
+    except Exception as exc:
+        primary_exc = exc
+        primary_tb = exc.__traceback__
     finally:
         if stop_payload is None:
-            _run_command(
-                [
-                    *recollectium,
-                    "--config",
-                    str(config_path),
-                    "service",
-                    "stop",
-                    "--json",
-                ],
-                check=False,
+            cleanup_error = _cleanup_service_process(
+                recollectium, config_path, "mcp", started_pid
             )
+
+    if cleanup_error is not None:
+        if primary_exc is None:
+            raise cleanup_error
+        print(f"cleanup error after primary failure: {cleanup_error}", file=sys.stderr)
+    if primary_exc is not None:
+        raise primary_exc.with_traceback(primary_tb)
 
 
 async def _wait_for_mcp_ready(endpoint: str) -> None:

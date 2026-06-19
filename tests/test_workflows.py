@@ -15,6 +15,12 @@ def _workflow(name: str) -> str:
     return (WORKFLOWS / name).read_text(encoding="utf-8")
 
 
+def _all_workflows_text() -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(WORKFLOWS.glob("*.yml"))
+    )
+
+
 def test_all_workflows_parse_as_yaml() -> None:
     for path in sorted(WORKFLOWS.glob("*.yml")):
         assert yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
@@ -58,6 +64,27 @@ def test_publish_pypi_workflow_uses_trusted_publishing_and_tag_check() -> None:
     assert "uv build --sdist --wheel" in workflow
     assert "uvx --from twine twine check dist/*" in workflow
     assert "uv publish --trusted-publishing always dist/*" in workflow
+
+
+def test_workflows_keep_expected_action_pins() -> None:
+    workflow_pins = {
+        "ci.yml": ("actions/checkout@v6", "actions/setup-python@v6"),
+        "publish-pypi.yml": ("actions/checkout@v6", "actions/setup-python@v6"),
+        "release.yml": ("actions/checkout@v6", "softprops/action-gh-release@v3"),
+    }
+
+    for workflow_name, expected_pins in workflow_pins.items():
+        workflow = _workflow(workflow_name)
+        for pin in expected_pins:
+            assert pin in workflow
+
+    workflows = _all_workflows_text()
+    for legacy_pin in (
+        "actions/checkout@v5",
+        "actions/setup-python@v5",
+        "softprops/action-gh-release@v2",
+    ):
+        assert legacy_pin not in workflows
 
 
 def test_ci_service_smoke_script_covers_api_and_mcp_surfaces() -> None:
