@@ -23,7 +23,7 @@ from platformdirs import (
 from recollectium.errors import ValidationError
 from recollectium.memory_spaces import (
     DEFAULT_MEMORY_SPACE_KEY,
-    MemorySpaceResolver,
+    resolve_memory_space_database_path,
     validate_memory_space_key,
 )
 from recollectium.embeddings import (
@@ -574,11 +574,11 @@ class RecollectiumConfig:
                 self._resolved_db_folder = db_path.parent
                 self._memory_space_resolver = None
             else:
-                self._memory_space_resolver = MemorySpaceResolver(
+                self._resolved_db_path = resolve_memory_space_database_path(
                     self._resolved_db_folder,
                     default_key=self._default_memory_space_key,
                 )
-                self._resolved_db_path = self._memory_space_resolver.resolve().db_path
+                self._memory_space_resolver = None
 
     # -- properties -----------------------------------------------------------
 

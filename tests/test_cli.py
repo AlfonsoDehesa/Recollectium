@@ -32,6 +32,7 @@ from recollectium.config import (
     DEFAULTS,
     RESPONSE_VERBOSITY_COMPACT,
     RESPONSE_VERBOSITY_VERBOSE,
+    RecollectiumConfig,
 )
 from recollectium.cli import (
     _ReembeddingProgressReporter,
@@ -248,6 +249,23 @@ def test_cli_internal_parser_helpers_reject_invalid_threshold_and_count() -> Non
         == "model_recommended_default"
     )
     assert cli_module._parse_match_threshold("0.25") == 0.25
+
+
+def test_cli_resolve_regular_database_path_uses_resolved_database_path(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"folder": "memory-spaces"}}),
+        encoding="utf-8",
+    )
+    cfg = RecollectiumConfig(config_path)
+
+    assert cli_module._resolve_regular_database_path(cfg) == cfg.resolved_database_path
+    assert (
+        cli_module._resolve_regular_database_path(cfg, db_path_override="~/custom.db")
+        == Path("~/custom.db").expanduser()
+    )
 
 
 def test_cli_purge_helpers_cover_edge_branches(

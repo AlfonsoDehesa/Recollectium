@@ -567,6 +567,33 @@ class TestRecollectiumConfig:
         assert cfg.resolved_database_path.parent == cfg.resolved_database_folder
         assert cfg.resolved_database_path.name.startswith("default--")
 
+    def test_default_database_resolution_is_passive(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        config_home = tmp_path / "config"
+        data_home = tmp_path / "data"
+        cache_home = tmp_path / "cache"
+        state_home = tmp_path / "state"
+        runtime_home = tmp_path / "runtime"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(cache_home))
+        monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_home))
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+
+        cfg = RecollectiumConfig(config_path)
+
+        expected_folder = data_home / "recollectium" / "memory-spaces"
+        assert cfg.resolved_database_folder == expected_folder
+        assert cfg.resolved_database_path.parent == expected_folder
+        assert cfg.resolved_database_path.name.startswith("default--")
+        assert cfg.uses_legacy_database_path is False
+        assert not expected_folder.exists()
+        assert not (expected_folder / "memory-spaces.json").exists()
+
     def test_seeded_dev_database_uses_separate_resolved_path(
         self, tmp_path: Path
     ) -> None:

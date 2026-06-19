@@ -106,3 +106,60 @@ def test_list_spaces_uses_manifest_entries(tmp_path: Path) -> None:
     assert infos[1].exists is False
     assert all(info.created_at for info in infos)
     assert all(info.updated_at for info in infos)
+
+
+def test_list_spaces_rejects_tampered_manifest_filename(tmp_path: Path) -> None:
+    database_folder = tmp_path / "memory-spaces"
+    database_folder.mkdir(parents=True)
+    manifest_path = database_folder / "memory-spaces.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "spaces": {
+                    "default": {"filename": "../escape.db", "created_at": "now"}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resolver = MemorySpaceResolver(database_folder)
+
+    with pytest.raises(ValidationError, match="safe basename"):
+        resolver.list_spaces()
+
+
+def test_load_manifest_rejects_bad_manifest_shape_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    database_folder = tmp_path / "memory-spaces"
+    database_folder.mkdir(parents=True)
+    manifest_path = database_folder / "memory-spaces.json"
+    manifest_path.write_text(
+        json.dumps({"version": 1, "spaces": []}),
+        encoding="utf-8",
+    )
+    resolver = MemorySpaceResolver(database_folder)
+
+    with pytest.raises(ValidationError, match="spaces object"):
+        resolver.resolve()
+
+    assert manifest_path.read_text(encoding="utf-8") == json.dumps(
+        {"version": 1, "spaces": []}
+    )
+
+
+def test_load_manifest_rejects_malformed_json_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    database_folder = tmp_path / "memory-spaces"
+    database_folder.mkdir(parents=True)
+    manifest_path = database_folder / "memory-spaces.json"
+    manifest_path.write_text("{", encoding="utf-8")
+    resolver = MemorySpaceResolver(database_folder)
+
+    with pytest.raises(ValidationError, match="invalid JSON in memory space manifest"):
+        resolver.list_spaces()
+
+    assert manifest_path.read_text(encoding="utf-8") == "{"

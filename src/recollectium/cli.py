@@ -2777,10 +2777,7 @@ def _resolve_regular_database_path(
 ) -> Path:
     if db_path_override is not None:
         return Path(db_path_override).expanduser()
-    db_path = Path(cfg.effective_config["database"]["path"])
-    if not db_path.is_absolute():
-        db_path = cfg.xdg_dirs["data"] / db_path
-    return db_path
+    return cfg.resolved_database_path
 
 
 def _paths_equal(first: Path, second: Path) -> bool:

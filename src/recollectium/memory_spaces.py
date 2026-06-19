@@ -86,7 +86,6 @@ class MemorySpaceResolver:
     ) -> None:
         self.database_folder = Path(database_folder)
         self.default_key = validate_memory_space_key(default_key)
-        self.database_folder.mkdir(parents=True, exist_ok=True)
         self._manifest_path = self.database_folder / _MANIFEST_FILENAME
 
     def resolve(self, memory_space_key: str | None = None) -> MemorySpaceResolution:
@@ -97,7 +96,10 @@ class MemorySpaceResolver:
             if memory_space_key is None
             else validate_memory_space_key(memory_space_key)
         )
-        db_path = self.database_folder / _database_filename(key)
+        db_path = resolve_memory_space_database_path(
+            self.database_folder, key, default_key=self.default_key
+        )
+        self.database_folder.mkdir(parents=True, exist_ok=True)
         self._update_manifest(key, db_path)
         return MemorySpaceResolution(
             key=key, db_path=db_path, is_default=key == self.default_key
@@ -109,15 +111,25 @@ class MemorySpaceResolver:
         manifest = self._load_manifest()
         spaces_obj = manifest.get("spaces")
         if not isinstance(spaces_obj, dict):
-            return []
+            raise ValidationError("memory space manifest spaces must be an object")
         infos: list[MemorySpaceInfo] = []
         for key, entry in sorted(spaces_obj.items()):
+            validate_memory_space_key(key)
             if not isinstance(entry, dict):
-                continue
+                raise ValidationError(
+                    f"memory space manifest entry for {key!r} must be an object"
+                )
             filename = entry.get("filename")
             if not isinstance(filename, str):
-                continue
-            db_path = self.database_folder / filename
+                raise ValidationError(
+                    f"memory space manifest entry for {key!r} must include a filename"
+                )
+            safe_filename = _validate_manifest_filename(filename)
+            db_path = self.database_folder / safe_filename
+            if db_path.parent != self.database_folder:
+                raise ValidationError(
+                    f"memory space manifest entry for {key!r} resolves outside the database folder"
+                )
             created_at = entry.get("created_at")
             updated_at = entry.get("updated_at")
             infos.append(
@@ -137,22 +149,31 @@ class MemorySpaceResolver:
             return {"version": _MANIFEST_VERSION, "spaces": {}}
         try:
             payload = json.loads(self._manifest_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return {"version": _MANIFEST_VERSION, "spaces": {}}
+        except json.JSONDecodeError as exc:
+            raise ValidationError(
+                f"invalid JSON in memory space manifest {self._manifest_path}: {exc}"
+            ) from exc
         if not isinstance(payload, dict):
-            return {"version": _MANIFEST_VERSION, "spaces": {}}
+            raise ValidationError(
+                f"memory space manifest {self._manifest_path} must be a JSON object"
+            )
+        version = payload.get("version")
+        if not isinstance(version, int) or version != _MANIFEST_VERSION:
+            raise ValidationError(
+                f"memory space manifest {self._manifest_path} must have version {_MANIFEST_VERSION}"
+            )
         spaces = payload.get("spaces")
         if not isinstance(spaces, dict):
-            payload["spaces"] = {}
-        payload.setdefault("version", _MANIFEST_VERSION)
+            raise ValidationError(
+                f"memory space manifest {self._manifest_path} must contain a spaces object"
+            )
         return payload
 
     def _update_manifest(self, key: str, db_path: Path) -> None:
         manifest = self._load_manifest()
-        spaces = manifest.setdefault("spaces", {})
+        spaces = manifest.get("spaces")
         if not isinstance(spaces, dict):
-            spaces = {}
-            manifest["spaces"] = spaces
+            raise ValidationError("memory space manifest spaces must be an object")
 
         now = _utc_timestamp()
         entry = spaces.get(key)
@@ -172,6 +193,35 @@ def _database_filename(key: str) -> str:
     slug = _slugify(key)
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:_HASH_PREFIX_LENGTH]
     return f"{slug}--{digest}.db"
+
+
+def resolve_memory_space_database_path(
+    database_folder: Path,
+    memory_space_key: str | None = None,
+    *,
+    default_key: str = DEFAULT_MEMORY_SPACE_KEY,
+) -> Path:
+    """Return the deterministic database path for a memory-space key."""
+
+    key = (
+        default_key
+        if memory_space_key is None
+        else validate_memory_space_key(memory_space_key)
+    )
+    return Path(database_folder) / _database_filename(key)
+
+
+def _validate_manifest_filename(filename: str) -> str:
+    path = Path(filename)
+    if path.is_absolute() or path.name != filename or filename in {".", ".."}:
+        raise ValidationError(
+            f"memory space manifest filename must be a safe basename (got {filename!r})"
+        )
+    if "/" in filename or "\\" in filename or "\x00" in filename:
+        raise ValidationError(
+            f"memory space manifest filename must not contain path separators (got {filename!r})"
+        )
+    return filename
 
 
 def _slugify(key: str) -> str:
