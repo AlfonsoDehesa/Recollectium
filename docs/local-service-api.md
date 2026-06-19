@@ -203,6 +203,17 @@ Compact projections by operation:
 
 Health and version responses have the same shape for compact and verbose. Capabilities are already mostly compact; verbose adds response verbosity metadata.
 
+## Memory-space keys
+
+Recollectium routes ordinary memory and database-backed operations through logical memory-space keys instead of raw SQLite paths when practical.
+
+- CLI commands such as `add`, `search-user`, `search-workspace`, `list`, `get`, `update`, `archive`, `workspace`, embedding status/jobs/refresh/maintenance, and `db-status` accept `--memory-space KEY`.
+- HTTP request models and query parameters use `memory_space_key` for the same logical routing.
+- MCP tools expose an optional `memory_space_key` argument for the same operations.
+- When omitted, Recollectium keeps the existing default memory-space behavior.
+- Invalid memory-space keys return HTTP `400 validation_error` or the equivalent CLI/MCP validation error.
+- Capability responses include a `memory_spaces` object that describes support and the configured default key.
+
 Request verbose data with a query parameter:
 
 ```bash

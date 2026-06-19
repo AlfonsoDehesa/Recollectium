@@ -44,6 +44,10 @@ A Recollectium adapter should:
   workspace UID normalization at the storage boundary.
 - Expose user-memory and workspace-memory operations as separate tools.
 - Treat Recollectium Core as the source of truth for memory storage and search.
+- Prefer `memory_space_key` for ordinary memory and database-backed operations,
+  especially when the adapter needs to target a non-default logical database.
+  Keep raw SQLite `--db` style routing for explicit admin or legacy escape hatches
+  only.
 - Use compact response payloads by default for token efficiency. Request verbose
   payloads only when the adapter needs full memory records, metadata,
   timestamps, or job details for inspection.

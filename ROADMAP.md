@@ -37,6 +37,8 @@ Completed in v1.0.0:
 
 Phase 1.5 is limited to follow-up work that happens after the 1.0.0 release path is proven.
 
+- [x] Expose logical memory-space keys across CLI/API/MCP and document them as the preferred routing mechanism for ordinary memory and database-backed operations.
+
 ### Windows hardening after real user testing
 
 - [ ] Harden the Windows installer based on actual user-reported install failures.

@@ -565,6 +565,25 @@
         "operationId": "embedding_status_v1_embedding_status_get",
         "parameters": [
           {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
+          {
             "name": "verbosity",
             "in": "query",
             "required": false,
@@ -670,6 +689,25 @@
         "summary": "List Embedding Jobs",
         "operationId": "list_embedding_jobs_v1_embedding_jobs_get",
         "parameters": [
+          {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
           {
             "name": "state",
             "in": "query",
@@ -1071,6 +1109,25 @@
             }
           },
           {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
+          {
             "name": "verbosity",
             "in": "query",
             "required": false,
@@ -1290,6 +1347,25 @@
         "summary": "List Memories",
         "operationId": "list_memories_v1_memories_get",
         "parameters": [
+          {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
           {
             "name": "space",
             "in": "query",
@@ -1533,6 +1609,25 @@
             }
           },
           {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
+          {
             "name": "verbosity",
             "in": "query",
             "required": false,
@@ -1771,6 +1866,25 @@
             }
           },
           {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
+          {
             "name": "verbosity",
             "in": "query",
             "required": false,
@@ -1876,6 +1990,25 @@
         "summary": "List Workspaces",
         "operationId": "list_workspaces_v1_workspaces_get",
         "parameters": [
+          {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
           {
             "name": "include_archived",
             "in": "query",
@@ -2030,6 +2163,25 @@
             }
           },
           {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
+          {
             "name": "verbosity",
             "in": "query",
             "required": false,
@@ -2143,6 +2295,25 @@
               "type": "string",
               "title": "Uid"
             }
+          },
+          {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
           },
           {
             "name": "verbosity",
@@ -2375,6 +2546,25 @@
         "operationId": "list_all_workspace_aliases_v1_workspaces_aliases_get",
         "parameters": [
           {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
+          {
             "name": "verbosity",
             "in": "query",
             "required": false,
@@ -2488,6 +2678,25 @@
               "type": "string",
               "title": "Alias Uid"
             }
+          },
+          {
+            "name": "memory_space_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional logical memory-space key. Omit to use the configured default memory space.",
+              "title": "Memory Space Key"
+            },
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
           },
           {
             "name": "verbosity",
@@ -2748,6 +2957,19 @@
             ],
             "title": "Workspace Uid"
           },
+          "memory_space_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Space Key",
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
           "metadata": {
             "anyOf": [
               {
@@ -2818,6 +3040,19 @@
             "type": "boolean",
             "title": "Migrate Existing",
             "default": false
+          },
+          "memory_space_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Space Key",
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
           }
         },
         "additionalProperties": false,
@@ -2847,6 +3082,19 @@
               }
             ],
             "title": "States"
+          },
+          "memory_space_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Space Key",
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
           }
         },
         "additionalProperties": false,
@@ -2886,6 +3134,19 @@
             "type": "boolean",
             "title": "Include Archived",
             "default": false
+          },
+          "memory_space_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Space Key",
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
           }
         },
         "additionalProperties": false,
@@ -2898,6 +3159,19 @@
             "type": "string",
             "minLength": 1,
             "title": "New Uid"
+          },
+          "memory_space_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Space Key",
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
           }
         },
         "additionalProperties": false,
@@ -2939,6 +3213,19 @@
             "minimum": 1.0,
             "title": "Limit",
             "default": 20
+          },
+          "memory_space_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Space Key",
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
           },
           "protected_minimum": {
             "type": "integer",
@@ -3012,6 +3299,19 @@
             "title": "Limit",
             "default": 20
           },
+          "memory_space_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Space Key",
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
+          },
           "protected_minimum": {
             "type": "integer",
             "minimum": 0.0,
@@ -3073,6 +3373,19 @@
               }
             ],
             "title": "Content"
+          },
+          "memory_space_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Space Key",
+            "description": "Optional logical memory-space key. Omit to use the configured default memory space."
           },
           "metadata": {
             "anyOf": [

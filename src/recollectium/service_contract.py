@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from recollectium import __version__
+from recollectium.memory_spaces import DEFAULT_MEMORY_SPACE_KEY
 from recollectium.models import (
     ALL_MEMORY_TYPES,
     USER_MEMORY_TYPES,
@@ -176,6 +177,11 @@ def capabilities_payload() -> dict[str, Any]:
         {
             "service_api_version": SERVICE_API_VERSION,
             "capabilities": list(SERVICE_CAPABILITIES),
+            "memory_spaces": {
+                "supported": True,
+                "default_key": DEFAULT_MEMORY_SPACE_KEY,
+                "raw_database_paths": False,
+            },
             "memory_types": {
                 "user": list(USER_MEMORY_TYPES),
                 "workspace": list(WORKSPACE_MEMORY_TYPES),

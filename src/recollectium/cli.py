@@ -1241,6 +1241,7 @@ def _refresh_stale_embeddings_with_progress(
     space: str | None = None,
     workspace_uid: str | None = None,
     include_archived: bool,
+    memory_space_key: str | None = None,
     output_format: str,
 ) -> dict[str, Any]:
     """Run stale-embedding refresh with optional human TTY progress."""
@@ -1248,6 +1249,7 @@ def _refresh_stale_embeddings_with_progress(
         "space": space,
         "workspace_uid": workspace_uid,
         "include_archived": include_archived,
+        "memory_space_key": memory_space_key,
     }
     progress_reporter = _human_reembedding_progress_reporter(output_format)
     if progress_reporter is None:
@@ -2400,6 +2402,7 @@ def _run_embedding_maintenance(
     *,
     explicit: bool,
     db_path: str | None,
+    memory_space_key: str | None,
     log_level: str | None,
     output_format: str,
 ) -> dict[str, Any]:
@@ -2411,9 +2414,16 @@ def _run_embedding_maintenance(
         config_path.chmod(0o600)
 
     cfg = RecollectiumConfig(config_path if explicit else None, log_level=log_level)
-    selected_db_path = (
-        Path(db_path) if db_path is not None else cfg.resolved_database_path
-    )
+    if db_path is not None:
+        selected_db_path = Path(db_path)
+    elif memory_space_key is not None:
+        selected_db_path = resolve_memory_space_database_path(
+            cfg.resolved_database_folder,
+            memory_space_key,
+            default_key=cfg.default_memory_space_key,
+        )
+    else:
+        selected_db_path = cfg.resolved_database_path
     database_existed = selected_db_path.exists()
     SQLiteMemoryStore(selected_db_path)
     core = RecollectiumCore(
@@ -2429,6 +2439,7 @@ def _run_embedding_maintenance(
     refresh = _refresh_stale_embeddings_with_progress(
         core,
         include_archived=True,
+        memory_space_key=memory_space_key,
         output_format=output_format,
     )
     profile = core.embedding_provider.embedding_profile
@@ -2441,6 +2452,7 @@ def _run_embedding_maintenance(
         "logs": str(cfg.xdg_dirs["logs"]),
         "runtime": str(cfg.xdg_dirs["runtime"]),
         "database": str(core.store.db_path),
+        "memory_space_key": memory_space_key or cfg.default_memory_space_key,
         "database_created": not database_existed,
         "embedding_model": cfg.effective_config["embedding"]["model"],
         "embedding_profile": profile,
@@ -2454,6 +2466,7 @@ def _run_installed_embedding_maintenance(
     config_path: Path,
     explicit: bool,
     db_path: str | None,
+    memory_space_key: str | None,
     log_level: str | None,
     timeout_seconds: int,
     output_format: str = CLI_OUTPUT_JSON,
@@ -2468,6 +2481,8 @@ def _run_installed_embedding_maintenance(
         command.extend(["--config", str(config_path)])
     if db_path is not None:
         command.extend(["--db", db_path])
+    if memory_space_key is not None:
+        command.extend(["--memory-space", memory_space_key])
     if log_level is not None:
         command.extend(["--log-level", log_level])
     command.append("embedding-maintenance")
@@ -2481,6 +2496,7 @@ def _handle_init_command(
     *,
     explicit: bool,
     db_path: str | None,
+    memory_space_key: str | None,
     log_level: str | None,
     output_format: str,
 ) -> int:
@@ -2489,6 +2505,7 @@ def _handle_init_command(
         config_path,
         explicit=explicit,
         db_path=db_path,
+        memory_space_key=memory_space_key,
         log_level=log_level,
         output_format=output_format,
     )
@@ -3556,6 +3573,7 @@ def _handle_upgrade_command(
         config_path=config_path,
         explicit=args.config_path is not None,
         db_path=args.db_path,
+        memory_space_key=getattr(args, "memory_space_key", None),
         log_level=args.log_level,
         timeout_seconds=args.timeout,
         output_format=output_format,
@@ -4996,7 +5014,9 @@ def _handle_workspace_command(
 
     if args.workspace_action == "resolve":
         try:
-            result = core.resolve_workspace(args.uid)
+            result = core.resolve_workspace(
+                args.uid, memory_space_key=getattr(args, "memory_space_key", None)
+            )
             _emit_success(
                 result, output_format=output_format, command="workspace resolve"
             )
@@ -5013,15 +5033,20 @@ def _handle_workspace_command(
                     canonical_uid=args.canonical_uid,
                     alias_uid=args.alias_uid,
                     migrate_existing=getattr(args, "migrate_existing", False),
+                    memory_space_key=getattr(args, "memory_space_key", None),
                 )
                 command = "workspace alias add"
             elif args.alias_action == "list":
                 result = core.list_workspace_aliases(
-                    canonical_uid=getattr(args, "workspace", None)
+                    canonical_uid=getattr(args, "workspace", None),
+                    memory_space_key=getattr(args, "memory_space_key", None),
                 )
                 command = "workspace alias list"
             elif args.alias_action == "remove":
-                result = core.remove_workspace_alias(args.alias_uid)
+                result = core.remove_workspace_alias(
+                    args.alias_uid,
+                    memory_space_key=getattr(args, "memory_space_key", None),
+                )
                 command = "workspace alias remove"
             else:  # pragma: no cover — parser enforces valid actions
                 return 1
@@ -5037,6 +5062,7 @@ def _handle_workspace_command(
             result = core.rename_workspace(
                 old_uid=args.old_uid,
                 new_uid=args.new_uid,
+                memory_space_key=getattr(args, "memory_space_key", None),
             )
             _emit_success(
                 result, output_format=output_format, command="workspace rename"
@@ -5301,6 +5327,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--sensitivity",
         help="Optional sensitivity label for privacy-aware handling later.",
     )
+    add_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
+    )
 
     # -- search-user ------------------------------------------------------
     search_user_parser = subparsers.add_parser(
@@ -5347,6 +5378,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--include-archived",
         action="store_true",
         help="Include archived memories in search candidates.",
+    )
+    search_user_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
     )
 
     # -- search-workspace -------------------------------------------------
@@ -5399,6 +5435,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include archived memories in search candidates.",
     )
+    search_workspace_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
+    )
 
     # -- list --------------------------------------------------------------
     list_parser = subparsers.add_parser(
@@ -5436,6 +5477,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Maximum number of memories to return. Must be positive.",
     )
+    list_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
+    )
 
     # -- get ---------------------------------------------------------------
     get_parser = subparsers.add_parser(
@@ -5444,6 +5490,11 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Retrieve one memory by its ID and print it in the selected output format.",
     )
     get_parser.add_argument("memory_id", help="Memory ID to retrieve.")
+    get_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
+    )
 
     # -- update ------------------------------------------------------------
     update_parser = subparsers.add_parser(
@@ -5481,6 +5532,11 @@ def _build_parser() -> argparse.ArgumentParser:
     update_parser.add_argument(
         "--sensitivity",
         help="Replacement sensitivity label for privacy-aware handling later.",
+    )
+    update_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
     )
 
     # -- upgrade -----------------------------------------------------------
@@ -5602,6 +5658,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     archive_parser.add_argument("memory_id", help="Memory ID to archive.")
+    archive_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
+    )
 
     # -- service ------------------------------------------------------------
     service_parser = subparsers.add_parser(
@@ -5681,7 +5742,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # -- db-status ---------------------------------------------------------
-    subparsers.add_parser(
+    db_status_parser = subparsers.add_parser(
         "db-status",
         help="show database schema migration status",
         description=(
@@ -5689,6 +5750,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "This command initializes the database if needed and reports current "
             "and pending schema versions."
         ),
+    )
+    db_status_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
     )
 
     # -- dev ---------------------------------------------------------------
@@ -5872,6 +5938,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="list and manage workspace UIDs",
         description="List, resolve, rename, and manage aliases for workspace UIDs.",
     )
+    workspace_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
+    )
     workspace_sub = workspace_parser.add_subparsers(
         dest="workspace_action",
         required=True,
@@ -5960,7 +6031,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # -- embedding-status --------------------------------------------------
-    subparsers.add_parser(
+    embedding_status_parser = subparsers.add_parser(
         "embedding-status",
         help="show active local FastEmbed profile and startup job",
         description=(
@@ -5971,9 +6042,14 @@ def _build_parser() -> argparse.ArgumentParser:
             f"Supported models: {_SUPPORTED_EMBEDDING_MODELS_HELP}."
         ),
     )
+    embedding_status_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
+    )
 
     # -- embedding-maintenance ---------------------------------------------
-    subparsers.add_parser(
+    embedding_maintenance_parser = subparsers.add_parser(
         "embedding-maintenance",
         help="prepare the configured model and refresh stale embeddings",
         description=(
@@ -5981,6 +6057,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "built-in FastEmbed model, and refresh stale or missing embeddings inline. "
             "Installers and successful upgrades run this command automatically."
         ),
+    )
+    embedding_maintenance_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
     )
 
     # -- embedding-jobs ----------------------------------------------------
@@ -6006,6 +6087,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Optional positive integer limit for list mode.",
     )
+    embedding_jobs_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
+    )
 
     # -- embedding-refresh -------------------------------------------------
     embedding_refresh_parser = subparsers.add_parser(
@@ -6029,6 +6115,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--include-archived",
         action="store_true",
         help="Include archived memories when finding stale embeddings.",
+    )
+    embedding_refresh_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
     )
 
     # -- embedding-jobs-clear ---------------------------------------------
@@ -6054,6 +6145,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--yes",
         action="store_true",
         help="Confirm deletion of job audit records.",
+    )
+    embedding_jobs_clear_parser.add_argument(
+        "--memory-space",
+        dest="memory_space_key",
+        help="Logical memory-space key to use. Omit to use the configured default memory space.",
     )
 
     # -- mcp-stdio ---------------------------------------------------------
@@ -6696,6 +6792,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config_path,
                 explicit=args.config_path is not None,
                 db_path=args.db_path,
+                memory_space_key=getattr(args, "memory_space_key", None),
                 log_level=args.log_level,
                 output_format=output_format,
             )
@@ -6728,6 +6825,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config_path,
                 explicit=args.config_path is not None,
                 db_path=args.db_path,
+                memory_space_key=getattr(args, "memory_space_key", None),
                 log_level=args.log_level,
                 output_format=output_format,
             )
@@ -6760,27 +6858,31 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # -- db-status command ------------------------------------------------
     if args.command == "db-status":
-        if args.db_path:
-            db_path = Path(args.db_path)
-        else:
-            try:
-                cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
-                db_path = cfg.resolved_database_path
-            except FileNotFoundError as exc:
-                return _config_missing_error(exc, command=args.command)
-            except ValidationError as exc:
-                return _config_invalid_error(exc, command=args.command)
+        db_path = Path(args.db_path) if args.db_path else None
         try:
-            store = SQLiteMemoryStore(db_path)
-            status_payload = (
-                store.detailed_migration_status()
-                if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE
-                else store.migration_status()
-            )
+            if db_path is not None:
+                store = SQLiteMemoryStore(db_path)
+                status_payload = (
+                    store.detailed_migration_status()
+                    if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE
+                    else store.migration_status()
+                )
+            else:
+                try:
+                    RecollectiumConfig(core_config_path, log_level=args.log_level)
+                except FileNotFoundError as exc:
+                    return _config_missing_error(exc, command=args.command)
+                except ValidationError as exc:
+                    return _config_invalid_error(exc, command=args.command)
+                core = RecollectiumCore(
+                    config_path=core_config_path,
+                    log_level=args.log_level,
+                )
+                status_payload = core.database_status(
+                    memory_space_key=getattr(args, "memory_space_key", None)
+                )
             _emit_success(
-                status_payload,
-                output_format=output_format,
-                command="db-status",
+                status_payload, output_format=output_format, command="db-status"
             )
         except MigrationError as exc:
             return _emit_cli_failure(
@@ -7089,6 +7191,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source=args.source,
                 confidence=args.confidence,
                 sensitivity=args.sensitivity,
+                memory_space_key=getattr(args, "memory_space_key", None),
             )
         elif args.command == "search-user":
             progress_reporter = _human_reembedding_progress_reporter(output_format)
@@ -7100,6 +7203,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     type=args.type,
                     protected_minimum=args.protected_minimum,
                     match_threshold=args.match_threshold,
+                    memory_space_key=getattr(args, "memory_space_key", None),
                 )
             else:
                 with progress_reporter:
@@ -7111,6 +7215,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         protected_minimum=args.protected_minimum,
                         match_threshold=args.match_threshold,
                         progress_callback=progress_reporter,
+                        memory_space_key=getattr(args, "memory_space_key", None),
                     )
         elif args.command == "search-workspace":
             progress_reporter = _human_reembedding_progress_reporter(output_format)
@@ -7123,6 +7228,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     type=args.type,
                     protected_minimum=args.protected_minimum,
                     match_threshold=args.match_threshold,
+                    memory_space_key=getattr(args, "memory_space_key", None),
                 )
             else:
                 with progress_reporter:
@@ -7135,6 +7241,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         protected_minimum=args.protected_minimum,
                         match_threshold=args.match_threshold,
                         progress_callback=progress_reporter,
+                        memory_space_key=getattr(args, "memory_space_key", None),
                     )
         elif args.command == "list":
             result = core.list_memories(
@@ -7144,9 +7251,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 workspace_uid=args.workspace_uid,
                 include_archived=args.include_archived,
                 limit=args.limit,
+                memory_space_key=getattr(args, "memory_space_key", None),
             )
         elif args.command == "get":
-            result = core.get_memory(args.memory_id)
+            result = core.get_memory(
+                args.memory_id, memory_space_key=getattr(args, "memory_space_key", None)
+            )
         elif args.command == "update":
             result = core.update_memory(
                 args.memory_id,
@@ -7156,26 +7266,39 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source=args.source,
                 confidence=args.confidence,
                 sensitivity=args.sensitivity,
+                memory_space_key=getattr(args, "memory_space_key", None),
             )
         elif args.command == "archive":
-            result = core.archive_memory(args.memory_id)
+            result = core.archive_memory(
+                args.memory_id, memory_space_key=getattr(args, "memory_space_key", None)
+            )
         elif args.command == "workspace":
             return _handle_workspace_command(
                 args, core=core, output_format=output_format
             )
         elif args.command == "embedding-status":
-            result = core.active_embedding_status()
+            result = core.active_embedding_status(
+                memory_space_key=getattr(args, "memory_space_key", None)
+            )
         elif args.command == "embedding-jobs":
             if args.job_id:
-                result = core.get_embedding_job(args.job_id)
+                result = core.get_embedding_job(
+                    args.job_id,
+                    memory_space_key=getattr(args, "memory_space_key", None),
+                )
             else:
-                result = core.list_embedding_jobs(state=args.state, limit=args.limit)
+                result = core.list_embedding_jobs(
+                    state=args.state,
+                    limit=args.limit,
+                    memory_space_key=getattr(args, "memory_space_key", None),
+                )
         elif args.command == "embedding-refresh":
             result = _refresh_stale_embeddings_with_progress(
                 core,
                 space=args.space,
                 workspace_uid=args.workspace_uid,
                 include_archived=args.include_archived,
+                memory_space_key=getattr(args, "memory_space_key", None),
                 output_format=output_format,
             )
         elif args.command == "embedding-jobs-clear":
@@ -7188,7 +7311,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     command=args.command,
                     event="embedding_jobs_clear.confirmation_required",
                 )
-            result = core.clear_embedding_jobs(states=args.states)
+            result = core.clear_embedding_jobs(
+                states=args.states,
+                memory_space_key=getattr(args, "memory_space_key", None),
+            )
         else:
             parser.error(f"unknown command: {args.command}")
             return 2

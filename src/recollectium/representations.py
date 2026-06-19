@@ -137,6 +137,8 @@ def project_embedding_status(
             "embedding_profile",
             "model_status",
             "model_cache_path",
+            "memory_space_key",
+            "memory_space_db_path",
             "embedding_jobs_status_path",
         ),
     )

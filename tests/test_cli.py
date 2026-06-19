@@ -502,6 +502,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     search_user_help = _run_help(["search-user", "--help"], capsys)
     assert "selected output format" in search_user_help
     assert "ranked JSON" not in search_user_help
+    assert "--memory-space" in search_user_help
 
     search_help = _run_help(["search-workspace", "--help"], capsys)
     assert "selected output format" in search_help
@@ -509,6 +510,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "Stable workspace UID" in search_help
     assert "searched" in search_help
     assert "Defaults to 20" in search_help
+    assert "--memory-space" in search_help
 
     update_help = _run_help(["update", "--help"], capsys)
     assert "regenerates" in update_help
@@ -619,6 +621,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "built-in local FastEmbed" in embedding_status_help
     assert "BAAI/bge-base-en-v1.5" in embedding_status_help
     assert "jinaai/jina-embeddings-v2-small-en" in embedding_status_help
+    assert "--memory-space" in embedding_status_help
 
     embedding_jobs_help = _run_help(["embedding-jobs", "--help"], capsys)
     assert "--job-id" in embedding_jobs_help
@@ -659,6 +662,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "migration status" in db_status_help
     assert "pending" in db_status_help
     assert "schema versions" in db_status_help
+    assert "--memory-space" in db_status_help
 
     uninstall_help = _run_help(["uninstall", "--help"], capsys)
     assert "preserving memories" in uninstall_help
@@ -2493,6 +2497,31 @@ def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:
     assert archive_code == 0
     archive_payload = json.loads(archive_out)
     assert archive_payload["status"] == "archived"
+
+
+def test_cli_memory_space_key_routes_searches_to_isolated_databases(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
+
+    alpha_status_code, alpha_status_out, _ = _run_cli(
+        ["db-status", "--memory-space", "alpha"],
+        capsys,
+    )
+    beta_status_code, beta_status_out, _ = _run_cli(
+        ["db-status", "--memory-space", "beta"],
+        capsys,
+    )
+    assert alpha_status_code == 0
+    assert beta_status_code == 0
+    alpha_status = json.loads(alpha_status_out)
+    beta_status = json.loads(beta_status_out)
+    assert alpha_status["memory_space_key"] == "alpha"
+    assert beta_status["memory_space_key"] == "beta"
+    assert alpha_status["memory_space_db_path"] != beta_status["memory_space_db_path"]
 
 
 def test_cli_reads_metadata_from_json_file(tmp_path, capsys, monkeypatch) -> None:
@@ -6052,7 +6081,7 @@ def test_cli_embedding_generation_error_returns_1(
         def __init__(self, *args, **kwargs) -> None:
             pass
 
-        def active_embedding_status(self) -> dict[str, object]:
+        def active_embedding_status(self, **kwargs) -> dict[str, object]:
             raise EmbeddingGenerationError("provider returned no vector")
 
     monkeypatch.setattr("recollectium.cli.RecollectiumCore", FailingCore)
@@ -6369,6 +6398,7 @@ def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
             "space": SPACE_WORKSPACE,
             "workspace_uid": "team-a",
             "include_archived": True,
+            "memory_space_key": None,
         }
     ]
 
@@ -6392,6 +6422,7 @@ def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
         "space": SPACE_USER,
         "workspace_uid": None,
         "include_archived": False,
+        "memory_space_key": None,
         "progress_callback": progress,
     }
 
@@ -6695,6 +6726,7 @@ def test_run_installed_embedding_maintenance_builds_fresh_process_command(
         config_path=tmp_path / "config.json",
         explicit=True,
         db_path=str(tmp_path / "memory.db"),
+        memory_space_key=None,
         log_level="debug",
         timeout_seconds=42,
     )
@@ -6742,6 +6774,7 @@ def test_run_installed_embedding_maintenance_uses_human_readable_process_command
         config_path=tmp_path / "config.json",
         explicit=True,
         db_path=str(tmp_path / "memory.db"),
+        memory_space_key=None,
         log_level="debug",
         timeout_seconds=42,
         output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
@@ -13129,6 +13162,7 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
             "config_path": config_path,
             "explicit": False,
             "db_path": None,
+            "memory_space_key": None,
             "log_level": None,
             "timeout_seconds": 600,
             "output_format": cli_module.CLI_OUTPUT_HUMAN_READABLE,
@@ -13316,6 +13350,7 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
             "config_path": maintenance_calls[0]["config_path"],
             "explicit": False,
             "db_path": None,
+            "memory_space_key": None,
             "log_level": None,
             "timeout_seconds": 600,
             "output_format": cli_module.CLI_OUTPUT_JSON,
@@ -14066,6 +14101,7 @@ def test_cli_upgrade_success_runs_installed_embedding_maintenance(
         "config_path": maintenance_calls[0]["config_path"],
         "explicit": False,
         "db_path": "/tmp/recollectium.db",
+        "memory_space_key": None,
         "log_level": None,
         "timeout_seconds": 600,
         "output_format": cli_module.CLI_OUTPUT_JSON,
