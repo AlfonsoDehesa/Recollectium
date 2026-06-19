@@ -21,6 +21,11 @@ from platformdirs import (
 )
 
 from recollectium.errors import ValidationError
+from recollectium.memory_spaces import (
+    DEFAULT_MEMORY_SPACE_KEY,
+    MemorySpaceResolver,
+    validate_memory_space_key,
+)
 from recollectium.embeddings import (
     BUILTIN_FASTEMBED_MODEL_SPECS,
     DEFAULT_BUILTIN_FASTEMBED_MODEL,
@@ -65,7 +70,10 @@ DEFAULTS: dict[str, Any] = {
         "protected_minimum": 3,
         "match_threshold": "model_recommended_default",
     },
-    "database": {"path": "recollectium.db"},
+    "database": {
+        "folder": "memory-spaces",
+        "default_memory_space": DEFAULT_MEMORY_SPACE_KEY,
+    },
     "embedding": {
         "provider": SUPPORTED_EMBEDDING_PROVIDER,
         "model": SUPPORTED_EMBEDDING_MODEL,
@@ -229,7 +237,28 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
             )
         retrieval["match_threshold"] = normalized
 
-    _validate_section(data, "database", {"path": str})
+    database = data.get("database", {})
+    if not isinstance(database, dict):
+        raise ValidationError(
+            f"database must be an object (got {type(database).__name__})"
+        )
+    folder = database.get("folder")
+    if not isinstance(folder, str):
+        raise ValidationError(
+            f"database.folder must be str (got {type(folder).__name__})"
+        )
+    default_memory_space = database.get("default_memory_space")
+    if not isinstance(default_memory_space, str):
+        raise ValidationError(
+            "database.default_memory_space must be str "
+            f"(got {type(default_memory_space).__name__})"
+        )
+    database["default_memory_space"] = validate_memory_space_key(default_memory_space)
+    legacy_path = database.get("path")
+    if legacy_path is not None and not isinstance(legacy_path, str):
+        raise ValidationError(
+            f"database.path must be str (got {type(legacy_path).__name__})"
+        )
     _validate_section(data, "embedding", {"provider": str, "model": str})
     _validate_section(data, "service", {"host": str, "port": int})
 
@@ -509,21 +538,47 @@ class RecollectiumConfig:
         # 9. Ensure all required directories exist with private permissions
         _ensure_config_directories(self._xdg_dirs)
 
-        # 10. Resolve database path
+        # 10. Resolve database folder/path
+        self._effective_config = merged
+        self._default_memory_space_key = self._effective_config["database"][
+            "default_memory_space"
+        ]
+        raw_database = raw.get("database", {})
         development = merged.get("development", {})
         if (
             isinstance(development, dict)
             and development.get("use_seeded_database") is True
         ):
             db_path = Path(development["seeded_database_path"])
+            if not db_path.is_absolute():
+                db_path = self._xdg_dirs["data"] / db_path
+            self._resolved_db_folder = db_path.parent
+            self._resolved_db_path = db_path
+            self._uses_legacy_database_path = False
+            self._memory_space_resolver = None
         else:
-            db_path = Path(merged["database"]["path"])
-        if not db_path.is_absolute():
-            db_path = self._xdg_dirs["data"] / db_path
-        self._resolved_db_path = db_path
-
-        # 10. Store final effective config
-        self._effective_config = merged
+            folder_value = Path(self._effective_config["database"]["folder"])
+            if not folder_value.is_absolute():
+                folder_value = self._xdg_dirs["data"] / folder_value
+            self._resolved_db_folder = folder_value
+            self._uses_legacy_database_path = (
+                isinstance(raw_database, dict)
+                and "path" in raw_database
+                and "folder" not in raw_database
+            )
+            if self._uses_legacy_database_path:
+                db_path = Path(raw_database["path"])
+                if not db_path.is_absolute():
+                    db_path = self._xdg_dirs["data"] / db_path
+                self._resolved_db_path = db_path
+                self._resolved_db_folder = db_path.parent
+                self._memory_space_resolver = None
+            else:
+                self._memory_space_resolver = MemorySpaceResolver(
+                    self._resolved_db_folder,
+                    default_key=self._default_memory_space_key,
+                )
+                self._resolved_db_path = self._memory_space_resolver.resolve().db_path
 
     # -- properties -----------------------------------------------------------
 
@@ -536,6 +591,21 @@ class RecollectiumConfig:
     def resolved_database_path(self) -> Path:
         """The resolved absolute database path."""
         return self._resolved_db_path
+
+    @property
+    def resolved_database_folder(self) -> Path:
+        """The resolved absolute database folder."""
+        return self._resolved_db_folder
+
+    @property
+    def default_memory_space_key(self) -> str:
+        """The configured default memory-space key."""
+        return self._default_memory_space_key
+
+    @property
+    def uses_legacy_database_path(self) -> bool:
+        """Whether the loaded config used legacy database.path routing."""
+        return self._uses_legacy_database_path
 
     @property
     def config_file_path(self) -> Path:

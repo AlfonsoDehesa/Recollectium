@@ -235,10 +235,28 @@ class TestValidateConfigValue:
         with pytest.raises(ValidationError, match="version must be >= 1"):
             _validate_config_value(data)
 
+    def test_database_defaults_include_folder_and_default_memory_space(self) -> None:
+        assert DEFAULTS["database"]["folder"] == "memory-spaces"
+        assert DEFAULTS["database"]["default_memory_space"] == "default"
+
     def test_invalid_database_path_type_raises(self) -> None:
         data = deepcopy(DEFAULTS)
-        data["database"] = {"path": 123}
+        data["database"]["path"] = 123
         with pytest.raises(ValidationError, match="database.path must be str"):
+            _validate_config_value(data)
+
+    def test_invalid_database_folder_type_raises(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["database"]["folder"] = 123
+        with pytest.raises(ValidationError, match="database.folder must be str"):
+            _validate_config_value(data)
+
+    def test_invalid_database_default_memory_space_type_raises(self) -> None:
+        data = deepcopy(DEFAULTS)
+        data["database"]["default_memory_space"] = 123
+        with pytest.raises(
+            ValidationError, match="database.default_memory_space must be str"
+        ):
             _validate_config_value(data)
 
     def test_invalid_embedding_provider_type_raises(self) -> None:
@@ -335,7 +353,7 @@ class TestValidateConfigValue:
     def test_missing_section_raises(self) -> None:
         data = deepcopy(DEFAULTS)
         del data["database"]
-        with pytest.raises(ValidationError, match="database.path must be str"):
+        with pytest.raises(ValidationError, match="database.folder must be str"):
             _validate_config_value(data)
 
     def test_wrong_section_type_raises(self) -> None:
@@ -538,13 +556,16 @@ class TestRecollectiumConfig:
         config_path = tmp_path / "config.json"
         config_path.parent.mkdir(exist_ok=True)
         config_path.write_text(
-            json.dumps({"version": 1, "database": {"path": "mydb.db"}}),
+            json.dumps({"version": 1, "database": {"folder": "my-folder"}}),
             encoding="utf-8",
         )
         cfg = RecollectiumConfig(config_path)
-        # Relative path resolved against data dir
-        assert cfg.resolved_database_path.name == "mydb.db"
-        assert cfg.resolved_database_path.is_absolute()
+        assert cfg.resolved_database_folder.name == "my-folder"
+        assert cfg.resolved_database_folder.is_absolute()
+        assert cfg.default_memory_space_key == "default"
+        assert cfg.uses_legacy_database_path is False
+        assert cfg.resolved_database_path.parent == cfg.resolved_database_folder
+        assert cfg.resolved_database_path.name.startswith("default--")
 
     def test_seeded_dev_database_uses_separate_resolved_path(
         self, tmp_path: Path
@@ -570,14 +591,30 @@ class TestRecollectiumConfig:
 
     def test_resolved_database_path_absolute(self, tmp_path: Path) -> None:
         config_path = tmp_path / "config.json"
-        abs_db = tmp_path / "absolute" / "mydb.db"
+        abs_folder = tmp_path / "absolute" / "dbs"
         config_path.parent.mkdir(exist_ok=True)
         config_path.write_text(
-            json.dumps({"version": 1, "database": {"path": str(abs_db)}}),
+            json.dumps({"version": 1, "database": {"folder": str(abs_folder)}}),
             encoding="utf-8",
         )
         cfg = RecollectiumConfig(config_path)
-        assert cfg.resolved_database_path == abs_db
+        assert cfg.resolved_database_folder == abs_folder
+        assert cfg.resolved_database_path.parent == abs_folder
+
+    def test_legacy_database_path_is_still_supported(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "config.json"
+        legacy_db = tmp_path / "legacy" / "recollectium.db"
+        config_path.write_text(
+            json.dumps({"version": 1, "database": {"path": str(legacy_db)}}),
+            encoding="utf-8",
+        )
+
+        cfg = RecollectiumConfig(config_path)
+
+        assert cfg.uses_legacy_database_path is True
+        assert cfg.resolved_database_path == legacy_db
+        assert cfg.resolved_database_folder == legacy_db.parent
+        assert cfg.default_memory_space_key == "default"
 
     def test_config_file_path_property(self, tmp_path: Path) -> None:
         config_path = tmp_path / "config.json"
@@ -781,6 +818,9 @@ def test_completable_config_keys_includes_workspace_uid_normalization() -> None:
     from recollectium.cli import _COMPLETABLE_CONFIG_KEYS
 
     assert "workspace.uid_normalization" in _COMPLETABLE_CONFIG_KEYS
+    assert "database.folder" in _COMPLETABLE_CONFIG_KEYS
+    assert "database.default_memory_space" in _COMPLETABLE_CONFIG_KEYS
+    assert "database.path" not in _COMPLETABLE_CONFIG_KEYS
 
 
 def test_apply_explicit_null_overrides_restores_retrieval_null() -> None:
