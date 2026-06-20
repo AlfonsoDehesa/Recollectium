@@ -111,11 +111,16 @@ def _smoke_env(root: Path) -> dict[str, str]:
 
 def _run_json(args: list[str], *, env: dict[str, str]) -> Any:
     completed = _run_command(args, env=env)
-    if completed.stderr:
+    # Third-party native libraries can emit benign warnings to stderr even when
+    # the command succeeds and stdout contains valid JSON.
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
         raise RuntimeError(
-            f"unexpected stderr from {' '.join(args)}:\n{completed.stderr}"
-        )
-    return json.loads(completed.stdout)
+            f"failed to parse JSON stdout from {' '.join(args)}:\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        ) from exc
 
 
 def _run_json_allow_failure(
