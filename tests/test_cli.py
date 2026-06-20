@@ -2615,6 +2615,29 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["uses_legacy_database_path"] is False
 
 
+def test_cli_db_status_rejects_mixed_db_and_memory_space(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "db-status.db"
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--db", str(db_path), "db-status", "--memory-space", "alpha"],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert payload["message"] == "Database routing modes are incompatible."
+    assert (
+        "--db compatibility mode cannot be combined with --memory-space routing"
+        in payload["detail"]
+    )
+    assert payload["db_path"] == str(db_path)
+    assert payload["memory_space_key"] == "alpha"
+
+
 def test_cli_db_status_reports_legacy_database_path_diagnostics(
     tmp_path, capsys
 ) -> None:
@@ -2635,6 +2658,39 @@ def test_cli_db_status_reports_legacy_database_path_diagnostics(
     payload = json.loads(stdout)
     assert payload["db_path"] == str(legacy_db)
     assert payload["uses_legacy_database_path"] is True
+
+
+def test_cli_config_reports_legacy_database_path_diagnostic(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    legacy_db = tmp_path / "legacy.db"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"path": str(legacy_db)}}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "config"],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["uses_legacy_database_path"] is True
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--config", str(config_path), "config"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert "Effective configuration" in stdout
+    assert "Uses legacy database path:" in stdout
+    assert "true" in stdout.lower()
 
 
 def test_cli_db_status_verbose_reports_migration_internals(tmp_path, capsys) -> None:
@@ -6469,6 +6525,35 @@ def test_cli_init_runs_stale_embedding_refresh(tmp_path, capsys, monkeypatch) ->
         "job": None,
     }
     assert calls == ["model_state", "refresh:True"]
+
+
+def test_cli_embedding_maintenance_rejects_mixed_db_and_memory_space(
+    tmp_path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    db_path = tmp_path / "embedding-maintenance.db"
+
+    exit_code, stdout, stderr = _run_cli(
+        [
+            "--config",
+            str(config_path),
+            "--db",
+            str(db_path),
+            "embedding-maintenance",
+            "--memory-space",
+            "alpha",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    payload = json.loads(stderr)
+    assert payload["status"] == "validation_error"
+    assert payload["message"] == "Database routing modes are incompatible."
+    assert payload["memory_space_key"] == "alpha"
+    assert payload["db_path"] == str(db_path)
+    assert not config_path.exists()
 
 
 def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(

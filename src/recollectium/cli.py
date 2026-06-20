@@ -1988,6 +1988,30 @@ def _load_effective_config(config_path: Path, *, explicit: bool) -> Recollectium
     return RecollectiumConfig()
 
 
+def _reject_mixed_db_routing_modes(
+    *,
+    command: str,
+    db_path: str | None,
+    memory_space_key: str | None,
+) -> int | None:
+    if db_path is None or memory_space_key is None:
+        return None
+    return _emit_cli_failure(
+        status="validation_error",
+        message="Database routing modes are incompatible.",
+        detail=(
+            "--db compatibility mode cannot be combined with --memory-space routing. "
+            "Use one routing mode or the other."
+        ),
+        hint="Remove either --db or --memory-space and retry.",
+        exit_code=2,
+        command=command,
+        event="cli.validation",
+        db_path=db_path,
+        memory_space_key=memory_space_key,
+    )
+
+
 def _load_effective_config_read_only(
     config_path: Path, *, explicit: bool
 ) -> dict[str, Any]:
@@ -2388,8 +2412,11 @@ def _handle_config_command(
         return _config_missing_error(exc, command="config")
     except ValidationError as exc:
         return _config_invalid_error(exc, command="config")
+    payload: dict[str, Any] = dict(cfg.effective_config)
+    if cfg.uses_legacy_database_path:
+        payload["uses_legacy_database_path"] = True
     _emit_success(
-        cfg.effective_config,
+        payload,
         output_format=output_format,
         command="config",
         json_indent=2,
@@ -6821,6 +6848,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "embedding-maintenance":
         try:
+            mixed_routing_error = _reject_mixed_db_routing_modes(
+                command="embedding-maintenance",
+                db_path=args.db_path,
+                memory_space_key=getattr(args, "memory_space_key", None),
+            )
+            if mixed_routing_error is not None:
+                return mixed_routing_error
             result = _run_embedding_maintenance(
                 config_path,
                 explicit=args.config_path is not None,
@@ -6860,6 +6894,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "db-status":
         db_path = Path(args.db_path) if args.db_path else None
         try:
+            mixed_routing_error = _reject_mixed_db_routing_modes(
+                command="db-status",
+                db_path=args.db_path,
+                memory_space_key=getattr(args, "memory_space_key", None),
+            )
+            if mixed_routing_error is not None:
+                return mixed_routing_error
             if db_path is not None:
                 store = SQLiteMemoryStore(db_path)
                 status_payload = (
