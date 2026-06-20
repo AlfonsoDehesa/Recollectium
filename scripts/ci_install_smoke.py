@@ -134,6 +134,16 @@ def _run_json_allow_failure(
     return completed
 
 
+def _path_is_within(child: Path, parent: Path) -> bool:
+    child_resolved = os.path.normcase(str(child.resolve()))
+    parent_resolved = os.path.normcase(str(parent.resolve()))
+    try:
+        common = os.path.commonpath([child_resolved, parent_resolved])
+    except ValueError:
+        return False
+    return common == parent_resolved
+
+
 def _exercise_install_smoke(root: Path) -> None:
     env = _smoke_env(root)
     recollectium = _resolve_recollectium_command()
@@ -244,7 +254,7 @@ def _exercise_install_smoke(root: Path) -> None:
     assert db_status["memory_space_key"] == ALT_MEMORY_SPACE, db_status
     assert db_status["memory_space_is_default"] is False, db_status
     memory_space_db_path = Path(db_status["memory_space_db_path"])
-    assert memory_space_db_path.is_relative_to(database_folder), db_status
+    assert _path_is_within(memory_space_db_path, database_folder), db_status
 
     raw_db = _run_json_allow_failure(
         [*recollectium, "--db", str(root / "raw.db"), "db-status"], env=env
