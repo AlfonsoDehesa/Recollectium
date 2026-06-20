@@ -6,9 +6,11 @@ Recollectium gives AI tools a local memory they can search across sessions. It k
 
 ### ✨ Features
 
-- Added logical memory-space keys across the CLI, HTTP API, and MCP surfaces so ordinary memory and database-backed commands can target named logical databases without changing the default routing behavior.
+- Added logical memory-space keys across the CLI, HTTP API, and MCP surfaces so ordinary memory and database-backed commands can target named logical databases while the default routing stays folder-based.
 
 ### 🐛 Fixes
+
+- Fixed the config and CLI path-routing surfaces so legacy `database.path` and raw `--db` routing are rejected in favor of `database.folder`, `database.default_memory_space`, and `--memory-space`.
 
 ### 🧹 Chores
 

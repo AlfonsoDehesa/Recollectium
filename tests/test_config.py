@@ -239,10 +239,12 @@ class TestValidateConfigValue:
         assert DEFAULTS["database"]["folder"] == "memory-spaces"
         assert DEFAULTS["database"]["default_memory_space"] == "default"
 
-    def test_invalid_database_path_type_raises(self) -> None:
+    def test_invalid_database_path_raises(self) -> None:
         data = deepcopy(DEFAULTS)
-        data["database"]["path"] = 123
-        with pytest.raises(ValidationError, match="database.path must be str"):
+        data["database"]["path"] = "legacy.db"
+        with pytest.raises(
+            ValidationError, match="database.path is no longer supported"
+        ):
             _validate_config_value(data)
 
     def test_invalid_database_folder_type_raises(self) -> None:
@@ -569,7 +571,6 @@ class TestRecollectiumConfig:
         assert cfg.resolved_database_folder.name == "my-folder"
         assert cfg.resolved_database_folder.is_absolute()
         assert cfg.default_memory_space_key == "default"
-        assert cfg.uses_legacy_database_path is False
         assert cfg.resolved_database_path.parent == cfg.resolved_database_folder
         assert cfg.resolved_database_path.name.startswith("default--")
 
@@ -597,7 +598,7 @@ class TestRecollectiumConfig:
         assert cfg.resolved_database_path.parent == expected_folder
         assert not (tmp_path / "data" / "~/memory-spaces").exists()
 
-    def test_legacy_database_path_expands_user_home(
+    def test_legacy_database_path_is_rejected_user_home(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         home = tmp_path / "home"
@@ -614,12 +615,10 @@ class TestRecollectiumConfig:
             encoding="utf-8",
         )
 
-        cfg = RecollectiumConfig(config_path)
-
-        expected_db = home / "legacy.db"
-        assert cfg.uses_legacy_database_path is True
-        assert cfg.resolved_database_path == expected_db
-        assert cfg.resolved_database_folder == expected_db.parent
+        with pytest.raises(
+            ValidationError, match="database.path is no longer supported"
+        ):
+            RecollectiumConfig(config_path)
 
     def test_default_database_resolution_is_passive(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -644,7 +643,6 @@ class TestRecollectiumConfig:
         assert cfg.resolved_database_folder == expected_folder
         assert cfg.resolved_database_path.parent == expected_folder
         assert cfg.resolved_database_path.name.startswith("default--")
-        assert cfg.uses_legacy_database_path is False
         assert not expected_folder.exists()
         assert not (expected_folder / "memory-spaces.json").exists()
 
@@ -656,11 +654,10 @@ class TestRecollectiumConfig:
         config_path.write_text(
             json.dumps(
                 {
-                    "database": {"path": "regular.db"},
                     "development": {
                         "use_seeded_database": True,
                         "seeded_database_path": str(dev_db),
-                    },
+                    }
                 }
             ),
             encoding="utf-8",
@@ -711,7 +708,7 @@ class TestRecollectiumConfig:
         assert cfg.resolved_database_folder == abs_folder
         assert cfg.resolved_database_path.parent == abs_folder
 
-    def test_legacy_database_path_is_still_supported(self, tmp_path: Path) -> None:
+    def test_legacy_database_path_is_rejected(self, tmp_path: Path) -> None:
         config_path = tmp_path / "config.json"
         legacy_db = tmp_path / "legacy" / "recollectium.db"
         config_path.write_text(
@@ -719,12 +716,10 @@ class TestRecollectiumConfig:
             encoding="utf-8",
         )
 
-        cfg = RecollectiumConfig(config_path)
-
-        assert cfg.uses_legacy_database_path is True
-        assert cfg.resolved_database_path == legacy_db
-        assert cfg.resolved_database_folder == legacy_db.parent
-        assert cfg.default_memory_space_key == "default"
+        with pytest.raises(
+            ValidationError, match="database.path is no longer supported"
+        ):
+            RecollectiumConfig(config_path)
 
     def test_config_file_path_property(self, tmp_path: Path) -> None:
         config_path = tmp_path / "config.json"

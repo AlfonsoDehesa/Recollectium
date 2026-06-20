@@ -109,9 +109,7 @@ class RecollectiumCore:
         self._default_memory_space_resolution: MemorySpaceResolution
         self._explicit_db_path_compat_mode = db_path is not None
         self._db_path_compat_mode = (
-            self._explicit_db_path_compat_mode
-            or self.config.uses_legacy_database_path
-            or use_seeded_database
+            self._explicit_db_path_compat_mode or use_seeded_database
         )
         if self._db_path_compat_mode:
             self.store = SQLiteMemoryStore(selected_path)
@@ -695,10 +693,7 @@ class RecollectiumCore:
         status["memory_space_key"] = resolution.key
         status["memory_space_db_path"] = str(resolution.db_path)
         status["memory_space_is_default"] = resolution.is_default
-        status["uses_legacy_database_path"] = self.config.uses_legacy_database_path
         return status
-
-    # -- workspace operations ------------------------------------------------
 
     def _uid_normalization(self) -> str:
         """Return the active uid_normalization setting."""

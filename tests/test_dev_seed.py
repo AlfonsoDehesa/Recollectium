@@ -432,11 +432,10 @@ def test_core_seeded_workspace_uids_are_retrievable_with_default_normalization(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "config.json"
-    regular_db = tmp_path / "regular.db"
     dev_db = tmp_path / "dev.db"
     config_path.write_text(
         "{"
-        f'"database": {{"path": "{regular_db}"}}, '
+        f'"database": {{"folder": "{tmp_path / "memory-spaces"}"}}, '
         f'"development": {{"use_seeded_database": true, "seeded_database_path": "{dev_db}"}}'
         "}",
         encoding="utf-8",
@@ -631,11 +630,10 @@ def test_seeded_dev_database_rejects_wrong_workspace_uids(
 
 def test_core_uses_seeded_dev_database_when_configured(tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
-    regular_db = tmp_path / "regular.db"
     dev_db = tmp_path / "dev.db"
     config_path.write_text(
         "{"
-        f'"database": {{"path": "{regular_db}"}}, '
+        f'"database": {{"folder": "{tmp_path / "memory-spaces"}"}}, '
         f'"development": {{"use_seeded_database": true, "seeded_database_path": "{dev_db}"}}'
         "}",
         encoding="utf-8",
@@ -648,5 +646,4 @@ def test_core_uses_seeded_dev_database_when_configured(tmp_path: Path) -> None:
 
     assert core.store.db_path == dev_db
     assert dev_db.exists()
-    assert not regular_db.exists()
     assert len(core.list_memories(space="user", include_archived=True)) == 100

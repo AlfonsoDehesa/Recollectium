@@ -26,13 +26,13 @@ For foreground development or debugging, run the same API server directly:
 recollectium dev serve
 ```
 
-Or run the foreground server with explicit host/port/database path for legacy/admin override scenarios:
+Or run the foreground server with explicit host/port settings:
 
 ```bash
-recollectium --db /path/to/recollectium.db dev serve --host 127.0.0.1 --port 8765
+recollectium dev serve --host 127.0.0.1 --port 8765
 ```
 
-For normal memory routing, prefer `--memory-space KEY` on the relevant command instead of `--db`, which is retained only as a legacy/admin path override workflow.
+For ordinary memory routing, use `--memory-space KEY` on the relevant command.
 
 ## Base URL and versioning
 
@@ -207,7 +207,7 @@ Health and version responses have the same shape for compact and verbose. Capabi
 
 ## Memory-space keys
 
-Recollectium routes ordinary memory and database-backed operations through logical memory-space keys instead of raw SQLite paths when practical.
+Recollectium routes ordinary memory and database-backed operations through logical memory-space keys.
 
 - CLI commands such as `add`, `search-user`, `search-workspace`, `list`, `get`, `update`, `archive`, `workspace`, embedding status/jobs/refresh/maintenance, and `db-status` accept `--memory-space KEY`.
 - HTTP request models and query parameters use `memory_space_key` for the same logical routing.

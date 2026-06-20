@@ -254,10 +254,9 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
             f"(got {type(default_memory_space).__name__})"
         )
     database["default_memory_space"] = validate_memory_space_key(default_memory_space)
-    legacy_path = database.get("path")
-    if legacy_path is not None and not isinstance(legacy_path, str):
+    if "path" in database:
         raise ValidationError(
-            f"database.path must be str (got {type(legacy_path).__name__})"
+            "database.path is no longer supported; use database.folder and database.default_memory_space"
         )
     _validate_section(data, "embedding", {"provider": str, "model": str})
     _validate_section(data, "service", {"host": str, "port": int})
@@ -543,7 +542,6 @@ class RecollectiumConfig:
         self._default_memory_space_key = self._effective_config["database"][
             "default_memory_space"
         ]
-        raw_database = raw.get("database", {})
         development = merged.get("development", {})
         if (
             isinstance(development, dict)
@@ -554,8 +552,6 @@ class RecollectiumConfig:
                 db_path = self._xdg_dirs["data"] / db_path
             self._resolved_db_folder = db_path.parent
             self._resolved_db_path = db_path
-            self._uses_legacy_database_path = False
-            self._memory_space_resolver = None
         else:
             folder_value = Path(
                 self._effective_config["database"]["folder"]
@@ -563,24 +559,10 @@ class RecollectiumConfig:
             if not folder_value.is_absolute():
                 folder_value = self._xdg_dirs["data"] / folder_value
             self._resolved_db_folder = folder_value
-            self._uses_legacy_database_path = (
-                isinstance(raw_database, dict)
-                and "path" in raw_database
-                and "folder" not in raw_database
+            self._resolved_db_path = resolve_memory_space_database_path(
+                self._resolved_db_folder,
+                default_key=self._default_memory_space_key,
             )
-            if self._uses_legacy_database_path:
-                db_path = Path(raw_database["path"]).expanduser()
-                if not db_path.is_absolute():
-                    db_path = self._xdg_dirs["data"] / db_path
-                self._resolved_db_path = db_path
-                self._resolved_db_folder = db_path.parent
-                self._memory_space_resolver = None
-            else:
-                self._resolved_db_path = resolve_memory_space_database_path(
-                    self._resolved_db_folder,
-                    default_key=self._default_memory_space_key,
-                )
-                self._memory_space_resolver = None
 
     # -- properties -----------------------------------------------------------
 
@@ -603,11 +585,6 @@ class RecollectiumConfig:
     def default_memory_space_key(self) -> str:
         """The configured default memory-space key."""
         return self._default_memory_space_key
-
-    @property
-    def uses_legacy_database_path(self) -> bool:
-        """Whether the loaded config used legacy database.path routing."""
-        return self._uses_legacy_database_path
 
     @property
     def config_file_path(self) -> Path:

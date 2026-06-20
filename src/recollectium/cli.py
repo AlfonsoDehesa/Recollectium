@@ -1814,7 +1814,6 @@ def _extract_cli_output_override(
     }
     value_options = {
         "--config",
-        "--db",
         "--log-level",
         "--space",
         "--type",
@@ -1986,30 +1985,6 @@ def _load_effective_config(config_path: Path, *, explicit: bool) -> Recollectium
     if explicit:
         return RecollectiumConfig(config_path)
     return RecollectiumConfig()
-
-
-def _reject_mixed_db_routing_modes(
-    *,
-    command: str,
-    db_path: str | None,
-    memory_space_key: str | None,
-) -> int | None:
-    if db_path is None or memory_space_key is None:
-        return None
-    return _emit_cli_failure(
-        status="validation_error",
-        message="Database routing modes are incompatible.",
-        detail=(
-            "--db compatibility mode cannot be combined with --memory-space routing. "
-            "Use one routing mode or the other."
-        ),
-        hint="Remove either --db or --memory-space and retry.",
-        exit_code=2,
-        command=command,
-        event="cli.validation",
-        db_path=db_path,
-        memory_space_key=memory_space_key,
-    )
 
 
 def _load_effective_config_read_only(
@@ -2413,8 +2388,6 @@ def _handle_config_command(
     except ValidationError as exc:
         return _config_invalid_error(exc, command="config")
     payload: dict[str, Any] = dict(cfg.effective_config)
-    if cfg.uses_legacy_database_path:
-        payload["uses_legacy_database_path"] = True
     _emit_success(
         payload,
         output_format=output_format,
@@ -2441,9 +2414,7 @@ def _run_embedding_maintenance(
         config_path.chmod(0o600)
 
     cfg = RecollectiumConfig(config_path if explicit else None, log_level=log_level)
-    if db_path is not None:
-        selected_db_path = Path(db_path)
-    elif memory_space_key is not None:
+    if memory_space_key is not None:
         selected_db_path = resolve_memory_space_database_path(
             cfg.resolved_database_folder,
             memory_space_key,
@@ -2506,8 +2477,6 @@ def _run_installed_embedding_maintenance(
         command.append("--json")
     if explicit:
         command.extend(["--config", str(config_path)])
-    if db_path is not None:
-        command.extend(["--db", db_path])
     if memory_space_key is not None:
         command.extend(["--memory-space", memory_space_key])
     if log_level is not None:
@@ -3981,19 +3950,10 @@ def _load_uninstall_plan(config_path: Path, *, explicit: bool) -> _UninstallPlan
     effective_config = _deep_merge(deepcopy(DEFAULTS), raw)
     _validate_config_value(effective_config)
     xdg_dirs = _resolve_xdg_dirs(effective_config.get("directories", {}))
-    raw_database = raw.get("database", {})
 
     development = effective_config.get("development", {})
     if isinstance(development, dict) and development.get("use_seeded_database") is True:
         database_path = Path(development["seeded_database_path"]).expanduser()
-        if not database_path.is_absolute():
-            database_path = xdg_dirs["data"] / database_path
-    elif (
-        isinstance(raw_database, dict)
-        and "path" in raw_database
-        and "folder" not in raw_database
-    ):
-        database_path = Path(raw_database["path"]).expanduser()
         if not database_path.is_absolute():
             database_path = xdg_dirs["data"] / database_path
     else:
@@ -5127,16 +5087,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--db",
-        dest="db_path",
-        help=(
-            "Legacy/admin SQLite database path override. Recollectium normally uses the "
-            "configured database.folder plus the default memory-space key; prefer "
-            "--memory-space for normal routing. Use this flag for one-off path "
-            "override, repair, or migration work."
-        ),
-    )
-    parser.add_argument(
         "--log-level",
         dest="log_level",
         choices=["debug", "info", "warning", "error"],
@@ -5188,16 +5138,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "The first run may take 30-120 seconds depending on the selected model."
         ),
     )
-    init_parser = subparsers.choices["init"]
-    init_parser.add_argument(
-        "--db",
-        dest="db_path",
-        help=(
-            "Legacy/admin SQLite database path for initialization. Also available as the global "
-            "--db flag before the command."
-        ),
-    )
-
     # -- config ----------------------------------------------------------
     config_parser = subparsers.add_parser(
         "config",
@@ -6685,6 +6625,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(effective_argv)
     finally:
         _ARGPARSE_JSON_ERRORS = previous_argparse_json_errors
+    if not hasattr(args, "db_path"):
+        setattr(args, "db_path", None)
     setattr(args, "_explicit_json", explicit_json)
 
     if getattr(args, "command", None) is None and getattr(args, "version", False):
@@ -6848,13 +6790,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "embedding-maintenance":
         try:
-            mixed_routing_error = _reject_mixed_db_routing_modes(
-                command="embedding-maintenance",
-                db_path=args.db_path,
-                memory_space_key=getattr(args, "memory_space_key", None),
-            )
-            if mixed_routing_error is not None:
-                return mixed_routing_error
             result = _run_embedding_maintenance(
                 config_path,
                 explicit=args.config_path is not None,
@@ -6892,37 +6827,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # -- db-status command ------------------------------------------------
     if args.command == "db-status":
-        db_path = Path(args.db_path) if args.db_path else None
         try:
-            mixed_routing_error = _reject_mixed_db_routing_modes(
-                command="db-status",
-                db_path=args.db_path,
-                memory_space_key=getattr(args, "memory_space_key", None),
+            try:
+                RecollectiumConfig(core_config_path, log_level=args.log_level)
+            except FileNotFoundError as exc:
+                return _config_missing_error(exc, command=args.command)
+            except ValidationError as exc:
+                return _config_invalid_error(exc, command=args.command)
+            core = RecollectiumCore(
+                config_path=core_config_path,
+                log_level=args.log_level,
             )
-            if mixed_routing_error is not None:
-                return mixed_routing_error
-            if db_path is not None:
-                store = SQLiteMemoryStore(db_path)
-                status_payload = (
-                    store.detailed_migration_status()
-                    if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE
-                    else store.migration_status()
-                )
-                status_payload["uses_legacy_database_path"] = False
+            memory_space_key = getattr(args, "memory_space_key", None)
+            if _CURRENT_RESPONSE_VERBOSITY == RESPONSE_VERBOSITY_VERBOSE:
+                store, resolution = core._store_for(memory_space_key)
+                status_payload = store.detailed_migration_status()
+                status_payload["memory_space_key"] = resolution.key
+                status_payload["memory_space_db_path"] = str(resolution.db_path)
+                status_payload["memory_space_is_default"] = resolution.is_default
             else:
-                try:
-                    RecollectiumConfig(core_config_path, log_level=args.log_level)
-                except FileNotFoundError as exc:
-                    return _config_missing_error(exc, command=args.command)
-                except ValidationError as exc:
-                    return _config_invalid_error(exc, command=args.command)
-                core = RecollectiumCore(
-                    config_path=core_config_path,
-                    log_level=args.log_level,
-                )
-                status_payload = core.database_status(
-                    memory_space_key=getattr(args, "memory_space_key", None)
-                )
+                status_payload = core.database_status(memory_space_key=memory_space_key)
             _emit_success(
                 status_payload, output_format=output_format, command="db-status"
             )

@@ -283,7 +283,7 @@ def test_core_user_memory_flow_add_get_search_list_update_archive(
     assert [result.memory.id for result in archived_results] == [created.id]
 
 
-def test_core_db_path_compat_mode_rejects_memory_space_keys(
+def test_core_explicit_db_path_rejects_memory_space_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _isolate_core_xdg_dirs(tmp_path, monkeypatch)
@@ -306,7 +306,7 @@ def test_core_db_path_compat_mode_rejects_memory_space_keys(
         core.database_status(memory_space_key="team-a")
 
 
-def test_core_database_status_marks_legacy_database_path_configs(
+def test_core_database_path_is_rejected_in_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -318,14 +318,10 @@ def test_core_database_status_marks_legacy_database_path_configs(
         encoding="utf-8",
     )
 
-    core = RecollectiumCore(
-        config_path=config_path, embedding_provider=FakeEmbeddingProvider()
-    )
-    status = core.database_status()
-
-    assert status["db_path"] == str(legacy_db)
-    assert status["memory_space_key"] == DEFAULT_MEMORY_SPACE_KEY
-    assert status["uses_legacy_database_path"] is True
+    with pytest.raises(ValidationError, match="database.path is no longer supported"):
+        RecollectiumCore(
+            config_path=config_path, embedding_provider=FakeEmbeddingProvider()
+        )
 
 
 def test_core_memory_space_routing_isolates_default_and_explicit_stores(
@@ -374,8 +370,6 @@ def test_core_memory_space_routing_isolates_default_and_explicit_stores(
     assert default_status["memory_space_key"] == DEFAULT_MEMORY_SPACE_KEY
     assert explicit_status["memory_space_key"] == "team-a"
     assert default_status["db_path"] != explicit_status["db_path"]
-    assert default_status["uses_legacy_database_path"] is False
-    assert explicit_status["uses_legacy_database_path"] is False
 
 
 def test_core_workspace_aliases_are_scoped_per_memory_space(

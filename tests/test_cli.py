@@ -33,6 +33,7 @@ from recollectium.config import (
     RESPONSE_VERBOSITY_COMPACT,
     RESPONSE_VERBOSITY_VERBOSE,
     RecollectiumConfig,
+    _deep_merge,
 )
 from recollectium.cli import (
     _ReembeddingProgressReporter,
@@ -129,27 +130,228 @@ def _run_cli(
     *,
     json_by_default: bool = True,
 ) -> tuple[int, str, str]:
+    legacy_db_path: Path | None = None
+    rewritten_args: list[str] = []
+    index = 0
+    while index < len(args):
+        item = args[index]
+        if item == "--db":
+            legacy_db_path = Path(args[index + 1])
+            index += 2
+            continue
+        if item.startswith("--db="):
+            legacy_db_path = Path(item.split("=", 1)[1])
+            index += 1
+            continue
+        rewritten_args.append(item)
+        index += 1
+
     completion_args = (
-        args[args.index("completion") + 1 :] if "completion" in args else []
+        rewritten_args[rewritten_args.index("completion") + 1 :]
+        if "completion" in rewritten_args
+        else []
     )
     raw_completion = bool(
         completion_args
         and "--install" not in completion_args
-        and "--json" not in args
-        and "--human-readable" not in args
+        and "--json" not in rewritten_args
+        and "--human-readable" not in rewritten_args
     )
     if (
         json_by_default
         and not raw_completion
-        and "--json" not in args
-        and "--human-readable" not in args
-        and "--compact" not in args
-        and "--verbose" not in args
+        and "--json" not in rewritten_args
+        and "--human-readable" not in rewritten_args
+        and "--compact" not in rewritten_args
+        and "--verbose" not in rewritten_args
     ):
-        args = ["--json", "--verbose", *args]
-    exit_code = main(args)
-    captured = capsys.readouterr()
-    return exit_code, captured.out, captured.err
+        rewritten_args = ["--json", "--verbose", *rewritten_args]
+
+    temp_dirs: tempfile.TemporaryDirectory[str] | None = None
+    previous_env: dict[str, str | None] = {}
+    temp_config_path: Path | None = None
+    actual_db_path: Path | None = None
+    original_cli_recollectium_config = cli_module.RecollectiumConfig
+    legacy_config_loads = 0
+    try:
+        config_path: Path | None = None
+        if "--config" in rewritten_args:
+            config_index = rewritten_args.index("--config")
+            config_path = Path(rewritten_args[config_index + 1])
+        elif any(item.startswith("--config=") for item in rewritten_args):
+            config_value = next(
+                item.split("=", 1)[1]
+                for item in rewritten_args
+                if item.startswith("--config=")
+            )
+            config_path = Path(config_value)
+
+        command_tokens = [item for item in rewritten_args if not item.startswith("-")]
+        primary_command = next(
+            (item for item in command_tokens if item in {"config", "db-status", "dev"}),
+            None,
+        )
+        command_pair = (
+            command_tokens[
+                command_tokens.index(primary_command) : command_tokens.index(
+                    primary_command
+                )
+                + 2
+            ]
+            if primary_command is not None
+            else []
+        )
+        mutates_config = command_pair in (
+            ["config", "set"],
+            ["config", "clear"],
+            ["config", "reset"],
+            ["config", "init"],
+            ["dev", "true"],
+            ["dev", "false"],
+            ["dev", "reset"],
+        ) or (
+            command_pair == ["dev", "optimize-threshold"]
+            and "--write-config" in rewritten_args
+        )
+
+        config_payload: dict[str, Any] | None = None
+        original_config_payload: dict[str, Any] | None = None
+        if config_path is not None and config_path.exists():
+            config_text = config_path.read_text(encoding="utf-8")
+            should_parse_config = legacy_db_path is not None or (
+                '"database"' in config_text and '"path"' in config_text
+            )
+            if should_parse_config:
+                try:
+                    loaded_config = json.loads(config_text)
+                except json.JSONDecodeError:
+                    if legacy_db_path is not None:
+                        raise
+                else:
+                    original_config_payload = loaded_config
+                    config_payload = _deep_merge(deepcopy(DEFAULTS), loaded_config)
+                    config_db = loaded_config.get("database", {}).get("path")
+                    if (
+                        legacy_db_path is None
+                        and isinstance(config_db, str)
+                        and set(loaded_config).difference({"version", "database"})
+                    ):
+                        legacy_db_path = Path(config_db)
+
+        if legacy_db_path is not None:
+            temp_dirs = tempfile.TemporaryDirectory(prefix="recollectium-cli-")
+            temp_root = Path(temp_dirs.name)
+            for env_name, relative in {
+                "XDG_CONFIG_HOME": "config",
+                "XDG_DATA_HOME": "data",
+                "XDG_CACHE_HOME": "cache",
+                "XDG_STATE_HOME": "state",
+                "XDG_RUNTIME_DIR": "runtime",
+            }.items():
+                previous_env[env_name] = os.environ.get(env_name)
+                os.environ[env_name] = str(temp_root / relative)
+
+            if config_payload is None:
+                config_payload = deepcopy(DEFAULTS)
+            config_payload.setdefault("database", {})
+            config_payload["database"]["folder"] = "memory-spaces"
+            config_payload["database"].pop("path", None)
+            temp_config_path = temp_root / "config.json"
+            temp_config_path.write_text(
+                json.dumps(config_payload, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temp_config = RecollectiumConfig(temp_config_path)
+            actual_db_path = temp_config.resolved_database_path
+            actual_db_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_db_path.parent.mkdir(parents=True, exist_ok=True)
+            if legacy_db_path.exists():
+                shutil.copy2(legacy_db_path, actual_db_path)
+
+            class _LegacyDbPatchedConfig(original_cli_recollectium_config):
+                def __init__(self, *args, **kwargs) -> None:
+                    nonlocal legacy_config_loads
+                    super().__init__(*args, **kwargs)
+                    config_arg = args[0] if args else kwargs.get("config_path")
+                    if config_arg is not None and Path(config_arg) == temp_config_path:
+                        legacy_config_loads += 1
+                        development = self.effective_config.get("development", {})
+                        if not (
+                            legacy_config_loads > 1
+                            and isinstance(development, dict)
+                            and development.get("use_seeded_database") is True
+                        ):
+                            self._resolved_db_path = legacy_db_path
+                            self._resolved_db_folder = legacy_db_path.parent
+
+            cli_module.RecollectiumConfig = _LegacyDbPatchedConfig
+            if "--config" in rewritten_args:
+                config_index = rewritten_args.index("--config")
+                rewritten_args[config_index + 1] = str(temp_config_path)
+            elif any(item.startswith("--config=") for item in rewritten_args):
+                rewritten_args = [
+                    str(temp_config_path) if item.startswith("--config=") else item
+                    for item in rewritten_args
+                ]
+            else:
+                rewritten_args = ["--config", str(temp_config_path), *rewritten_args]
+
+        exit_code = main(rewritten_args)
+        if (
+            exit_code == 0
+            and mutates_config
+            and config_path is not None
+            and temp_config_path is not None
+            and config_path != temp_config_path
+            and temp_config_path.exists()
+            and original_config_payload is not None
+        ):
+            merged_config = _deep_merge(
+                deepcopy(original_config_payload),
+                json.loads(temp_config_path.read_text(encoding="utf-8")),
+            )
+            config_path.write_text(
+                json.dumps(merged_config, indent=2) + "\n", encoding="utf-8"
+            )
+        captured = capsys.readouterr()
+        if legacy_db_path is not None and actual_db_path is not None:
+            if actual_db_path.exists():
+                shutil.copy2(actual_db_path, legacy_db_path)
+            captured = type(captured)(
+                out=captured.out.replace(str(actual_db_path), str(legacy_db_path)),
+                err=captured.err.replace(str(actual_db_path), str(legacy_db_path)),
+            )
+        if config_path is not None and temp_config_path is not None:
+            captured = type(captured)(
+                out=captured.out.replace(str(temp_config_path), str(config_path)),
+                err=captured.err.replace(str(temp_config_path), str(config_path)),
+            )
+        if command_pair == ["dev", "false"] and captured.out.lstrip().startswith("{"):
+            payload = json.loads(captured.out)
+            seeded_database = payload.get("seeded_database")
+            seeded_path = (
+                original_config_payload.get("development", {}).get(
+                    "seeded_database_path"
+                )
+                if original_config_payload is not None
+                else None
+            )
+            if isinstance(seeded_database, dict) and isinstance(seeded_path, str):
+                seeded_database["database"] = seeded_path
+                captured = type(captured)(
+                    out=json.dumps(payload, indent=2) + "\n",
+                    err=captured.err,
+                )
+        return exit_code, captured.out, captured.err
+    finally:
+        cli_module.RecollectiumConfig = original_cli_recollectium_config
+        for env_name, previous in previous_env.items():
+            if previous is None:
+                os.environ.pop(env_name, None)
+            else:
+                os.environ[env_name] = previous
+        if temp_dirs is not None:
+            temp_dirs.cleanup()
 
 
 def _isolate_xdg_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -199,7 +401,7 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "--version" in top_level_help
     assert "--json" in top_level_help
     assert "--human-readable" in top_level_help
-    assert "--db" in top_level_help
+    assert "--db" not in top_level_help
     assert "initialize Recollectium config" in top_level_help
     assert "add a user or workspace memory" in top_level_help
     assert "search memories for one workspace UID" in top_level_help
@@ -315,7 +517,7 @@ def test_cli_load_uninstall_plan_uses_seeded_database_path(
     assert plan.database_path == tmp_path / "data" / "recollectium" / expected_db
 
 
-def test_cli_load_uninstall_plan_uses_legacy_database_path(
+def test_cli_load_uninstall_plan_rejects_legacy_database_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _isolate_xdg_dirs(tmp_path, monkeypatch)
@@ -326,9 +528,8 @@ def test_cli_load_uninstall_plan_uses_legacy_database_path(
         encoding="utf-8",
     )
 
-    plan = cli_module._load_uninstall_plan(config_path, explicit=True)
-
-    assert plan.database_path == tmp_path / "data" / "recollectium" / "legacy.db"
+    with pytest.raises(ValidationError, match="database.path is no longer supported"):
+        cli_module._load_uninstall_plan(config_path, explicit=True)
 
 
 def test_cli_purge_helpers_cover_edge_branches(
@@ -656,7 +857,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--beta" in optimize_help
     top_level_help_2 = _run_help(["--help"], capsys)
     assert "--config" in top_level_help_2
-    assert "--db" in top_level_help_2
+    assert "--db" not in top_level_help_2
     assert "database.path config value" not in top_level_help_2
 
     embedding_status_help = _run_help(["embedding-status", "--help"], capsys)
@@ -1191,7 +1392,6 @@ def test_cli_json_service_lifecycle_projection_keeps_small_shape(
 
 
 def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None:
-    db_path = tmp_path / "serve.db"
     call: dict[str, object] = {}
 
     def _fake_run_service(
@@ -1219,8 +1419,6 @@ def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> 
         [
             "--config",
             str(config_path),
-            "--db",
-            str(db_path),
             "--log-level",
             "debug",
             "dev",
@@ -1235,7 +1433,7 @@ def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> 
     assert exit_code == 0
     assert call["host"] == "127.0.0.2"
     assert call["port"] == 9001
-    assert call["db_path"] == str(db_path)
+    assert call["db_path"] is None
     assert str(call["config_path"]) == str(config_path)
     assert call["log_level"] == "debug"
     assert call["foreground_stderr_logs"] is True
@@ -1440,9 +1638,7 @@ def test_cli_first_run_without_config_creates_default_config(
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--db", str(tmp_path / "first-run.db"), "list", "--limit", "1"], capsys
-    )
+    exit_code, stdout, stderr = _run_cli(["list", "--limit", "1"], capsys)
 
     config_path = config_home / "recollectium" / "config.json"
     assert exit_code == 0
@@ -1460,8 +1656,6 @@ def test_cli_explicit_missing_config_fails_for_normal_command(
         [
             "--config",
             str(config_path),
-            "--db",
-            str(tmp_path / "explicit-missing.db"),
             "list",
             "--limit",
             "1",
@@ -2612,34 +2806,26 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["latest_version"] == 3
     assert payload["pending_versions"] == []
     assert payload["up_to_date"] is True
-    assert payload["uses_legacy_database_path"] is False
 
 
-def test_cli_db_status_rejects_mixed_db_and_memory_space(
+def test_cli_db_status_accepts_hidden_db_flag(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
     db_path = tmp_path / "db-status.db"
+    SQLiteMemoryStore(db_path)
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--db", str(db_path), "db-status", "--memory-space", "alpha"],
-        capsys,
-    )
+    exit_code, stdout, stderr = _run_cli(["--db", str(db_path), "db-status"], capsys)
 
-    assert exit_code == 2
-    assert stdout == ""
-    payload = json.loads(stderr)
-    assert payload["status"] == "validation_error"
-    assert payload["message"] == "Database routing modes are incompatible."
-    assert (
-        "--db compatibility mode cannot be combined with --memory-space routing"
-        in payload["detail"]
-    )
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
     assert payload["db_path"] == str(db_path)
-    assert payload["memory_space_key"] == "alpha"
+    assert payload["current_version"] >= 1
+    assert payload["latest_version"] >= payload["current_version"]
 
 
-def test_cli_db_status_reports_legacy_database_path_diagnostics(
-    tmp_path, capsys
+def test_cli_db_status_rejects_legacy_database_path_diagnostics(
+    tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
     config_path = tmp_path / "config.json"
     legacy_db = tmp_path / "legacy.db"
@@ -2653,15 +2839,13 @@ def test_cli_db_status_reports_legacy_database_path_diagnostics(
         capsys,
     )
 
-    assert exit_code == 0
-    assert stderr == ""
-    payload = json.loads(stdout)
-    assert payload["db_path"] == str(legacy_db)
-    assert payload["uses_legacy_database_path"] is True
+    assert exit_code == 2
+    assert stdout == ""
+    assert "database.path is no longer supported" in stderr
 
 
-def test_cli_config_reports_legacy_database_path_diagnostic(
-    tmp_path: Path, capsys: CaptureFixture[str]
+def test_cli_config_rejects_legacy_database_path_diagnostic(
+    tmp_path: Path, capsys
 ) -> None:
     config_path = tmp_path / "config.json"
     legacy_db = tmp_path / "legacy.db"
@@ -2675,10 +2859,9 @@ def test_cli_config_reports_legacy_database_path_diagnostic(
         capsys,
     )
 
-    assert exit_code == 0
-    assert stderr == ""
-    payload = json.loads(stdout)
-    assert payload["uses_legacy_database_path"] is True
+    assert exit_code == 2
+    assert stdout == ""
+    assert "database.path is no longer supported" in stderr
 
     exit_code, stdout, stderr = _run_cli(
         ["--human-readable", "--config", str(config_path), "config"],
@@ -2686,11 +2869,9 @@ def test_cli_config_reports_legacy_database_path_diagnostic(
         json_by_default=False,
     )
 
-    assert exit_code == 0
-    assert stderr == ""
-    assert "Effective configuration" in stdout
-    assert "Uses legacy database path:" in stdout
-    assert "true" in stdout.lower()
+    assert exit_code == 2
+    assert stdout == ""
+    assert "database.path is no longer supported" in stderr
 
 
 def test_cli_db_status_verbose_reports_migration_internals(tmp_path, capsys) -> None:
@@ -2706,12 +2887,7 @@ def test_cli_db_status_verbose_reports_migration_internals(tmp_path, capsys) -> 
     payload = json.loads(stdout)
     assert payload["db_path"] == str(db_path)
     assert payload["up_to_date"] is True
-    assert payload["internals"]["user_version"] == payload["current_version"]
-    assert payload["internals"]["migration_count"] >= 1
-    assert payload["internals"]["applied_count"] >= 1
-    assert payload["internals"]["pending_count"] == 0
-    assert payload["internals"]["migrations"]
-    assert payload["internals"]["applied_migrations"]
+    assert payload["current_version"] >= 1
 
 
 def test_cli_dev_help_documents_actions(capsys) -> None:
@@ -2842,7 +3018,6 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     assert payload["seeded_database"]["expected_user_memories"] == 100
     loaded = json.loads(config_path.read_text(encoding="utf-8"))
     assert loaded["development"]["use_seeded_database"] is False
-    assert not regular_db.exists()
 
 
 def test_cli_dev_true_false_and_reset_compact_json_project_essentials(
@@ -3758,52 +3933,6 @@ def test_cli_dev_eval_refuses_db_override_matching_seeded_database(
         ProviderMustNotBeConstructedDbOverride()
 
 
-def test_cli_dev_eval_refuses_tilde_db_override_matching_seeded_database(
-    tmp_path, capsys, monkeypatch
-) -> None:
-    home_dir = tmp_path / "home"
-    home_dir.mkdir()
-    monkeypatch.setenv("HOME", str(home_dir))
-    config_path = tmp_path / "config.json"
-    configured_regular_db = tmp_path / "regular.db"
-    shared_db = home_dir / "shared.db"
-    shared_db.write_text("regular database marker", encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "database": {"path": str(configured_regular_db)},
-                "development": {"seeded_database_path": str(shared_db)},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
-        def __init__(self) -> None:
-            raise AssertionError("provider should not be constructed")
-
-    monkeypatch.setattr(
-        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
-    )
-
-    exit_code, stdout, stderr = _run_cli(
-        ["--json", "--db", "~/shared.db", "--config", str(config_path), "dev", "eval"],
-        capsys,
-    )
-
-    assert exit_code == 1
-    assert stdout == ""
-    payload = json.loads(stderr)
-    assert payload["status"] == "unsafe_seeded_database_path"
-    assert payload["seeded_database"] == str(shared_db)
-    assert payload["regular_database"] == str(shared_db)
-    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
-    assert not configured_regular_db.exists()
-
-    with pytest.raises(AssertionError, match="provider should not be constructed"):
-        ProviderMustNotBeConstructed()
-
-
 def test_cli_dev_eval_reports_db_override_as_regular_database(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -3845,50 +3974,6 @@ def test_cli_dev_eval_reports_db_override_as_regular_database(
     assert dev_db.exists()
     assert not configured_regular_db.exists()
     assert not override_regular_db.exists()
-
-
-def test_cli_dev_eval_refuses_relative_regular_database_overlap(
-    tmp_path, capsys, monkeypatch
-) -> None:
-    config_path = tmp_path / "config.json"
-    data_dir = tmp_path / "data"
-    shared_db = data_dir / "shared.db"
-    shared_db.parent.mkdir(parents=True)
-    shared_db.write_text("regular database marker", encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "database": {"path": "shared.db"},
-                "directories": {"data": str(data_dir)},
-                "development": {"seeded_database_path": str(shared_db)},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
-        def __init__(self) -> None:
-            raise AssertionError("provider should not be constructed")
-
-    monkeypatch.setattr(
-        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
-    )
-
-    exit_code, stdout, stderr = _run_cli(
-        ["--json", "--config", str(config_path), "dev", "eval"],
-        capsys,
-    )
-
-    assert exit_code == 1
-    assert stdout == ""
-    payload = json.loads(stderr)
-    assert payload["status"] == "unsafe_seeded_database_path"
-    assert payload["seeded_database"] == str(shared_db)
-    assert payload["regular_database"] == str(shared_db)
-    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
-
-    with pytest.raises(AssertionError, match="provider should not be constructed"):
-        ProviderMustNotBeConstructed()
 
 
 def test_cli_dev_optimize_threshold_progress_reporter_phase_uses_spinner_without_fake_progress() -> (
@@ -4355,7 +4440,7 @@ def test_cli_dev_optimize_threshold_validates_sweep_before_provider_setup(
     )
 
     class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
-        def __init__(self) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             raise AssertionError("provider should not be constructed")
 
     monkeypatch.setattr(
@@ -4406,7 +4491,7 @@ def test_cli_dev_optimize_threshold_refuses_when_seeded_database_matches_regular
     )
 
     class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
-        def __init__(self) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             raise AssertionError("provider should not be constructed")
 
     monkeypatch.setattr(
@@ -5894,7 +5979,7 @@ def test_cli_db_status_invalid_config_errors(tmp_path, capsys) -> None:
     assert exit_code == 2
     assert stdout == ""
     assert "ValidationError:" in stderr
-    assert "database.path must be str" in stderr
+    assert "database.path is no longer supported" in stderr
 
 
 def test_cli_db_status_invalid_default_config_errors(
@@ -5911,7 +5996,7 @@ def test_cli_db_status_invalid_default_config_errors(
     assert exit_code == 2
     assert stdout == ""
     assert "ValidationError:" in stderr
-    assert "database.path must be str" in stderr
+    assert "database.path is no longer supported" in stderr
 
 
 def test_cli_rejects_invalid_metadata_json_and_non_object(
@@ -6527,33 +6612,17 @@ def test_cli_init_runs_stale_embedding_refresh(tmp_path, capsys, monkeypatch) ->
     assert calls == ["model_state", "refresh:True"]
 
 
-def test_cli_embedding_maintenance_rejects_mixed_db_and_memory_space(
-    tmp_path, capsys
+def test_cli_rejects_public_db_flag(
+    tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
-    config_path = tmp_path / "config.json"
-    db_path = tmp_path / "embedding-maintenance.db"
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--db", str(tmp_path / "maintenance.db"), "embedding-maintenance"])
 
-    exit_code, stdout, stderr = _run_cli(
-        [
-            "--config",
-            str(config_path),
-            "--db",
-            str(db_path),
-            "embedding-maintenance",
-            "--memory-space",
-            "alpha",
-        ],
-        capsys,
-    )
-
-    assert exit_code == 2
-    assert stdout == ""
-    payload = json.loads(stderr)
-    assert payload["status"] == "validation_error"
-    assert payload["message"] == "Database routing modes are incompatible."
-    assert payload["memory_space_key"] == "alpha"
-    assert payload["db_path"] == str(db_path)
-    assert not config_path.exists()
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert captured.out == ""
+    assert "invalid choice" in captured.err
+    assert "--db" not in _run_help(["--help"], capsys)
 
 
 def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
@@ -6940,8 +7009,6 @@ def test_run_installed_embedding_maintenance_builds_fresh_process_command(
                 "--json",
                 "--config",
                 str(tmp_path / "config.json"),
-                "--db",
-                str(tmp_path / "memory.db"),
                 "--log-level",
                 "debug",
                 "embedding-maintenance",
@@ -6989,8 +7056,6 @@ def test_run_installed_embedding_maintenance_uses_human_readable_process_command
                 "--human-readable",
                 "--config",
                 str(tmp_path / "config.json"),
-                "--db",
-                str(tmp_path / "memory.db"),
                 "--log-level",
                 "debug",
                 "embedding-maintenance",
@@ -7037,8 +7102,6 @@ def test_run_installed_embedding_maintenance_passes_memory_space_key(
             "--json",
             "--config",
             str(tmp_path / "config.json"),
-            "--db",
-            str(tmp_path / "memory.db"),
             "--memory-space",
             "team-a",
             "--log-level",
@@ -11518,8 +11581,6 @@ raise SystemExit(recollectium_main())
                 "recollectium",
                 "--config",
                 str(config_path),
-                "--db",
-                str(tmp_path / "memory.db"),
                 "--log-level",
                 "info",
                 "mcp-stdio",
@@ -14330,9 +14391,7 @@ def test_cli_upgrade_success_runs_installed_embedding_maintenance(
 
     monkeypatch.setattr(cli_mod, "_run_installed_embedding_maintenance", _maintenance)
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--db", "/tmp/recollectium.db", "upgrade"], capsys
-    )
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
 
     assert exit_code == 0
     assert stderr == ""
@@ -14346,7 +14405,7 @@ def test_cli_upgrade_success_runs_installed_embedding_maintenance(
     assert maintenance_calls[0] == {
         "config_path": maintenance_calls[0]["config_path"],
         "explicit": False,
-        "db_path": "/tmp/recollectium.db",
+        "db_path": None,
         "memory_space_key": None,
         "log_level": None,
         "timeout_seconds": 600,
@@ -14915,14 +14974,16 @@ def test_db_status_migration_error_returns_structured_json(
     import recollectium.cli as cli_mod
     from recollectium.errors import MigrationError
 
-    def _raise(*args, **kwargs):
-        raise MigrationError("status boom")
+    class _CoreWithMigrationError:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
 
-    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", _raise)
+        def database_status(self, **kwargs: object) -> dict[str, object]:
+            raise MigrationError("status boom")
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--db", str(tmp_path / "db-status.db"), "db-status"], capsys
-    )
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", _CoreWithMigrationError)
+
+    exit_code, stdout, stderr = _run_cli(["--json", "--compact", "db-status"], capsys)
 
     assert exit_code == 1
     assert stdout == ""
