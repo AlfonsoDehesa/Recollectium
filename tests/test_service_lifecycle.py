@@ -226,11 +226,124 @@ def test_service_status_help(capsys: CaptureFixture[str]) -> None:
     assert "selected output format" in help_text
 
 
+def test_webui_help_shows_subcommands(capsys: CaptureFixture[str]) -> None:
+    help_text = _run_help(["webui", "--help"], capsys)
+    assert "serve" in help_text
+    assert "start" in help_text
+    assert "stop" in help_text
+    assert "restart" in help_text
+    assert "status" in help_text
+
+
+def test_webui_serve_help_mentions_local_first_defaults(
+    capsys: CaptureFixture[str],
+) -> None:
+    help_text = _run_help(["webui", "serve", "--help"], capsys)
+    assert "localhost-first" in help_text.lower()
+    assert "8766" in help_text
+    assert "packaged static shell" in help_text
+
+
+def test_webui_start_serve_status_and_restart_wiring(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = _make_config(tmp_path)
+
+    with patch("recollectium.cli.start_service", return_value=777):
+        exit_code, stdout, stderr = _run_cli(
+            ["--verbose", "--config", str(config_path), "webui", "start"],
+            capsys,
+        )
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "started"
+    assert payload["type"] == "webui"
+    assert payload["pid"] == 777
+    assert payload["running"] is True
+    assert payload["endpoints"]["status"].endswith("/v1/status")
+
+    with patch("recollectium.cli.stop_service", return_value=777):
+        exit_code, stdout, stderr = _run_cli(
+            ["--verbose", "--config", str(config_path), "webui", "stop"],
+            capsys,
+        )
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload == {"status": "stopped", "running": False, "pid": 777}
+
+    with (
+        patch(
+            "recollectium.cli.read_pid_file", return_value={"pid": 777, "type": "webui"}
+        ),
+        patch(
+            "recollectium.cli.check_running_service",
+            return_value={"pid": 777, "type": "webui"},
+        ),
+    ):
+        exit_code, stdout, stderr = _run_cli(
+            ["--verbose", "--config", str(config_path), "webui", "status"],
+            capsys,
+        )
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "running"
+    assert payload["running"] is True
+    assert payload["service_type"] == "webui"
+    assert payload["pid"] == 777
+    assert payload["local_first"] is True
+
+    with (
+        patch(
+            "recollectium.cli.read_pid_file", return_value={"pid": 777, "type": "webui"}
+        ),
+        patch(
+            "recollectium.cli.check_running_service",
+            return_value={"pid": 777, "type": "webui"},
+        ),
+        patch("recollectium.cli.stop_service", return_value=None),
+        patch("recollectium.cli.start_service", return_value=888),
+    ):
+        exit_code, stdout, stderr = _run_cli(
+            ["--verbose", "--config", str(config_path), "webui", "restart"],
+            capsys,
+        )
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["status"] == "restarted"
+    assert payload["running"] is True
+    assert payload["pid"] == 888
+
+
 def test_service_restart_help(capsys: CaptureFixture[str]) -> None:
     help_text = _run_help(["service", "restart", "--help"], capsys)
     assert "Restart the existing managed Recollectium service" in help_text
     assert "If no running service exists" in help_text
     assert "--type" in help_text
+
+
+def test_webui_serve_invokes_foreground_runner(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = _make_config(tmp_path)
+
+    with patch("recollectium.cli.run_webui") as run_webui:
+        exit_code, stdout, stderr = _run_cli(
+            ["--verbose", "--config", str(config_path), "webui", "serve"],
+            capsys,
+        )
+
+    assert exit_code == 0
+    assert stdout == ""
+    assert stderr == ""
+    run_webui.assert_called_once()
+    _, kwargs = run_webui.call_args
+    assert kwargs["host"] is None
+    assert kwargs["port"] is None
+    assert kwargs["foreground_stderr_logs"] is True
 
 
 # ---------------------------------------------------------------------------

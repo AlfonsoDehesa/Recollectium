@@ -79,6 +79,7 @@ DEFAULTS: dict[str, Any] = {
         "model": SUPPORTED_EMBEDDING_MODEL,
     },
     "service": {"host": "127.0.0.1", "port": 8765},
+    "webui": {"host": "127.0.0.1", "port": 8766},
     "logging": {
         "level": "info",
         "format": "json",
@@ -260,6 +261,7 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
         )
     _validate_section(data, "embedding", {"provider": str, "model": str})
     _validate_section(data, "service", {"host": str, "port": int})
+    _validate_section(data, "webui", {"host": str, "port": int})
 
     embedding = data.get("embedding", {})
     if isinstance(embedding, dict):
@@ -284,6 +286,14 @@ def _validate_config_value(data: dict[str, Any], path: str = "") -> None:
         if isinstance(port, int) and (port < 1 or port > 65535):
             raise ValidationError(
                 f"service.port must be between 1 and 65535 (got {port})"
+            )
+
+    webui = data.get("webui", {})
+    if isinstance(webui, dict):
+        port = webui.get("port")
+        if isinstance(port, int) and (port < 1 or port > 65535):
+            raise ValidationError(
+                f"webui.port must be between 1 and 65535 (got {port})"
             )
 
     _validate_section(

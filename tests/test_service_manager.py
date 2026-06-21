@@ -195,6 +195,40 @@ def test_remove_pid_file_missing(tmp_path: Path) -> None:
     remove_pid_file(path)  # should not raise
 
 
+def test_get_pid_file_path_webui(tmp_path: Path) -> None:
+    config = _make_mock_config(tmp_path / "runtime")
+
+    assert get_pid_file_path(config, "webui") == tmp_path / "runtime" / "webui.pid"
+    assert (
+        get_discovery_file_path(config, "webui")
+        == tmp_path / "runtime" / "webui-discovery.json"
+    )
+
+
+def test_write_and_read_webui_pid_file(tmp_path: Path) -> None:
+    path = tmp_path / "webui.pid"
+    write_pid_file(path, pid=9001, service_type="webui", process_start_time=321)
+
+    assert read_pid_file(path) == {
+        "pid": 9001,
+        "type": "webui",
+        "process_start_time": 321,
+    }
+
+
+def test_service_discovery_payload_webui_next_step(tmp_path: Path) -> None:
+    config = _make_mock_config(tmp_path / "runtime")
+
+    payload = service_discovery_payload(config, None, service_type="webui")
+
+    assert payload["status"] == "not_running"
+    assert (
+        payload["next_step"]
+        == "Run `recollectium webui start` to start the local WebUI service."
+    )
+    assert payload["paths"]["pid_file"].endswith("webui.pid")
+
+
 def test_get_discovery_file_path(tmp_path: Path) -> None:
     config = _make_mock_config(tmp_path / "runtime")
 
