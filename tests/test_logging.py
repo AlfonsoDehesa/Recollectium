@@ -639,7 +639,7 @@ def _make_logging_config(
     """Build a minimal config dict focused on logging fields."""
     return {
         "version": 1,
-        "database": {"path": "recollectium.db"},
+        "database": {"folder": "memory-spaces"},
         "embedding": {
             "provider": "builtin-fastembed",
             "model": "jinaai/jina-embeddings-v2-small-en",

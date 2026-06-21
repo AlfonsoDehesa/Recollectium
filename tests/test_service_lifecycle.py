@@ -969,11 +969,10 @@ def test_restart_config_validation_error(
 # ---------------------------------------------------------------------------
 
 
-def test_start_service_passes_db_path(
+def test_start_service_uses_configured_database(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
     config_path = _make_config(tmp_path)
-    db_path = tmp_path / "custom.db"
 
     start_calls: list = []
 
@@ -986,8 +985,6 @@ def test_start_service_passes_db_path(
             [
                 "--config",
                 str(config_path),
-                "--db",
-                str(db_path),
                 "service",
                 "start",
                 "api",
@@ -997,12 +994,13 @@ def test_start_service_passes_db_path(
 
     assert exit_code == 0
     assert len(start_calls) == 1
-    assert start_calls[0] == ("api", str(db_path), None)
+    assert start_calls[0] == ("api", None, None)
 
 
-def test_restart_passes_db_path(tmp_path: Path, capsys: CaptureFixture[str]) -> None:
+def test_restart_uses_configured_database(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
     config_path = _make_config(tmp_path)
-    db_path = tmp_path / "custom.db"
 
     start_calls: list = []
 
@@ -1020,8 +1018,6 @@ def test_restart_passes_db_path(tmp_path: Path, capsys: CaptureFixture[str]) -> 
             [
                 "--config",
                 str(config_path),
-                "--db",
-                str(db_path),
                 "--log-level",
                 "debug",
                 "service",
@@ -1034,7 +1030,7 @@ def test_restart_passes_db_path(tmp_path: Path, capsys: CaptureFixture[str]) -> 
 
     assert exit_code == 0
     assert len(start_calls) == 1
-    assert start_calls[0] == ("mcp", str(db_path), "debug")
+    assert start_calls[0] == ("mcp", None, "debug")
 
 
 # ---------------------------------------------------------------------------

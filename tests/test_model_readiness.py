@@ -66,7 +66,7 @@ def _make_config(tmp_path: Path) -> Path:
     config_path.write_text(
         json.dumps(
             {
-                "database": {"path": str(tmp_path / "recollectium.db")},
+                "database": {"folder": str(tmp_path / "memory-spaces")},
                 "embedding": {
                     "provider": "builtin-fastembed",
                     "model": _SUPPORTED_MODEL,

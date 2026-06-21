@@ -26,11 +26,13 @@ For foreground development or debugging, run the same API server directly:
 recollectium dev serve
 ```
 
-Or run the foreground server with explicit host/port/database path:
+Or run the foreground server with explicit host/port settings:
 
 ```bash
-recollectium --db /path/to/recollectium.db dev serve --host 127.0.0.1 --port 8765
+recollectium dev serve --host 127.0.0.1 --port 8765
 ```
+
+For ordinary memory routing, use `--memory-space KEY` on the relevant command.
 
 ## Base URL and versioning
 
@@ -203,6 +205,17 @@ Compact projections by operation:
 
 Health and version responses have the same shape for compact and verbose. Capabilities are already mostly compact; verbose adds response verbosity metadata.
 
+## Memory-space keys
+
+Recollectium routes ordinary memory and database-backed operations through logical memory-space keys.
+
+- CLI commands such as `add`, `search-user`, `search-workspace`, `list`, `get`, `update`, `archive`, `workspace`, embedding status/jobs/refresh/maintenance, and `db-status` accept `--memory-space KEY`.
+- HTTP request models and query parameters use `memory_space_key` for the same logical routing.
+- MCP tools expose an optional `memory_space_key` argument for the same operations.
+- When omitted, Recollectium keeps the existing default memory-space behavior.
+- Invalid memory-space keys return HTTP `400 validation_error` or the equivalent CLI/MCP validation error.
+- Capability responses include a `memory_spaces` object that describes support and the configured default key.
+
 Request verbose data with a query parameter:
 
 ```bash
@@ -286,6 +299,11 @@ Response example:
       "workspaces.aliases.add",
       "workspaces.aliases.remove"
     ],
+    "memory_spaces": {
+      "supported": true,
+      "default_key": "default",
+      "raw_database_paths": false
+    },
     "memory_types": {
       "user": [
         "fact",
@@ -668,7 +686,7 @@ Supported built-in FastEmbed profiles:
 Switching embedding model or profile can require existing memories to be refreshed through the readiness and re-embedding job path. Refresh jobs run inline in the command, API request, or MCP tool call that triggers them, so callers get a completed or failed job result before the operation returns.
 
 - Method and path: `GET /v1/embedding/status`
-- Purpose: return the active local embedding profile, built-in FastEmbed model cache path when Recollectium manages it, runtime posture, startup re-embedding job reference, status paths, and recent embedding jobs.
+- Purpose: return the active local embedding profile, built-in FastEmbed model cache path when Recollectium manages it, runtime posture, startup re-embedding job reference, selected memory-space metadata, status paths, and recent embedding jobs.
 - Side effects: none.
 - Successful response: HTTP `200` with compact embedding status by default. Use `?verbosity=verbose` or the verbosity header for runtime details, startup job fields, and recent jobs. Custom or injected embedding providers report `model_status: "managed_externally"` and do not include a Recollectium model cache path or FastEmbed runtime.
 
@@ -697,6 +715,8 @@ Example response: compact default
     "provider_status": "configured",
     "model_status": "managed_by_recollectium_cache",
     "model_cache_path": "/home/alice/.cache/recollectium/models",
+    "memory_space_key": "default",
+    "memory_space_db_path": "/home/alice/.local/share/recollectium/memory-spaces/default--abc123.db",
     "embedding_jobs_status_path": "/v1/embedding/jobs"
   }
 }

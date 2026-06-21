@@ -44,6 +44,10 @@ A Recollectium adapter should:
   workspace UID normalization at the storage boundary.
 - Expose user-memory and workspace-memory operations as separate tools.
 - Treat Recollectium Core as the source of truth for memory storage and search.
+- Prefer `memory_space_key` for ordinary memory and database-backed operations,
+  especially when the adapter needs to target a non-default logical database.
+  Remove raw SQLite `--db` style routing; use logical memory-space keys instead.
+  only.
 - Use compact response payloads by default for token efficiency. Request verbose
   payloads only when the adapter needs full memory records, metadata,
   timestamps, or job details for inspection.
@@ -177,7 +181,9 @@ or nested internals:
 - `workspaces.rename` returns `{old_uid, new_uid, memories_updated,
   aliases_updated, status}` with `status` set to `renamed`.
 
-Compact embedding job payloads use the public count field names `total_count`,
+Compact embedding status payloads include `memory_space_key` and
+`memory_space_db_path` alongside the active profile and provider status. Compact
+embedding job payloads use the public count field names `total_count`,
 `succeeded_count`, and `failed_count` with `id`, `state`, and `reason` when
 present. Use verbose mode when an adapter needs `processed_count`, provider,
 model, timestamps, error messages, or full embedding profile details.

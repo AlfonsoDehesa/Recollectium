@@ -65,6 +65,7 @@ from recollectium.service_contract import (
     SERVICE_DEFAULT_HOST,
     SERVICE_DEFAULT_PORT,
     capabilities_payload,
+    embedding_status_example_payload,
     error_payload,
     health_payload,
     serialize_embedding_job,
@@ -78,6 +79,7 @@ from recollectium.service_contract import (
     version_payload,
 )
 
+from recollectium.memory_spaces import DEFAULT_MEMORY_SPACE_KEY
 from recollectium.models import (
     SPACE_USER,
     SPACE_WORKSPACE,
@@ -144,6 +146,15 @@ StatusQuery: TypeAlias = Annotated[
     Query(
         description="Optional memory status filter.",
         json_schema_extra={"enum": [STATUS_ACTIVE, STATUS_ARCHIVED]},
+    ),
+]
+MemorySpaceKeyQuery: TypeAlias = Annotated[
+    str | None,
+    Query(
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+        min_length=1,
     ),
 ]
 
@@ -243,6 +254,13 @@ class SearchUserRequest(StrictRequestModel):
     query: str = Field(min_length=1)
     type: UserMemoryType | None = None
     limit: int = Field(default=20, ge=1, strict=True)
+    memory_space_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+    )
     protected_minimum: SearchProtectedMinimum = Field(
         default_factory=lambda: cast(int, UNSET)
     )
@@ -257,6 +275,13 @@ class SearchWorkspaceRequest(StrictRequestModel):
     type: WorkspaceMemoryType | None = None
     workspace_uid: str = Field(min_length=1)
     limit: int = Field(default=20, ge=1, strict=True)
+    memory_space_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+    )
     protected_minimum: SearchProtectedMinimum = Field(
         default_factory=lambda: cast(int, UNSET)
     )
@@ -278,6 +303,13 @@ class AddMemoryRequest(StrictRequestModel):
     )
     content: str = Field(min_length=1)
     workspace_uid: str | None = Field(default=None, min_length=1)
+    memory_space_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+    )
     metadata: dict[str, object] | None = None
     source: str | None = Field(default=None, min_length=1)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0, strict=True)
@@ -307,6 +339,13 @@ class UpdateMemoryRequest(StrictRequestModel):
 
     type: str | None = Field(default=None, min_length=1)
     content: str | None = Field(default=None, min_length=1)
+    memory_space_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+    )
     metadata: dict[str, object] | None = None
     source: str | None = Field(default=None, min_length=1)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0, strict=True)
@@ -321,21 +360,49 @@ class UpdateMemoryRequest(StrictRequestModel):
 
 class RenameWorkspaceRequest(StrictRequestModel):
     new_uid: str = Field(min_length=1)
+    memory_space_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+    )
 
 
 class AddWorkspaceAliasRequest(StrictRequestModel):
     alias_uid: str = Field(min_length=1)
     migrate_existing: StrictBool = False
+    memory_space_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+    )
 
 
 class EmbeddingRefreshRequest(StrictRequestModel):
     space: Literal["user", "workspace"] | None = None
     workspace_uid: str | None = Field(default=None, min_length=1)
     include_archived: StrictBool = False
+    memory_space_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+    )
 
 
 class ClearEmbeddingJobsRequest(StrictRequestModel):
     states: list[DeletableEmbeddingJobState] | None = None
+    memory_space_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional logical memory-space key. Omit to use the configured default memory space."
+        ),
+    )
 
 
 def _map_boundary_error(exc: Exception) -> tuple[HTTPStatus, dict[str, Any]]:
@@ -598,6 +665,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+    default_memory_space_key = getattr(
+        core.config, "default_memory_space_key", DEFAULT_MEMORY_SPACE_KEY
+    )
 
     @app.exception_handler(StarletteHTTPException)
     async def handle_http_exception(
@@ -707,7 +777,21 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         )
         return version_payload()
 
-    @app.get(f"{SERVICE_API_PREFIX}/capabilities", tags=["service"])
+    @app.get(
+        f"{SERVICE_API_PREFIX}/capabilities",
+        tags=["service"],
+        responses={
+            200: {
+                "content": {
+                    "application/json": {
+                        "example": capabilities_payload(
+                            default_memory_space_key=default_memory_space_key,
+                        )
+                    }
+                }
+            }
+        },
+    )
     def capabilities(
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
@@ -717,7 +801,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        payload = capabilities_payload()
+        payload = capabilities_payload(
+            default_memory_space_key=default_memory_space_key,
+        )
         if resolved == ResponseVerbosity.VERBOSE.value:
             payload["data"]["response_verbosity"] = resolved
         return payload
@@ -800,8 +886,19 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             )
         )
 
-    @app.get(f"{SERVICE_API_PREFIX}/embedding/status", tags=["embedding"])
+    @app.get(
+        f"{SERVICE_API_PREFIX}/embedding/status",
+        tags=["embedding"],
+        responses={
+            200: {
+                "content": {
+                    "application/json": {"example": embedding_status_example_payload()}
+                }
+            }
+        },
+    )
     def embedding_status(
+        memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -810,7 +907,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        status = core.active_embedding_status()
+        status = core.active_embedding_status(memory_space_key=memory_space_key)
         _log.info(
             "embedding_status completed",
             extra={
@@ -828,6 +925,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/embedding/jobs", tags=["embedding"])
     def list_embedding_jobs(
+        memory_space_key: MemorySpaceKeyQuery = None,
         state: Literal["pending", "in_progress", "completed", "failed"] | None = None,
         limit: PositiveIntQuery = None,
         verbosity: ResponseVerbosityQuery = None,
@@ -841,6 +939,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
         jobs = core.list_embedding_jobs(
             state=state,
             limit=_parse_optional_positive_int(limit, field_name="limit"),
+            memory_space_key=memory_space_key,
         )
         _log.info(
             "list_embedding_jobs completed",
@@ -873,6 +972,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             space=request.space,
             workspace_uid=request.workspace_uid,
             include_archived=request.include_archived,
+            memory_space_key=request.memory_space_key,
         )
         _log.info(
             "refresh_embeddings completed",
@@ -904,7 +1004,8 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             core.config.effective_config.get("response_verbosity"),
         )
         result = core.clear_embedding_jobs(
-            states=cast(list[str], body.states) if body is not None else None
+            states=cast(list[str], body.states) if body is not None else None,
+            memory_space_key=body.memory_space_key if body is not None else None,
         )
         _log.info(
             "clear_embedding_jobs completed",
@@ -924,6 +1025,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/embedding/jobs/{{job_id}}", tags=["embedding"])
     def get_embedding_job(
         job_id: str,
+        memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -932,7 +1034,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        job = core.get_embedding_job(job_id)
+        job = core.get_embedding_job(job_id, memory_space_key=memory_space_key)
         _log.info(
             "get_embedding_job completed",
             extra={
@@ -964,6 +1066,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             type=body.type,
             content=body.content,
             workspace_uid=body.workspace_uid,
+            memory_space_key=body.memory_space_key,
             metadata=body.metadata,
             source=body.source,
             confidence=body.confidence,
@@ -991,6 +1094,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/memories", tags=["memories"])
     def list_memories(
+        memory_space_key: MemorySpaceKeyQuery = None,
         space: SpaceQuery = None,
         type: AnyMemoryType | None = None,
         status: StatusQuery = None,
@@ -1028,6 +1132,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             if parsed_include_archived is not None
             else False,
             limit=_parse_optional_positive_int(limit, field_name="limit"),
+            memory_space_key=memory_space_key,
         )
         _log.info(
             "list_memories completed",
@@ -1053,6 +1158,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/memories/{{memory_id}}", tags=["memories"])
     def get_memory(
         memory_id: str,
+        memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -1061,7 +1167,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        memory = core.get_memory(memory_id)
+        memory = core.get_memory(memory_id, memory_space_key=memory_space_key)
         _log.info(
             "get_memory completed",
             extra={
@@ -1101,6 +1207,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             source=body.source,
             confidence=body.confidence,
             sensitivity=body.sensitivity,
+            memory_space_key=body.memory_space_key,
         )
         _log.info(
             "update_memory completed",
@@ -1124,6 +1231,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     async def archive_memory(
         memory_id: str,
         request: Request,
+        memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -1133,7 +1241,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        memory = core.archive_memory(memory_id)
+        memory = core.archive_memory(memory_id, memory_space_key=memory_space_key)
         _log.info(
             "archive_memory completed",
             extra={
@@ -1153,6 +1261,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/workspaces", tags=["workspaces"])
     def list_workspaces(
+        memory_space_key: MemorySpaceKeyQuery = None,
         include_archived: StrictBoolQuery = None,
         include_aliases: StrictBoolQuery = None,
         verbosity: ResponseVerbosityQuery = None,
@@ -1180,6 +1289,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             else False,
             include_alias_records=bool(parsed_include_aliases)
             and resolved == RESPONSE_VERBOSITY_VERBOSE,
+            memory_space_key=memory_space_key,
         )
         _log.info(
             "list_workspaces completed",
@@ -1197,6 +1307,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/resolve", tags=["workspaces"])
     def resolve_workspace(
         uid: str,
+        memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -1205,7 +1316,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        result = core.resolve_workspace(uid)
+        result = core.resolve_workspace(uid, memory_space_key=memory_space_key)
         _log.info(
             "resolve_workspace completed",
             extra={
@@ -1222,6 +1333,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/{{uid}}/aliases", tags=["workspaces"])
     def list_workspace_aliases(
         uid: str,
+        memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -1230,7 +1342,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        result = core.list_workspace_aliases(canonical_uid=uid)
+        result = core.list_workspace_aliases(
+            canonical_uid=uid, memory_space_key=memory_space_key
+        )
         _log.info(
             "list_workspace_aliases completed",
             extra={
@@ -1246,6 +1360,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
 
     @app.get(f"{SERVICE_API_PREFIX}/workspaces/aliases", tags=["workspaces"])
     def list_all_workspace_aliases(
+        memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -1256,7 +1371,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        result = core.list_workspace_aliases()
+        result = core.list_workspace_aliases(memory_space_key=memory_space_key)
         _log.info(
             "list_all_workspace_aliases completed",
             extra={
@@ -1286,6 +1401,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             canonical_uid=uid,
             alias_uid=body.alias_uid,
             migrate_existing=body.migrate_existing,
+            memory_space_key=body.memory_space_key,
         )
         _log.info(
             "add_workspace_alias completed",
@@ -1305,6 +1421,7 @@ def create_app(core: RecollectiumCore) -> FastAPI:
     )
     def remove_workspace_alias(
         alias_uid: str,
+        memory_space_key: MemorySpaceKeyQuery = None,
         verbosity: ResponseVerbosityQuery = None,
         x_recollectium_verbosity: ResponseVerbosityHeader = None,
     ) -> dict[str, Any]:
@@ -1313,7 +1430,9 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        result = core.remove_workspace_alias(alias_uid)
+        result = core.remove_workspace_alias(
+            alias_uid, memory_space_key=memory_space_key
+        )
         _log.info(
             "remove_workspace_alias completed",
             extra={
@@ -1344,7 +1463,11 @@ def create_app(core: RecollectiumCore) -> FastAPI:
             x_recollectium_verbosity,
             core.config.effective_config.get("response_verbosity"),
         )
-        result = core.rename_workspace(old_uid=uid, new_uid=body.new_uid)
+        result = core.rename_workspace(
+            old_uid=uid,
+            new_uid=body.new_uid,
+            memory_space_key=body.memory_space_key,
+        )
         _log.info(
             "rename_workspace completed",
             extra={

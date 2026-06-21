@@ -1,0 +1,323 @@
+"""Tests for memory-space resolution and validation."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+from recollectium.errors import ValidationError
+from recollectium.memory_spaces import (
+    DEFAULT_MEMORY_SPACE_KEY,
+    MAX_MEMORY_SPACE_KEY_LENGTH,
+    MemorySpaceResolver,
+    _slugify,
+    resolve_memory_space_database_path,
+    validate_memory_space_key,
+)
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("default", "default"),
+        ("  hermes-default-profile  ", "hermes-default-profile"),
+        ("profile_01:workspace.alpha", "profile_01:workspace.alpha"),
+    ],
+)
+def test_validate_memory_space_key_accepts_valid_values(
+    value: str, expected: str
+) -> None:
+    assert validate_memory_space_key(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value, message",
+    [
+        ("", "must not be empty"),
+        ("   ", "must not be empty"),
+        ("a\x00b", "must not contain NUL"),
+        ("a/b", "path separators"),
+        ("a\\b", "path separators"),
+        (".", "must not be '.' or '..'"),
+        ("..", "must not be '.' or '..'"),
+        ("-leading-dash", "must start with a letter or number"),
+        ("hello world", "may only contain ASCII letters"),
+        ("x" * (MAX_MEMORY_SPACE_KEY_LENGTH + 1), "at most 128 characters"),
+    ],
+)
+def test_validate_memory_space_key_rejects_invalid_values(
+    value: str, message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        validate_memory_space_key(value)
+
+
+def test_validate_memory_space_key_rejects_non_string_value() -> None:
+    with pytest.raises(ValidationError, match="must be a string"):
+        validate_memory_space_key(123)  # type: ignore[arg-type]
+
+
+def test_resolver_maps_keys_under_database_folder_and_updates_manifest(
+    tmp_path: Path,
+) -> None:
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+
+    default_resolution = resolver.resolve()
+    custom_resolution = resolver.resolve("hermes-default-profile")
+
+    assert default_resolution.key == DEFAULT_MEMORY_SPACE_KEY
+    assert default_resolution.is_default is True
+    assert default_resolution.db_path.parent == resolver.database_folder
+    assert default_resolution.db_path.name.startswith("default--")
+    assert default_resolution.db_path.suffix == ".db"
+
+    assert custom_resolution.key == "hermes-default-profile"
+    assert custom_resolution.is_default is False
+    assert custom_resolution.db_path.parent == resolver.database_folder
+    assert custom_resolution.db_path.name.startswith("hermes-default-profile--")
+    assert re.fullmatch(
+        r"hermes-default-profile--[0-9a-f]{12}\.db", custom_resolution.db_path.name
+    )
+
+    manifest_path = resolver.database_folder / "memory-spaces.json"
+    assert manifest_path.exists()
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["version"] == 1
+    assert (
+        manifest["spaces"][DEFAULT_MEMORY_SPACE_KEY]["filename"]
+        == default_resolution.db_path.name
+    )
+    assert (
+        manifest["spaces"]["hermes-default-profile"]["filename"]
+        == custom_resolution.db_path.name
+    )
+
+
+def test_resolver_rejects_paths_that_escape_database_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium import memory_spaces as memory_spaces_mod
+
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+    monkeypatch.setattr(
+        memory_spaces_mod,
+        "_database_filename",
+        lambda key: "../escape.db",
+    )
+
+    with pytest.raises(ValidationError, match="escaped the configured database folder"):
+        resolver.resolve("default")
+
+
+def test_resolver_expands_user_home_in_database_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+
+    resolver = MemorySpaceResolver(Path("~/memory-spaces"))
+    resolution = resolver.resolve()
+
+    expected_folder = home / "memory-spaces"
+    assert resolver.database_folder == expected_folder
+    assert resolution.db_path.parent == expected_folder
+    assert (expected_folder / "memory-spaces.json").exists()
+
+
+def test_list_spaces_uses_manifest_entries(tmp_path: Path) -> None:
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+    default_resolution = resolver.resolve()
+    custom_resolution = resolver.resolve("team-workspace")
+
+    infos = resolver.list_spaces()
+
+    assert [info.key for info in infos] == [DEFAULT_MEMORY_SPACE_KEY, "team-workspace"]
+    assert infos[0].db_path == default_resolution.db_path
+    assert infos[0].is_default is True
+    assert infos[0].exists is False
+    assert infos[1].db_path == custom_resolution.db_path
+    assert infos[1].is_default is False
+    assert infos[1].exists is False
+    assert all(info.created_at for info in infos)
+    assert all(info.updated_at for info in infos)
+
+
+def test_list_spaces_rejects_tampered_manifest_filename(tmp_path: Path) -> None:
+    database_folder = tmp_path / "memory-spaces"
+    database_folder.mkdir(parents=True)
+    manifest_path = database_folder / "memory-spaces.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "spaces": {
+                    "default": {"filename": "../escape.db", "created_at": "now"}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resolver = MemorySpaceResolver(database_folder)
+
+    with pytest.raises(ValidationError, match="safe basename"):
+        resolver.list_spaces()
+
+
+def test_list_spaces_rejects_non_object_manifest_payload(tmp_path: Path) -> None:
+    database_folder = tmp_path / "memory-spaces"
+    database_folder.mkdir(parents=True)
+    manifest_path = database_folder / "memory-spaces.json"
+    manifest_path.write_text("[]", encoding="utf-8")
+    resolver = MemorySpaceResolver(database_folder)
+
+    with pytest.raises(ValidationError, match="must be a JSON object"):
+        resolver.list_spaces()
+
+
+def test_list_spaces_rejects_non_object_spaces_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+    monkeypatch.setattr(
+        resolver,
+        "_load_manifest",
+        lambda: {"version": 1, "spaces": []},
+    )
+
+    with pytest.raises(ValidationError, match="spaces must be an object"):
+        resolver.list_spaces()
+
+
+def test_load_manifest_rejects_version_mismatch(tmp_path: Path) -> None:
+    database_folder = tmp_path / "memory-spaces"
+    database_folder.mkdir(parents=True)
+    manifest_path = database_folder / "memory-spaces.json"
+    manifest_path.write_text(json.dumps({"version": 2, "spaces": {}}), encoding="utf-8")
+    resolver = MemorySpaceResolver(database_folder)
+
+    with pytest.raises(ValidationError, match="must have version 1"):
+        resolver.list_spaces()
+
+
+def test_list_spaces_rejects_non_object_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+    monkeypatch.setattr(
+        resolver,
+        "_load_manifest",
+        lambda: {"version": 1, "spaces": {"default": "not-a-dict"}},
+    )
+
+    with pytest.raises(ValidationError, match="must be an object"):
+        resolver.list_spaces()
+
+
+def test_list_spaces_rejects_entries_without_string_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+    monkeypatch.setattr(
+        resolver,
+        "_load_manifest",
+        lambda: {"version": 1, "spaces": {"default": {"filename": 123}}},
+    )
+
+    with pytest.raises(ValidationError, match="must include a filename"):
+        resolver.list_spaces()
+
+
+def test_list_spaces_rejects_backslash_filenames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+    monkeypatch.setattr(
+        resolver,
+        "_load_manifest",
+        lambda: {"version": 1, "spaces": {"default": {"filename": "a\\b.db"}}},
+    )
+
+    with pytest.raises(ValidationError, match="path separators"):
+        resolver.list_spaces()
+
+
+def test_load_manifest_rejects_bad_manifest_shape_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    database_folder = tmp_path / "memory-spaces"
+    database_folder.mkdir(parents=True)
+    manifest_path = database_folder / "memory-spaces.json"
+    manifest_path.write_text(
+        json.dumps({"version": 1, "spaces": []}),
+        encoding="utf-8",
+    )
+    resolver = MemorySpaceResolver(database_folder)
+
+    with pytest.raises(ValidationError, match="spaces object"):
+        resolver.resolve()
+
+    assert manifest_path.read_text(encoding="utf-8") == json.dumps(
+        {"version": 1, "spaces": []}
+    )
+
+
+def test_load_manifest_rejects_malformed_json_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    database_folder = tmp_path / "memory-spaces"
+    database_folder.mkdir(parents=True)
+    manifest_path = database_folder / "memory-spaces.json"
+    manifest_path.write_text("{", encoding="utf-8")
+    resolver = MemorySpaceResolver(database_folder)
+
+    with pytest.raises(ValidationError, match="invalid JSON in memory space manifest"):
+        resolver.list_spaces()
+
+    assert manifest_path.read_text(encoding="utf-8") == "{"
+
+
+def test_update_manifest_rejects_non_object_spaces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resolver = MemorySpaceResolver(tmp_path / "memory-spaces")
+    monkeypatch.setattr(
+        resolver,
+        "_load_manifest",
+        lambda: {"version": 1, "spaces": []},
+    )
+
+    with pytest.raises(ValidationError, match="spaces must be an object"):
+        resolver._update_manifest("default", resolver.database_folder / "default.db")
+
+
+def test_slugify_uses_space_fallback_for_all_punctuation() -> None:
+    assert _slugify("!!!") == "space"
+    assert resolve_memory_space_database_path(
+        Path("/tmp/dbs"), default_key="default"
+    ).name.startswith("default--")
+
+
+def test_write_json_atomic_cleans_up_tmp_file_even_if_unlink_races(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from recollectium import memory_spaces as memory_spaces_mod
+
+    output_path = tmp_path / "manifest.json"
+
+    def fake_replace(self: Path, target: Path) -> None:
+        return None
+
+    def fake_unlink(self: Path) -> None:
+        raise FileNotFoundError("already removed")
+
+    monkeypatch.setattr(memory_spaces_mod.Path, "replace", fake_replace)
+    monkeypatch.setattr(memory_spaces_mod.Path, "unlink", fake_unlink)
+
+    memory_spaces_mod._write_json_atomic(output_path, {"version": 1, "spaces": {}})
+
+    assert output_path.parent.is_dir()

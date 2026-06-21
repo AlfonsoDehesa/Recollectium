@@ -126,12 +126,41 @@ def test_metadata_payload_helpers_are_stable() -> None:
     assert capabilities["data"] == {
         "service_api_version": SERVICE_API_VERSION,
         "capabilities": list(SERVICE_CAPABILITIES),
+        "memory_spaces": {
+            "supported": True,
+            "default_key": "default",
+            "raw_database_paths": False,
+        },
         "memory_types": {
             "user": list(USER_MEMORY_TYPES),
             "workspace": list(WORKSPACE_MEMORY_TYPES),
             "all": list(ALL_MEMORY_TYPES),
         },
     }
+    assert (
+        capabilities_payload(default_memory_space_key="alpha")["data"]["memory_spaces"][
+            "default_key"
+        ]
+        == "alpha"
+    )
+
+
+def test_service_capabilities_use_configured_default_memory_space(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"default_memory_space": "alpha"}}),
+        encoding="utf-8",
+    )
+
+    core = RecollectiumCore(config_path=config_path)
+    client = _client(core)
+
+    status, payload = _request_json(client, "GET", "/v1/capabilities")
+    assert status == 200
+    assert payload["data"]["memory_spaces"]["default_key"] == "alpha"
 
 
 def test_error_payload_shape_is_stable() -> None:
@@ -528,6 +557,20 @@ def test_local_service_openapi_contract_is_valid_and_covers_routes(
     ):
         assert schema_name in schemas
         assert schemas[schema_name]["additionalProperties"] is False
+        assert "memory_space_key" in schemas[schema_name]["properties"]
+
+    assert any(
+        parameter["name"] == "memory_space_key"
+        for parameter in paths["/v1/memories"]["get"].get("parameters", [])
+    )
+    assert any(
+        parameter["name"] == "memory_space_key"
+        for parameter in paths["/v1/memories/{memory_id}"]["get"].get("parameters", [])
+    )
+    assert any(
+        parameter["name"] == "memory_space_key"
+        for parameter in paths["/v1/embedding/status"]["get"].get("parameters", [])
+    )
 
     for schema_name in ("SearchUserRequest", "SearchWorkspaceRequest"):
         properties = schemas[schema_name]["properties"]
@@ -870,7 +913,7 @@ def test_http_error_log_message_redacts_boundary_exception_details(
             "Config", (), {"effective_config": {"response_verbosity": "compact"}}
         )()
 
-        def get_memory(self, _id: str) -> object:
+        def get_memory(self, _id: str, **kwargs) -> object:
             raise ValidationError("memory not found: mem-secret")
 
     caplog.set_level("ERROR", logger="recollectium.service")
@@ -896,7 +939,7 @@ def test_http_error_log_message_redacts_embedding_job_ids(caplog: Any) -> None:
             "Config", (), {"effective_config": {"response_verbosity": "compact"}}
         )()
 
-        def get_embedding_job(self, _job_id: str) -> object:
+        def get_embedding_job(self, _job_id: str, **kwargs) -> object:
             raise ValidationError("embedding job not found: job-secret")
 
     caplog.set_level("ERROR", logger="recollectium.service")
@@ -970,8 +1013,9 @@ def test_http_local_service_smoke_end_to_end(tmp_path: Path) -> None:
     assert got["data"]["space"] == "user"
 
 
-def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
-    core = RecollectiumCore(db_path=tmp_path / "service-memory-routes.db")
+def test_http_memory_routes_delegate_to_core(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    core = RecollectiumCore()
     client = _client(core)
 
     status, added_user = _request_json(
@@ -1028,6 +1072,33 @@ def test_http_memory_routes_delegate_to_core(tmp_path: Path) -> None:
     )
     assert status == 200
     assert search_workspace["data"][0]["id"] == workspace_id
+
+    status, alpha_status = _request_json(
+        client,
+        "GET",
+        "/v1/embedding/status?memory_space_key=alpha",
+    )
+    assert status == 200
+    status, beta_status = _request_json(
+        client,
+        "GET",
+        "/v1/embedding/status?memory_space_key=beta",
+    )
+    assert status == 200
+    assert alpha_status["data"]["memory_space_key"] == "alpha"
+    assert beta_status["data"]["memory_space_key"] == "beta"
+    assert (
+        alpha_status["data"]["memory_space_db_path"]
+        != beta_status["data"]["memory_space_db_path"]
+    )
+
+    status, invalid_space = _request_json(
+        client,
+        "GET",
+        "/v1/embedding/status?memory_space_key=..",
+    )
+    assert status == 400
+    assert invalid_space["error"]["code"] == "validation_error"
 
     # get_memory returns compact by default
     status, got_memory = _request_json(client, "GET", f"/v1/memories/{user_id}")
@@ -2171,6 +2242,8 @@ class TestVerbosityOverride:
             "embedding_profile",
             "model_status",
             "model_cache_path",
+            "memory_space_key",
+            "memory_space_db_path",
             "embedding_jobs_status_path",
         }
 

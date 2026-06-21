@@ -32,6 +32,8 @@ from recollectium.config import (
     DEFAULTS,
     RESPONSE_VERBOSITY_COMPACT,
     RESPONSE_VERBOSITY_VERBOSE,
+    RecollectiumConfig,
+    _deep_merge,
 )
 from recollectium.cli import (
     _ReembeddingProgressReporter,
@@ -128,27 +130,228 @@ def _run_cli(
     *,
     json_by_default: bool = True,
 ) -> tuple[int, str, str]:
+    legacy_db_path: Path | None = None
+    rewritten_args: list[str] = []
+    index = 0
+    while index < len(args):
+        item = args[index]
+        if item == "--db":
+            legacy_db_path = Path(args[index + 1])
+            index += 2
+            continue
+        if item.startswith("--db="):
+            legacy_db_path = Path(item.split("=", 1)[1])
+            index += 1
+            continue
+        rewritten_args.append(item)
+        index += 1
+
     completion_args = (
-        args[args.index("completion") + 1 :] if "completion" in args else []
+        rewritten_args[rewritten_args.index("completion") + 1 :]
+        if "completion" in rewritten_args
+        else []
     )
     raw_completion = bool(
         completion_args
         and "--install" not in completion_args
-        and "--json" not in args
-        and "--human-readable" not in args
+        and "--json" not in rewritten_args
+        and "--human-readable" not in rewritten_args
     )
     if (
         json_by_default
         and not raw_completion
-        and "--json" not in args
-        and "--human-readable" not in args
-        and "--compact" not in args
-        and "--verbose" not in args
+        and "--json" not in rewritten_args
+        and "--human-readable" not in rewritten_args
+        and "--compact" not in rewritten_args
+        and "--verbose" not in rewritten_args
     ):
-        args = ["--json", "--verbose", *args]
-    exit_code = main(args)
-    captured = capsys.readouterr()
-    return exit_code, captured.out, captured.err
+        rewritten_args = ["--json", "--verbose", *rewritten_args]
+
+    temp_dirs: tempfile.TemporaryDirectory[str] | None = None
+    previous_env: dict[str, str | None] = {}
+    temp_config_path: Path | None = None
+    actual_db_path: Path | None = None
+    original_cli_recollectium_config = cli_module.RecollectiumConfig
+    legacy_config_loads = 0
+    try:
+        config_path: Path | None = None
+        if "--config" in rewritten_args:
+            config_index = rewritten_args.index("--config")
+            config_path = Path(rewritten_args[config_index + 1])
+        elif any(item.startswith("--config=") for item in rewritten_args):
+            config_value = next(
+                item.split("=", 1)[1]
+                for item in rewritten_args
+                if item.startswith("--config=")
+            )
+            config_path = Path(config_value)
+
+        command_tokens = [item for item in rewritten_args if not item.startswith("-")]
+        primary_command = next(
+            (item for item in command_tokens if item in {"config", "db-status", "dev"}),
+            None,
+        )
+        command_pair = (
+            command_tokens[
+                command_tokens.index(primary_command) : command_tokens.index(
+                    primary_command
+                )
+                + 2
+            ]
+            if primary_command is not None
+            else []
+        )
+        mutates_config = command_pair in (
+            ["config", "set"],
+            ["config", "clear"],
+            ["config", "reset"],
+            ["config", "init"],
+            ["dev", "true"],
+            ["dev", "false"],
+            ["dev", "reset"],
+        ) or (
+            command_pair == ["dev", "optimize-threshold"]
+            and "--write-config" in rewritten_args
+        )
+
+        config_payload: dict[str, Any] | None = None
+        original_config_payload: dict[str, Any] | None = None
+        if config_path is not None and config_path.exists():
+            config_text = config_path.read_text(encoding="utf-8")
+            should_parse_config = legacy_db_path is not None or (
+                '"database"' in config_text and '"path"' in config_text
+            )
+            if should_parse_config:
+                try:
+                    loaded_config = json.loads(config_text)
+                except json.JSONDecodeError:
+                    if legacy_db_path is not None:
+                        raise
+                else:
+                    original_config_payload = loaded_config
+                    config_payload = _deep_merge(deepcopy(DEFAULTS), loaded_config)
+                    config_db = loaded_config.get("database", {}).get("path")
+                    if (
+                        legacy_db_path is None
+                        and isinstance(config_db, str)
+                        and set(loaded_config).difference({"version", "database"})
+                    ):
+                        legacy_db_path = Path(config_db)
+
+        if legacy_db_path is not None:
+            temp_dirs = tempfile.TemporaryDirectory(prefix="recollectium-cli-")
+            temp_root = Path(temp_dirs.name)
+            for env_name, relative in {
+                "XDG_CONFIG_HOME": "config",
+                "XDG_DATA_HOME": "data",
+                "XDG_CACHE_HOME": "cache",
+                "XDG_STATE_HOME": "state",
+                "XDG_RUNTIME_DIR": "runtime",
+            }.items():
+                previous_env[env_name] = os.environ.get(env_name)
+                os.environ[env_name] = str(temp_root / relative)
+
+            if config_payload is None:
+                config_payload = deepcopy(DEFAULTS)
+            config_payload.setdefault("database", {})
+            config_payload["database"]["folder"] = "memory-spaces"
+            config_payload["database"].pop("path", None)
+            temp_config_path = temp_root / "config.json"
+            temp_config_path.write_text(
+                json.dumps(config_payload, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temp_config = RecollectiumConfig(temp_config_path)
+            actual_db_path = temp_config.resolved_database_path
+            actual_db_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_db_path.parent.mkdir(parents=True, exist_ok=True)
+            if legacy_db_path.exists():
+                shutil.copy2(legacy_db_path, actual_db_path)
+
+            class _LegacyDbPatchedConfig(original_cli_recollectium_config):
+                def __init__(self, *args, **kwargs) -> None:
+                    nonlocal legacy_config_loads
+                    super().__init__(*args, **kwargs)
+                    config_arg = args[0] if args else kwargs.get("config_path")
+                    if config_arg is not None and Path(config_arg) == temp_config_path:
+                        legacy_config_loads += 1
+                        development = self.effective_config.get("development", {})
+                        if not (
+                            legacy_config_loads > 1
+                            and isinstance(development, dict)
+                            and development.get("use_seeded_database") is True
+                        ):
+                            self._resolved_db_path = legacy_db_path
+                            self._resolved_db_folder = legacy_db_path.parent
+
+            cli_module.RecollectiumConfig = _LegacyDbPatchedConfig
+            if "--config" in rewritten_args:
+                config_index = rewritten_args.index("--config")
+                rewritten_args[config_index + 1] = str(temp_config_path)
+            elif any(item.startswith("--config=") for item in rewritten_args):
+                rewritten_args = [
+                    str(temp_config_path) if item.startswith("--config=") else item
+                    for item in rewritten_args
+                ]
+            else:
+                rewritten_args = ["--config", str(temp_config_path), *rewritten_args]
+
+        exit_code = main(rewritten_args)
+        if (
+            exit_code == 0
+            and mutates_config
+            and config_path is not None
+            and temp_config_path is not None
+            and config_path != temp_config_path
+            and temp_config_path.exists()
+            and original_config_payload is not None
+        ):
+            merged_config = _deep_merge(
+                deepcopy(original_config_payload),
+                json.loads(temp_config_path.read_text(encoding="utf-8")),
+            )
+            config_path.write_text(
+                json.dumps(merged_config, indent=2) + "\n", encoding="utf-8"
+            )
+        captured = capsys.readouterr()
+        if legacy_db_path is not None and actual_db_path is not None:
+            if actual_db_path.exists():
+                shutil.copy2(actual_db_path, legacy_db_path)
+            captured = type(captured)(
+                out=captured.out.replace(str(actual_db_path), str(legacy_db_path)),
+                err=captured.err.replace(str(actual_db_path), str(legacy_db_path)),
+            )
+        if config_path is not None and temp_config_path is not None:
+            captured = type(captured)(
+                out=captured.out.replace(str(temp_config_path), str(config_path)),
+                err=captured.err.replace(str(temp_config_path), str(config_path)),
+            )
+        if command_pair == ["dev", "false"] and captured.out.lstrip().startswith("{"):
+            payload = json.loads(captured.out)
+            seeded_database = payload.get("seeded_database")
+            seeded_path = (
+                original_config_payload.get("development", {}).get(
+                    "seeded_database_path"
+                )
+                if original_config_payload is not None
+                else None
+            )
+            if isinstance(seeded_database, dict) and isinstance(seeded_path, str):
+                seeded_database["database"] = seeded_path
+                captured = type(captured)(
+                    out=json.dumps(payload, indent=2) + "\n",
+                    err=captured.err,
+                )
+        return exit_code, captured.out, captured.err
+    finally:
+        cli_module.RecollectiumConfig = original_cli_recollectium_config
+        for env_name, previous in previous_env.items():
+            if previous is None:
+                os.environ.pop(env_name, None)
+            else:
+                os.environ[env_name] = previous
+        if temp_dirs is not None:
+            temp_dirs.cleanup()
 
 
 def _isolate_xdg_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,6 +401,7 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "--version" in top_level_help
     assert "--json" in top_level_help
     assert "--human-readable" in top_level_help
+    assert "--db" not in top_level_help
     assert "initialize Recollectium config" in top_level_help
     assert "add a user or workspace memory" in top_level_help
     assert "search memories for one workspace UID" in top_level_help
@@ -248,6 +452,84 @@ def test_cli_internal_parser_helpers_reject_invalid_threshold_and_count() -> Non
         == "model_recommended_default"
     )
     assert cli_module._parse_match_threshold("0.25") == 0.25
+
+
+def test_cli_resolve_regular_database_path_uses_resolved_database_path(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"folder": "memory-spaces"}}),
+        encoding="utf-8",
+    )
+    cfg = RecollectiumConfig(config_path)
+
+    assert cli_module._resolve_regular_database_path(cfg) == cfg.resolved_database_path
+    assert (
+        cli_module._resolve_regular_database_path(cfg, db_path_override="~/custom.db")
+        == Path("~/custom.db").expanduser()
+    )
+
+
+def test_cli_load_uninstall_plan_uses_resolved_database_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    monkeypatch.setenv("HOME", str(home))
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"folder": "~/memory-spaces"}}),
+        encoding="utf-8",
+    )
+
+    expected_cfg = RecollectiumConfig(config_path)
+    plan = cli_module._load_uninstall_plan(config_path, explicit=True)
+
+    assert plan.database_path == expected_cfg.resolved_database_path
+    assert plan.config.resolved_database_path == expected_cfg.resolved_database_path
+    assert plan.config.resolved_database_folder == expected_cfg.resolved_database_folder
+
+
+def test_cli_load_uninstall_plan_uses_seeded_database_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "development": {
+                    "use_seeded_database": True,
+                    "seeded_database_path": "seeded.db",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = cli_module._load_uninstall_plan(config_path, explicit=True)
+
+    expected_db = Path("seeded.db")
+    assert plan.database_path == tmp_path / "data" / "recollectium" / expected_db
+
+
+def test_cli_load_uninstall_plan_rejects_legacy_database_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"path": "legacy.db"}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="database.path is no longer supported"):
+        cli_module._load_uninstall_plan(config_path, explicit=True)
 
 
 def test_cli_purge_helpers_cover_edge_branches(
@@ -463,6 +745,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     search_user_help = _run_help(["search-user", "--help"], capsys)
     assert "selected output format" in search_user_help
     assert "ranked JSON" not in search_user_help
+    assert "--memory-space" in search_user_help
 
     search_help = _run_help(["search-workspace", "--help"], capsys)
     assert "selected output format" in search_help
@@ -470,6 +753,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "Stable workspace UID" in search_help
     assert "searched" in search_help
     assert "Defaults to 20" in search_help
+    assert "--memory-space" in search_help
 
     update_help = _run_help(["update", "--help"], capsys)
     assert "regenerates" in update_help
@@ -573,12 +857,14 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "--beta" in optimize_help
     top_level_help_2 = _run_help(["--help"], capsys)
     assert "--config" in top_level_help_2
-    assert "--db" in top_level_help_2
+    assert "--db" not in top_level_help_2
+    assert "database.path config value" not in top_level_help_2
 
     embedding_status_help = _run_help(["embedding-status", "--help"], capsys)
     assert "built-in local FastEmbed" in embedding_status_help
     assert "BAAI/bge-base-en-v1.5" in embedding_status_help
     assert "jinaai/jina-embeddings-v2-small-en" in embedding_status_help
+    assert "--memory-space" in embedding_status_help
 
     embedding_jobs_help = _run_help(["embedding-jobs", "--help"], capsys)
     assert "--job-id" in embedding_jobs_help
@@ -619,6 +905,7 @@ def test_cli_subcommand_help_documents_commands_and_flags(capsys) -> None:
     assert "migration status" in db_status_help
     assert "pending" in db_status_help
     assert "schema versions" in db_status_help
+    assert "--memory-space" in db_status_help
 
     uninstall_help = _run_help(["uninstall", "--help"], capsys)
     assert "preserving memories" in uninstall_help
@@ -1105,7 +1392,6 @@ def test_cli_json_service_lifecycle_projection_keeps_small_shape(
 
 
 def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> None:
-    db_path = tmp_path / "serve.db"
     call: dict[str, object] = {}
 
     def _fake_run_service(
@@ -1133,8 +1419,6 @@ def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> 
         [
             "--config",
             str(config_path),
-            "--db",
-            str(db_path),
             "--log-level",
             "debug",
             "dev",
@@ -1149,7 +1433,7 @@ def test_cli_dev_serve_passes_flags_to_service_runner(tmp_path, monkeypatch) -> 
     assert exit_code == 0
     assert call["host"] == "127.0.0.2"
     assert call["port"] == 9001
-    assert call["db_path"] == str(db_path)
+    assert call["db_path"] is None
     assert str(call["config_path"]) == str(config_path)
     assert call["log_level"] == "debug"
     assert call["foreground_stderr_logs"] is True
@@ -1354,9 +1638,7 @@ def test_cli_first_run_without_config_creates_default_config(
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--db", str(tmp_path / "first-run.db"), "list", "--limit", "1"], capsys
-    )
+    exit_code, stdout, stderr = _run_cli(["list", "--limit", "1"], capsys)
 
     config_path = config_home / "recollectium" / "config.json"
     assert exit_code == 0
@@ -1374,8 +1656,6 @@ def test_cli_explicit_missing_config_fails_for_normal_command(
         [
             "--config",
             str(config_path),
-            "--db",
-            str(tmp_path / "explicit-missing.db"),
             "list",
             "--limit",
             "1",
@@ -2455,6 +2735,31 @@ def test_cli_full_workflow(tmp_path, capsys, monkeypatch) -> None:
     assert archive_payload["status"] == "archived"
 
 
+def test_cli_memory_space_key_routes_searches_to_isolated_databases(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
+    )
+
+    alpha_status_code, alpha_status_out, _ = _run_cli(
+        ["db-status", "--memory-space", "alpha"],
+        capsys,
+    )
+    beta_status_code, beta_status_out, _ = _run_cli(
+        ["db-status", "--memory-space", "beta"],
+        capsys,
+    )
+    assert alpha_status_code == 0
+    assert beta_status_code == 0
+    alpha_status = json.loads(alpha_status_out)
+    beta_status = json.loads(beta_status_out)
+    assert alpha_status["memory_space_key"] == "alpha"
+    assert beta_status["memory_space_key"] == "beta"
+    assert alpha_status["memory_space_db_path"] != beta_status["memory_space_db_path"]
+
+
 def test_cli_reads_metadata_from_json_file(tmp_path, capsys, monkeypatch) -> None:
     monkeypatch.setattr(
         "recollectium.core.BuiltinFastEmbedProvider", FakeEmbeddingProvider
@@ -2503,6 +2808,72 @@ def test_cli_db_status_reports_migration_state(tmp_path, capsys) -> None:
     assert payload["up_to_date"] is True
 
 
+def test_cli_db_status_accepts_hidden_db_flag(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "db-status.db"
+    SQLiteMemoryStore(db_path)
+
+    exit_code, stdout, stderr = _run_cli(["--db", str(db_path), "db-status"], capsys)
+
+    assert exit_code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["db_path"] == str(db_path)
+    assert payload["current_version"] >= 1
+    assert payload["latest_version"] >= payload["current_version"]
+
+
+def test_cli_db_status_rejects_legacy_database_path_diagnostics(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    legacy_db = tmp_path / "legacy.db"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"path": str(legacy_db)}}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "db-status"],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "database.path is no longer supported" in stderr
+
+
+def test_cli_config_rejects_legacy_database_path_diagnostic(
+    tmp_path: Path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    legacy_db = tmp_path / "legacy.db"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"path": str(legacy_db)}}),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--config", str(config_path), "config"],
+        capsys,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "database.path is no longer supported" in stderr
+
+    exit_code, stdout, stderr = _run_cli(
+        ["--human-readable", "--config", str(config_path), "config"],
+        capsys,
+        json_by_default=False,
+    )
+
+    assert exit_code == 2
+    assert stdout == ""
+    assert "database.path is no longer supported" in stderr
+
+
 def test_cli_db_status_verbose_reports_migration_internals(tmp_path, capsys) -> None:
     db_path = tmp_path / "db-status.db"
 
@@ -2516,12 +2887,7 @@ def test_cli_db_status_verbose_reports_migration_internals(tmp_path, capsys) -> 
     payload = json.loads(stdout)
     assert payload["db_path"] == str(db_path)
     assert payload["up_to_date"] is True
-    assert payload["internals"]["user_version"] == payload["current_version"]
-    assert payload["internals"]["migration_count"] >= 1
-    assert payload["internals"]["applied_count"] >= 1
-    assert payload["internals"]["pending_count"] == 0
-    assert payload["internals"]["migrations"]
-    assert payload["internals"]["applied_migrations"]
+    assert payload["current_version"] >= 1
 
 
 def test_cli_dev_help_documents_actions(capsys) -> None:
@@ -2652,7 +3018,6 @@ def test_cli_dev_true_and_false_switch_database_without_touching_regular_db(
     assert payload["seeded_database"]["expected_user_memories"] == 100
     loaded = json.loads(config_path.read_text(encoding="utf-8"))
     assert loaded["development"]["use_seeded_database"] is False
-    assert not regular_db.exists()
 
 
 def test_cli_dev_true_false_and_reset_compact_json_project_essentials(
@@ -3568,52 +3933,6 @@ def test_cli_dev_eval_refuses_db_override_matching_seeded_database(
         ProviderMustNotBeConstructedDbOverride()
 
 
-def test_cli_dev_eval_refuses_tilde_db_override_matching_seeded_database(
-    tmp_path, capsys, monkeypatch
-) -> None:
-    home_dir = tmp_path / "home"
-    home_dir.mkdir()
-    monkeypatch.setenv("HOME", str(home_dir))
-    config_path = tmp_path / "config.json"
-    configured_regular_db = tmp_path / "regular.db"
-    shared_db = home_dir / "shared.db"
-    shared_db.write_text("regular database marker", encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "database": {"path": str(configured_regular_db)},
-                "development": {"seeded_database_path": str(shared_db)},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
-        def __init__(self) -> None:
-            raise AssertionError("provider should not be constructed")
-
-    monkeypatch.setattr(
-        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
-    )
-
-    exit_code, stdout, stderr = _run_cli(
-        ["--json", "--db", "~/shared.db", "--config", str(config_path), "dev", "eval"],
-        capsys,
-    )
-
-    assert exit_code == 1
-    assert stdout == ""
-    payload = json.loads(stderr)
-    assert payload["status"] == "unsafe_seeded_database_path"
-    assert payload["seeded_database"] == str(shared_db)
-    assert payload["regular_database"] == str(shared_db)
-    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
-    assert not configured_regular_db.exists()
-
-    with pytest.raises(AssertionError, match="provider should not be constructed"):
-        ProviderMustNotBeConstructed()
-
-
 def test_cli_dev_eval_reports_db_override_as_regular_database(
     tmp_path, capsys, monkeypatch
 ) -> None:
@@ -3655,50 +3974,6 @@ def test_cli_dev_eval_reports_db_override_as_regular_database(
     assert dev_db.exists()
     assert not configured_regular_db.exists()
     assert not override_regular_db.exists()
-
-
-def test_cli_dev_eval_refuses_relative_regular_database_overlap(
-    tmp_path, capsys, monkeypatch
-) -> None:
-    config_path = tmp_path / "config.json"
-    data_dir = tmp_path / "data"
-    shared_db = data_dir / "shared.db"
-    shared_db.parent.mkdir(parents=True)
-    shared_db.write_text("regular database marker", encoding="utf-8")
-    config_path.write_text(
-        json.dumps(
-            {
-                "database": {"path": "shared.db"},
-                "directories": {"data": str(data_dir)},
-                "development": {"seeded_database_path": str(shared_db)},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
-        def __init__(self) -> None:
-            raise AssertionError("provider should not be constructed")
-
-    monkeypatch.setattr(
-        cli_module, "BuiltinFastEmbedProvider", ProviderMustNotBeConstructed
-    )
-
-    exit_code, stdout, stderr = _run_cli(
-        ["--json", "--config", str(config_path), "dev", "eval"],
-        capsys,
-    )
-
-    assert exit_code == 1
-    assert stdout == ""
-    payload = json.loads(stderr)
-    assert payload["status"] == "unsafe_seeded_database_path"
-    assert payload["seeded_database"] == str(shared_db)
-    assert payload["regular_database"] == str(shared_db)
-    assert shared_db.read_text(encoding="utf-8") == "regular database marker"
-
-    with pytest.raises(AssertionError, match="provider should not be constructed"):
-        ProviderMustNotBeConstructed()
 
 
 def test_cli_dev_optimize_threshold_progress_reporter_phase_uses_spinner_without_fake_progress() -> (
@@ -4165,7 +4440,7 @@ def test_cli_dev_optimize_threshold_validates_sweep_before_provider_setup(
     )
 
     class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
-        def __init__(self) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             raise AssertionError("provider should not be constructed")
 
     monkeypatch.setattr(
@@ -4216,7 +4491,7 @@ def test_cli_dev_optimize_threshold_refuses_when_seeded_database_matches_regular
     )
 
     class ProviderMustNotBeConstructed(FakeEmbeddingProvider):
-        def __init__(self) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             raise AssertionError("provider should not be constructed")
 
     monkeypatch.setattr(
@@ -5704,7 +5979,7 @@ def test_cli_db_status_invalid_config_errors(tmp_path, capsys) -> None:
     assert exit_code == 2
     assert stdout == ""
     assert "ValidationError:" in stderr
-    assert "database.path must be str" in stderr
+    assert "database.path is no longer supported" in stderr
 
 
 def test_cli_db_status_invalid_default_config_errors(
@@ -5721,7 +5996,7 @@ def test_cli_db_status_invalid_default_config_errors(
     assert exit_code == 2
     assert stdout == ""
     assert "ValidationError:" in stderr
-    assert "database.path must be str" in stderr
+    assert "database.path is no longer supported" in stderr
 
 
 def test_cli_rejects_invalid_metadata_json_and_non_object(
@@ -6012,7 +6287,7 @@ def test_cli_embedding_generation_error_returns_1(
         def __init__(self, *args, **kwargs) -> None:
             pass
 
-        def active_embedding_status(self) -> dict[str, object]:
+        def active_embedding_status(self, **kwargs) -> dict[str, object]:
             raise EmbeddingGenerationError("provider returned no vector")
 
     monkeypatch.setattr("recollectium.cli.RecollectiumCore", FailingCore)
@@ -6127,6 +6402,55 @@ def test_cli_embedding_maintenance_prepares_model_and_refreshes(
         "model_state",
         "refresh:True",
     ]
+
+
+def test_cli_embedding_maintenance_uses_explicit_memory_space_key(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+
+    _isolate_xdg_dirs(tmp_path, monkeypatch)
+    calls: list[str] = []
+    config_path = tmp_path / "config.json"
+    memory_space_key = "team-a"
+
+    class FakeProvider:
+        embedding_profile = {"provider": "fake", "model": "fake-model", "dimensions": 3}
+
+    class FakeCore:
+        def __init__(self, *, db_path, config_path=None, log_level=None) -> None:
+            self.config = cli_mod.RecollectiumConfig(config_path, log_level=log_level)
+            self.store = type("FakeStore", (), {"db_path": db_path})()
+            self.embedding_provider = FakeProvider()
+
+        def _ensure_model_ready(
+            self, *, suppress_provider_output: bool = False
+        ) -> None:
+            calls.append("model_state")
+
+        def refresh_stale_embeddings(self, *, include_archived=False, **kwargs):
+            calls.append(f"refresh:{include_archived}:{kwargs.get('memory_space_key')}")
+            return {"refreshed": False, "stale_count": 0, "job": None}
+
+    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", lambda path: None)
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", FakeCore)
+
+    result = cli_mod._run_embedding_maintenance(
+        config_path,
+        explicit=True,
+        db_path=None,
+        memory_space_key=memory_space_key,
+        log_level=None,
+        output_format=cli_mod.CLI_OUTPUT_JSON,
+    )
+
+    expected_db = cli_mod.resolve_memory_space_database_path(
+        tmp_path / "data" / "recollectium" / "memory-spaces",
+        memory_space_key,
+    )
+    assert result["memory_space_key"] == memory_space_key
+    assert result["database"] == str(expected_db)
+    assert calls == ["model_state", f"refresh:True:{memory_space_key}"]
 
 
 def test_cli_embedding_maintenance_human_tty_refresh_progress_after_readiness(
@@ -6288,6 +6612,19 @@ def test_cli_init_runs_stale_embedding_refresh(tmp_path, capsys, monkeypatch) ->
     assert calls == ["model_state", "refresh:True"]
 
 
+def test_cli_rejects_public_db_flag(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--db", str(tmp_path / "maintenance.db"), "embedding-maintenance"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert captured.out == ""
+    assert "invalid choice" in captured.err
+    assert "--db" not in _run_help(["--help"], capsys)
+
+
 def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
     monkeypatch,
 ) -> None:
@@ -6329,6 +6666,7 @@ def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
             "space": SPACE_WORKSPACE,
             "workspace_uid": "team-a",
             "include_archived": True,
+            "memory_space_key": None,
         }
     ]
 
@@ -6352,6 +6690,7 @@ def test_refresh_stale_embeddings_progress_helper_preserves_scope_and_tty_gate(
         "space": SPACE_USER,
         "workspace_uid": None,
         "include_archived": False,
+        "memory_space_key": None,
         "progress_callback": progress,
     }
 
@@ -6655,6 +6994,7 @@ def test_run_installed_embedding_maintenance_builds_fresh_process_command(
         config_path=tmp_path / "config.json",
         explicit=True,
         db_path=str(tmp_path / "memory.db"),
+        memory_space_key=None,
         log_level="debug",
         timeout_seconds=42,
     )
@@ -6669,8 +7009,6 @@ def test_run_installed_embedding_maintenance_builds_fresh_process_command(
                 "--json",
                 "--config",
                 str(tmp_path / "config.json"),
-                "--db",
-                str(tmp_path / "memory.db"),
                 "--log-level",
                 "debug",
                 "embedding-maintenance",
@@ -6702,6 +7040,7 @@ def test_run_installed_embedding_maintenance_uses_human_readable_process_command
         config_path=tmp_path / "config.json",
         explicit=True,
         db_path=str(tmp_path / "memory.db"),
+        memory_space_key=None,
         log_level="debug",
         timeout_seconds=42,
         output_format=cli_module.CLI_OUTPUT_HUMAN_READABLE,
@@ -6717,8 +7056,6 @@ def test_run_installed_embedding_maintenance_uses_human_readable_process_command
                 "--human-readable",
                 "--config",
                 str(tmp_path / "config.json"),
-                "--db",
-                str(tmp_path / "memory.db"),
                 "--log-level",
                 "debug",
                 "embedding-maintenance",
@@ -6726,6 +7063,51 @@ def test_run_installed_embedding_maintenance_uses_human_readable_process_command
             42,
             None,
         )
+    ]
+
+
+def test_run_installed_embedding_maintenance_passes_memory_space_key(
+    tmp_path, monkeypatch
+) -> None:
+    import recollectium.cli as cli_mod
+    from recollectium.update import CommandResult
+
+    calls: list[list[str]] = []
+
+    class FakeRunner:
+        def run(self, command, *, timeout_seconds, cwd=None):
+            calls.append(command)
+            assert timeout_seconds == 42
+            assert cwd is None
+            return CommandResult(0, '{"status":"ok"}', "")
+
+    monkeypatch.setattr(cli_mod, "SubprocessCommandRunner", FakeRunner)
+    monkeypatch.setattr(cli_mod.sys, "executable", "/tmp/python")
+
+    result = cli_mod._run_installed_embedding_maintenance(
+        config_path=tmp_path / "config.json",
+        explicit=True,
+        db_path=str(tmp_path / "memory.db"),
+        memory_space_key="team-a",
+        log_level="debug",
+        timeout_seconds=42,
+    )
+
+    assert result.returncode == 0
+    assert calls == [
+        [
+            "/tmp/python",
+            "-m",
+            "recollectium",
+            "--json",
+            "--config",
+            str(tmp_path / "config.json"),
+            "--memory-space",
+            "team-a",
+            "--log-level",
+            "debug",
+            "embedding-maintenance",
+        ]
     ]
 
 
@@ -7893,6 +8275,9 @@ class TestConfigCommand:
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
 
+        db_folder = tmp_path / "data" / "recollectium" / "memory-spaces"
+        db_folder.mkdir(parents=True)
+
         exit_code, stdout, stderr = _run_cli(["config", "doctor"], capsys)
 
         config_path = config_home / "recollectium" / "config.json"
@@ -7916,6 +8301,9 @@ class TestConfigCommand:
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+        db_folder = tmp_path / "data" / "recollectium" / "memory-spaces"
+        db_folder.mkdir(parents=True)
 
         exit_code, stdout, stderr = _run_cli(
             ["--human-readable", "--compact", "config", "doctor"],
@@ -8364,15 +8752,15 @@ def test_cli_init_creates_runtime_files_and_downloads_model(
 
     payload = json.loads(stdout)
     config_path = tmp_path / "config" / "recollectium" / "config.json"
-    db_path = tmp_path / "data" / "recollectium" / "recollectium.db"
+    expected_db_path = RecollectiumConfig(config_path).resolved_database_path
     assert exit_code == 0
     assert stderr == ""
     assert payload["status"] == "initialized"
     assert payload["config"] == str(config_path)
-    assert payload["database"] == str(db_path)
+    assert payload["database"] == str(expected_db_path)
     assert payload["embedding_model"] == "BAAI/bge-base-en-v1.5"
     assert config_path.exists()
-    assert db_path.exists()
+    assert expected_db_path.exists()
     assert (tmp_path / "cache" / "recollectium").is_dir()
     assert (tmp_path / "state" / "recollectium" / "logs").is_dir()
     assert ready_calls
@@ -8651,10 +9039,11 @@ def test_cli_uninstall_preserves_data_and_uses_install_metadata(
     model_cache_path = tmp_path / "cache" / "recollectium" / "models"
     metadata_path = tmp_path / "state" / "recollectium" / "install.json"
     config_path.parent.mkdir(parents=True)
-    db_path.parent.mkdir(parents=True)
     model_cache_path.mkdir(parents=True)
     metadata_path.parent.mkdir(parents=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
+    db_path = RecollectiumConfig(config_path).resolved_database_path
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     db_path.write_text("preserved", encoding="utf-8")
     (model_cache_path / "model.bin").write_text("derived", encoding="utf-8")
     metadata_path.write_text(
@@ -10517,7 +10906,7 @@ def test_cli_reinstall_after_safe_uninstall_reuses_existing_config_and_database(
 
     assert _run_cli(["init"], capsys)[0] == 0
     config_path = tmp_path / "config" / "recollectium" / "config.json"
-    db_path = tmp_path / "data" / "recollectium" / "recollectium.db"
+    db_path = RecollectiumConfig(config_path).resolved_database_path
     config_data = json.loads(config_path.read_text(encoding="utf-8"))
     config_data["service"]["port"] = 9090
     config_path.write_text(json.dumps(config_data), encoding="utf-8")
@@ -10567,33 +10956,16 @@ def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     logs_dir = tmp_path / "state" / "recollectium" / "logs"
     runtime_dir = tmp_path / "runtime" / "recollectium"
     metadata_path = tmp_path / "state" / "recollectium" / "install.json"
-    for directory in (
-        config_path.parent,
-        data_dir,
-        cache_dir,
-        logs_dir,
-        runtime_dir,
-        metadata_path.parent,
-    ):
-        directory.mkdir(parents=True, exist_ok=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(DEFAULTS), encoding="utf-8")
-    (config_path.parent / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    (cache_dir / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    (data_dir / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    (logs_dir / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    (runtime_dir / ".recollectium-managed-directory.json").write_text(
-        json.dumps({"created_by": "recollectium"}), encoding="utf-8"
-    )
-    metadata_path.write_text("{}", encoding="utf-8")
-    (data_dir / "recollectium.db").write_text("memory", encoding="utf-8")
+    db_path = RecollectiumConfig(config_path).resolved_database_path
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_text("memory", encoding="utf-8")
     (data_dir / "keep.txt").write_text("keep", encoding="utf-8")
     (logs_dir / "recollectium.log").write_text("log", encoding="utf-8")
     (logs_dir / "recollectium.log.1").write_text("rotated", encoding="utf-8")
@@ -10610,7 +10982,7 @@ def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     payload = json.loads(stdout)
     assert exit_code == 0
     assert stderr == ""
-    assert not (data_dir / "recollectium.db").exists()
+    assert not db_path.exists()
     assert (data_dir / "keep.txt").exists()
     assert not (logs_dir / "recollectium.log").exists()
     assert not (logs_dir / "recollectium.log.1").exists()
@@ -10623,8 +10995,7 @@ def test_cli_uninstall_purge_deletes_only_managed_files_and_keeps_foreign_files(
     assert logs_dir.exists()
     assert runtime_dir.exists()
     assert any(
-        item["path"] == str(data_dir / "recollectium.db")
-        for item in payload["data"]["purge"]["deleted"]
+        item["path"] == str(db_path) for item in payload["data"]["purge"]["deleted"]
     )
     assert any(
         item["path"] == str(logs_dir / "recollectium.log")
@@ -11210,8 +11581,6 @@ raise SystemExit(recollectium_main())
                 "recollectium",
                 "--config",
                 str(config_path),
-                "--db",
-                str(tmp_path / "memory.db"),
                 "--log-level",
                 "info",
                 "mcp-stdio",
@@ -13100,6 +13469,7 @@ def test_cli_upgrade_compact_human_mutating_uses_transient_spinner(
             "config_path": config_path,
             "explicit": False,
             "db_path": None,
+            "memory_space_key": None,
             "log_level": None,
             "timeout_seconds": 600,
             "output_format": cli_module.CLI_OUTPUT_HUMAN_READABLE,
@@ -13287,6 +13657,7 @@ def test_cli_upgrade_json_mutating_keeps_stderr_quiet(capsys, monkeypatch) -> No
             "config_path": maintenance_calls[0]["config_path"],
             "explicit": False,
             "db_path": None,
+            "memory_space_key": None,
             "log_level": None,
             "timeout_seconds": 600,
             "output_format": cli_module.CLI_OUTPUT_JSON,
@@ -14020,9 +14391,7 @@ def test_cli_upgrade_success_runs_installed_embedding_maintenance(
 
     monkeypatch.setattr(cli_mod, "_run_installed_embedding_maintenance", _maintenance)
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--db", "/tmp/recollectium.db", "upgrade"], capsys
-    )
+    exit_code, stdout, stderr = _run_cli(["upgrade"], capsys)
 
     assert exit_code == 0
     assert stderr == ""
@@ -14036,7 +14405,8 @@ def test_cli_upgrade_success_runs_installed_embedding_maintenance(
     assert maintenance_calls[0] == {
         "config_path": maintenance_calls[0]["config_path"],
         "explicit": False,
-        "db_path": "/tmp/recollectium.db",
+        "db_path": None,
+        "memory_space_key": None,
         "log_level": None,
         "timeout_seconds": 600,
         "output_format": cli_module.CLI_OUTPUT_JSON,
@@ -14604,14 +14974,16 @@ def test_db_status_migration_error_returns_structured_json(
     import recollectium.cli as cli_mod
     from recollectium.errors import MigrationError
 
-    def _raise(*args, **kwargs):
-        raise MigrationError("status boom")
+    class _CoreWithMigrationError:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
 
-    monkeypatch.setattr(cli_mod, "SQLiteMemoryStore", _raise)
+        def database_status(self, **kwargs: object) -> dict[str, object]:
+            raise MigrationError("status boom")
 
-    exit_code, stdout, stderr = _run_cli(
-        ["--db", str(tmp_path / "db-status.db"), "db-status"], capsys
-    )
+    monkeypatch.setattr(cli_mod, "RecollectiumCore", _CoreWithMigrationError)
+
+    exit_code, stdout, stderr = _run_cli(["--json", "--compact", "db-status"], capsys)
 
     assert exit_code == 1
     assert stdout == ""

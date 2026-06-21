@@ -218,7 +218,7 @@ def test_mcp_missing_memory_returns_structured_not_found() -> None:
     class MissingCore:
         config = None
 
-        def get_memory(self, id: str) -> None:
+        def get_memory(self, id: str, **kwargs) -> None:
             raise NotFoundError(f"memory not found: {id}")
 
     mcp = create_mcp_server(cast(RecollectiumCore, MissingCore()))
@@ -273,7 +273,7 @@ def test_mcp_domain_errors_use_stable_api_like_codes(
     class FailingCore:
         config = None
 
-        def active_embedding_status(self) -> None:
+        def active_embedding_status(self, **kwargs) -> None:
             raise exc
 
     mcp = create_mcp_server(cast(RecollectiumCore, FailingCore()))
@@ -826,6 +826,23 @@ def test_mcp_health_version_capabilities_tools_return_json(tmp_path: Path) -> No
     assert "memory_types" in capabilities
 
 
+def test_mcp_capabilities_use_configured_default_memory_space(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "database": {"default_memory_space": "alpha"}}),
+        encoding="utf-8",
+    )
+
+    core = RecollectiumCore(config_path=config_path)
+    mcp = create_mcp_server(core)
+
+    capabilities = json.loads(mcp._tool_manager._tools["capabilities"].fn())
+    assert capabilities["memory_spaces"]["default_key"] == "alpha"
+
+
 def test_mcp_embedding_status_returns_json(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)
@@ -943,6 +960,24 @@ def test_mcp_memory_read_tools_compact_and_verbose(tmp_path: Path) -> None:
     assert "score" in verbose_search[0]
 
 
+def test_mcp_memory_space_key_routes_searches_to_isolated_databases(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    core = RecollectiumCore()
+    mcp = create_mcp_server(core)
+
+    status_fn = mcp._tool_manager._tools["embedding_status"].fn
+    alpha_status = json.loads(status_fn(memory_space_key="alpha"))
+    beta_status = json.loads(status_fn(memory_space_key="beta"))
+    assert alpha_status["memory_space_key"] == "alpha"
+    assert beta_status["memory_space_key"] == "beta"
+    assert alpha_status["memory_space_db_path"] != beta_status["memory_space_db_path"]
+
+    invalid_result = json.loads(status_fn(memory_space_key=".."))
+    assert invalid_result["error"]["code"] == "validation_error"
+
+
 def test_mcp_embedding_tools_compact_and_verbose(tmp_path: Path) -> None:
     db_path = str(tmp_path / "test.db")
     core = RecollectiumCore(db_path=db_path)
@@ -1015,11 +1050,11 @@ def test_mcp_get_embedding_job_missing_returns_error(tmp_path: Path) -> None:
 
 
 class _EmbeddingErrorCore:
-    def active_embedding_status(self) -> dict[str, object]:
+    def active_embedding_status(self, **kwargs) -> dict[str, object]:
         raise RecollectiumError("status failed")
 
     def list_embedding_jobs(
-        self, state: str | None = None, limit: int | None = None
+        self, state: str | None = None, limit: int | None = None, **kwargs
     ) -> list[dict[str, object]]:
         raise RecollectiumError("jobs failed")
 
@@ -1029,11 +1064,12 @@ class _EmbeddingErrorCore:
         space: str | None = None,
         workspace_uid: str | None = None,
         include_archived: bool = False,
+        **kwargs,
     ) -> dict[str, object]:
         raise RecollectiumError("refresh failed")
 
     def clear_embedding_jobs(
-        self, *, states: list[str] | None = None
+        self, *, states: list[str] | None = None, **kwargs
     ) -> dict[str, object]:
         raise RecollectiumError("clear failed")
 

@@ -28,6 +28,7 @@ The recommended deployment is simple:
 2. Keep services bound to localhost, usually `127.0.0.1`.
 3. Use local service discovery for same-machine adapters.
 4. Protect config, logs, cache, runtime files, and the memory database with normal operating-system account protections.
+5. Prefer logical memory-space keys for ordinary CLI/API/MCP operations instead of raw SQLite path overrides. Legacy `--db` routing is not supported.
 
 The default local service endpoint is:
 
