@@ -336,7 +336,9 @@ def service_discovery_payload(
     service_type: str | None = None,
 ) -> dict[str, Any]:
     """Build the JSON-ready service discovery payload."""
-    resolved_service_type = service_type or (running["type"] if running else None) or "api"
+    resolved_service_type = (
+        service_type or (running["type"] if running else None) or "api"
+    )
     endpoint = _service_endpoint(config, resolved_service_type)
     paths = _discovery_paths(config, resolved_service_type)
     versions = {

@@ -1,50 +1,601 @@
-async function loadJson(path) {
-  const response = await fetch(path, { headers: { Accept: 'application/json' } });
+const API = '/v1/webui';
+const ROUTES = {
+  context: '/v1/webui/context',
+  memories: '/v1/webui/memories',
+  memorySpaces: '/v1/webui/memory-spaces',
+  workspaces: '/v1/webui/workspaces',
+  config: '/v1/webui/config',
+  services: '/v1/webui/services',
+  serviceStopWebui: '/v1/webui/services/webui/stop',
+  serviceStartApi: '/v1/webui/services/api/start',
+};
+
+const state = {
+  context: null,
+  selectedMemory: null,
+  selectedWorkspace: null,
+  selectedService: 'api',
+  lastResponse: null,
+};
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function showMessage(message, kind = 'info') {
+  const el = $('status-message');
+  if (!el) return;
+  el.textContent = message;
+  el.dataset.kind = kind;
+}
+
+function renderJson(id, value) {
+  const el = $(id);
+  if (el) el.textContent = JSON.stringify(value, null, 2);
+}
+
+function renderText(id, value) {
+  const el = $(id);
+  if (el) el.textContent = value;
+}
+
+function parseMaybeJson(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function formValues(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+
+async function request(path, options = {}) {
+  const response = await fetch(path, {
+    headers: { Accept: 'application/json', ...(options.headers || {}) },
+    ...options,
+  });
+  const contentType = response.headers.get('content-type') || '';
+  const payload = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
+  state.lastResponse = { status: response.status, payload, path };
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    const message =
+      payload && payload.error && payload.error.message
+        ? payload.error.message
+        : `HTTP ${response.status}`;
+    throw new Error(message);
   }
-  return await response.json();
+  return payload;
 }
 
-function renderText(elementId, value) {
-  const element = document.getElementById(elementId);
-  if (element) {
-    element.textContent = value;
+function selectTab(name) {
+  document.querySelectorAll('.tab-button').forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === name);
+  });
+  document.querySelectorAll('.tab-panel').forEach((panel) => {
+    panel.classList.toggle('active', panel.id === `tab-${name}`);
+  });
+}
+
+function wireTabs() {
+  document.querySelectorAll('.tab-button').forEach((button) => {
+    button.addEventListener('click', () => selectTab(button.dataset.tab));
+  });
+}
+
+function memorySpaceKeyFromForm(form) {
+  const value = form.querySelector('[name="memory_space_key"]')?.value?.trim();
+  return value || state.context?.config?.safe_paths?.default_memory_space_key || '';
+}
+
+function renderMemoryList(memories) {
+  const root = $('memory-results');
+  if (!root) return;
+  if (!memories.length) {
+    root.innerHTML = '<div class="empty">No memories found.</div>';
+    return;
+  }
+  root.innerHTML = memories
+    .map(
+      (memory) => `
+        <button class="list-item" data-memory-id="${memory.id}">
+          <strong>${escapeHtml(memory.id)}</strong>
+          <span>${escapeHtml(memory.space)} · ${escapeHtml(memory.type)} · ${escapeHtml(memory.status || 'active')}</span>
+          <small>${escapeHtml(memory.content || '').slice(0, 160)}</small>
+        </button>`,
+    )
+    .join('');
+  root.querySelectorAll('[data-memory-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const memory = await apiJson(`${API}/memories/${encodeURIComponent(button.dataset.memoryId)}?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
+      state.selectedMemory = memory.memory;
+      renderJson('memory-detail', memory);
+    });
+  });
+}
+
+function renderWorkspaceList(workspaces) {
+  const root = $('workspace-list');
+  if (!root) return;
+  if (!workspaces.length) {
+    root.innerHTML = '<div class="empty">No workspaces found.</div>';
+    return;
+  }
+  root.innerHTML = workspaces
+    .map((workspace) => {
+      const aliases = Array.isArray(workspace.aliases) ? workspace.aliases.join(', ') : '';
+      return `
+        <button class="list-item" data-workspace-id="${workspace.workspace_uid}">
+          <strong>${escapeHtml(workspace.workspace_uid)}</strong>
+          <span>${aliases ? `Aliases: ${escapeHtml(aliases)}` : 'No aliases'}</span>
+        </button>`;
+    })
+    .join('');
+  root.querySelectorAll('[data-workspace-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const uid = button.dataset.workspaceId;
+      state.selectedWorkspace = uid;
+      const resolved = await apiJson(`${API}/workspaces/${encodeURIComponent(uid)}/resolve?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
+      renderJson('workspace-detail', resolved);
+    });
+  });
+}
+
+function renderServiceList(services) {
+  const root = $('service-list');
+  if (!root) return;
+  root.innerHTML = services
+    .map(
+      (service) => `
+        <button class="list-item" data-service-id="${service.service_type}">
+          <strong>${escapeHtml(service.service_type)}</strong>
+          <span>${service.running ? 'running' : 'stopped'}</span>
+          <small>${escapeHtml(service.discovery?.service?.endpoint || service.discovery?.next_step || '')}</small>
+        </button>`,
+    )
+    .join('');
+  root.querySelectorAll('[data-service-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      state.selectedService = button.dataset.serviceId;
+      const payload = await apiJson(`${API}/services/${encodeURIComponent(state.selectedService)}`);
+      renderJson('service-detail', payload);
+    });
+  });
+}
+
+function renderSpaces(spaces) {
+  const root = $('memory-spaces');
+  if (!root) return;
+  root.innerHTML = spaces
+    .map(
+      (space) => `
+        <button class="list-item ${space.selected ? 'selected' : ''}" data-memory-space-key="${space.key}">
+          <strong>${escapeHtml(space.key)}${space.is_default ? ' (default)' : ''}</strong>
+          <span>${space.exists ? 'database exists' : 'database missing'}</span>
+          <small>${escapeHtml(space.db_path)}</small>
+        </button>`,
+    )
+    .join('');
+  root.querySelectorAll('[data-memory-space-key]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      state.selectedMemorySpaceKey = button.dataset.memorySpaceKey;
+      $('memory-space-status').textContent = state.selectedMemorySpaceKey;
+      await refreshMemories();
+      await refreshWorkspaces();
+      await refreshConfig();
+      showMessage(`Selected memory space: ${state.selectedMemorySpaceKey}`);
+    });
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+async function apiJson(path, options = {}) {
+  return await request(path, options);
+}
+
+async function refreshContext() {
+  const health = await apiJson('/v1/health');
+  const status = await apiJson('/v1/status');
+  const context = await apiJson(`${API}/context`);
+  const memorySpaces = await apiJson(`${API}/memory-spaces`);
+  const services = await apiJson(`${API}/services`);
+  state.context = context;
+  state.selectedMemorySpaceKey = memorySpaces.selected_memory_space_key || context.config.safe_paths.default_memory_space_key;
+  $('health-status').textContent = health.status;
+  $('service-status').textContent = status.status;
+  $('memory-space-status').textContent = state.selectedMemorySpaceKey;
+  $('security-warning-text').textContent = context.security.warning;
+  renderSpaces(memorySpaces.spaces || []);
+  renderServiceList(services.services || []);
+  renderJson('config-view', context.config);
+  renderJson('diagnostics', context);
+  await refreshMemories();
+  await refreshWorkspaces();
+}
+
+async function refreshMemories() {
+  const params = new URLSearchParams();
+  const memorySpaceKey = state.selectedMemorySpaceKey || state.context?.config?.safe_paths?.default_memory_space_key;
+  if (memorySpaceKey) params.set('memory_space_key', memorySpaceKey);
+  const payload = await apiJson(`${API}/memories?${params.toString()}`);
+  renderMemoryList(payload.memories || []);
+  if (state.selectedMemory) {
+    renderJson('memory-detail', { memory: state.selectedMemory });
   }
 }
 
-function renderPretty(elementId, payload) {
-  renderText(elementId, JSON.stringify(payload, null, 2));
+async function refreshWorkspaces() {
+  const params = new URLSearchParams();
+  const memorySpaceKey = state.selectedMemorySpaceKey || state.context?.config?.safe_paths?.default_memory_space_key;
+  if (memorySpaceKey) params.set('memory_space_key', memorySpaceKey);
+  const payload = await apiJson(`${API}/workspaces?${params.toString()}`);
+  renderWorkspaceList(payload.workspaces || []);
+}
+
+async function refreshConfig() {
+  const payload = await apiJson(`${API}/config`);
+  renderJson('config-view', payload);
+}
+
+async function refreshServices() {
+  const payload = await apiJson(`${API}/services`);
+  renderServiceList(payload.services || []);
+}
+
+function wireMemoryForms() {
+  const searchForm = $('memory-search-form');
+  const memoryForm = $('memory-form');
+  const listButton = $('memory-list-button');
+  const clearButton = $('memory-clear-button');
+
+  listButton?.addEventListener('click', async () => {
+    try {
+      await refreshMemories();
+      showMessage('Memory list refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  clearButton?.addEventListener('click', () => {
+    $('memory-results').innerHTML = '';
+    $('memory-detail').textContent = 'No memory selected.';
+    state.selectedMemory = null;
+  });
+
+  searchForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const values = formValues(searchForm);
+    const payload = {
+      query: values.query || '',
+      scope: values.scope || 'user',
+      workspace_uid: values.workspace_uid || null,
+      limit: Number(values.limit || 20),
+      include_archived: Boolean(values.include_archived),
+      type: values.type || null,
+      protected_minimum: values.protected_minimum ? Number(values.protected_minimum) : null,
+      match_threshold: values.match_threshold ? parseMaybeJson(values.match_threshold) : null,
+      memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null,
+    };
+    try {
+      const response = await apiJson(`${API}/memories/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      renderMemoryList(response.results || []);
+      showMessage(`Search returned ${response.count || 0} memories.`);
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  memoryForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await submitMemoryForm('add');
+  });
+
+  memoryForm?.querySelector('[data-action="update"]')?.addEventListener('click', async () => {
+    await submitMemoryForm('update');
+  });
+
+  memoryForm?.querySelector('[data-action="archive"]')?.addEventListener('click', async () => {
+    await submitMemoryForm('archive');
+  });
+}
+
+async function submitMemoryForm(action) {
+  const form = $('memory-form');
+  const values = formValues(form);
+  const memoryId = values.memory_id?.trim();
+  const basePayload = {
+    space: values.space || 'user',
+    type: values.type || 'fact',
+    content: values.content || '',
+    workspace_uid: values.workspace_uid || null,
+    metadata: parseMaybeJson(values.metadata),
+    source: values.source || null,
+    confidence: values.confidence ? Number(values.confidence) : null,
+    sensitivity: values.sensitivity || null,
+    memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null,
+  };
+
+  try {
+    if (action === 'add') {
+      const response = await apiJson(`${API}/memories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(basePayload),
+      });
+      state.selectedMemory = response.memory;
+      renderJson('memory-detail', response);
+      showMessage('Memory added.');
+    } else if (action === 'update') {
+      if (!memoryId) throw new Error('Memory ID is required for update.');
+      const payload = {
+        content: basePayload.content || null,
+        type: basePayload.type || null,
+        metadata: basePayload.metadata,
+        source: basePayload.source,
+        confidence: basePayload.confidence,
+        sensitivity: basePayload.sensitivity,
+        memory_space_key: basePayload.memory_space_key,
+      };
+      const response = await apiJson(`${API}/memories/${encodeURIComponent(memoryId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      state.selectedMemory = response.memory;
+      renderJson('memory-detail', response);
+      showMessage('Memory updated.');
+    } else if (action === 'archive') {
+      if (!memoryId) throw new Error('Memory ID is required for archive.');
+      const params = new URLSearchParams();
+      if (basePayload.memory_space_key) params.set('memory_space_key', basePayload.memory_space_key);
+      const response = await apiJson(`${API}/memories/${encodeURIComponent(memoryId)}/archive?${params.toString()}`, {
+        method: 'POST',
+      });
+      state.selectedMemory = response.memory;
+      renderJson('memory-detail', response);
+      showMessage('Memory archived.', 'warning');
+    }
+    await refreshMemories();
+  } catch (error) {
+    showMessage(error.message, 'error');
+  }
+}
+
+function wireConfigForms() {
+  $('refresh-config')?.addEventListener('click', async () => {
+    try {
+      await refreshConfig();
+      showMessage('Config refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('validate-config')?.addEventListener('click', async () => {
+    try {
+      const payload = await apiJson(`${API}/config/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      renderJson('config-view', payload);
+      showMessage('Config validated.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('config-key-form')?.querySelectorAll('button[data-action]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const form = $('config-key-form');
+      const values = formValues(form);
+      const key = values.key?.trim();
+      if (!key) {
+        showMessage('Config key is required.', 'error');
+        return;
+      }
+      try {
+        if (button.dataset.action === 'get') {
+          const payload = await apiJson(`${API}/config/${encodeURIComponent(key)}`);
+          renderJson('config-view', payload);
+        } else if (button.dataset.action === 'set') {
+          const payload = await apiJson(`${API}/config/${encodeURIComponent(key)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: parseMaybeJson(values.value) }),
+          });
+          renderJson('config-view', payload);
+        } else if (button.dataset.action === 'unset') {
+          const payload = await apiJson(`${API}/config/${encodeURIComponent(key)}`, {
+            method: 'DELETE',
+          });
+          renderJson('config-view', payload);
+        }
+        showMessage(`Config ${button.dataset.action} completed.`);
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    });
+  });
+}
+
+function wireWorkspaceForms() {
+  $('refresh-workspaces')?.addEventListener('click', async () => {
+    try {
+      await refreshWorkspaces();
+      showMessage('Workspaces refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('workspace-form')?.querySelectorAll('button[data-action]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const form = $('workspace-form');
+      const values = formValues(form);
+      const workspaceUid = values.workspace_uid?.trim();
+      const memorySpaceKey = values.memory_space_key?.trim() || state.selectedMemorySpaceKey || null;
+      try {
+        if (button.dataset.action === 'resolve') {
+          if (!workspaceUid) throw new Error('Workspace UID is required.');
+          const payload = await apiJson(`${API}/workspaces/${encodeURIComponent(workspaceUid)}/resolve?memory_space_key=${encodeURIComponent(memorySpaceKey || '')}`);
+          renderJson('workspace-detail', payload);
+        } else if (button.dataset.action === 'rename') {
+          if (!workspaceUid) throw new Error('Workspace UID is required.');
+          const response = await apiJson(`${API}/workspaces/${encodeURIComponent(workspaceUid)}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_uid: values.new_uid, memory_space_key: memorySpaceKey }),
+          });
+          renderJson('workspace-detail', response);
+          await refreshWorkspaces();
+        } else if (button.dataset.action === 'aliases') {
+          if (!workspaceUid) throw new Error('Workspace UID is required.');
+          const payload = await apiJson(`${API}/workspaces/${encodeURIComponent(workspaceUid)}/aliases?memory_space_key=${encodeURIComponent(memorySpaceKey || '')}`);
+          renderJson('workspace-detail', payload);
+        } else if (button.dataset.action === 'add-alias') {
+          if (!workspaceUid) throw new Error('Workspace UID is required.');
+          const response = await apiJson(`${API}/workspaces/${encodeURIComponent(workspaceUid)}/aliases`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alias_uid: values.alias_uid, migrate_existing: Boolean(values.migrate_existing), memory_space_key: memorySpaceKey }),
+          });
+          renderJson('workspace-detail', response);
+          await refreshWorkspaces();
+        } else if (button.dataset.action === 'remove-alias') {
+          if (!values.alias_uid) throw new Error('Alias UID is required.');
+          const payload = await apiJson(`${API}/workspaces/aliases/${encodeURIComponent(values.alias_uid)}?memory_space_key=${encodeURIComponent(memorySpaceKey || '')}`, {
+            method: 'DELETE',
+          });
+          renderJson('workspace-detail', payload);
+          await refreshWorkspaces();
+        }
+        showMessage(`Workspace ${button.dataset.action} completed.`);
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    });
+  });
+}
+
+function wireServiceForms() {
+  $('refresh-services')?.addEventListener('click', async () => {
+    try {
+      await refreshServices();
+      showMessage('Services refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('service-form')?.querySelectorAll('button[data-action]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const form = $('service-form');
+      const values = formValues(form);
+      const serviceType = values.service_type || 'api';
+      const body = {
+        db_path: values.db_path || null,
+        log_level: values.log_level || null,
+        allow_self_stop: Boolean(values.allow_self_stop),
+      };
+      try {
+        if (button.dataset.action === 'discover') {
+          const payload = await apiJson(`${API}/services/${encodeURIComponent(serviceType)}/discover`);
+          renderJson('service-detail', payload);
+        } else if (button.dataset.action === 'start') {
+          const payload = await apiJson(`${API}/services/${encodeURIComponent(serviceType)}/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          renderJson('service-detail', payload);
+          await refreshServices();
+        } else if (button.dataset.action === 'stop') {
+          const payload = await apiJson(`${API}/services/${encodeURIComponent(serviceType)}/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          renderJson('service-detail', payload);
+          await refreshServices();
+        } else if (button.dataset.action === 'restart') {
+          const payload = await apiJson(`${API}/services/${encodeURIComponent(serviceType)}/restart`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          renderJson('service-detail', payload);
+          await refreshServices();
+        }
+        showMessage(`Service ${button.dataset.action} completed.`);
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    });
+  });
+}
+
+function wireDiagnostics() {
+  $('refresh-diagnostics')?.addEventListener('click', async () => {
+    try {
+      const payload = await apiJson(`${API}/context`);
+      renderJson('diagnostics', payload);
+      showMessage('Diagnostics refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+}
+
+function wireRefreshButtons() {
+  $('refresh-spaces')?.addEventListener('click', async () => {
+    try {
+      const payload = await apiJson(`${API}/memory-spaces?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
+      renderSpaces(payload.spaces || []);
+      showMessage('Memory spaces refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
 }
 
 async function boot() {
-  try {
-    const [health, status, capabilities] = await Promise.all([
-      loadJson('/v1/health'),
-      loadJson('/v1/status'),
-      loadJson('/v1/capabilities'),
-    ]);
+  wireTabs();
+  wireMemoryForms();
+  wireConfigForms();
+  wireWorkspaceForms();
+  wireServiceForms();
+  wireDiagnostics();
+  wireRefreshButtons();
 
-    renderText('health-status', health.status);
-    renderText('service-status', status.status);
-    renderText(
-      'security-status',
-      `${status.security.authentication} auth, tls=${status.security.tls}`,
-    );
-    renderPretty('capabilities', capabilities);
-    renderPretty('endpoint-snapshot', {
-      health: health.endpoints.health,
-      status: status.endpoints.status,
-      capabilities: capabilities.endpoints.capabilities,
-      version: status.version,
-      local_first: status.local_first,
-    });
+  try {
+    await refreshContext();
+    showMessage('WebUI ready.');
   } catch (error) {
     renderText('health-status', 'unavailable');
     renderText('service-status', 'unavailable');
-    renderText('security-status', String(error));
-    renderText('capabilities', String(error));
-    renderText('endpoint-snapshot', String(error));
+    renderText('memory-space-status', 'unavailable');
+    renderJson('diagnostics', { error: String(error) });
+    showMessage(error.message, 'error');
   }
 }
 

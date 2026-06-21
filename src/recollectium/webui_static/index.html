@@ -7,29 +7,252 @@
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="hero">
-        <p class="eyebrow">Recollectium Core</p>
-        <h1>Recollectium WebUI</h1>
-        <p class="lede">
-          A local-first, packaged WebUI shell for the Recollectium Core service.
-        </p>
-        <div class="status-card">
-          <p><strong>Health</strong>: <span id="health-status">loading…</span></p>
-          <p><strong>Status</strong>: <span id="service-status">loading…</span></p>
-          <p><strong>Security</strong>: <span id="security-status">loading…</span></p>
+    <main class="app-shell">
+      <header class="hero panel">
+        <div class="hero-copy">
+          <p class="eyebrow">Recollectium Core</p>
+          <h1>Recollectium WebUI</h1>
+          <p class="lede">
+            Local-first control plane for memories, memory spaces, workspaces,
+            config, and service lifecycle.
+          </p>
+        </div>
+        <div class="hero-status">
+          <div><span>Health</span><strong id="health-status">loading…</strong></div>
+          <div><span>Status</span><strong id="service-status">loading…</strong></div>
+          <div><span>Memory space</span><strong id="memory-space-status">loading…</strong></div>
+        </div>
+      </header>
+
+      <section class="panel warning" id="security-warning">
+        <strong>Security warning:</strong>
+        <span id="security-warning-text"></span>
+      </section>
+
+      <nav class="tabs panel" aria-label="WebUI sections">
+        <button class="tab-button active" data-tab="memories">Memories</button>
+        <button class="tab-button" data-tab="spaces-config">Memory Spaces / Config</button>
+        <button class="tab-button" data-tab="workspaces">Workspaces</button>
+        <button class="tab-button" data-tab="services">Services</button>
+        <button class="tab-button" data-tab="diagnostics">Dev / Diagnostics</button>
+      </nav>
+
+      <section class="panel tab-panel active" id="tab-memories">
+        <div class="panel-grid">
+          <section>
+            <h2>List / Search memories</h2>
+            <form id="memory-search-form" class="form-grid">
+              <label>Scope
+                <select name="scope">
+                  <option value="user">user</option>
+                  <option value="workspace">workspace</option>
+                </select>
+              </label>
+              <label>Workspace UID
+                <input name="workspace_uid" placeholder="required for workspace scope" />
+              </label>
+              <label>Memory space key
+                <input name="memory_space_key" placeholder="default" />
+              </label>
+              <label>Query
+                <input name="query" placeholder="search text" />
+              </label>
+              <label>Type
+                <input name="type" placeholder="fact, note, decision…" />
+              </label>
+              <label>Limit
+                <input name="limit" type="number" min="1" value="20" />
+              </label>
+              <label class="checkbox"><input type="checkbox" name="include_archived" /> Include archived</label>
+              <label>Protected minimum
+                <input name="protected_minimum" type="number" min="0" placeholder="optional" />
+              </label>
+              <label>Match threshold
+                <input name="match_threshold" placeholder="optional / model_recommended_default" />
+              </label>
+              <div class="form-actions">
+                <button type="submit">Search</button>
+                <button type="button" id="memory-list-button">List</button>
+                <button type="button" id="memory-clear-button" class="secondary">Clear</button>
+              </div>
+            </form>
+            <div class="split">
+              <div>
+                <h3>Results</h3>
+                <div id="memory-results" class="list"></div>
+              </div>
+              <div>
+                <h3>Selected memory</h3>
+                <pre id="memory-detail" class="json-box">No memory selected.</pre>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <h2>Add / update / archive</h2>
+            <form id="memory-form" class="form-grid">
+              <label>Memory ID (for update/archive)
+                <input name="memory_id" placeholder="optional" />
+              </label>
+              <label>Space
+                <select name="space">
+                  <option value="user">user</option>
+                  <option value="workspace">workspace</option>
+                </select>
+              </label>
+              <label>Workspace UID
+                <input name="workspace_uid" placeholder="required for workspace memories" />
+              </label>
+              <label>Type
+                <input name="type" placeholder="fact, note, decision…" />
+              </label>
+              <label>Memory space key
+                <input name="memory_space_key" placeholder="default" />
+              </label>
+              <label class="full">Content
+                <textarea name="content" rows="5" placeholder="memory content"></textarea>
+              </label>
+              <label class="full">Metadata JSON
+                <textarea name="metadata" rows="4" placeholder='{"source":"webui"}'></textarea>
+              </label>
+              <label>Source
+                <input name="source" placeholder="optional" />
+              </label>
+              <label>Confidence
+                <input name="confidence" type="number" step="0.01" min="0" max="1" placeholder="optional" />
+              </label>
+              <label>Sensitivity
+                <input name="sensitivity" placeholder="optional" />
+              </label>
+              <div class="form-actions">
+                <button type="submit" data-action="add">Add</button>
+                <button type="button" data-action="update">Update</button>
+                <button type="button" data-action="archive" class="danger">Archive</button>
+              </div>
+            </form>
+          </section>
         </div>
       </section>
 
-      <section class="panel">
-        <h2>Capabilities</h2>
-        <pre id="capabilities">loading…</pre>
+      <section class="panel tab-panel" id="tab-spaces-config">
+        <div class="panel-grid">
+          <section>
+            <h2>Memory spaces</h2>
+            <div class="form-actions">
+              <button id="refresh-spaces" type="button">Refresh</button>
+            </div>
+            <div id="memory-spaces" class="list"></div>
+          </section>
+
+          <section>
+            <h2>Config</h2>
+            <div class="form-actions">
+              <button id="refresh-config" type="button">Refresh config</button>
+              <button id="validate-config" type="button">Validate current config</button>
+            </div>
+            <pre id="config-view" class="json-box">Loading…</pre>
+            <form id="config-key-form" class="form-grid compact">
+              <label>Key
+                <input name="key" placeholder="service.port" />
+              </label>
+              <label>Value
+                <input name="value" placeholder="JSON value or string" />
+              </label>
+              <div class="form-actions">
+                <button type="button" data-action="get">Get</button>
+                <button type="button" data-action="set">Set</button>
+                <button type="button" data-action="unset" class="danger">Unset</button>
+              </div>
+            </form>
+          </section>
+        </div>
       </section>
 
-      <section class="panel">
-        <h2>Endpoint snapshot</h2>
-        <pre id="endpoint-snapshot">loading…</pre>
+      <section class="panel tab-panel" id="tab-workspaces">
+        <div class="panel-grid">
+          <section>
+            <h2>Workspace inventory</h2>
+            <div class="form-actions">
+              <button id="refresh-workspaces" type="button">Refresh</button>
+            </div>
+            <div id="workspace-list" class="list"></div>
+          </section>
+          <section>
+            <h2>Resolve / rename / aliases</h2>
+            <form id="workspace-form" class="form-grid">
+              <label>Workspace UID
+                <input name="workspace_uid" placeholder="project-alpha" />
+              </label>
+              <label>Memory space key
+                <input name="memory_space_key" placeholder="default" />
+              </label>
+              <label>New UID
+                <input name="new_uid" placeholder="project-bravo" />
+              </label>
+              <label>Alias UID
+                <input name="alias_uid" placeholder="alt-name" />
+              </label>
+              <label class="checkbox"><input type="checkbox" name="migrate_existing" /> Migrate existing alias memories</label>
+              <div class="form-actions">
+                <button type="button" data-action="resolve">Resolve</button>
+                <button type="button" data-action="rename">Rename</button>
+                <button type="button" data-action="aliases">List aliases</button>
+                <button type="button" data-action="add-alias">Add alias</button>
+                <button type="button" data-action="remove-alias" class="danger">Remove alias</button>
+              </div>
+            </form>
+            <pre id="workspace-detail" class="json-box">No workspace selected.</pre>
+          </section>
+        </div>
       </section>
+
+      <section class="panel tab-panel" id="tab-services">
+        <div class="panel-grid">
+          <section>
+            <h2>Service status</h2>
+            <div class="form-actions">
+              <button id="refresh-services" type="button">Refresh</button>
+            </div>
+            <div id="service-list" class="list"></div>
+          </section>
+          <section>
+            <h2>Controls</h2>
+            <form id="service-form" class="form-grid compact">
+              <label>Service
+                <select name="service_type">
+                  <option value="api">api</option>
+                  <option value="mcp">mcp</option>
+                  <option value="webui">webui</option>
+                </select>
+              </label>
+              <label>DB path
+                <input name="db_path" placeholder="optional for start/restart" />
+              </label>
+              <label>Log level
+                <input name="log_level" placeholder="optional" />
+              </label>
+              <label class="checkbox"><input type="checkbox" name="allow_self_stop" /> Allow WebUI self-stop</label>
+              <div class="form-actions">
+                <button type="button" data-action="discover">Discover</button>
+                <button type="button" data-action="start">Start</button>
+                <button type="button" data-action="stop" class="danger">Stop</button>
+                <button type="button" data-action="restart">Restart</button>
+              </div>
+            </form>
+            <pre id="service-detail" class="json-box">No service selected.</pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel tab-panel" id="tab-diagnostics">
+        <h2>Diagnostics</h2>
+        <div class="form-actions">
+          <button id="refresh-diagnostics" type="button">Refresh context</button>
+        </div>
+        <pre id="diagnostics" class="json-box">Loading…</pre>
+      </section>
+
+      <div id="status-message" class="status-message" aria-live="polite"></div>
     </main>
     <script src="/assets/app.js" defer></script>
   </body>
