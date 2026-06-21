@@ -369,6 +369,9 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     assert "/v1/webui/config" in app_js
     assert "/v1/webui/services" in app_js
     assert "/v1/webui/memory-spaces" in app_js
+    assert "function normalizeMemoryEntry(entry)" in app_js
+    assert "entry?.memory" in app_js
+    assert "score ${score.toFixed(3)}" in app_js
 
 
 def test_webui_backend_supports_memory_workspace_config_and_service_controls(
@@ -434,7 +437,10 @@ def test_webui_backend_supports_memory_workspace_config_and_service_controls(
         json={"query": "carrots", "scope": "user", "limit": 10},
     )
     assert search_response.status_code == 200
-    assert search_response.json()["count"] == 1
+    search_payload = search_response.json()
+    assert search_payload["count"] == 1
+    assert search_payload["results"][0]["memory"]["id"] == "mem-001"
+    assert search_payload["results"][0]["score"] > 0.0
 
     add_response = client.post(
         "/v1/webui/memories",

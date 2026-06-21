@@ -94,6 +94,18 @@ function memorySpaceKeyFromForm(form) {
   return value || state.context?.config?.safe_paths?.default_memory_space_key || '';
 }
 
+function normalizeMemoryEntry(entry) {
+  const memory = entry?.memory && typeof entry.memory === 'object' ? entry.memory : entry;
+  return {
+    memory,
+    score: typeof entry?.score === 'number' ? entry.score : null,
+    rank: typeof entry?.rank === 'number' ? entry.rank : null,
+    matchedText: typeof entry?.matched_text === 'string' ? entry.matched_text : null,
+    snippet: typeof entry?.snippet === 'string' ? entry.snippet : null,
+    chunkIndex: typeof entry?.chunk_index === 'number' ? entry.chunk_index : null,
+  };
+}
+
 function renderMemoryList(memories) {
   const root = $('memory-results');
   if (!root) return;
@@ -102,14 +114,21 @@ function renderMemoryList(memories) {
     return;
   }
   root.innerHTML = memories
-    .map(
-      (memory) => `
-        <button class="list-item" data-memory-id="${memory.id}">
-          <strong>${escapeHtml(memory.id)}</strong>
-          <span>${escapeHtml(memory.space)} · ${escapeHtml(memory.type)} · ${escapeHtml(memory.status || 'active')}</span>
-          <small>${escapeHtml(memory.content || '').slice(0, 160)}</small>
-        </button>`,
-    )
+    .map((entry) => {
+      const { memory, score, rank, matchedText, snippet, chunkIndex } = normalizeMemoryEntry(entry);
+      const memoryId = memory?.id || '';
+      const details = [memory?.space, memory?.type, memory?.status || 'active'].filter(Boolean);
+      if (rank !== null) details.push(`rank ${rank}`);
+      if (score !== null) details.push(`score ${score.toFixed(3)}`);
+      if (chunkIndex !== null) details.push(`chunk ${chunkIndex}`);
+      const preview = snippet || matchedText || memory?.content || '';
+      return `
+        <button class="list-item" data-memory-id="${escapeHtml(memoryId)}">
+          <strong>${escapeHtml(memoryId || 'unknown memory')}</strong>
+          <span>${escapeHtml(details.join(' · '))}</span>
+          <small>${escapeHtml(preview).slice(0, 160)}</small>
+        </button>`;
+    })
     .join('');
   root.querySelectorAll('[data-memory-id]').forEach((button) => {
     button.addEventListener('click', async () => {
