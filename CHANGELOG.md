@@ -4,11 +4,11 @@ Recollectium gives AI tools a local memory they can search across sessions. It k
 
 ## v1.2.0
 
-Recollectium v1.2.0 makes it easier to keep different memory collections separate without changing the default setup.
+Recollectium v1.2.0 adds memory spaces. Memory spaces let you keep different memories separate, such as personal, work, project, or agent-specific memories, without changing the default setup.
 
 ### ✨ Features
 
-- Added named memory spaces so you can keep personal, work, project, or agent-specific memories from mixing together. Existing default memory behavior still works as before.
+- Added memory spaces so different memory collections can stay separate instead of mixing together. Existing default memory behavior still works as before.
 
 ### 🐛 Fixes
 
