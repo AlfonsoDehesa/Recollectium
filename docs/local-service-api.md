@@ -77,7 +77,7 @@ Verbose running response shape:
   },
   "versions": {
     "service_api_version": "1",
-    "recollectium_version": "1.1.1"
+    "recollectium_version": "1.2.0"
   },
   "paths": {
     "config": "/home/user/.config/recollectium/config.json",
@@ -96,7 +96,7 @@ Verbose not-running response shape:
   "service": null,
   "versions": {
     "service_api_version": "1",
-    "recollectium_version": "1.1.1"
+    "recollectium_version": "1.2.0"
   },
   "paths": {
     "config": "/home/user/.config/recollectium/config.json",
@@ -136,7 +136,7 @@ configured endpoint by calling `/v1/health`, `/v1/version`, and
 Core. See `docs/opencode-adapter-contract.md` for the adapter contract and
 workspace UID rules.
 
-The v1.1.1 API is local-first and unauthenticated. Binding to a non-local interface can expose memory contents and memory-changing operations. Remote or split-machine access should use private networking with external access controls; see [`../SECURITY.md`](../SECURITY.md).
+The v1.2.0 API is local-first and unauthenticated. Binding to a non-local interface can expose memory contents and memory-changing operations. Remote or split-machine access should use private networking with external access controls; see [`../SECURITY.md`](../SECURITY.md).
 
 ## Envelope shapes
 
@@ -259,7 +259,7 @@ Response example:
 {
   "data": {
     "service_api_version": "1",
-    "recollectium_version": "1.1.1"
+    "recollectium_version": "1.2.0"
   }
 }
 ```
