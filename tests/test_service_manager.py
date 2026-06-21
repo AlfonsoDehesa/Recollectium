@@ -56,7 +56,10 @@ def _make_mock_config(
     config = MagicMock()
     config.xdg_dirs = {"runtime": runtime_dir, "logs": runtime_dir / "logs"}
     config.config_file_path = Path(config_path)
-    config.effective_config = {"service": {"host": "127.0.0.9", "port": 9876}}
+    config.effective_config = {
+        "service": {"host": "127.0.0.9", "port": 9876},
+        "webui": {"host": "127.0.0.1", "port": 8766},
+    }
     return config
 
 
@@ -286,6 +289,27 @@ def test_service_discovery_payload_running_api(tmp_path: Path) -> None:
         "health_url": "http://127.0.0.9:9876/v1/health",
         "version_url": "http://127.0.0.9:9876/v1/version",
         "capabilities_url": "http://127.0.0.9:9876/v1/capabilities",
+    }
+
+
+def test_service_discovery_payload_running_webui(tmp_path: Path) -> None:
+    config = _make_mock_config(tmp_path / "runtime")
+
+    payload = service_discovery_payload(
+        config,
+        {"pid": 67890, "type": "webui", "process_start_time": 88},
+    )
+
+    assert payload["status"] == "running"
+    assert payload["service"] == {
+        "type": "webui",
+        "pid": 67890,
+        "process_start_time": 88,
+        "endpoint": "http://127.0.0.1:8766",
+        "api_prefix": "/v1",
+        "health_url": "http://127.0.0.1:8766/v1/health",
+        "version_url": "http://127.0.0.1:8766/v1/version",
+        "capabilities_url": "http://127.0.0.1:8766/v1/capabilities",
     }
 
 

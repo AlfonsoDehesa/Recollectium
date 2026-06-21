@@ -31,6 +31,7 @@ def _webui_urls(host: str, port: int) -> dict[str, str]:
         "base": base,
         "health": f"{base}{SERVICE_API_PREFIX}/health",
         "status": f"{base}{SERVICE_API_PREFIX}/status",
+        "version": f"{base}{SERVICE_API_PREFIX}/version",
         "capabilities": f"{base}{SERVICE_API_PREFIX}/capabilities",
     }
 
@@ -146,6 +147,18 @@ def create_app(
     @app.get(f"{SERVICE_API_PREFIX}/status")
     def status() -> JSONResponse:
         return JSONResponse(webui_status_payload(host, port))
+
+    @app.get(f"{SERVICE_API_PREFIX}/version")
+    def version() -> JSONResponse:
+        return JSONResponse(
+            {
+                "status": "ok",
+                "surface": WEBUI_TITLE,
+                "service_type": WEBUI_SERVICE_TYPE,
+                "version": __version__,
+                "webui_version": WEBUI_VERSION,
+            }
+        )
 
     @app.get(f"{SERVICE_API_PREFIX}/capabilities")
     def capabilities() -> JSONResponse:

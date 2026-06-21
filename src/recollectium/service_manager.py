@@ -301,9 +301,17 @@ def remove_discovery_file(path: Path) -> None:
         pass
 
 
-def _service_endpoint(config: RecollectiumConfig) -> str:
-    host = str(config.effective_config["service"]["host"])
-    port = int(config.effective_config["service"]["port"])
+def _service_endpoint(
+    config: RecollectiumConfig, service_type: str | None = None
+) -> str:
+    if service_type == "webui":
+        service_config = config.effective_config.get(
+            "webui", config.effective_config["service"]
+        )
+    else:
+        service_config = config.effective_config["service"]
+    host = str(service_config["host"])
+    port = int(service_config["port"])
     return f"http://{host}:{port}"
 
 
@@ -328,9 +336,9 @@ def service_discovery_payload(
     service_type: str | None = None,
 ) -> dict[str, Any]:
     """Build the JSON-ready service discovery payload."""
-    endpoint = _service_endpoint(config)
-    paths = _discovery_paths(config, service_type)
-    service_type = service_type or "api"
+    resolved_service_type = service_type or (running["type"] if running else None) or "api"
+    endpoint = _service_endpoint(config, resolved_service_type)
+    paths = _discovery_paths(config, resolved_service_type)
     versions = {
         "service_api_version": SERVICE_API_VERSION,
         "recollectium_version": __version__,
@@ -343,7 +351,7 @@ def service_discovery_payload(
             "paths": paths,
             "next_step": (
                 "Run `recollectium webui start` to start the local WebUI service."
-                if service_type == "webui"
+                if resolved_service_type == "webui"
                 else "Run `recollectium service start api` to start the local API service."
             ),
         }

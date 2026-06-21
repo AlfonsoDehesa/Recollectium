@@ -36,12 +36,20 @@ def test_webui_app_serves_shell_and_bootstrap_endpoints() -> None:
     assert health["security"] == {"authentication": "none", "tls": False}
     assert health["endpoints"]["health"].endswith("/v1/health")
 
+    version = client.get("/v1/version")
+    assert version.status_code == 200
+    version_payload = version.json()
+    assert version_payload["status"] == "ok"
+    assert version_payload["service_type"] == "webui"
+    assert version_payload["version"]
+
     status = client.get("/v1/status").json()
     assert status["status"] == "running"
     assert status["service_type"] == "webui"
     assert status["local_first"] is True
     assert status["security"]["recommended_bind"] == "127.0.0.1"
     assert status["endpoints"]["status"].endswith("/v1/status")
+    assert status["endpoints"]["version"].endswith("/v1/version")
 
     capabilities = client.get("/v1/capabilities").json()
     assert capabilities["status"] == "ok"
