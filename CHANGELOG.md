@@ -4,11 +4,11 @@ Recollectium gives AI tools a local memory they can search across sessions. It k
 
 ## v1.2.0
 
-Recollectium v1.2.0 focuses on release readiness for the new logical memory-space routing and the related validation cleanup. It keeps the release scope centered on user-facing routing behavior, clearer errors, and a clean handoff for the tagged release.
+Recollectium v1.2.0 adds named memory spaces and related validation cleanup for the release.
 
 ### ✨ Features
 
-- Added logical memory-space keys across the CLI, HTTP API, and MCP surfaces so everyday memory commands can target named logical databases while the default routing stays folder-based.
+- Added named memory spaces so separate memories stay organized in the CLI, HTTP API, and MCP, while the default still uses the folder-based setup.
 
 ### 🐛 Fixes
 
