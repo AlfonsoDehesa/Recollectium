@@ -4,15 +4,15 @@ Recollectium gives AI tools a local memory they can search across sessions. It k
 
 ## v1.2.0
 
-Recollectium v1.2.0 adds named memory spaces and related validation cleanup for the release.
+Recollectium v1.2.0 makes it easier to keep different memory collections separate without changing the default setup.
 
 ### ✨ Features
 
-- Added named memory spaces so separate memories stay organized in the CLI, HTTP API, and MCP, while the default still uses the folder-based setup.
+- Added named memory spaces so you can keep personal, work, project, or agent-specific memories from mixing together. Existing default memory behavior still works as before.
 
 ### 🐛 Fixes
 
-- Tightened the config and CLI path-routing surfaces so legacy `database.path` and raw `--db` routing are rejected in favor of `database.folder`, `database.default_memory_space`, and `--memory-space`.
+- Rejected older direct database path settings with clearer guidance to use the supported memory-space settings instead.
 
 ### 🧹 Chores
 
