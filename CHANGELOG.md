@@ -2,15 +2,17 @@
 
 Recollectium gives AI tools a local memory they can search across sessions. It keeps useful context on your machine, separates personal memory from workspace memory, and exposes the same memory system through the CLI, API, and MCP integrations.
 
-## Unreleased
+## v1.2.0
+
+Recollectium v1.2.0 adds memory spaces. Memory spaces let you keep different memories separate, such as personal, work, project, or agent-specific memories, without changing the default setup.
 
 ### ✨ Features
 
-- Added logical memory-space keys across the CLI, HTTP API, and MCP surfaces so ordinary memory and database-backed commands can target named logical databases while the default routing stays folder-based.
+- Added memory spaces so different memory collections can stay separate instead of mixing together. Existing default memory behavior still works as before.
 
 ### 🐛 Fixes
 
-- Fixed the config and CLI path-routing surfaces so legacy `database.path` and raw `--db` routing are rejected in favor of `database.folder`, `database.default_memory_space`, and `--memory-space`.
+- Rejected older direct database path settings with clearer guidance to use the supported memory-space settings instead.
 
 ### 🧹 Chores
 

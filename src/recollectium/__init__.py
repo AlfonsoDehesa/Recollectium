@@ -45,4 +45,4 @@ __all__ = [
 try:
     __version__ = version("recollectium")
 except PackageNotFoundError:  # pragma: no cover - source tree fallback
-    __version__ = "1.1.1"
+    __version__ = "1.2.0"
