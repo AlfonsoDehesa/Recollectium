@@ -584,6 +584,18 @@ h3 {
   gap: 10px;
 }
 
+.log-controls {
+  align-items: end;
+}
+
+.log-controls .inline-field {
+  flex: 1 1 16rem;
+}
+
+.log-tail-note {
+  margin: 0;
+}
+
 .form-actions button.secondary {
   background: linear-gradient(180deg, rgba(78, 88, 105, 0.9), rgba(44, 53, 66, 0.96));
 }

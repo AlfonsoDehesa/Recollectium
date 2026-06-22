@@ -628,13 +628,25 @@
               </section>
               <section>
                 <h2>Logs</h2>
-                <div class="form-actions">
+                <div class="form-actions log-controls">
                   <label class="inline-field">
                     Log depth
                     <input id="log-tail-lines" name="tail_lines" type="number" min="10" max="500" value="80" />
                   </label>
+                  <label class="inline-field">
+                    Filter loaded log tail
+                    <input
+                      id="log-tail-filter"
+                      name="log_tail_filter"
+                      type="search"
+                      placeholder="Filter loaded log tail"
+                      aria-describedby="log-tail-note"
+                    />
+                  </label>
                   <button id="refresh-logs" type="button">Refresh logs</button>
+                  <button id="copy-logs" type="button">Copy logs</button>
                 </div>
+                <p id="log-tail-note" class="rail-note log-tail-note">Filters only the loaded log tail.</p>
                 <pre id="log-summary" class="json-box">Loading…</pre>
                 <pre id="log-tail" class="json-box">Loading log tail…</pre>
               </section>

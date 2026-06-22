@@ -31,6 +31,8 @@ const state = {
   diagnosticsBundle: null,
   logSummary: null,
   logTailLines: 80,
+  logTailRawLines: [],
+  logTailRenderedText: '',
   lastResponse: null,
 };
 
@@ -121,6 +123,21 @@ function currentTailLines() {
   state.logTailLines = lines;
   if (input) input.value = String(lines);
   return lines;
+}
+
+function currentLogTailFilter() {
+  const input = $('log-tail-filter');
+  return String(input?.value || '').trim().toLowerCase();
+}
+
+function loadedLogTailLines(summary) {
+  const recent = summary?.recent;
+  return recent && Array.isArray(recent.lines) ? recent.lines.slice() : [];
+}
+
+function filterLoadedLogTailLines(lines, filterText) {
+  if (!filterText) return lines;
+  return lines.filter((line) => String(line).toLowerCase().includes(filterText));
 }
 
 async function request(path, options = {}) {
@@ -525,14 +542,28 @@ function renderGraph(graph) {
 function renderLogSummary(summary) {
   const root = $('log-summary');
   if (root) renderJson('log-summary', summary);
+  const rawLines = loadedLogTailLines(summary);
+  const filterText = currentLogTailFilter();
+  const renderedLines = filterLoadedLogTailLines(rawLines, filterText);
+  const renderedText = renderedLines.length
+    ? renderedLines.join('\n')
+    : rawLines.length && filterText
+      ? 'No loaded tail lines match the current filter.'
+      : 'No log tail available.';
+  state.logSummary = summary;
+  state.logTailRawLines = rawLines;
+  state.logTailRenderedText = renderedText;
+  const note = $('log-tail-note');
+  if (note) {
+    note.textContent = rawLines.length
+      ? filterText
+        ? `Filtering loaded log tail only: ${renderedLines.length} of ${rawLines.length} lines match.`
+        : `Loaded log tail only: ${rawLines.length} lines.`
+      : 'Loaded log tail unavailable.';
+  }
   const tail = $('log-tail');
   if (tail) {
-    const recent = summary?.recent;
-    if (recent && Array.isArray(recent.lines)) {
-      tail.textContent = recent.lines.join('\n');
-    } else {
-      tail.textContent = 'No log tail available.';
-    }
+    tail.textContent = renderedText;
   }
 }
 
@@ -1322,11 +1353,25 @@ function wireDiagnosticsForms() {
     }
   });
 
+  $('log-tail-filter')?.addEventListener('input', () => {
+    renderLogSummary(state.logSummary);
+  });
+
   $('copy-diagnostics')?.addEventListener('click', async () => {
     try {
       const text = JSON.stringify(state.diagnosticsBundle || {}, null, 2);
       await navigator.clipboard.writeText(text);
       showMessage('Diagnostics bundle copied.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('copy-logs')?.addEventListener('click', async () => {
+    try {
+      const text = state.logTailRenderedText || $('log-tail')?.textContent || '';
+      await navigator.clipboard.writeText(text);
+      showMessage('Rendered log tail copied.');
     } catch (error) {
       showMessage(error.message, 'error');
     }
