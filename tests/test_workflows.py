@@ -92,14 +92,16 @@ def test_ci_service_smoke_script_covers_api_and_mcp_surfaces() -> None:
 
     assert "def _exercise_api_service" in script
     assert "def _exercise_mcp_service" in script
-    assert (
-        '[\n                *recollectium,\n                "--config",\n                str(config_path),\n                "service",\n                "start",\n                "api",\n                "--json",\n            ]'
-        in script
-    )
-    assert (
-        '[\n                *recollectium,\n                "--config",\n                str(config_path),\n                "service",\n                "start",\n                "mcp",\n                "--json",\n            ]'
-        in script
-    )
+    assert "def _exercise_webui_service" in script
+    assert '"webui",\n                "start",' in script
+    assert '"webui",\n                "status",' in script
+    assert '"webui",\n                "stop",' in script
+    assert '"webui.host"' in script
+    assert '"webui.port"' in script
+    assert "_webui_smoke_urls(webui_port)" in script
+    assert '"/assets/app.js"' in script
+    assert '"/assets/styles.css"' in script
+    assert '"Recollectium WebUI"' in script
     assert '"service", "stop", "--json"' in script
     assert '"service", "status", "--json"' in script
     assert '"service",\n                "discover",' in script
@@ -130,9 +132,11 @@ def test_ci_service_smoke_workflow_keeps_required_gates_and_matrix() -> None:
     assert "windows-arm64" in workflow
     assert "scripts/ci_service_smoke.py api" in workflow
     assert "scripts/ci_service_smoke.py mcp" in workflow
+    assert "scripts/ci_service_smoke.py webui" in workflow
     assert '$uv = Join-Path $env:LOCALAPPDATA "uv\\uv.exe"' in workflow
     assert "& $uv run python scripts/ci_service_smoke.py api" in workflow
     assert "& $uv run python scripts/ci_service_smoke.py mcp" in workflow
+    assert "& $uv run python scripts/ci_service_smoke.py webui" in workflow
     assert "Verify service surface smoke on Unix" in workflow
     assert "Verify service surface smoke on Windows" in workflow
     assert "service start api" in workflow
