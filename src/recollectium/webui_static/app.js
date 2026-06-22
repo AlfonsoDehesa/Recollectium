@@ -36,6 +36,9 @@ const state = {
   lastResponse: null,
 };
 
+const MEMORY_DETAIL_EMPTY_STATE = `No memory selected.
+Select a result to inspect provenance, metadata, and raw content.`;
+
 function $(id) {
   return document.getElementById(id);
 }
@@ -795,7 +798,7 @@ function wireMemoryForms() {
 
   clearButton?.addEventListener('click', () => {
     $('memory-results').innerHTML = '';
-    $('memory-detail').textContent = 'No memory selected.';
+    $('memory-detail').textContent = MEMORY_DETAIL_EMPTY_STATE;
     state.selectedMemory = null;
   });
 

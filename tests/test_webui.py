@@ -1117,6 +1117,12 @@ def test_webui_root_serves_shell_and_bootstrap_endpoints(
     assert app_js.status_code == 200
     assert "/v1/webui/context" in app_js.text
     assert "/v1/webui/embedding/status" in app_js.text
+    assert "/v1/webui/dev/optimize-threshold" in app_js.text
     assert "/v1/webui/graph" in app_js.text
     assert "/v1/webui/diagnostics" in app_js.text
-    assert "/v1/webui/dev/optimize-threshold" in app_js.text
+    assert (
+        """const MEMORY_DETAIL_EMPTY_STATE = `No memory selected.
+Select a result to inspect provenance, metadata, and raw content.`;"""
+        in app_js.text
+    )
+    assert "textContent = MEMORY_DETAIL_EMPTY_STATE;" in app_js.text
