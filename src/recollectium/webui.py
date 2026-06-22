@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from collections import deque
 from copy import deepcopy
+from dataclasses import asdict
 from http import HTTPStatus
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+from platformdirs import user_state_dir
 
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -28,6 +32,25 @@ from recollectium.config import (
     set_config_value,
     unset_config_value,
 )
+from recollectium.dev_eval import (
+    evaluate_exact_mrr_for_core,
+    evaluate_ranked_set_ndcg_for_core,
+    evaluate_semantic_mrr_for_core,
+)
+from recollectium.dev_eval_thematic_weighted import (
+    evaluate_thematic_weighted_metrics_for_core,
+)
+from recollectium.dev_optimize_threshold import (
+    DEFAULT_THRESHOLD_BETA,
+    build_threshold_optimization_report,
+    build_threshold_search_bundles,
+)
+from recollectium.dev_seed import (
+    ensure_seeded_dev_database,
+    reset_seeded_dev_database,
+    seeded_dev_database_is_initialized,
+)
+from recollectium.dev_eval_thematic_labels import THEMATIC_CONTEXT_LABEL_CASES
 from recollectium.core import RecollectiumCore
 from recollectium.errors import (
     NotFoundError,
@@ -36,6 +59,7 @@ from recollectium.errors import (
     ValidationError,
 )
 from recollectium.logging import setup_logging
+from recollectium.model_state import read_model_state
 from recollectium.memory_spaces import (
     MemorySpaceInfo,
     MemorySpaceResolver,
@@ -135,6 +159,33 @@ class ServiceActionBody(StrictBodyModel):
     allow_self_stop: bool = False
 
 
+class EmbeddingRefreshBody(StrictBodyModel):
+    space: str | None = None
+    workspace_uid: str | None = None
+    include_archived: bool = False
+    memory_space_key: str | None = None
+
+
+class EmbeddingJobsClearBody(StrictBodyModel):
+    states: list[str] | None = None
+    memory_space_key: str | None = None
+
+
+class DevEvalBody(StrictBodyModel):
+    memory_space_key: str | None = None
+
+
+class ThresholdOptimizeBody(StrictBodyModel):
+    start: float = 0.0
+    end: float = 1.0
+    step: float = 0.05
+    beta: float = DEFAULT_THRESHOLD_BETA
+    output_format: str = "csv"
+    output_path: str | None = None
+    write_config: bool = False
+    memory_space_key: str | None = None
+
+
 def _webui_urls(host: str, port: int) -> dict[str, str]:
     base = f"http://{host}:{port}"
     return {
@@ -149,6 +200,11 @@ def _webui_urls(host: str, port: int) -> dict[str, str]:
         "workspaces": f"{base}{SERVICE_API_PREFIX}/webui/workspaces",
         "config": f"{base}{SERVICE_API_PREFIX}/webui/config",
         "services": f"{base}{SERVICE_API_PREFIX}/webui/services",
+        "embedding": f"{base}{SERVICE_API_PREFIX}/webui/embedding/status",
+        "dev": f"{base}{SERVICE_API_PREFIX}/webui/dev/status",
+        "graph": f"{base}{SERVICE_API_PREFIX}/webui/graph",
+        "diagnostics": f"{base}{SERVICE_API_PREFIX}/webui/diagnostics",
+        "logs": f"{base}{SERVICE_API_PREFIX}/webui/logs",
     }
 
 
@@ -168,6 +224,385 @@ def _service_config_summary(config: RecollectiumConfig) -> dict[str, Any]:
         "log_level": str(config.effective_config["logging"]["level"]),
         "service_endpoint": f"http://{config.effective_config['service']['host']}:{config.effective_config['service']['port']}",
         "webui_endpoint": f"http://{config.effective_config['webui']['host']}:{config.effective_config['webui']['port']}",
+    }
+
+
+def _recollectium_state_dir() -> Path:
+    return Path(user_state_dir("recollectium"))
+
+
+def _log_files_for_config(config: RecollectiumConfig) -> list[Path]:
+    log_dir = config.xdg_dirs["logs"]
+    files: list[Path] = []
+    main_log = log_dir / "recollectium.log"
+    if main_log.exists():
+        files.append(main_log)
+    service_logs = sorted(
+        log_dir.glob("service-*.log"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    files.extend(service_logs[:3])
+    return files
+
+
+def _tail_text(path: Path, *, lines: int = 80) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "lines": [],
+            "line_count": 0,
+            "truncated": False,
+        }
+
+    buffer: deque[str] = deque(maxlen=lines)
+    line_count = 0
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for raw_line in handle:
+            line_count += 1
+            buffer.append(raw_line.rstrip("\n"))
+    return {
+        "path": str(path),
+        "exists": True,
+        "lines": list(buffer),
+        "line_count": line_count,
+        "truncated": line_count > lines,
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _log_summary_payload(
+    core: RecollectiumCore, *, tail_lines: int = 80
+) -> dict[str, Any]:
+    log_dir = core.config.xdg_dirs["logs"]
+    files = [
+        _tail_text(path, lines=tail_lines)
+        for path in _log_files_for_config(core.config)
+    ]
+    return {
+        "status": "ok",
+        "log_dir": str(log_dir),
+        "log_files": files,
+        "recent": files[0] if files else None,
+    }
+
+
+def _model_state_summary(core: RecollectiumCore) -> dict[str, Any]:
+    state = read_model_state(_recollectium_state_dir())
+    profile = core.embedding_provider.embedding_profile
+    model_name = str(profile.get("model", ""))
+    profile_name = str(profile.get("profile", ""))
+    dimensions = profile.get("dimensions")
+    provider_cache_dir = getattr(core.embedding_provider, "cache_dir", None)
+    if provider_cache_dir is not None:
+        model_cache_path: str | None = str(provider_cache_dir)
+    elif getattr(core, "_embedding_provider_managed_by_recollectium", False):
+        model_cache_path = str(core.config.model_cache_path)
+    else:
+        model_cache_path = None
+    matches = (
+        state is not None
+        and state.get("prepared_model") == model_name
+        and state.get("profile") == profile_name
+        and state.get("dimensions") == dimensions
+        and state.get("model_cache_path") == model_cache_path
+    )
+    return {
+        "status": "ok",
+        "state_path": str(_recollectium_state_dir() / "model-state.json"),
+        "present": state is not None,
+        "ready": matches,
+        "expected": {
+            "prepared_model": model_name,
+            "profile": profile_name,
+            "dimensions": dimensions,
+            "model_cache_path": model_cache_path,
+        },
+        "state": state,
+    }
+
+
+def _embedding_status_payload(
+    core: RecollectiumCore, memory_space_key: str | None
+) -> dict[str, Any]:
+    payload = core.active_embedding_status(memory_space_key=memory_space_key)
+    payload["model_state"] = _model_state_summary(core)
+    return payload
+
+
+def _dev_seeded_database_path(core: RecollectiumCore) -> Path:
+    dev_path = Path(core.config.effective_config["development"]["seeded_database_path"])
+    if not dev_path.is_absolute():
+        dev_path = core.config.xdg_dirs["data"] / dev_path
+    return dev_path
+
+
+def _dev_command_hints(core: RecollectiumCore) -> dict[str, Any]:
+    config_path = str(core.config.config_file_path)
+    seeded_path = str(_dev_seeded_database_path(core))
+    return {
+        "seeding": [
+            f"recollectium init --config {config_path}",
+            f"recollectium dev seed --config {config_path}  # if the CLI surface is available",
+        ],
+        "eval": [
+            f"recollectium dev eval --config {config_path}",
+            f"recollectium dev eval --config {config_path} --db {seeded_path}",
+        ],
+        "threshold_optimizer": [
+            f"recollectium dev optimize-threshold --config {config_path} --format csv",
+            f"recollectium dev optimize-threshold --config {config_path} --format png",
+        ],
+    }
+
+
+def _dev_seed_status_payload(core: RecollectiumCore) -> dict[str, Any]:
+    db_path = _dev_seeded_database_path(core)
+    return {
+        "status": "ok",
+        "database": str(db_path),
+        "initialized": seeded_dev_database_is_initialized(db_path),
+        "command_hints": _dev_command_hints(core)["seeding"],
+    }
+
+
+def _dev_seed_init_payload(core: RecollectiumCore) -> dict[str, Any]:
+    db_path = _dev_seeded_database_path(core)
+    result = ensure_seeded_dev_database(db_path, core.embedding_provider)
+    return {
+        "status": "ok" if result is None else result.get("status", "seeded"),
+        "database": str(db_path),
+        "initialized": True,
+        "changed": result is not None,
+        "seed_result": result,
+        "command_hints": _dev_command_hints(core)["seeding"],
+    }
+
+
+def _dev_seed_reset_payload(core: RecollectiumCore) -> dict[str, Any]:
+    db_path = _dev_seeded_database_path(core)
+    result = reset_seeded_dev_database(db_path, core.embedding_provider)
+    return {
+        "status": result.get("status", "reset"),
+        "database": str(db_path),
+        "initialized": True,
+        "changed": True,
+        "seed_result": result,
+        "command_hints": _dev_command_hints(core)["seeding"],
+    }
+
+
+def _dev_eval_payload(core: RecollectiumCore) -> dict[str, Any]:
+    db_path = _dev_seeded_database_path(core)
+    seeded = seeded_dev_database_is_initialized(db_path)
+    if not seeded:
+        return {
+            "status": "not_configured",
+            "database": str(db_path),
+            "initialized": False,
+            "command_hints": _dev_command_hints(core)["eval"],
+        }
+
+    ensure_seeded_dev_database(db_path, core.embedding_provider)
+    seeded_core = RecollectiumCore(
+        db_path=db_path,
+        config_path=core.config.config_file_path,
+        embedding_provider=core.embedding_provider,
+        log_level=str(core.config.effective_config["logging"]["level"]),
+    )
+    exact_report = evaluate_exact_mrr_for_core(cast(Any, seeded_core))
+    semantic_report = evaluate_semantic_mrr_for_core(cast(Any, seeded_core))
+    thematic_report = evaluate_thematic_weighted_metrics_for_core(
+        cast(Any, seeded_core)
+    )
+    ranked_set_report = evaluate_ranked_set_ndcg_for_core(cast(Any, seeded_core))
+    return {
+        "status": "ok",
+        "database": str(db_path),
+        "initialized": True,
+        "command_hints": _dev_command_hints(core)["eval"],
+        "reports": {
+            "exact_mrr": asdict(exact_report),
+            "semantic_mrr": asdict(semantic_report),
+            "thematic_weighted": asdict(thematic_report),
+            "ranked_set_ndcg": asdict(ranked_set_report),
+        },
+    }
+
+
+def _threshold_optimizer_payload(
+    core: RecollectiumCore,
+    *,
+    start: float,
+    end: float,
+    step: float,
+    beta: float,
+    output_format: str,
+    output_path: str | None,
+    write_config: bool,
+) -> dict[str, Any]:
+    db_path = _dev_seeded_database_path(core)
+    seeded = seeded_dev_database_is_initialized(db_path)
+    if not seeded:
+        return {
+            "status": "not_configured",
+            "database": str(db_path),
+            "initialized": False,
+            "command_hints": _dev_command_hints(core)["threshold_optimizer"],
+        }
+
+    ensure_seeded_dev_database(db_path, core.embedding_provider)
+    seeded_core = RecollectiumCore(
+        db_path=db_path,
+        config_path=core.config.config_file_path,
+        embedding_provider=core.embedding_provider,
+        log_level=str(core.config.effective_config["logging"]["level"]),
+    )
+    report = build_threshold_optimization_report(
+        model=str(core.embedding_provider.embedding_profile.get("model", "unknown")),
+        provider=str(
+            core.embedding_provider.embedding_profile.get("provider", "unknown")
+        ),
+        start=start,
+        end=end,
+        step=step,
+        beta=beta,
+        output_format=output_format,  # type: ignore[arg-type]
+        output_path=output_path,
+        wrote_config=write_config,
+        bundles=build_threshold_search_bundles(
+            THEMATIC_CONTEXT_LABEL_CASES,
+            search_user=lambda query, limit: seeded_core.search_user_memories(
+                query=query,
+                limit=limit,
+                include_archived=False,
+                protected_minimum=0,
+                match_threshold=None,
+            ),
+            search_workspace=lambda query, workspace_uid, limit: (
+                seeded_core.search_workspace_memories(
+                    query=query,
+                    workspace_uid=workspace_uid,
+                    limit=limit,
+                    include_archived=False,
+                    protected_minimum=0,
+                    match_threshold=None,
+                )
+            ),
+        ),
+    )
+    return {
+        "status": "ok",
+        "database": str(db_path),
+        "initialized": True,
+        "command_hints": _dev_command_hints(core)["threshold_optimizer"],
+        "report": report.to_dict(),
+    }
+
+
+def _graph_payload(
+    core: RecollectiumCore,
+    *,
+    memory_space_key: str | None = None,
+    space: str | None = None,
+    workspace_uid: str | None = None,
+    type: str | None = None,
+    status: str | None = None,
+    include_archived: bool = False,
+    limit: int = 40,
+) -> dict[str, Any]:
+    resolved_space_key = memory_space_key or core.config.default_memory_space_key
+    memories = core.list_memories(
+        space=space,
+        type=type,
+        status=status,
+        workspace_uid=workspace_uid,
+        include_archived=include_archived,
+        limit=limit,
+        memory_space_key=memory_space_key,
+    )
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": f"space:{resolved_space_key}",
+            "kind": "memory_space",
+            "label": resolved_space_key,
+        }
+    ]
+    edges: list[dict[str, Any]] = []
+    workspace_nodes: dict[str, dict[str, Any]] = {}
+    type_nodes: dict[str, dict[str, Any]] = {}
+    status_nodes: dict[str, dict[str, Any]] = {}
+    for memory in memories:
+        memory_id = str(memory.id)
+        nodes.append(
+            {
+                "id": memory_id,
+                "kind": "memory",
+                "label": memory_id,
+                "group": memory.space,
+                "space": memory.space,
+                "type": memory.type,
+                "status": memory.status,
+                "workspace_uid": memory.workspace_uid,
+                "content_preview": memory.content[:120],
+            }
+        )
+        edges.append(
+            {
+                "source": f"space:{resolved_space_key}",
+                "target": memory_id,
+                "kind": "belongs_to_space",
+            }
+        )
+        if memory.workspace_uid:
+            workspace_id = f"workspace:{memory.workspace_uid}"
+            workspace_nodes.setdefault(
+                workspace_id,
+                {
+                    "id": workspace_id,
+                    "kind": "workspace",
+                    "label": memory.workspace_uid,
+                },
+            )
+            edges.append(
+                {
+                    "source": workspace_id,
+                    "target": memory_id,
+                    "kind": "belongs_to_workspace",
+                }
+            )
+        type_id = f"type:{memory.type}"
+        type_nodes.setdefault(
+            type_id, {"id": type_id, "kind": "type", "label": memory.type}
+        )
+        edges.append({"source": type_id, "target": memory_id, "kind": "has_type"})
+        status_id = f"status:{memory.status}"
+        status_nodes.setdefault(
+            status_id, {"id": status_id, "kind": "status", "label": memory.status}
+        )
+        edges.append({"source": status_id, "target": memory_id, "kind": "has_status"})
+    nodes.extend(workspace_nodes.values())
+    nodes.extend(type_nodes.values())
+    nodes.extend(status_nodes.values())
+    return {
+        "status": "ok",
+        "filters": {
+            "memory_space_key": resolved_space_key,
+            "space": space,
+            "workspace_uid": workspace_uid,
+            "type": type,
+            "status": status,
+            "include_archived": include_archived,
+            "limit": limit,
+        },
+        "summary": {
+            "memory_count": len(memories),
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+        },
+        "nodes": nodes,
+        "edges": edges,
     }
 
 
@@ -468,6 +903,11 @@ def webui_capabilities_payload(host: str, port: int) -> dict[str, Any]:
             "webui.workspaces",
             "webui.config",
             "webui.services",
+            "webui.embedding",
+            "webui.dev",
+            "webui.graph",
+            "webui.diagnostics",
+            "webui.logs",
         ],
         "endpoints": urls,
         "ui_assets": ["/", "/assets/app.js", "/assets/styles.css"],
@@ -520,6 +960,11 @@ def webui_status_payload(host: str, port: int) -> dict[str, Any]:
             "webui.workspaces",
             "webui.config",
             "webui.services",
+            "webui.embedding",
+            "webui.dev",
+            "webui.graph",
+            "webui.diagnostics",
+            "webui.logs",
         ],
         "ui_assets": ["/", "/assets/app.js", "/assets/styles.css"],
     }
@@ -1012,6 +1457,176 @@ def create_app(
     @app.post(f"{SERVICE_API_PREFIX}/webui/services/{{service_type}}/restart")
     def restart_service(service_type: str, body: ServiceActionBody) -> JSONResponse:
         return JSONResponse(_restart_service(core, service_type, body))
+
+    @app.get(f"{SERVICE_API_PREFIX}/webui/embedding/status")
+    def embedding_status(memory_space_key: str | None = None) -> JSONResponse:
+        return JSONResponse(_embedding_status_payload(core, memory_space_key))
+
+    @app.post(f"{SERVICE_API_PREFIX}/webui/embedding/refresh")
+    def refresh_embeddings(body: EmbeddingRefreshBody) -> JSONResponse:
+        payload = core.refresh_stale_embeddings(
+            space=body.space,
+            workspace_uid=body.workspace_uid,
+            include_archived=body.include_archived,
+            memory_space_key=body.memory_space_key,
+        )
+        return JSONResponse(
+            {
+                "status": "ok",
+                "operation": "refresh_stale_embeddings",
+                "memory_space_key": body.memory_space_key
+                or core.config.default_memory_space_key,
+                "result": payload,
+            }
+        )
+
+    @app.get(f"{SERVICE_API_PREFIX}/webui/embedding/jobs")
+    def list_embedding_jobs(
+        state: str | None = None,
+        limit: int | None = None,
+        memory_space_key: str | None = None,
+    ) -> JSONResponse:
+        jobs = core.list_embedding_jobs(
+            state=state, limit=limit, memory_space_key=memory_space_key
+        )
+        return JSONResponse(
+            {
+                "status": "ok",
+                "count": len(jobs),
+                "memory_space_key": memory_space_key
+                or core.config.default_memory_space_key,
+                "jobs": jobs,
+            }
+        )
+
+    @app.get(f"{SERVICE_API_PREFIX}/webui/embedding/jobs/{{job_id}}")
+    def get_embedding_job(
+        job_id: str, memory_space_key: str | None = None
+    ) -> JSONResponse:
+        return JSONResponse(
+            {
+                "status": "ok",
+                "job": core.get_embedding_job(
+                    job_id, memory_space_key=memory_space_key
+                ),
+            }
+        )
+
+    @app.delete(f"{SERVICE_API_PREFIX}/webui/embedding/jobs")
+    def clear_embedding_jobs(body: EmbeddingJobsClearBody) -> JSONResponse:
+        return JSONResponse(
+            {
+                "status": "ok",
+                "result": core.clear_embedding_jobs(
+                    states=body.states, memory_space_key=body.memory_space_key
+                ),
+            }
+        )
+
+    @app.get(f"{SERVICE_API_PREFIX}/webui/dev/status")
+    def dev_status() -> JSONResponse:
+        return JSONResponse(
+            {
+                "status": "ok",
+                "seeded_database": _dev_seed_status_payload(core),
+                "embedding": _embedding_status_payload(core, None),
+                "command_hints": _dev_command_hints(core),
+            }
+        )
+
+    @app.get(f"{SERVICE_API_PREFIX}/webui/dev/seeding/status")
+    def dev_seed_status() -> JSONResponse:
+        return JSONResponse(_dev_seed_status_payload(core))
+
+    @app.post(f"{SERVICE_API_PREFIX}/webui/dev/seeding/init")
+    def dev_seed_init() -> JSONResponse:
+        return JSONResponse(_dev_seed_init_payload(core))
+
+    @app.post(f"{SERVICE_API_PREFIX}/webui/dev/seeding/reset")
+    def dev_seed_reset() -> JSONResponse:
+        return JSONResponse(_dev_seed_reset_payload(core))
+
+    @app.post(f"{SERVICE_API_PREFIX}/webui/dev/eval")
+    def dev_eval(_body: DevEvalBody) -> JSONResponse:
+        return JSONResponse(_dev_eval_payload(core))
+
+    @app.post(f"{SERVICE_API_PREFIX}/webui/dev/optimize-threshold")
+    def dev_optimize_threshold(body: ThresholdOptimizeBody) -> JSONResponse:
+        return JSONResponse(
+            _threshold_optimizer_payload(
+                core,
+                start=body.start,
+                end=body.end,
+                step=body.step,
+                beta=body.beta,
+                output_format=body.output_format,
+                output_path=body.output_path,
+                write_config=body.write_config,
+            )
+        )
+
+    @app.get(f"{SERVICE_API_PREFIX}/webui/graph")
+    def graph(
+        memory_space_key: str | None = None,
+        space: str | None = None,
+        workspace_uid: str | None = None,
+        type: str | None = None,
+        status: str | None = None,
+        include_archived: bool = False,
+        limit: int = 40,
+    ) -> JSONResponse:
+        return JSONResponse(
+            _graph_payload(
+                core,
+                memory_space_key=memory_space_key,
+                space=space,
+                workspace_uid=workspace_uid,
+                type=type,
+                status=status,
+                include_archived=include_archived,
+                limit=limit,
+            )
+        )
+
+    @app.get(f"{SERVICE_API_PREFIX}/webui/logs")
+    def logs(tail_lines: int = 80) -> JSONResponse:
+        return JSONResponse(_log_summary_payload(core, tail_lines=tail_lines))
+
+    @app.get(f"{SERVICE_API_PREFIX}/webui/diagnostics")
+    def diagnostics(
+        memory_space_key: str | None = None, tail_lines: int = 80
+    ) -> JSONResponse:
+        config = _merged_config(_load_raw_config(core))
+        memory_spaces = _memory_space_payload(core, memory_space_key)
+        embedding = _embedding_status_payload(core, memory_space_key)
+        log_summary = _log_summary_payload(core, tail_lines=tail_lines)
+        db_status = core.database_status(memory_space_key=memory_space_key)
+        return JSONResponse(
+            {
+                "status": "ok",
+                "surface": WEBUI_TITLE,
+                "version": __version__,
+                "webui_version": WEBUI_VERSION,
+                "security": {
+                    "warning": _security_warning(),
+                    "authentication": WEBUI_AUTHENTICATION,
+                    "tls": WEBUI_TLS,
+                },
+                "config_validation": {
+                    "status": "ok",
+                    "valid": True,
+                    "config": config,
+                },
+                "safe_paths": _service_config_summary(core.config),
+                "services": _service_list_payload(core),
+                "memory_spaces": memory_spaces,
+                "database_status": db_status,
+                "embedding_status": embedding,
+                "model_state": _model_state_summary(core),
+                "logs": log_summary,
+                "command_hints": _dev_command_hints(core),
+            }
+        )
 
     return app
 

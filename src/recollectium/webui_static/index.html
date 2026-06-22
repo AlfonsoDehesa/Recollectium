@@ -34,7 +34,10 @@
         <button class="tab-button" data-tab="spaces-config">Memory Spaces / Config</button>
         <button class="tab-button" data-tab="workspaces">Workspaces</button>
         <button class="tab-button" data-tab="services">Services</button>
-        <button class="tab-button" data-tab="diagnostics">Dev / Diagnostics</button>
+        <button class="tab-button" data-tab="embeddings">Embeddings</button>
+        <button class="tab-button" data-tab="dev-tools">Dev tools</button>
+        <button class="tab-button" data-tab="graph">Graph</button>
+        <button class="tab-button" data-tab="diagnostics">Diagnostics / Logs</button>
       </nav>
 
       <section class="panel tab-panel active" id="tab-memories">
@@ -244,12 +247,160 @@
         </div>
       </section>
 
-      <section class="panel tab-panel" id="tab-diagnostics">
-        <h2>Diagnostics</h2>
-        <div class="form-actions">
-          <button id="refresh-diagnostics" type="button">Refresh context</button>
+      <section class="panel tab-panel" id="tab-embeddings">
+        <div class="panel-grid">
+          <section>
+            <h2>Embedding model status</h2>
+            <div class="form-actions">
+              <button id="refresh-embedding-status" type="button">Refresh status</button>
+              <button id="refresh-embedding-jobs" type="button">Refresh jobs</button>
+            </div>
+            <pre id="embedding-status" class="json-box">Loading…</pre>
+            <pre id="embedding-model-state" class="json-box">Loading model state…</pre>
+          </section>
+          <section>
+            <h2>Refresh embeddings</h2>
+            <form id="embedding-refresh-form" class="form-grid compact">
+              <label>Space
+                <select name="space">
+                  <option value="user">user</option>
+                  <option value="workspace">workspace</option>
+                </select>
+              </label>
+              <label>Workspace UID
+                <input name="workspace_uid" placeholder="optional" />
+              </label>
+              <label>Memory space key
+                <input name="memory_space_key" placeholder="default" />
+              </label>
+              <label class="checkbox"><input type="checkbox" name="include_archived" /> Include archived</label>
+              <div class="form-actions">
+                <button type="submit">Refresh stale embeddings</button>
+                <button type="button" id="clear-embedding-jobs" class="secondary">Clear job history</button>
+              </div>
+            </form>
+            <div class="split">
+              <div>
+                <h3>Jobs</h3>
+                <div id="embedding-jobs" class="list"></div>
+              </div>
+              <div>
+                <h3>Job detail</h3>
+                <pre id="embedding-job-detail" class="json-box">No embedding job selected.</pre>
+              </div>
+            </div>
+          </section>
         </div>
-        <pre id="diagnostics" class="json-box">Loading…</pre>
+      </section>
+
+      <section class="panel tab-panel" id="tab-dev-tools">
+        <div class="panel-grid">
+          <section>
+            <h2>Seeded dev database</h2>
+            <div class="form-actions">
+              <button id="refresh-dev-status" type="button">Refresh status</button>
+              <button id="init-dev-seed" type="button">Init</button>
+              <button id="reset-dev-seed" type="button" class="danger">Reset</button>
+              <button id="run-dev-eval" type="button">Run eval</button>
+            </div>
+            <pre id="dev-seed-status" class="json-box">Loading…</pre>
+            <pre id="dev-eval-result" class="json-box">No dev eval result yet.</pre>
+          </section>
+          <section>
+            <h2>Threshold optimizer</h2>
+            <form id="threshold-form" class="form-grid compact">
+              <label>Start
+                <input name="start" type="number" step="0.01" min="0" max="1" value="0" />
+              </label>
+              <label>End
+                <input name="end" type="number" step="0.01" min="0" max="1" value="1" />
+              </label>
+              <label>Step
+                <input name="step" type="number" step="0.01" min="0.01" max="1" value="0.05" />
+              </label>
+              <label>Beta
+                <input name="beta" type="number" step="0.1" min="0.1" max="5" value="0.5" />
+              </label>
+              <label>Format
+                <select name="output_format">
+                  <option value="csv">csv</option>
+                  <option value="png">png</option>
+                </select>
+              </label>
+              <label>Output path
+                <input name="output_path" placeholder="optional" />
+              </label>
+              <label class="checkbox"><input type="checkbox" name="write_config" /> Write recommended config</label>
+              <div class="form-actions">
+                <button type="submit">Optimize threshold</button>
+              </div>
+            </form>
+            <pre id="threshold-result" class="json-box">No threshold optimization result yet.</pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel tab-panel" id="tab-graph">
+        <div class="panel-grid">
+          <section>
+            <h2>Graph filters</h2>
+            <form id="graph-form" class="form-grid compact">
+              <label>Memory space key
+                <input name="memory_space_key" placeholder="default" />
+              </label>
+              <label>Scope
+                <select name="space">
+                  <option value="">any</option>
+                  <option value="user">user</option>
+                  <option value="workspace">workspace</option>
+                </select>
+              </label>
+              <label>Workspace UID
+                <input name="workspace_uid" placeholder="optional" />
+              </label>
+              <label>Type
+                <input name="type" placeholder="optional" />
+              </label>
+              <label>Status
+                <input name="status" placeholder="optional" />
+              </label>
+              <label>Limit
+                <input name="limit" type="number" min="1" value="40" />
+              </label>
+              <label class="checkbox"><input type="checkbox" name="include_archived" /> Include archived</label>
+              <div class="form-actions">
+                <button type="submit">Render graph</button>
+                <button type="button" id="refresh-graph" class="secondary">Refresh</button>
+              </div>
+            </form>
+            <pre id="graph-detail" class="json-box">Graph filters and summary will appear here.</pre>
+          </section>
+          <section>
+            <h2>Visualization</h2>
+            <svg id="graph-svg" class="graph-svg" viewBox="0 0 1200 700" role="img" aria-label="Memory graph visualization"></svg>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel tab-panel" id="tab-diagnostics">
+        <div class="panel-grid">
+          <section>
+            <h2>Diagnostics bundle</h2>
+            <div class="form-actions">
+              <button id="refresh-diagnostics" type="button">Refresh bundle</button>
+              <button id="copy-diagnostics" type="button">Copy bundle</button>
+            </div>
+            <pre id="diagnostics" class="json-box">Loading…</pre>
+          </section>
+          <section>
+            <h2>Logs</h2>
+            <div class="form-actions">
+              <button id="refresh-logs" type="button">Refresh logs</button>
+            </div>
+            <pre id="log-summary" class="json-box">Loading…</pre>
+            <pre id="log-tail" class="json-box">Loading log tail…</pre>
+          </section>
+        </div>
       </section>
 
       <div id="status-message" class="status-message" aria-live="polite"></div>

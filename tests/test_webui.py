@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 from fastapi.testclient import TestClient
@@ -23,6 +24,27 @@ class FakeCore:
         self._memories: dict[str, Memory] = {}
         self._aliases: dict[str, dict[str, Any]] = {}
         self._counter = 0
+        self._embedding_jobs: dict[str, dict[str, Any]] = {
+            "job-001": {
+                "id": "job-001",
+                "state": "completed",
+                "reason": "seed",
+                "provider": "fake",
+                "model": "fake-model",
+                "total_count": 1,
+                "succeeded_count": 1,
+                "failed_count": 0,
+            }
+        }
+        self.embedding_provider = SimpleNamespace(
+            embedding_profile={
+                "provider": "fake",
+                "model": "fake-model",
+                "profile": "fake-profile",
+                "dimensions": 8,
+            },
+            cache_dir=None,
+        )
 
     def _timestamp(self) -> str:
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -132,6 +154,96 @@ class FakeCore:
         memory.status = "archived"
         memory.updated_at = self._timestamp()
         return memory
+
+    def list_embedding_jobs(
+        self,
+        *,
+        state: str | None = None,
+        limit: int | None = None,
+        memory_space_key: str | None = None,
+    ) -> list[dict[str, Any]]:
+        jobs = list(self._embedding_jobs.values())
+        if state is not None:
+            jobs = [job for job in jobs if job["state"] == state]
+        jobs.sort(key=lambda job: job["id"])
+        return jobs[:limit] if limit is not None else jobs
+
+    def get_embedding_job(
+        self, job_id: str, *, memory_space_key: str | None = None
+    ) -> dict[str, Any]:
+        return self._embedding_jobs[job_id]
+
+    def clear_embedding_jobs(
+        self,
+        *,
+        states: tuple[str, ...] | list[str] | None = None,
+        memory_space_key: str | None = None,
+    ) -> dict[str, Any]:
+        selected_states = tuple(states) if states is not None else ("completed",)
+        deleted = [
+            job_id
+            for job_id, job in list(self._embedding_jobs.items())
+            if job["state"] in selected_states
+        ]
+        for job_id in deleted:
+            self._embedding_jobs.pop(job_id, None)
+        return {
+            "deleted_count": len(deleted),
+            "states": list(selected_states),
+            "deleted_job_ids": deleted,
+        }
+
+    def refresh_stale_embeddings(
+        self,
+        *,
+        space: str | None = None,
+        workspace_uid: str | None = None,
+        include_archived: bool = False,
+        progress_callback=None,
+        memory_space_key: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "refreshed": True,
+            "stale_count": 1,
+            "job": self._embedding_jobs["job-001"],
+            "status_path": "/v1/embedding/jobs/job-001",
+        }
+
+    def active_embedding_status(
+        self, *, memory_space_key: str | None = None
+    ) -> dict[str, Any]:
+        return {
+            "embedding_profile": {
+                "provider": "fake",
+                "model": "fake-model",
+                "profile": "fake-profile",
+                "dimensions": 8,
+            },
+            "provider_status": "configured",
+            "model_status": "managed_externally",
+            "model_cache_path": None,
+            "runtime": None,
+            "startup_reembedding_job_id": None,
+            "startup_reembedding_status_path": None,
+            "embedding_jobs_status_path": "/v1/embedding/jobs",
+            "recent_embedding_jobs": self.list_embedding_jobs(limit=5),
+            "memory_space_key": memory_space_key
+            or self.config.default_memory_space_key,
+            "memory_space_db_path": str(self.config.resolved_database_path),
+        }
+
+    def database_status(
+        self,
+        *,
+        memory_space_key: str | None = None,
+    ) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "memory_space_key": memory_space_key
+            or self.config.default_memory_space_key,
+            "memory_space_db_path": str(self.config.resolved_database_path),
+            "memory_space_is_default": True,
+        }
 
     def search_user_memories(
         self,
@@ -363,14 +475,24 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     assert 'id="config-key-form"' in index_html
     assert 'id="workspace-form"' in index_html
     assert 'id="service-form"' in index_html
+    assert 'id="embedding-refresh-form"' in index_html
+    assert 'id="threshold-form"' in index_html
+    assert 'id="graph-form"' in index_html
     assert 'id="diagnostics"' in index_html
+    assert 'id="log-tail"' in index_html
     assert "/v1/webui/memories" in app_js
     assert "/v1/webui/workspaces" in app_js
     assert "/v1/webui/config" in app_js
     assert "/v1/webui/services" in app_js
-    assert "/v1/webui/memory-spaces" in app_js
+    assert "/v1/webui/embedding/status" in app_js
+    assert "/v1/webui/dev/optimize-threshold" in app_js
+    assert "/v1/webui/graph" in app_js
+    assert "/v1/webui/diagnostics" in app_js
+    assert "/v1/webui/logs" in app_js
     assert "function normalizeMemoryEntry(entry)" in app_js
-    assert "entry?.memory" in app_js
+    assert "renderEmbeddingStatus" in app_js
+    assert "renderGraph" in app_js
+    assert "renderDiagnosticsBundle" in app_js
     assert "score ${score.toFixed(3)}" in app_js
 
 
@@ -537,6 +659,166 @@ def test_webui_backend_supports_memory_workspace_config_and_service_controls(
     assert webui_stop_accepted.json()["status"] == "accepted"
 
 
+def test_webui_backend_supports_embeddings_dev_tools_graph_and_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = _make_core(tmp_path, monkeypatch)
+
+    monkeypatch.setattr(
+        "recollectium.webui.RecollectiumCore", lambda *args, **kwargs: core
+    )
+    monkeypatch.setattr(
+        "recollectium.webui.seeded_dev_database_is_initialized",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        "recollectium.webui.ensure_seeded_dev_database",
+        lambda *_args, **_kwargs: {"status": "seeded"},
+    )
+    monkeypatch.setattr(
+        "recollectium.webui.reset_seeded_dev_database",
+        lambda *_args, **_kwargs: {"status": "reset"},
+    )
+    monkeypatch.setattr("recollectium.webui.asdict", lambda obj: dict(obj.__dict__))
+    monkeypatch.setattr(
+        "recollectium.webui.evaluate_exact_mrr_for_core",
+        lambda _core: SimpleNamespace(
+            value=0.42, targets=2, user_value=0.4, workspace_value=0.44
+        ),
+    )
+    monkeypatch.setattr(
+        "recollectium.webui.evaluate_semantic_mrr_for_core",
+        lambda _core: SimpleNamespace(value=0.51, targets=2, queries=3),
+    )
+    monkeypatch.setattr(
+        "recollectium.webui.evaluate_thematic_weighted_metrics_for_core",
+        lambda _core: SimpleNamespace(
+            weighted_precision=0.62, weighted_recall=0.58, weighted_f1=0.6
+        ),
+    )
+    monkeypatch.setattr(
+        "recollectium.webui.evaluate_ranked_set_ndcg_for_core",
+        lambda _core: SimpleNamespace(value=0.71, cases=2),
+    )
+
+    class FakeThresholdReport:
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "recommended_threshold": 0.5,
+                "tested_thresholds": 3,
+                "rows": [{"threshold": 0.5, "recommended": True}],
+            }
+
+    monkeypatch.setattr(
+        "recollectium.webui.build_threshold_search_bundles", lambda *args, **kwargs: []
+    )
+    monkeypatch.setattr(
+        "recollectium.webui.build_threshold_optimization_report",
+        lambda **kwargs: FakeThresholdReport(),
+    )
+    monkeypatch.setattr(
+        "recollectium.webui._log_summary_payload",
+        lambda core, tail_lines=80: {
+            "status": "ok",
+            "log_dir": str(core.config.xdg_dirs["logs"]),
+            "log_files": [
+                {
+                    "path": str(core.config.xdg_dirs["logs"] / "recollectium.log"),
+                    "exists": False,
+                    "lines": ["log line one", "log line two"],
+                    "line_count": 2,
+                    "truncated": False,
+                }
+            ],
+            "recent": {
+                "path": str(core.config.xdg_dirs["logs"] / "recollectium.log"),
+                "exists": False,
+                "lines": ["log line one", "log line two"],
+                "line_count": 2,
+                "truncated": False,
+            },
+        },
+    )
+
+    client = _client(core)
+
+    embedding_status = client.get("/v1/webui/embedding/status")
+    assert embedding_status.status_code == 200
+    embedding_payload = embedding_status.json()
+    assert embedding_payload["provider_status"] == "configured"
+    assert "model_state" in embedding_payload
+
+    embedding_jobs = client.get("/v1/webui/embedding/jobs")
+    assert embedding_jobs.status_code == 200
+    assert embedding_jobs.json()["count"] == 1
+
+    embedding_job = client.get("/v1/webui/embedding/jobs/job-001")
+    assert embedding_job.status_code == 200
+    assert embedding_job.json()["job"]["id"] == "job-001"
+
+    refresh_embeddings = client.post(
+        "/v1/webui/embedding/refresh",
+        json={"space": "user", "include_archived": False},
+    )
+    assert refresh_embeddings.status_code == 200
+    assert refresh_embeddings.json()["result"]["refreshed"] is True
+
+    clear_embedding_jobs = client.request(
+        "DELETE",
+        "/v1/webui/embedding/jobs",
+        json={"states": ["completed"]},
+    )
+    assert clear_embedding_jobs.status_code == 200
+    assert clear_embedding_jobs.json()["result"]["deleted_count"] == 1
+
+    dev_status = client.get("/v1/webui/dev/status")
+    assert dev_status.status_code == 200
+    assert dev_status.json()["seeded_database"]["initialized"] is True
+
+    dev_seed_init = client.post("/v1/webui/dev/seeding/init")
+    assert dev_seed_init.status_code == 200
+    assert dev_seed_init.json()["status"] in {"ok", "seeded"}
+
+    dev_seed_reset = client.post("/v1/webui/dev/seeding/reset")
+    assert dev_seed_reset.status_code == 200
+    assert dev_seed_reset.json()["status"] == "reset"
+
+    dev_eval = client.post("/v1/webui/dev/eval", json={})
+    assert dev_eval.status_code == 200
+    assert dev_eval.json()["reports"]["exact_mrr"]["value"] == 0.42
+
+    threshold = client.post(
+        "/v1/webui/dev/optimize-threshold",
+        json={
+            "start": 0.0,
+            "end": 1.0,
+            "step": 0.5,
+            "beta": 0.5,
+            "output_format": "csv",
+            "write_config": False,
+        },
+    )
+    assert threshold.status_code == 200
+    assert threshold.json()["report"]["recommended_threshold"] == 0.5
+
+    graph = client.get("/v1/webui/graph?limit=10")
+    assert graph.status_code == 200
+    graph_payload = graph.json()
+    assert graph_payload["summary"]["memory_count"] >= 2
+    assert any(node["kind"] == "memory_space" for node in graph_payload["nodes"])
+    assert any(node["kind"] == "memory" for node in graph_payload["nodes"])
+
+    diagnostics = client.get("/v1/webui/diagnostics")
+    assert diagnostics.status_code == 200
+    diagnostics_payload = diagnostics.json()
+    assert diagnostics_payload["config_validation"]["valid"] is True
+    assert diagnostics_payload["logs"]["recent"]["lines"][0] == "log line one"
+
+    logs = client.get("/v1/webui/logs")
+    assert logs.status_code == 200
+    assert logs.json()["recent"]["line_count"] == 2
+
+
 def test_webui_root_serves_shell_and_bootstrap_endpoints(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -550,4 +832,7 @@ def test_webui_root_serves_shell_and_bootstrap_endpoints(
     app_js = client.get("/assets/app.js")
     assert app_js.status_code == 200
     assert "/v1/webui/context" in app_js.text
-    assert "/v1/webui/services/webui/stop" in app_js.text
+    assert "/v1/webui/embedding/status" in app_js.text
+    assert "/v1/webui/graph" in app_js.text
+    assert "/v1/webui/diagnostics" in app_js.text
+    assert "/v1/webui/dev/optimize-threshold" in app_js.text

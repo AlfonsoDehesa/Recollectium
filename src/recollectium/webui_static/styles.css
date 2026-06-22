@@ -249,6 +249,50 @@ h3 {
   color: #dbeafe;
 }
 
+.graph-svg {
+  width: 100%;
+  min-height: 560px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.82));
+}
+
+.graph-svg text {
+  fill: #e2e8f0;
+  font-size: 12px;
+}
+
+.graph-svg .edge {
+  stroke: rgba(148, 163, 184, 0.35);
+  stroke-width: 1.5;
+}
+
+.graph-svg .memory-space {
+  fill: #1d4ed8;
+}
+
+.graph-svg .workspace {
+  fill: #7c3aed;
+}
+
+.graph-svg .type {
+  fill: #0f766e;
+}
+
+.graph-svg .status {
+  fill: #b45309;
+}
+
+.graph-svg .memory {
+  fill: #1f2937;
+  stroke: #93c5fd;
+  stroke-width: 1.5;
+}
+
+.graph-svg .node-label {
+  font-weight: 600;
+}
+
 .status-message {
   position: sticky;
   bottom: 14px;

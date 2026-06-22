@@ -6,8 +6,18 @@ const ROUTES = {
   workspaces: '/v1/webui/workspaces',
   config: '/v1/webui/config',
   services: '/v1/webui/services',
-  serviceStopWebui: '/v1/webui/services/webui/stop',
-  serviceStartApi: '/v1/webui/services/api/start',
+  embeddingStatus: '/v1/webui/embedding/status',
+  embeddingRefresh: '/v1/webui/embedding/refresh',
+  embeddingJobs: '/v1/webui/embedding/jobs',
+  devStatus: '/v1/webui/dev/status',
+  devSeedingStatus: '/v1/webui/dev/seeding/status',
+  devSeedingInit: '/v1/webui/dev/seeding/init',
+  devSeedingReset: '/v1/webui/dev/seeding/reset',
+  devEval: '/v1/webui/dev/eval',
+  devOptimizeThreshold: '/v1/webui/dev/optimize-threshold',
+  graph: '/v1/webui/graph',
+  diagnostics: '/v1/webui/diagnostics',
+  logs: '/v1/webui/logs',
 };
 
 const state = {
@@ -15,6 +25,10 @@ const state = {
   selectedMemory: null,
   selectedWorkspace: null,
   selectedService: 'api',
+  selectedEmbeddingJob: null,
+  graphData: null,
+  diagnosticsBundle: null,
+  logSummary: null,
   lastResponse: null,
 };
 
@@ -188,6 +202,126 @@ function renderServiceList(services) {
   });
 }
 
+function renderEmbeddingJobs(jobs) {
+  const root = $('embedding-jobs');
+  if (!root) return;
+  if (!jobs.length) {
+    root.innerHTML = '<div class="empty">No embedding jobs found.</div>';
+    return;
+  }
+  root.innerHTML = jobs
+    .map((job) => {
+      const status = job.state || job.status || 'unknown';
+      return `
+        <button class="list-item" data-embedding-job-id="${escapeHtml(job.id || '')}">
+          <strong>${escapeHtml(job.id || 'unknown job')}</strong>
+          <span>${escapeHtml(status)} · ${escapeHtml(job.reason || job.error_message || '')}</span>
+          <small>${escapeHtml([job.provider, job.model].filter(Boolean).join(' · '))}</small>
+        </button>`;
+    })
+    .join('');
+  root.querySelectorAll('[data-embedding-job-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const jobId = button.dataset.embeddingJobId;
+      state.selectedEmbeddingJob = jobId;
+      const payload = await apiJson(`${API}/embedding/jobs/${encodeURIComponent(jobId)}?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
+      renderJson('embedding-job-detail', payload);
+    });
+  });
+}
+
+function graphLayout(nodes) {
+  const groups = ['memory_space', 'workspace', 'type', 'status', 'memory'];
+  const positions = new Map();
+  groups.forEach((group, index) => {
+    const xs = 150 + index * 220;
+    const groupNodes = nodes.filter((node) => node.kind === group);
+    const step = 560 / Math.max(groupNodes.length + 1, 2);
+    groupNodes.forEach((node, nodeIndex) => {
+      positions.set(node.id, {
+        x: xs,
+        y: 80 + step * (nodeIndex + 1),
+      });
+    });
+  });
+  return positions;
+}
+
+function renderGraph(graph) {
+  const svg = $('graph-svg');
+  const detail = $('graph-detail');
+  if (!svg || !detail) return;
+  state.graphData = graph;
+  renderJson('graph-detail', graph);
+  const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  const edges = Array.isArray(graph.edges) ? graph.edges : [];
+  if (!nodes.length) {
+    svg.innerHTML = '<text x="24" y="32" fill="#cbd5e1">No graph nodes match the current filters.</text>';
+    return;
+  }
+  const positions = graphLayout(nodes);
+  const nodeRadius = 24;
+  const edgeMarkup = edges
+    .map((edge) => {
+      const source = positions.get(edge.source);
+      const target = positions.get(edge.target);
+      if (!source || !target) return '';
+      return `<line class="edge" x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}" />`;
+    })
+    .join('');
+  const nodeMarkup = nodes
+    .map((node) => {
+      const position = positions.get(node.id) || { x: 80, y: 80 };
+      const label = node.label || node.id;
+      const classes = ['node', node.kind].join(' ');
+      return `
+        <g class="${classes}" data-node-id="${escapeHtml(node.id)}" transform="translate(${position.x},${position.y})">
+          <circle r="${node.kind === 'memory' ? 28 : nodeRadius}" class="${escapeHtml(node.kind)}"></circle>
+          <text class="node-label" text-anchor="middle" y="4">${escapeHtml(label)}</text>
+        </g>`;
+    })
+    .join('');
+  svg.innerHTML = `${edgeMarkup}${nodeMarkup}`;
+  svg.querySelectorAll('[data-node-id]').forEach((nodeEl) => {
+    nodeEl.addEventListener('click', () => {
+      const nodeId = nodeEl.dataset.nodeId;
+      const node = nodes.find((candidate) => candidate.id === nodeId);
+      if (node) {
+        renderJson('graph-detail', node);
+      }
+    });
+  });
+}
+
+function renderLogSummary(summary) {
+  const root = $('log-summary');
+  if (root) renderJson('log-summary', summary);
+  const tail = $('log-tail');
+  if (tail) {
+    const recent = summary?.recent;
+    if (recent && Array.isArray(recent.lines)) {
+      tail.textContent = recent.lines.join('\n');
+    } else {
+      tail.textContent = 'No log tail available.';
+    }
+  }
+}
+
+function renderDiagnosticsBundle(bundle) {
+  state.diagnosticsBundle = bundle;
+  renderJson('diagnostics', bundle);
+  renderLogSummary(bundle?.logs || null);
+}
+
+function renderEmbeddingStatus(payload) {
+  renderJson('embedding-status', payload);
+  renderJson('embedding-model-state', payload?.model_state || {});
+}
+
+function renderDevStatus(payload) {
+  renderJson('dev-seed-status', payload);
+}
+
 function renderSpaces(spaces) {
   const root = $('memory-spaces');
   if (!root) return;
@@ -273,6 +407,60 @@ async function refreshConfig() {
 async function refreshServices() {
   const payload = await apiJson(`${API}/services`);
   renderServiceList(payload.services || []);
+}
+
+async function refreshEmbeddingStatus() {
+  const payload = await apiJson(
+    `${API}/embedding/status?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`,
+  );
+  renderEmbeddingStatus(payload);
+  return payload;
+}
+
+async function refreshEmbeddingJobs() {
+  const params = new URLSearchParams();
+  if (state.selectedMemorySpaceKey) params.set('memory_space_key', state.selectedMemorySpaceKey);
+  const payload = await apiJson(`${API}/embedding/jobs?${params.toString()}`);
+  renderEmbeddingJobs(payload.jobs || []);
+  return payload;
+}
+
+async function refreshDevStatus() {
+  const payload = await apiJson(`${API}/dev/status`);
+  renderDevStatus(payload);
+  return payload;
+}
+
+async function refreshDiagnosticsBundle() {
+  const payload = await apiJson(
+    `${API}/diagnostics?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`,
+  );
+  renderDiagnosticsBundle(payload);
+  return payload;
+}
+
+async function refreshLogs() {
+  const payload = await apiJson(`${API}/logs`);
+  state.logSummary = payload;
+  renderLogSummary(payload);
+  return payload;
+}
+
+async function refreshGraph() {
+  const form = $('graph-form');
+  const values = form ? formValues(form) : {};
+  const params = new URLSearchParams();
+  const memorySpaceKey = values.memory_space_key?.trim() || state.selectedMemorySpaceKey || '';
+  if (memorySpaceKey) params.set('memory_space_key', memorySpaceKey);
+  if (values.space) params.set('space', values.space);
+  if (values.workspace_uid) params.set('workspace_uid', values.workspace_uid);
+  if (values.type) params.set('type', values.type);
+  if (values.status) params.set('status', values.status);
+  if (values.include_archived) params.set('include_archived', 'true');
+  if (values.limit) params.set('limit', values.limit);
+  const payload = await apiJson(`${API}/graph?${params.toString()}`);
+  renderGraph(payload);
+  return payload;
 }
 
 function wireMemoryForms() {
@@ -573,12 +761,176 @@ function wireServiceForms() {
   });
 }
 
-function wireDiagnostics() {
+function wireEmbeddingForms() {
+  $('refresh-embedding-status')?.addEventListener('click', async () => {
+    try {
+      await refreshEmbeddingStatus();
+      showMessage('Embedding status refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('refresh-embedding-jobs')?.addEventListener('click', async () => {
+    try {
+      await refreshEmbeddingJobs();
+      showMessage('Embedding jobs refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('clear-embedding-jobs')?.addEventListener('click', async () => {
+    try {
+      const payload = await apiJson(`${API}/embedding/jobs`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memory_space_key: state.selectedMemorySpaceKey || null }),
+      });
+      renderJson('embedding-job-detail', payload);
+      await refreshEmbeddingJobs();
+      showMessage('Embedding job history cleared.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('embedding-refresh-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const values = formValues(event.currentTarget);
+    try {
+      const payload = await apiJson(`${API}/embedding/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          space: values.space || null,
+          workspace_uid: values.workspace_uid || null,
+          include_archived: Boolean(values.include_archived),
+          memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null,
+        }),
+      });
+      renderJson('embedding-job-detail', payload);
+      await refreshEmbeddingStatus();
+      await refreshEmbeddingJobs();
+      showMessage('Embedding refresh completed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+}
+
+function wireDevForms() {
+  $('refresh-dev-status')?.addEventListener('click', async () => {
+    try {
+      await refreshDevStatus();
+      showMessage('Dev status refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('init-dev-seed')?.addEventListener('click', async () => {
+    try {
+      const payload = await apiJson(`${API}/dev/seeding/init`, { method: 'POST' });
+      renderJson('dev-eval-result', payload);
+      await refreshDevStatus();
+      showMessage('Seeded dev database initialized.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('reset-dev-seed')?.addEventListener('click', async () => {
+    try {
+      const payload = await apiJson(`${API}/dev/seeding/reset`, { method: 'POST' });
+      renderJson('dev-eval-result', payload);
+      await refreshDevStatus();
+      showMessage('Seeded dev database reset.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('run-dev-eval')?.addEventListener('click', async () => {
+    try {
+      const payload = await apiJson(`${API}/dev/eval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      renderJson('dev-eval-result', payload);
+      showMessage('Dev eval completed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('threshold-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const values = formValues(event.currentTarget);
+    try {
+      const payload = await apiJson(`${API}/dev/optimize-threshold`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          start: Number(values.start),
+          end: Number(values.end),
+          step: Number(values.step),
+          beta: Number(values.beta),
+          output_format: values.output_format || 'csv',
+          output_path: values.output_path || null,
+          write_config: Boolean(values.write_config),
+        }),
+      });
+      renderJson('threshold-result', payload);
+      showMessage('Threshold optimization completed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+}
+
+function wireGraphForms() {
+  $('refresh-graph')?.addEventListener('click', async () => {
+    try {
+      await refreshGraph();
+      showMessage('Graph refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('graph-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await refreshGraph();
+      showMessage('Graph rendered.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+}
+
+function wireDiagnosticsForms() {
   $('refresh-diagnostics')?.addEventListener('click', async () => {
     try {
-      const payload = await apiJson(`${API}/context`);
-      renderJson('diagnostics', payload);
-      showMessage('Diagnostics refreshed.');
+      await refreshDiagnosticsBundle();
+      showMessage('Diagnostics bundle refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('refresh-logs')?.addEventListener('click', async () => {
+    try {
+      await refreshLogs();
+      showMessage('Logs refreshed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  $('copy-diagnostics')?.addEventListener('click', async () => {
+    try {
+      const text = JSON.stringify(state.diagnosticsBundle || {}, null, 2);
+      await navigator.clipboard.writeText(text);
+      showMessage('Diagnostics bundle copied.');
     } catch (error) {
       showMessage(error.message, 'error');
     }
@@ -603,11 +955,20 @@ async function boot() {
   wireConfigForms();
   wireWorkspaceForms();
   wireServiceForms();
-  wireDiagnostics();
+  wireEmbeddingForms();
+  wireDevForms();
+  wireGraphForms();
+  wireDiagnosticsForms();
   wireRefreshButtons();
 
   try {
     await refreshContext();
+    await refreshEmbeddingStatus();
+    await refreshEmbeddingJobs();
+    await refreshDevStatus();
+    await refreshGraph();
+    await refreshDiagnosticsBundle();
+    await refreshLogs();
     showMessage('WebUI ready.');
   } catch (error) {
     renderText('health-status', 'unavailable');
@@ -617,5 +978,6 @@ async function boot() {
     showMessage(error.message, 'error');
   }
 }
+
 
 document.addEventListener('DOMContentLoaded', boot);
