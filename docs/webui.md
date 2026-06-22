@@ -44,6 +44,8 @@ The WebUI is local-first, unauthenticated, and intended for localhost use.
 
 Do not bind the WebUI to a non-local interface unless you also add private-network controls and understand that anyone who can reach the interface can access your local memory and service operations.
 
+For the full service-level security model, see [`../SECURITY.md`](../SECURITY.md).
+
 ## What the WebUI can do
 
 The WebUI exposes the same major local control surfaces as Core:
@@ -57,6 +59,8 @@ The WebUI exposes the same major local control surfaces as Core:
 - Graph, diagnostics, and logs views.
 
 The packaged front end lives in `src/recollectium/webui_static/` and is exercised by the test suite, so WebUI changes should keep the static shell and the API contract in sync.
+
+When Core adds a new user-facing feature or operation, the WebUI should gain matching support in the same release unless the change is explicitly documented as deferred.
 
 ## Related docs
 

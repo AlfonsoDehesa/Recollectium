@@ -14,6 +14,8 @@ See [`../SECURITY.md`](../SECURITY.md) for the full v1 security model.
 - Any user, process, or network client with sufficient access to the Recollectium data directory, database file, or unauthenticated service endpoint can read, modify, or delete memories. Because memories influence what agents recall, unauthorized memory changes can also influence agent behavior.
 - If an agent must connect from another machine, use private networking with external access controls. For most users, Tailscale is the recommended split-machine path; WireGuard, SSH tunneling, firewall allowlists, or equivalent VPN/overlay networking can also work.
 
+The browser WebUI is documented separately in [`webui.md`](webui.md). It follows the same local-first, unauthenticated assumptions as this API service, but this page stays focused on the JSON HTTP API contract.
+
 For the managed service path used by adapters, start the API service with:
 
 ```bash
