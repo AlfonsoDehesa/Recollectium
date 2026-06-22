@@ -637,7 +637,7 @@ function confirmDanger(action, scope, details = []) {
   const lines = [action, '', `Scope: ${scope}`];
   details.filter(Boolean).forEach((detail) => lines.push(`- ${detail}`));
   lines.push('', 'Proceed with this destructive action?');
-  return window.confirm(lines.join('\\n'));
+  return window.confirm(lines.join('\n'));
 }
 
 async function apiJson(path, options = {}) {
@@ -1153,6 +1153,12 @@ function wireEmbeddingForms() {
 
   $('clear-embedding-jobs')?.addEventListener('click', async () => {
     try {
+      const scope = state.selectedMemorySpaceKey || 'current memory space';
+      if (!confirmDanger('Clear embedding job history', scope, [
+        'This removes job records for the active memory space only.',
+      ])) {
+        return;
+      }
       const payload = await apiJson(`${API}/embedding/jobs`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
