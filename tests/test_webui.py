@@ -524,6 +524,8 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
 
     for pattern in [
         r'id="global-search-form"',
+        r'id="security-warning"',
+        r'id="status-message"',
         r'placeholder="Search memories only"',
         r"Ctrl/⌘K · memories",
         r'id="memory-search-form"',
@@ -558,6 +560,22 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
 
     assert "Search memories" in index_html
     assert "workspaces, or services" not in index_html
+    assert (
+        "No memory selected.\\nSelect a result to inspect provenance, metadata, and raw content."
+        not in index_html
+    )
+    assert (
+        "No workspace selected.\\nResolve a workspace to inspect aliases and canonical mapping."
+        not in index_html
+    )
+    _assert_pattern(
+        index_html,
+        r"<pre[^>]*id=\"memory-detail\"[^>]*>No memory selected\.<br\s*/>Select a result to inspect provenance, metadata, and raw content\.</pre>",
+    )
+    _assert_pattern(
+        index_html,
+        r"<pre[^>]*id=\"workspace-detail\"[^>]*>No workspace selected\.<br\s*/>Resolve a workspace to inspect aliases and canonical mapping\.</pre>",
+    )
 
     for pattern in [
         r"--bg-app: #0b0f14",
@@ -571,6 +589,8 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
         r"\.micro-chip",
         r":focus-visible",
         r"prefers-reduced-motion",
+        r"@media \(max-width: 840px\) \{[\s\S]*?\.shell-banner \{\s*display: flex;\s*flex-direction: column;\s*align-items: flex-start;",
+        r"@media \(max-width: 840px\) \{[\s\S]*?\.status-message \{\s*min-height: 44px;[\s\S]*?display: flex;[\s\S]*?word-break: break-word;",
     ]:
         _assert_pattern(styles_css, pattern)
 
