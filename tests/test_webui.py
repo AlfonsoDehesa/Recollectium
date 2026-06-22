@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -486,6 +487,10 @@ def _client(core: FakeCore) -> TestClient:
     return TestClient(create_app(cast(Any, core)), raise_server_exceptions=False)
 
 
+def _assert_pattern(text: str, pattern: str) -> None:
+    assert re.search(pattern, text, re.S), pattern
+
+
 def test_webui_static_assets_expose_control_plane_contract() -> None:
     static_dir = (
         Path(__file__).resolve().parents[1] / "src" / "recollectium" / "webui_static"
@@ -498,55 +503,119 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
     styles_css = (static_dir / "styles.css").read_text(encoding="utf-8")
 
-    assert "cockpit-shell" in index_html
-    assert 'class="top-chrome panel"' in index_html
-    assert 'class="cockpit-rail panel"' in index_html
-    assert 'id="global-search-form"' in index_html
-    assert 'role="tablist"' in index_html
-    assert 'id="memory-search-form"' in index_html
-    assert 'id="config-key-form"' in index_html
-    assert 'id="workspace-form"' in index_html
-    assert 'id="service-form"' in index_html
-    assert 'id="service-restart"' in index_html
-    assert 'id="service-restart-note"' in index_html
-    assert 'id="embedding-refresh-form"' in index_html
-    assert 'id="run-embedding-maintenance"' in index_html
-    assert 'id="dev-eval-form"' in index_html
-    assert 'name="confirm"' in index_html
-    assert 'id="threshold-form"' in index_html
-    assert 'id="graph-form"' in index_html
-    assert 'id="diagnostics"' in index_html
-    assert 'id="log-tail-lines"' in index_html
+    for tab_id, button_id in {
+        "tab-memories": "tab-button-memories",
+        "tab-spaces-config": "tab-button-spaces-config",
+        "tab-workspaces": "tab-button-workspaces",
+        "tab-services": "tab-button-services",
+        "tab-embeddings": "tab-button-embeddings",
+        "tab-dev-tools": "tab-button-dev-tools",
+        "tab-graph": "tab-button-graph",
+        "tab-diagnostics": "tab-button-diagnostics",
+    }.items():
+        _assert_pattern(
+            index_html,
+            rf'<button[^>]*id="{button_id}"[^>]*role="tab"[^>]*aria-controls="{tab_id}"',
+        )
+        _assert_pattern(
+            index_html,
+            rf'<section[^>]*id="{tab_id}"[^>]*role="tabpanel"[^>]*aria-labelledby="{button_id}"',
+        )
 
-    assert "--bg-app: #0b0f14" in styles_css
-    assert "--accent-memory: #6ee7b7" in styles_css
-    assert "cockpit-layout" in styles_css
-    assert "status-tile" in styles_css
-    assert "global-search" in styles_css
-    assert "list-item__header" in styles_css
-    assert ":focus-visible" in styles_css
-    assert "prefers-reduced-motion" in styles_css
+    for pattern in [
+        r'id="global-search-form"',
+        r'placeholder="Search memories only"',
+        r"Ctrl/⌘K · memories",
+        r'id="memory-search-form"',
+        r'id="config-key-form"',
+        r'id="workspace-form"',
+        r'id="service-form"',
+        r'id="service-restart"',
+        r'id="service-restart-note"',
+        r'id="embedding-refresh-form"',
+        r'id="run-embedding-maintenance"',
+        r'id="dev-eval-form"',
+        r'name="confirm"',
+        r'id="threshold-form"',
+        r'id="graph-form"',
+        r'id="diagnostics"',
+        r'id="log-tail-lines"',
+        r'<button[^>]*data-action="archive"[^>]*class="[^"]*danger[^"]*"',
+        r'<button[^>]*data-action="unset"[^>]*class="[^"]*danger[^"]*"',
+        r'<button[^>]*data-action="remove-alias"[^>]*class="[^"]*danger[^"]*"',
+        r'<button[^>]*id="reset-dev-seed"[^>]*class="[^"]*danger[^"]*"',
+        r'<button[^>]*data-action="stop"[^>]*class="[^"]*danger[^"]*"',
+        r'<p[^>]*class="[^"]*risk-note[^"]*"',
+    ]:
+        _assert_pattern(index_html, pattern)
 
-    assert "/v1/webui/memories" in app_js
-    assert "/v1/webui/workspaces" in app_js
-    assert "/v1/webui/config" in app_js
-    assert "/v1/webui/services" in app_js
-    assert "/v1/webui/embedding/status" in app_js
-    assert "/v1/webui/embedding/maintenance" in app_js
-    assert "/v1/webui/dev/optimize-threshold" in app_js
-    assert "updateServiceControls" in app_js
-    assert "wireGlobalSearch" in app_js
-    assert "syncCardSelection" in app_js
-    assert "service-restart-note" in app_js
-    assert "dev-eval-form" in app_js
-    assert "/v1/webui/graph" in app_js
-    assert "/v1/webui/diagnostics" in app_js
-    assert "/v1/webui/logs" in app_js
-    assert "function normalizeMemoryEntry(entry)" in app_js
-    assert "renderEmbeddingStatus" in app_js
-    assert "renderGraph" in app_js
-    assert "renderDiagnosticsBundle" in app_js
-    assert "score ${score.toFixed(3)}" in app_js
+    assert "Search memories" in index_html
+    assert "workspaces, or services" not in index_html
+
+    for pattern in [
+        r"--bg-app: #0b0f14",
+        r"--radius-shell: 12px",
+        r"--radius-chip: 4px",
+        r'--font-mono: "JetBrains Mono"',
+        r"\.risk-note",
+        r"\.tab-button\.active",
+        r"\.list-item__meta",
+        r"\.status-chip",
+        r"\.micro-chip",
+        r":focus-visible",
+        r"prefers-reduced-motion",
+    ]:
+        _assert_pattern(styles_css, pattern)
+
+    for pattern in [
+        r"/v1/webui/memories",
+        r"/v1/webui/workspaces",
+        r"/v1/webui/config",
+        r"/v1/webui/services",
+        r"/v1/webui/embedding/status",
+        r"/v1/webui/embedding/maintenance",
+        r"/v1/webui/dev/optimize-threshold",
+        r"/v1/webui/graph",
+        r"/v1/webui/diagnostics",
+        r"/v1/webui/logs",
+        r"function selectTab\(name, \{ focusButton = false \} = \{\}\)",
+        r"ArrowRight",
+        r"ArrowLeft",
+        r"Home",
+        r"End",
+        r"confirmDanger",
+        r"escapeAttr",
+        r"formatTimestamp",
+        r"formatConfidence",
+        r"updateServiceControls",
+        r"wireGlobalSearch",
+        r"syncCardSelection",
+        r"service-restart-note",
+        r"function normalizeMemoryEntry\(entry\)",
+        r"renderEmbeddingStatus",
+        r"renderGraph",
+        r"renderDiagnosticsBundle",
+        r"workspace\.alias_count",
+        r"serviceDetails\.endpoint",
+        r"serviceDetails\.port",
+        r"job\.provider",
+        r"job\.model",
+        r"space\.source",
+        r"confirmDanger\('Archive memory'",
+        r"confirmDanger\('Unset config key'",
+        r"confirmDanger\('Remove workspace alias'",
+        r"confirmDanger\('Reset seeded dev database'",
+        r"confirmDanger\('Stop service'",
+    ]:
+        _assert_pattern(app_js, pattern)
+
+    for snippet in [
+        "memory?.source",
+        "memory?.confidence",
+        "memory?.created_at",
+        "memory?.updated_at",
+    ]:
+        assert snippet in app_js
 
 
 def test_webui_backend_supports_memory_workspace_config_and_service_controls(

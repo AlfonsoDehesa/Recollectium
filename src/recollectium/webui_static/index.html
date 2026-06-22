@@ -57,18 +57,18 @@
 
           <form id="global-search-form" class="global-search" role="search">
             <label>
-              Global search
+              Search memories
               <input
                 id="global-search-input"
                 name="query"
                 type="search"
-                placeholder="Scan memories, workspaces, or services"
+                placeholder="Search memories only"
                 autocomplete="off"
               />
             </label>
             <div class="global-search-actions">
-              <button type="submit">Scan</button>
-              <span class="search-hint">Ctrl/⌘K</span>
+              <button type="submit">Search</button>
+              <span class="search-hint">Ctrl/⌘K · memories</span>
             </div>
           </form>
         </div>
@@ -85,6 +85,7 @@
 
           <nav class="tabs" role="tablist" aria-label="WebUI sections">
             <button
+              id="tab-button-memories"
               class="tab-button active"
               data-tab="memories"
               role="tab"
@@ -94,6 +95,7 @@
               Memories
             </button>
             <button
+              id="tab-button-spaces-config"
               class="tab-button"
               data-tab="spaces-config"
               role="tab"
@@ -103,6 +105,7 @@
               Memory Spaces / Config
             </button>
             <button
+              id="tab-button-workspaces"
               class="tab-button"
               data-tab="workspaces"
               role="tab"
@@ -112,6 +115,7 @@
               Workspaces
             </button>
             <button
+              id="tab-button-services"
               class="tab-button"
               data-tab="services"
               role="tab"
@@ -121,6 +125,7 @@
               Services
             </button>
             <button
+              id="tab-button-embeddings"
               class="tab-button"
               data-tab="embeddings"
               role="tab"
@@ -130,6 +135,7 @@
               Embeddings
             </button>
             <button
+              id="tab-button-dev-tools"
               class="tab-button"
               data-tab="dev-tools"
               role="tab"
@@ -139,6 +145,7 @@
               Dev tools
             </button>
             <button
+              id="tab-button-graph"
               class="tab-button"
               data-tab="graph"
               role="tab"
@@ -148,6 +155,7 @@
               Graph
             </button>
             <button
+              id="tab-button-diagnostics"
               class="tab-button"
               data-tab="diagnostics"
               role="tab"
@@ -172,7 +180,7 @@
             <span id="security-warning-text"></span>
           </section>
 
-          <section class="panel tab-panel active" id="tab-memories" role="tabpanel">
+          <section class="panel tab-panel active" id="tab-memories" role="tabpanel" aria-labelledby="tab-button-memories">
             <div class="panel-grid">
               <section>
                 <h2>List / Search memories</h2>
@@ -284,12 +292,15 @@
                     <button type="button" data-action="update">Update</button>
                     <button type="button" data-action="archive" class="danger">Archive</button>
                   </div>
+                  <p class="risk-note">
+                    Archive only touches the selected memory in the active space. Browser confirmation is required.
+                  </p>
                 </form>
               </section>
             </div>
           </section>
 
-          <section class="panel tab-panel" id="tab-spaces-config" role="tabpanel">
+          <section class="panel tab-panel" id="tab-spaces-config" role="tabpanel" aria-labelledby="tab-button-spaces-config">
             <div class="panel-grid">
               <section>
                 <h2>Memory spaces</h2>
@@ -320,12 +331,15 @@
                     <button type="button" data-action="set">Set</button>
                     <button type="button" data-action="unset" class="danger">Unset</button>
                   </div>
+                  <p class="risk-note">
+                    Unset removes a live config key from the active file and usually needs a restart to take effect.
+                  </p>
                 </form>
               </section>
             </div>
           </section>
 
-          <section class="panel tab-panel" id="tab-workspaces" role="tabpanel">
+          <section class="panel tab-panel" id="tab-workspaces" role="tabpanel" aria-labelledby="tab-button-workspaces">
             <div class="panel-grid">
               <section>
                 <h2>Workspace inventory</h2>
@@ -363,13 +377,16 @@
                     <button type="button" data-action="add-alias">Add alias</button>
                     <button type="button" data-action="remove-alias" class="danger">Remove alias</button>
                   </div>
+                  <p class="risk-note">
+                    Removing an alias changes the active workspace map only; it does not delete memory rows.
+                  </p>
                 </form>
                 <pre id="workspace-detail" class="json-box">No workspace selected.</pre>
               </section>
             </div>
           </section>
 
-          <section class="panel tab-panel" id="tab-services" role="tabpanel">
+          <section class="panel tab-panel" id="tab-services" role="tabpanel" aria-labelledby="tab-button-services">
             <div class="panel-grid">
               <section>
                 <h2>Service status</h2>
@@ -406,6 +423,9 @@
                     <button type="button" data-action="stop" class="danger">Stop</button>
                     <button type="button" data-action="restart" id="service-restart">Restart</button>
                   </div>
+                  <p class="risk-note">
+                    Stop/restart are live process controls. WebUI self-stop needs explicit opt-in and may close this page.
+                  </p>
                   <p id="service-restart-note" hidden>
                     WebUI restart is disabled in the browser because the current process cannot restart itself.
                     Stop the WebUI, then relaunch it from your shell or service manager.
@@ -416,7 +436,7 @@
             </div>
           </section>
 
-          <section class="panel tab-panel" id="tab-embeddings" role="tabpanel">
+          <section class="panel tab-panel" id="tab-embeddings" role="tabpanel" aria-labelledby="tab-button-embeddings">
             <div class="panel-grid">
               <section>
                 <h2>Embedding model status</h2>
@@ -471,7 +491,7 @@
             </div>
           </section>
 
-          <section class="panel tab-panel" id="tab-dev-tools" role="tabpanel">
+          <section class="panel tab-panel" id="tab-dev-tools" role="tabpanel" aria-labelledby="tab-button-dev-tools">
             <div class="panel-grid">
               <section>
                 <h2>Seeded dev database</h2>
@@ -486,6 +506,9 @@
                     ><input type="checkbox" name="confirm" /> Confirm dev eval</label
                   >
                 </form>
+                <p class="risk-note">
+                  Reset wipes the seeded dev dataset for the active memory space and is intended only for lab work.
+                </p>
                 <pre id="dev-seed-status" class="json-box">Loading…</pre>
                 <pre id="dev-eval-result" class="json-box">No dev eval result yet.</pre>
               </section>
@@ -534,7 +557,7 @@
             </div>
           </section>
 
-          <section class="panel tab-panel" id="tab-graph" role="tabpanel">
+          <section class="panel tab-panel" id="tab-graph" role="tabpanel" aria-labelledby="tab-button-graph">
             <div class="panel-grid">
               <section>
                 <h2>Graph filters</h2>
@@ -590,7 +613,7 @@
             </div>
           </section>
 
-          <section class="panel tab-panel" id="tab-diagnostics" role="tabpanel">
+          <section class="panel tab-panel" id="tab-diagnostics" role="tabpanel" aria-labelledby="tab-button-diagnostics">
             <div class="panel-grid">
               <section>
                 <h2>Diagnostics bundle</h2>

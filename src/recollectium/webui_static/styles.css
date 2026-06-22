@@ -19,9 +19,9 @@
   --shadow-deep: 0 24px 64px rgba(0, 0, 0, 0.45);
   --font-ui: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --radius-shell: 22px;
-  --radius-panel: 16px;
-  --radius-chip: 999px;
+  --radius-shell: 12px;
+  --radius-panel: 10px;
+  --radius-chip: 4px;
   --gap-shell: 18px;
 }
 
@@ -175,8 +175,10 @@ textarea:focus-visible {
 .global-search label,
 .rail-copy,
 .rail-note,
-.search-hint {
+.search-hint,
+.risk-note {
   color: var(--text-muted);
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 0.72rem;
@@ -233,7 +235,7 @@ textarea:focus-visible {
   display: grid;
   gap: 3px;
   padding: 10px 12px;
-  border-radius: var(--radius-panel);
+  border-radius: 8px;
   background: rgba(11, 15, 20, 0.72);
   border: 1px solid var(--border-subtle);
 }
@@ -257,9 +259,11 @@ textarea:focus-visible {
 
 .status-tile {
   padding: 14px;
-  border-radius: var(--radius-panel);
+  border-radius: 10px;
   border: 1px solid var(--border-subtle);
-  background: linear-gradient(180deg, rgba(17, 23, 34, 0.98), rgba(14, 19, 28, 0.95));
+  background:
+    linear-gradient(180deg, rgba(17, 23, 34, 0.98), rgba(14, 19, 28, 0.95)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 18px);
   min-height: 96px;
 }
 
@@ -281,9 +285,9 @@ textarea:focus-visible {
 
 .status-tile strong::before {
   content: "";
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
   background: var(--state-info);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 10px rgba(56, 189, 248, 0.35);
 }
@@ -309,9 +313,11 @@ textarea:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   padding: 14px 16px;
-  border-radius: var(--radius-panel);
+  border-radius: 8px;
   border: 1px solid var(--border-subtle);
-  background: linear-gradient(180deg, rgba(13, 18, 28, 0.96), rgba(9, 12, 18, 0.96));
+  background:
+    linear-gradient(180deg, rgba(13, 18, 28, 0.96), rgba(9, 12, 18, 0.96)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 0, rgba(255, 255, 255, 0.018) 1px, transparent 1px, transparent 24px);
 }
 
 .global-search label {
@@ -324,7 +330,7 @@ textarea:focus-visible {
   width: 100%;
   min-height: 44px;
   padding: 11px 14px;
-  border-radius: 14px;
+  border-radius: 8px;
   border: 1px solid var(--border-subtle);
   background: var(--bg-app);
   color: var(--text-primary);
@@ -357,11 +363,13 @@ textarea:focus-visible {
 .tab-button {
   min-height: 44px;
   padding: 10px 14px;
-  border-radius: 14px;
+  border-radius: 6px;
   background: linear-gradient(180deg, rgba(138, 180, 255, 0.23), rgba(45, 70, 125, 0.94));
   color: var(--text-primary);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .global-search button:hover:not(:disabled),
@@ -429,10 +437,11 @@ textarea:focus-visible {
     linear-gradient(180deg, rgba(110, 231, 183, 0.18), rgba(21, 30, 43, 0.98)),
     linear-gradient(180deg, rgba(24, 32, 48, 0.95), rgba(16, 22, 34, 0.95));
   box-shadow:
+    inset 4px 0 0 rgba(110, 231, 183, 0.55),
     inset 0 0 0 1px rgba(110, 231, 183, 0.18),
     0 0 0 1px rgba(110, 231, 183, 0.12),
     0 12px 24px rgba(0, 0, 0, 0.22);
-  transform: translateX(2px);
+  transform: translateY(-1px);
 }
 
 .cockpit-stage {
@@ -446,6 +455,7 @@ textarea:focus-visible {
   align-items: start;
   gap: 12px;
   border-color: color-mix(in srgb, var(--state-warning) 40%, var(--border-subtle));
+  border-radius: 10px;
   background: linear-gradient(180deg, rgba(58, 44, 9, 0.55), rgba(33, 27, 8, 0.75));
 }
 
@@ -459,6 +469,15 @@ textarea:focus-visible {
 .shell-banner span {
   color: #f8e7a6;
   line-height: 1.5;
+}
+
+.risk-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--state-warning) 72%, var(--border-subtle));
+  border-radius: 6px;
+  background: rgba(12, 16, 22, 0.72);
+  color: #fde68a;
 }
 
 .tab-panel {
@@ -491,6 +510,7 @@ h2 {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--accent-search);
+  font-family: var(--font-mono);
 }
 
 h3 {
@@ -498,6 +518,7 @@ h3 {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-secondary);
+  font-family: var(--font-mono);
 }
 
 .form-grid {
@@ -515,6 +536,7 @@ h3 {
   display: grid;
   gap: 6px;
   color: var(--text-secondary);
+  font-family: var(--font-mono);
   font-size: 0.84rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -531,7 +553,7 @@ h3 {
   width: 100%;
   min-height: 44px;
   padding: 11px 12px;
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid var(--border-subtle);
   background: rgba(8, 12, 18, 0.98);
   color: var(--text-primary);
@@ -588,7 +610,7 @@ h3 {
   display: grid;
   gap: 8px;
   padding: 14px 14px 14px 16px;
-  border-radius: 16px;
+  border-radius: 8px;
   border-color: var(--border-subtle);
   background:
     linear-gradient(180deg, rgba(17, 23, 34, 0.98), rgba(10, 14, 21, 0.98)),
@@ -601,7 +623,7 @@ h3 {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 4px;
+  width: 3px;
   background: linear-gradient(180deg, var(--accent-search), rgba(138, 180, 255, 0.15));
 }
 
@@ -642,10 +664,11 @@ h3 {
   align-items: center;
   gap: 6px;
   padding: 5px 9px;
-  border-radius: var(--radius-chip);
+  border-radius: 4px;
   border: 1px solid var(--border-subtle);
   background: rgba(11, 15, 20, 0.82);
   color: var(--text-secondary);
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -712,7 +735,7 @@ h3 {
   word-break: break-word;
   margin: 0;
   padding: 15px;
-  border-radius: 16px;
+  border-radius: 8px;
   border: 1px solid var(--border-subtle);
   background:
     linear-gradient(180deg, rgba(7, 10, 16, 0.98), rgba(5, 8, 12, 0.98)),
@@ -726,7 +749,7 @@ h3 {
 .graph-svg {
   width: 100%;
   min-height: 560px;
-  border-radius: 16px;
+  border-radius: 8px;
   border: 1px solid var(--border-subtle);
   background:
     radial-gradient(circle at 50% 0%, rgba(167, 139, 250, 0.08), transparent 32%),
@@ -775,7 +798,7 @@ h3 {
   bottom: 14px;
   margin-top: 2px;
   padding: 12px 14px;
-  border-radius: 16px;
+  border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--accent-search) 42%, var(--border-subtle));
   background: rgba(7, 10, 16, 0.96);
   color: var(--text-primary);

@@ -143,22 +143,58 @@ async function request(path, options = {}) {
   return payload;
 }
 
-function selectTab(name) {
-  document.documentElement.dataset.activeTab = name;
-  document.querySelectorAll('.tab-button').forEach((button) => {
-    const active = button.dataset.tab === name;
+function selectTab(name, { focusButton = false } = {}) {
+  const buttons = Array.from(document.querySelectorAll('.tab-button'));
+  const activeButton = buttons.find((button) => button.dataset.tab === name) || buttons[0] || null;
+  const activeTab = activeButton?.dataset.tab || name;
+  document.documentElement.dataset.activeTab = activeTab;
+  buttons.forEach((button) => {
+    const active = button === activeButton;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', active ? 'true' : 'false');
+    button.tabIndex = active ? 0 : -1;
   });
   document.querySelectorAll('.tab-panel').forEach((panel) => {
-    panel.classList.toggle('active', panel.id === `tab-${name}`);
-    panel.setAttribute('aria-hidden', panel.id === `tab-${name}` ? 'false' : 'true');
+    const active = panel.id === `tab-${activeTab}`;
+    panel.classList.toggle('active', active);
+    panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+    if (active) {
+      panel.removeAttribute('hidden');
+    } else {
+      panel.setAttribute('hidden', '');
+    }
   });
+  if (focusButton && activeButton) {
+    activeButton.focus();
+  }
 }
 
 function wireTabs() {
-  document.querySelectorAll('.tab-button').forEach((button) => {
-    button.addEventListener('click', () => selectTab(button.dataset.tab));
+  const buttons = Array.from(document.querySelectorAll('.tab-button'));
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => selectTab(button.dataset.tab, { focusButton: true }));
+    button.addEventListener('keydown', (event) => {
+      const currentButtons = Array.from(document.querySelectorAll('.tab-button'));
+      const currentIndex = currentButtons.indexOf(button);
+      if (currentIndex < 0) return;
+      let targetIndex = null;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        targetIndex = (currentIndex + 1) % currentButtons.length;
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        targetIndex = (currentIndex - 1 + currentButtons.length) % currentButtons.length;
+      } else if (event.key === 'Home') {
+        targetIndex = 0;
+      } else if (event.key === 'End') {
+        targetIndex = currentButtons.length - 1;
+      } else {
+        return;
+      }
+      event.preventDefault();
+      const target = currentButtons[targetIndex];
+      if (target) {
+        selectTab(target.dataset.tab, { focusButton: true });
+      }
+    });
   });
 }
 
@@ -225,22 +261,36 @@ function renderMemoryList(memories) {
     .map((entry) => {
       const { memory, score, rank, matchedText, snippet, chunkIndex } = normalizeMemoryEntry(entry);
       const memoryId = memory?.id || '';
-      const details = [memory?.space, memory?.type, memory?.status || 'active'].filter(Boolean);
-      if (rank !== null) details.push(`rank ${rank}`);
-      if (score !== null) details.push(`score ${score.toFixed(3)}`);
-      if (chunkIndex !== null) details.push(`chunk ${chunkIndex}`);
-      const preview = snippet || matchedText || memory?.content || '';
+      const summary = compactParts([
+        describeField('space', memory?.space),
+        describeField('workspace', memory?.workspace_uid),
+        describeField('source', memory?.source),
+        describeField('sensitivity', memory?.sensitivity),
+        describeField('type', memory?.type),
+        memory?.status && memory.status !== 'active' ? describeField('status', memory.status) : null,
+      ]);
+      const metadata = compactParts([
+        rank !== null ? `rank ${rank}` : null,
+        score !== null ? `score ${score.toFixed(3)}` : null,
+        chunkIndex !== null ? `chunk ${chunkIndex}` : null,
+        memory?.confidence != null ? `confidence ${formatConfidence(memory.confidence)}` : null,
+        formatTimestamp(memory?.created_at) ? `created ${formatTimestamp(memory.created_at)}` : null,
+        formatTimestamp(memory?.updated_at) ? `updated ${formatTimestamp(memory.updated_at)}` : null,
+      ], 6);
+      const preview = snippet || matchedText || memory?.content || compactParts([
+        memory?.content,
+        describeField('workspace', memory?.workspace_uid),
+        describeField('source', memory?.source),
+      ], 1).join('') || '';
       const selected = Boolean(memoryId && selectedId === memoryId);
       return `
-        <button class="list-item memory-card ${selected ? 'selected' : ''}" data-memory-id="${escapeHtml(memoryId)}" aria-pressed="${selected}">
+        <button class="list-item memory-card ${selected ? 'selected' : ''}" data-memory-id="${escapeAttr(memoryId)}" aria-pressed="${selected}">
           <div class="list-item__header">
             <strong>${escapeHtml(memoryId || 'unknown memory')}</strong>
-            <span class="status-chip">${escapeHtml(details.slice(0, 3).join(' · '))}</span>
+            <span class="status-chip">${escapeHtml(summary.join(' · ') || 'memory record')}</span>
           </div>
           <div class="list-item__meta">
-            ${rank !== null ? `<span class="micro-chip">rank ${rank}</span>` : ''}
-            ${score !== null ? `<span class="micro-chip">score ${score.toFixed(3)}</span>` : ''}
-            ${chunkIndex !== null ? `<span class="micro-chip">chunk ${chunkIndex}</span>` : ''}
+            ${metadata.map((item) => `<span class="micro-chip">${escapeHtml(item)}</span>`).join('')}
           </div>
           <small class="list-item__preview">${escapeHtml(preview).slice(0, 160)}</small>
         </button>`;
@@ -266,13 +316,35 @@ function renderWorkspaceList(workspaces) {
   const selectedWorkspace = state.selectedWorkspace || null;
   root.innerHTML = workspaces
     .map((workspace) => {
-      const aliases = Array.isArray(workspace.aliases) ? workspace.aliases.join(', ') : '';
+      const aliasValues = Array.isArray(workspace.aliases)
+        ? workspace.aliases
+            .map((alias) => (typeof alias === 'string' ? alias : alias?.alias_uid || alias?.uid || ''))
+            .filter(Boolean)
+        : [];
+      const aliasCount = Number.isFinite(Number(workspace.alias_count))
+        ? Number(workspace.alias_count)
+        : aliasValues.length;
       const selected = selectedWorkspace === workspace.workspace_uid;
+      const summary = compactParts([
+        aliasCount != null ? `${aliasCount} alias${aliasCount === 1 ? '' : 'es'}` : null,
+        workspace.canonical_uid ? `canonical ${workspace.canonical_uid}` : null,
+        workspace.source ? `source ${workspace.source}` : null,
+        workspace.created_at ? `created ${formatTimestamp(workspace.created_at)}` : null,
+        workspace.updated_at ? `updated ${formatTimestamp(workspace.updated_at)}` : null,
+      ]);
+      const metadata = compactParts([
+        `uid ${workspace.workspace_uid}`,
+        aliasValues.length ? `aliases ${aliasValues.slice(0, 3).join(', ')}` : null,
+        Array.isArray(workspace.alias_records) ? `${workspace.alias_records.length} alias records` : null,
+      ]);
       return `
-        <button class="list-item workspace-card ${selected ? 'selected' : ''}" data-workspace-id="${workspace.workspace_uid}" aria-pressed="${selected}">
+        <button class="list-item workspace-card ${selected ? 'selected' : ''}" data-workspace-id="${escapeAttr(workspace.workspace_uid)}" aria-pressed="${selected}">
           <div class="list-item__header">
             <strong>${escapeHtml(workspace.workspace_uid)}</strong>
-            <span class="status-chip">${aliases ? `Aliases: ${escapeHtml(aliases)}` : 'No aliases'}</span>
+            <span class="status-chip">${escapeHtml(summary.join(' · ') || 'workspace record')}</span>
+          </div>
+          <div class="list-item__meta">
+            ${metadata.map((item) => `<span class="micro-chip">${escapeHtml(item)}</span>`).join('')}
           </div>
           <small class="list-item__preview">${selected ? 'Resolved workspace anchored to the active scope.' : 'Tap to resolve against the current memory space.'}</small>
         </button>`;
@@ -294,20 +366,37 @@ function renderServiceList(services) {
   if (!root) return;
   const selectedService = state.selectedService || 'api';
   root.innerHTML = services
-    .map(
-      (service) => {
-        const isSelected = selectedService === service.service_type;
-        const endpoint = service.discovery?.service?.endpoint || service.discovery?.next_step || '';
-        return `
-        <button class="list-item service-card ${isSelected ? 'selected' : ''}" data-service-id="${service.service_type}" aria-pressed="${isSelected}" data-state="${service.running ? 'running' : 'stopped'}">
+    .map((service) => {
+      const isSelected = selectedService === service.service_type;
+      const discovery = service.discovery || {};
+      const serviceDetails = discovery.service || {};
+      const endpoint = serviceDetails.endpoint || discovery.endpoint || '';
+      const endpointLabel = endpoint ? endpoint.replace(/^https?:\/\//, '') : '';
+      const port = serviceDetails.port ?? discovery.port ?? null;
+      const summary = compactParts([
+        service.running ? 'running' : 'stopped',
+        endpointLabel ? `endpoint ${endpointLabel}` : null,
+        port != null ? `port ${port}` : null,
+        service.can_control_self ? 'self-stop guarded' : null,
+      ]);
+      const metadata = compactParts([
+        serviceDetails.pid != null ? `pid ${serviceDetails.pid}` : null,
+        discovery.status ? `discovery ${discovery.status}` : null,
+        discovery.versions?.recollectium_version ? `recollectium ${discovery.versions.recollectium_version}` : null,
+      ]);
+      const preview = discovery.message || discovery.next_step || discovery.security_warning || endpoint || 'Inspect service discovery and endpoint status.';
+      return `
+        <button class="list-item service-card ${isSelected ? 'selected' : ''}" data-service-id="${escapeAttr(service.service_type)}" aria-pressed="${isSelected}" data-state="${service.running ? 'running' : 'stopped'}">
           <div class="list-item__header">
             <strong>${escapeHtml(service.service_type)}</strong>
-            <span class="status-chip">${service.running ? 'running' : 'stopped'}</span>
+            <span class="status-chip">${escapeHtml(summary.join(' · ') || (service.running ? 'running' : 'stopped'))}</span>
           </div>
-          <small class="list-item__preview">${escapeHtml(endpoint || 'Inspect service discovery and endpoint status.')}</small>
+          <div class="list-item__meta">
+            ${metadata.map((item) => `<span class="micro-chip">${escapeHtml(item)}</span>`).join('')}
+          </div>
+          <small class="list-item__preview">${escapeHtml(preview)}</small>
         </button>`;
-      },
-    )
+    })
     .join('');
   root.querySelectorAll('[data-service-id]').forEach((button) => {
     button.addEventListener('click', async () => {
@@ -331,13 +420,31 @@ function renderEmbeddingJobs(jobs) {
     .map((job) => {
       const status = job.state || job.status || 'unknown';
       const selected = selectedJob === job.id;
+      const summary = compactParts([
+        status,
+        job.provider ? `provider ${job.provider}` : null,
+        job.model ? `model ${job.model}` : null,
+        job.memory_space_key ? `space ${job.memory_space_key}` : null,
+      ]);
+      const metadata = compactParts([
+        job.total_count != null && job.succeeded_count != null
+          ? `${job.succeeded_count}/${job.total_count} done`
+          : null,
+        job.failed_count != null ? `${job.failed_count} failed` : null,
+        job.reason ? `reason ${job.reason}` : null,
+        job.error_message ? `error ${job.error_message}` : null,
+      ], 6);
+      const preview = job.reason || job.error_message || 'Embedding maintenance detail available in the inspector.';
       return `
-        <button class="list-item job-card ${selected ? 'selected' : ''}" data-embedding-job-id="${escapeHtml(job.id || '')}" aria-pressed="${selected}">
+        <button class="list-item job-card ${selected ? 'selected' : ''}" data-embedding-job-id="${escapeAttr(job.id || '')}" aria-pressed="${selected}">
           <div class="list-item__header">
             <strong>${escapeHtml(job.id || 'unknown job')}</strong>
-            <span class="status-chip">${escapeHtml(status)}</span>
+            <span class="status-chip">${escapeHtml(summary.join(' · ') || status)}</span>
           </div>
-          <small class="list-item__preview">${escapeHtml([job.provider, job.model].filter(Boolean).join(' · ') || job.reason || job.error_message || 'Embedding maintenance detail available in the inspector.')}</small>
+          <div class="list-item__meta">
+            ${metadata.map((item) => `<span class="micro-chip">${escapeHtml(item)}</span>`).join('')}
+          </div>
+          <small class="list-item__preview">${escapeHtml(preview)}</small>
         </button>`;
     })
     .join('');
@@ -397,8 +504,8 @@ function renderGraph(graph) {
       const label = node.label || node.id;
       const classes = ['node', node.kind].join(' ');
       return `
-        <g class="${classes}" data-node-id="${escapeHtml(node.id)}" transform="translate(${position.x},${position.y})">
-          <circle r="${node.kind === 'memory' ? 28 : nodeRadius}" class="${escapeHtml(node.kind)}"></circle>
+        <g class="${escapeAttr(classes)}" data-node-id="${escapeAttr(node.id)}" transform="translate(${position.x},${position.y})">
+          <circle r="${node.kind === 'memory' ? 28 : nodeRadius}" class="${escapeAttr(node.kind)}"></circle>
           <text class="node-label" text-anchor="middle" y="4">${escapeHtml(label)}</text>
         </g>`;
     })
@@ -451,11 +558,24 @@ function renderSpaces(spaces) {
     .map(
       (space) => {
         const selected = space.selected || space.key === state.selectedMemorySpaceKey;
+        const summary = compactParts([
+          space.is_default ? 'default' : null,
+          selected ? 'selected' : null,
+          space.exists ? 'database exists' : 'database missing',
+          space.source ? `source ${space.source}` : null,
+        ]);
+        const metadata = compactParts([
+          space.created_at ? `created ${formatTimestamp(space.created_at)}` : null,
+          space.updated_at ? `updated ${formatTimestamp(space.updated_at)}` : null,
+        ]);
         return `
-        <button class="list-item space-card ${selected ? 'selected' : ''}" data-memory-space-key="${space.key}" aria-pressed="${selected}">
+        <button class="list-item space-card ${selected ? 'selected' : ''}" data-memory-space-key="${escapeAttr(space.key)}" aria-pressed="${selected}">
           <div class="list-item__header">
             <strong>${escapeHtml(space.key)}${space.is_default ? ' (default)' : ''}</strong>
-            <span class="status-chip">${space.exists ? 'database exists' : 'database missing'}</span>
+            <span class="status-chip">${escapeHtml(summary.join(' · ') || 'memory space')}</span>
+          </div>
+          <div class="list-item__meta">
+            ${metadata.map((item) => `<span class="micro-chip">${escapeHtml(item)}</span>`).join('')}
           </div>
           <small class="list-item__preview">${escapeHtml(space.db_path)}</small>
         </button>`;
@@ -482,6 +602,42 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
+function compactParts(parts, limit = 3) {
+  return parts.filter(Boolean).slice(0, limit);
+}
+
+function describeField(label, value) {
+  if (value == null || value === '') return null;
+  return `${label} ${value}`;
+}
+
+function formatTimestamp(value) {
+  if (value == null || value === '') return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  return `${parsed.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+}
+
+function formatConfidence(value) {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  return parsed.toFixed(2);
+}
+
+function confirmDanger(action, scope, details = []) {
+  const lines = [action, '', `Scope: ${scope}`];
+  details.filter(Boolean).forEach((detail) => lines.push(`- ${detail}`));
+  lines.push('', 'Proceed with this destructive action?');
+  return window.confirm(lines.join('\\n'));
 }
 
 async function apiJson(path, options = {}) {
@@ -649,6 +805,18 @@ function wireMemoryForms() {
   });
 
   memoryForm?.querySelector('[data-action="archive"]')?.addEventListener('click', async () => {
+    const values = formValues(memoryForm);
+    const memoryId = values.memory_id?.trim();
+    if (!memoryId) {
+      showMessage('Memory ID is required for archive.', 'error');
+      return;
+    }
+    const scope = values.memory_space_key?.trim() || state.selectedMemorySpaceKey || 'current memory space';
+    if (!confirmDanger('Archive memory', `memory ${memoryId} in ${scope}`, [
+      'Archived memories are hidden from normal browsing until explicitly restored.',
+    ])) {
+      return;
+    }
     await submitMemoryForm('archive');
   });
 }
@@ -760,6 +928,11 @@ function wireConfigForms() {
           });
           renderJson('config-view', payload);
         } else if (button.dataset.action === 'unset') {
+          if (!confirmDanger('Unset config key', `config key ${key}`, [
+            'This writes the live config file and typically requires a restart to take effect.',
+          ])) {
+            return;
+          }
           const payload = await apiJson(`${API}/config/${encodeURIComponent(key)}`, {
             method: 'DELETE',
           });
@@ -818,6 +991,11 @@ function wireWorkspaceForms() {
           await refreshWorkspaces();
         } else if (button.dataset.action === 'remove-alias') {
           if (!values.alias_uid) throw new Error('Alias UID is required.');
+          if (!confirmDanger('Remove workspace alias', `alias ${values.alias_uid}`, [
+            'The alias mapping is removed from the active workspace index only.',
+          ])) {
+            return;
+          }
           const payload = await apiJson(`${API}/workspaces/aliases/${encodeURIComponent(values.alias_uid)}?memory_space_key=${encodeURIComponent(memorySpaceKey || '')}`, {
             method: 'DELETE',
           });
@@ -889,6 +1067,17 @@ function wireServiceForms() {
           renderJson('service-detail', payload);
           await refreshServices();
         } else if (button.dataset.action === 'stop') {
+          if (serviceType === 'webui' && !body.allow_self_stop) {
+            showMessage('Enable Allow WebUI self-stop before stopping this service.', 'warning');
+            return;
+          }
+          if (!confirmDanger('Stop service', `${serviceType} service`, [
+            serviceType === 'webui'
+              ? 'The current WebUI process will schedule itself to exit after the response.'
+              : 'The service process will be stopped immediately.',
+          ])) {
+            return;
+          }
           const payload = await apiJson(`${API}/services/${encodeURIComponent(serviceType)}/stop`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -897,6 +1086,11 @@ function wireServiceForms() {
           renderJson('service-detail', payload);
           await refreshServices();
         } else if (button.dataset.action === 'restart') {
+          if (!confirmDanger('Restart service', `${serviceType} service`, [
+            'The service will be stopped and started again.',
+          ])) {
+            return;
+          }
           const payload = await apiJson(`${API}/services/${encodeURIComponent(serviceType)}/restart`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1019,6 +1213,14 @@ function wireDevForms() {
 
   $('reset-dev-seed')?.addEventListener('click', async () => {
     try {
+      const form = $('dev-eval-form');
+      const values = form ? formValues(form) : {};
+      const scope = values.memory_space_key?.trim() || state.selectedMemorySpaceKey || 'current memory space';
+      if (!confirmDanger('Reset seeded dev database', scope, [
+        'This clears the seeded development dataset for the active memory space.',
+      ])) {
+        return;
+      }
       const payload = await apiJson(`${API}/dev/seeding/reset`, { method: 'POST' });
       renderJson('dev-eval-result', payload);
       await refreshDevStatus();
@@ -1139,6 +1341,7 @@ function wireRefreshButtons() {
 
 async function boot() {
   wireTabs();
+  selectTab(document.querySelector('.tab-button.active')?.dataset.tab || 'memories');
   wireGlobalSearch();
   wireMemoryForms();
   wireConfigForms();
