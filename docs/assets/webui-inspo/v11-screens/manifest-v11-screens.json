@@ -1,0 +1,72 @@
+[
+  {
+    "id": "01",
+    "name": "Home / Memory Search",
+    "desc": "One-task default: active space, search, compact results, no wall of controls",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-01.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-01.png"
+  },
+  {
+    "id": "02",
+    "name": "Memory Detail Inspector",
+    "desc": "Selected memory with provenance, metadata slots, safe actions",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-02.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-02.png"
+  },
+  {
+    "id": "03",
+    "name": "Write / Update Memory",
+    "desc": "Focused create/update form with risk scope and preview",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-03.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-03.png"
+  },
+  {
+    "id": "04",
+    "name": "Spaces & Config",
+    "desc": "Memory spaces as boundaries, config preview, active-space switcher",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-04.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-04.png"
+  },
+  {
+    "id": "05",
+    "name": "Workspace Registry",
+    "desc": "Workspace cards, UID provenance, recent activity",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-05.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-05.png"
+  },
+  {
+    "id": "06",
+    "name": "Services Control",
+    "desc": "API/WebUI/MCP service health, ports, start/stop controls",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-06.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-06.png"
+  },
+  {
+    "id": "07",
+    "name": "Embeddings Queue",
+    "desc": "Embedding jobs, queue health, model/status meters",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-07.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-07.png"
+  },
+  {
+    "id": "08",
+    "name": "Graph Neighborhood",
+    "desc": "Selected-memory graph, legend, filters, non-hairball node map",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-08.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-08.png"
+  },
+  {
+    "id": "09",
+    "name": "Logs & Diagnostics",
+    "desc": "Loaded log tail, filter, copy actions, diagnostics bundle",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-09.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-09.png"
+  },
+  {
+    "id": "10",
+    "name": "Maintenance / Danger Zone",
+    "desc": "Cleanup/reset/archive controls with confirmations and scope",
+    "html": "/root/recollectium-webui-inspo/v11-screens/screen-10.html",
+    "png": "/root/recollectium-webui-inspo/v11-screens/screen-10.png"
+  }
+]

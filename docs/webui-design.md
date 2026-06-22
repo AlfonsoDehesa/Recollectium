@@ -18,7 +18,9 @@ What this means for future work:
 
 ## Product Feel
 
-Recollectium WebUI is a **retro pixel memory operations cockpit**: dark, dense, technical, and polished. It should feel like a local control room for memory state, service health, and configuration, with a tasteful keygen/cracktro influence used as flavor rather than cosplay.
+Recollectium WebUI is a **retro pixel memory operations cockpit**: dark, dense, technical, and polished. It should feel like a local control room for memory state, service health, and configuration, with a tasteful retro game UI influence used as material language rather than cosplay.
+
+The approved visual calibration is preserved in [`webui-inspo.md`](webui-inspo.md): v10 defines the pixel-art material style and v11 maps that style onto concrete Recollectium screens. Treat these as the reference direction for future WebUI work.
 
 The experience should communicate:
 
@@ -140,6 +142,9 @@ Rules:
 - Grafana and Datadog for health, logs, and operations structure.
 - Obsidian graph view for local knowledge mapping, but heavily constrained.
 - TablePlus or DataGrip for technical object browsing.
+- The approved v10/v11 Recollectium inspo set in [`webui-inspo.md`](webui-inspo.md): modern dashboard composition with actual pixel-art UI construction.
+- OpenGameArt Golden UI-style material language: brass/gold bevel frames, dark inset wells, inventory-slot cards, gem/status controls, and warm pixel-art edge highlights.
+- Minimal fantasy / pixel RPG UI references for parchment wells, teal title bars/actions, hard-edged sprite icons, slot grids, side tabs, hotbars, and 9-slice-like frames.
 - Retro keygen/cracktro interfaces for pixel tactility, stepped borders, and chunky status lights.
 
 ### Anti-patterns
