@@ -7,6 +7,7 @@ const ROUTES = {
   config: '/v1/webui/config',
   services: '/v1/webui/services',
   embeddingStatus: '/v1/webui/embedding/status',
+  embeddingMaintenance: '/v1/webui/embedding/maintenance',
   embeddingRefresh: '/v1/webui/embedding/refresh',
   embeddingJobs: '/v1/webui/embedding/jobs',
   devStatus: '/v1/webui/dev/status',
@@ -29,6 +30,7 @@ const state = {
   graphData: null,
   diagnosticsBundle: null,
   logSummary: null,
+  logTailLines: 80,
   lastResponse: null,
 };
 
@@ -66,6 +68,24 @@ function parseMaybeJson(value) {
 
 function formValues(form) {
   return Object.fromEntries(new FormData(form).entries());
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function safeTailLines(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 80;
+  return clamp(Math.trunc(parsed), 10, 500);
+}
+
+function currentTailLines() {
+  const input = $('log-tail-lines');
+  const lines = safeTailLines(input?.value ?? state.logTailLines);
+  state.logTailLines = lines;
+  if (input) input.value = String(lines);
+  return lines;
 }
 
 async function request(path, options = {}) {
@@ -433,14 +453,14 @@ async function refreshDevStatus() {
 
 async function refreshDiagnosticsBundle() {
   const payload = await apiJson(
-    `${API}/diagnostics?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`,
+    `${API}/diagnostics?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}&tail_lines=${encodeURIComponent(String(currentTailLines()))}`,
   );
   renderDiagnosticsBundle(payload);
   return payload;
 }
 
 async function refreshLogs() {
-  const payload = await apiJson(`${API}/logs`);
+  const payload = await apiJson(`${API}/logs?tail_lines=${encodeURIComponent(String(currentTailLines()))}`);
   state.logSummary = payload;
   renderLogSummary(payload);
   return payload;
@@ -780,6 +800,31 @@ function wireEmbeddingForms() {
     }
   });
 
+  $('run-embedding-maintenance')?.addEventListener('click', async () => {
+    try {
+      const form = $('embedding-refresh-form');
+      const values = form ? formValues(form) : {};
+      const payload = await apiJson(ROUTES.embeddingMaintenance, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirm: Boolean(values.confirm),
+          memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null,
+        }),
+      });
+      renderJson('embedding-job-detail', payload);
+      if (payload.status === 'confirmation_required') {
+        showMessage(payload.warning || 'Confirmation required.', 'warning');
+        return;
+      }
+      await refreshEmbeddingStatus();
+      await refreshEmbeddingJobs();
+      showMessage('Embedding maintenance completed.');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
   $('clear-embedding-jobs')?.addEventListener('click', async () => {
     try {
       const payload = await apiJson(`${API}/embedding/jobs`, {
@@ -853,8 +898,14 @@ function wireDevForms() {
 
   $('run-dev-eval')?.addEventListener('click', async () => {
     try {
-      const payload = await apiJson(`${API}/dev/eval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const form = $('dev-eval-form');
+      const values = form ? formValues(form) : {};
+      const payload = await apiJson(`${API}/dev/eval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: Boolean(values.confirm), memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null }) });
       renderJson('dev-eval-result', payload);
+      if (payload.status === 'confirmation_required') {
+        showMessage(payload.warning || 'Confirmation required.', 'warning');
+        return;
+      }
       showMessage('Dev eval completed.');
     } catch (error) {
       showMessage(error.message, 'error');
@@ -876,9 +927,14 @@ function wireDevForms() {
           output_format: values.output_format || 'csv',
           output_path: values.output_path || null,
           write_config: Boolean(values.write_config),
+          confirm: Boolean(values.confirm),
         }),
       });
       renderJson('threshold-result', payload);
+      if (payload.status === 'confirmation_required') {
+        showMessage(payload.warning || 'Confirmation required.', 'warning');
+        return;
+      }
       showMessage('Threshold optimization completed.');
     } catch (error) {
       showMessage(error.message, 'error');

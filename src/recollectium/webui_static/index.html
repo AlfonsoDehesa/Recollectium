@@ -274,8 +274,10 @@
                 <input name="memory_space_key" placeholder="default" />
               </label>
               <label class="checkbox"><input type="checkbox" name="include_archived" /> Include archived</label>
+              <label class="checkbox"><input type="checkbox" name="confirm" /> Confirm embedding maintenance</label>
               <div class="form-actions">
                 <button type="submit">Refresh stale embeddings</button>
+                <button type="button" id="run-embedding-maintenance">Run embedding maintenance</button>
                 <button type="button" id="clear-embedding-jobs" class="secondary">Clear job history</button>
               </div>
             </form>
@@ -303,6 +305,7 @@
               <button id="reset-dev-seed" type="button" class="danger">Reset</button>
               <button id="run-dev-eval" type="button">Run eval</button>
             </div>
+            <label class="checkbox"><input type="checkbox" name="confirm" /> Confirm dev eval</label>
             <pre id="dev-seed-status" class="json-box">Loading…</pre>
             <pre id="dev-eval-result" class="json-box">No dev eval result yet.</pre>
           </section>
@@ -331,6 +334,7 @@
                 <input name="output_path" placeholder="optional" />
               </label>
               <label class="checkbox"><input type="checkbox" name="write_config" /> Write recommended config</label>
+              <label class="checkbox"><input type="checkbox" name="confirm" /> Confirm threshold optimization</label>
               <div class="form-actions">
                 <button type="submit">Optimize threshold</button>
               </div>
@@ -395,6 +399,9 @@
           <section>
             <h2>Logs</h2>
             <div class="form-actions">
+              <label class="inline-field">Log depth
+                <input id="log-tail-lines" name="tail_lines" type="number" min="10" max="500" value="80" />
+              </label>
               <button id="refresh-logs" type="button">Refresh logs</button>
             </div>
             <pre id="log-summary" class="json-box">Loading…</pre>

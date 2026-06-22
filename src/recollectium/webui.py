@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections import deque
 from copy import deepcopy
 from dataclasses import asdict
 from http import HTTPStatus
+import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -92,6 +93,8 @@ WEBUI_LOCAL_FIRST = True
 WEBUI_AUTHENTICATION = "none"
 WEBUI_TLS = False
 WEBUI_STATIC_DIR = Path(__file__).with_name("webui_static")
+LOG_TAIL_MIN_LINES = 10
+LOG_TAIL_MAX_LINES = 500
 
 _log = logging.getLogger(__name__)
 
@@ -166,6 +169,11 @@ class EmbeddingRefreshBody(StrictBodyModel):
     memory_space_key: str | None = None
 
 
+class EmbeddingMaintenanceBody(StrictBodyModel):
+    confirm: bool = False
+    memory_space_key: str | None = None
+
+
 class EmbeddingJobsClearBody(StrictBodyModel):
     states: list[str] | None = None
     memory_space_key: str | None = None
@@ -173,6 +181,7 @@ class EmbeddingJobsClearBody(StrictBodyModel):
 
 class DevEvalBody(StrictBodyModel):
     memory_space_key: str | None = None
+    confirm: bool = False
 
 
 class ThresholdOptimizeBody(StrictBodyModel):
@@ -184,6 +193,59 @@ class ThresholdOptimizeBody(StrictBodyModel):
     output_path: str | None = None
     write_config: bool = False
     memory_space_key: str | None = None
+    confirm: bool = False
+
+
+_SENSITIVE_CONFIG_KEY_RE = re.compile(
+    r"(?i)(?:^|[_.-])"
+    r"(?:secret|token|password|credential|credentials|api[_-]?key|access[_-]?key|"
+    r"private[_-]?key|public[_-]?key|client[_-]?secret|refresh[_-]?token|"
+    r"session[_-]?token|encryption[_-]?key|bearer)"
+    r"(?:$|[_.-])"
+)
+_SENSITIVE_CONFIG_VALUE_RE = re.compile(
+    r"(?i)(?:-----BEGIN [^-]+-----|\\bgh[pousr]_[A-Za-z0-9_]{20,}\\b|\\bsk-[A-Za-z0-9]{16,}\\b|"
+    r"\\b[A-Za-z0-9_-]{24,}\\.[A-Za-z0-9_-]{24,}\\.[A-Za-z0-9_-]{24,}\\b|"
+    r"\\b(?:secret|token|password|credential)\\b)"
+)
+_REDACTED = "[redacted]"
+
+
+def _redact_config_value(value: Any, *, key: str | None = None) -> Any:
+    if key is not None and _SENSITIVE_CONFIG_KEY_RE.search(key):
+        return _REDACTED
+    if isinstance(value, dict):
+        return {
+            str(item_key): _redact_config_value(item_value, key=str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_config_value(item) for item in value]
+    if isinstance(value, str) and _SENSITIVE_CONFIG_VALUE_RE.search(value):
+        return _REDACTED
+    return value
+
+
+def _sanitize_config_payload(config: dict[str, Any]) -> dict[str, Any]:
+    return cast(dict[str, Any], _redact_config_value(deepcopy(config)))
+
+
+def _normalized_tail_lines(tail_lines: int) -> int:
+    return max(LOG_TAIL_MIN_LINES, min(LOG_TAIL_MAX_LINES, int(tail_lines)))
+
+
+def _confirmation_required_payload(
+    *, action: str, warning: str, command_hints: list[str] | None = None
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "status": "confirmation_required",
+        "action": action,
+        "confirm_required": True,
+        "warning": warning,
+    }
+    if command_hints:
+        payload["command_hints"] = command_hints
+    return payload
 
 
 def _webui_urls(host: str, port: int) -> dict[str, str]:
@@ -201,6 +263,7 @@ def _webui_urls(host: str, port: int) -> dict[str, str]:
         "config": f"{base}{SERVICE_API_PREFIX}/webui/config",
         "services": f"{base}{SERVICE_API_PREFIX}/webui/services",
         "embedding": f"{base}{SERVICE_API_PREFIX}/webui/embedding/status",
+        "embedding_maintenance": f"{base}{SERVICE_API_PREFIX}/webui/embedding/maintenance",
         "dev": f"{base}{SERVICE_API_PREFIX}/webui/dev/status",
         "graph": f"{base}{SERVICE_API_PREFIX}/webui/graph",
         "diagnostics": f"{base}{SERVICE_API_PREFIX}/webui/diagnostics",
@@ -256,19 +319,43 @@ def _tail_text(path: Path, *, lines: int = 80) -> dict[str, Any]:
             "truncated": False,
         }
 
-    buffer: deque[str] = deque(maxlen=lines)
-    line_count = 0
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        for raw_line in handle:
-            line_count += 1
-            buffer.append(raw_line.rstrip("\n"))
+    max_lines = max(1, lines)
+    max_bytes = max(8192, max_lines * 1024)
+    chunk_size = 8192
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        file_size = handle.tell()
+        remaining = file_size
+        chunks: list[bytes] = []
+        newline_count = 0
+        total_bytes = 0
+        while remaining > 0 and total_bytes < max_bytes:
+            read_size = min(chunk_size, remaining, max_bytes - total_bytes)
+            remaining -= read_size
+            handle.seek(remaining)
+            chunk = handle.read(read_size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total_bytes += len(chunk)
+            newline_count += chunk.count(b"\n")
+            if newline_count > max_lines:
+                break
+    tail_bytes = b"".join(reversed(chunks))
+    text = tail_bytes.decode("utf-8", errors="replace")
+    lines_list = text.splitlines()
+    truncated = file_size > len(tail_bytes)
+    if len(lines_list) > max_lines:
+        lines_list = lines_list[-max_lines:]
+        truncated = True
+    line_count: int | None = len(lines_list) if not truncated else None
     return {
         "path": str(path),
         "exists": True,
-        "lines": list(buffer),
+        "lines": lines_list,
         "line_count": line_count,
-        "truncated": line_count > lines,
-        "size_bytes": path.stat().st_size,
+        "truncated": truncated,
+        "size_bytes": file_size,
     }
 
 
@@ -276,8 +363,9 @@ def _log_summary_payload(
     core: RecollectiumCore, *, tail_lines: int = 80
 ) -> dict[str, Any]:
     log_dir = core.config.xdg_dirs["logs"]
+    normalized_tail_lines = _normalized_tail_lines(tail_lines)
     files = [
-        _tail_text(path, lines=tail_lines)
+        _tail_text(path, lines=normalized_tail_lines)
         for path in _log_files_for_config(core.config)
     ]
     return {
@@ -329,6 +417,43 @@ def _embedding_status_payload(
     payload = core.active_embedding_status(memory_space_key=memory_space_key)
     payload["model_state"] = _model_state_summary(core)
     return payload
+
+
+def _embedding_maintenance_payload(
+    core: RecollectiumCore, *, memory_space_key: str | None, confirm: bool
+) -> dict[str, Any]:
+    resolved_memory_space_key = memory_space_key or core.config.default_memory_space_key
+    warning = (
+        "Embedding maintenance prepares the configured model and refreshes stale "
+        "embeddings inline. This can take a while on a cold cache."
+    )
+    if not confirm:
+        return _confirmation_required_payload(
+            action="embedding_maintenance",
+            warning=warning,
+            command_hints=[
+                f"recollectium embedding-maintenance --config {core.config.config_file_path}",
+                f"recollectium embedding-maintenance --config {core.config.config_file_path} --memory-space {resolved_memory_space_key}",
+            ],
+        )
+
+    core._ensure_model_ready(suppress_provider_output=True)
+    refresh = core.refresh_stale_embeddings(
+        include_archived=True, memory_space_key=resolved_memory_space_key
+    )
+    return {
+        "status": "embedding_maintenance_completed",
+        "warning": warning,
+        "confirm_required": False,
+        "memory_space_key": resolved_memory_space_key,
+        "model_state": _model_state_summary(core),
+        "embedding_refresh": refresh,
+        "model_prepared": True,
+        "command_hints": [
+            f"recollectium embedding-maintenance --config {core.config.config_file_path}",
+            f"recollectium embedding-maintenance --config {core.config.config_file_path} --memory-space {resolved_memory_space_key}",
+        ],
+    }
 
 
 def _dev_seeded_database_path(core: RecollectiumCore) -> Path:
@@ -393,7 +518,17 @@ def _dev_seed_reset_payload(core: RecollectiumCore) -> dict[str, Any]:
     }
 
 
-def _dev_eval_payload(core: RecollectiumCore) -> dict[str, Any]:
+def _dev_eval_payload(core: RecollectiumCore, *, confirm: bool) -> dict[str, Any]:
+    warning = (
+        "Dev evaluation runs synchronous metrics against the seeded dev database. "
+        "Confirm only after you have selected the intended memory space."
+    )
+    if not confirm:
+        return _confirmation_required_payload(
+            action="dev_eval",
+            warning=warning,
+            command_hints=_dev_command_hints(core)["eval"],
+        )
     db_path = _dev_seeded_database_path(core)
     seeded = seeded_dev_database_is_initialized(db_path)
     if not seeded:
@@ -401,6 +536,7 @@ def _dev_eval_payload(core: RecollectiumCore) -> dict[str, Any]:
             "status": "not_configured",
             "database": str(db_path),
             "initialized": False,
+            "warning": warning,
             "command_hints": _dev_command_hints(core)["eval"],
         }
 
@@ -421,6 +557,7 @@ def _dev_eval_payload(core: RecollectiumCore) -> dict[str, Any]:
         "status": "ok",
         "database": str(db_path),
         "initialized": True,
+        "warning": warning,
         "command_hints": _dev_command_hints(core)["eval"],
         "reports": {
             "exact_mrr": asdict(exact_report),
@@ -441,7 +578,18 @@ def _threshold_optimizer_payload(
     output_format: str,
     output_path: str | None,
     write_config: bool,
+    confirm: bool,
 ) -> dict[str, Any]:
+    warning = (
+        "Threshold optimization runs synchronous work against the seeded dev "
+        "database and can take a while on wider search ranges."
+    )
+    if not confirm:
+        return _confirmation_required_payload(
+            action="threshold_optimizer",
+            warning=warning,
+            command_hints=_dev_command_hints(core)["threshold_optimizer"],
+        )
     db_path = _dev_seeded_database_path(core)
     seeded = seeded_dev_database_is_initialized(db_path)
     if not seeded:
@@ -449,6 +597,7 @@ def _threshold_optimizer_payload(
             "status": "not_configured",
             "database": str(db_path),
             "initialized": False,
+            "warning": warning,
             "command_hints": _dev_command_hints(core)["threshold_optimizer"],
         }
 
@@ -533,26 +682,53 @@ def _graph_payload(
     workspace_nodes: dict[str, dict[str, Any]] = {}
     type_nodes: dict[str, dict[str, Any]] = {}
     status_nodes: dict[str, dict[str, Any]] = {}
+    memory_nodes: list[dict[str, Any]] = []
+
+    def _memory_tags(memory: Any) -> set[str]:
+        metadata = getattr(memory, "metadata", None)
+        if not isinstance(metadata, dict):
+            return set()
+        tags: Any = metadata.get("tags")
+        if tags is None:
+            tags = metadata.get("tag")
+        if isinstance(tags, str):
+            candidate_values = [tags]
+        elif isinstance(tags, (list, tuple, set)):
+            candidate_values = [str(item) for item in tags]
+        else:
+            candidate_values = []
+        return {str(item).strip() for item in candidate_values if str(item).strip()}
+
+    def _memory_node(memory: Any) -> dict[str, Any]:
+        content = str(getattr(memory, "content", ""))
+        content_hash = hashlib.sha256(
+            content.encode("utf-8", errors="replace")
+        ).hexdigest()
+        node = {
+            "id": str(memory.id),
+            "kind": "memory",
+            "label": str(memory.id),
+            "group": memory.space,
+            "space": memory.space,
+            "type": memory.type,
+            "status": memory.status,
+            "workspace_uid": memory.workspace_uid,
+            "content_length": len(content),
+            "content_hash": content_hash[:12],
+        }
+        return node
+
     for memory in memories:
+        memory_node = _memory_node(memory)
+        memory_nodes.append(memory_node)
         memory_id = str(memory.id)
-        nodes.append(
-            {
-                "id": memory_id,
-                "kind": "memory",
-                "label": memory_id,
-                "group": memory.space,
-                "space": memory.space,
-                "type": memory.type,
-                "status": memory.status,
-                "workspace_uid": memory.workspace_uid,
-                "content_preview": memory.content[:120],
-            }
-        )
         edges.append(
             {
                 "source": f"space:{resolved_space_key}",
                 "target": memory_id,
                 "kind": "belongs_to_space",
+                "label": f"belongs to {resolved_space_key}",
+                "weight": 1.0,
             }
         )
         if memory.workspace_uid:
@@ -570,18 +746,69 @@ def _graph_payload(
                     "source": workspace_id,
                     "target": memory_id,
                     "kind": "belongs_to_workspace",
+                    "label": f"workspace {memory.workspace_uid}",
+                    "weight": 0.9,
                 }
             )
         type_id = f"type:{memory.type}"
         type_nodes.setdefault(
             type_id, {"id": type_id, "kind": "type", "label": memory.type}
         )
-        edges.append({"source": type_id, "target": memory_id, "kind": "has_type"})
+        edges.append(
+            {
+                "source": type_id,
+                "target": memory_id,
+                "kind": "has_type",
+                "label": f"type {memory.type}",
+                "weight": 0.7,
+            }
+        )
         status_id = f"status:{memory.status}"
         status_nodes.setdefault(
             status_id, {"id": status_id, "kind": "status", "label": memory.status}
         )
-        edges.append({"source": status_id, "target": memory_id, "kind": "has_status"})
+        edges.append(
+            {
+                "source": status_id,
+                "target": memory_id,
+                "kind": "has_status",
+                "label": f"status {memory.status}",
+                "weight": 0.6,
+            }
+        )
+
+    for index, left in enumerate(memories):
+        left_id = str(left.id)
+        left_tags = _memory_tags(left)
+        for right in memories[index + 1 :]:
+            right_id = str(right.id)
+            reasons: list[str] = []
+            weights: list[float] = []
+            if left.workspace_uid and left.workspace_uid == right.workspace_uid:
+                reasons.append("shared workspace")
+                weights.append(0.9)
+            if left.type == right.type:
+                reasons.append("shared type")
+                weights.append(0.6)
+            shared_tags = sorted(left_tags & _memory_tags(right))
+            if shared_tags:
+                reasons.append(f"shared tags: {', '.join(shared_tags[:3])}")
+                weights.append(0.8)
+            if not reasons:
+                continue
+            edges.append(
+                {
+                    "source": left_id,
+                    "target": right_id,
+                    "kind": "memory_relationship",
+                    "label": " · ".join(reasons),
+                    "relationship_types": reasons,
+                    "weight": round(min(1.0, max(weights)), 2),
+                    "shared_tags": shared_tags if shared_tags else [],
+                }
+            )
+
+    nodes.extend(memory_nodes)
     nodes.extend(workspace_nodes.values())
     nodes.extend(type_nodes.values())
     nodes.extend(status_nodes.values())
@@ -690,7 +917,7 @@ def _current_config_payload(core: RecollectiumCore) -> dict[str, Any]:
             "tls": WEBUI_TLS,
             "warning": _security_warning(),
         },
-        "config": deepcopy(config.effective_config),
+        "config": _sanitize_config_payload(config.effective_config),
         "safe_paths": _service_config_summary(config),
         "memory_spaces": _memory_space_payload(core),
     }
@@ -904,6 +1131,7 @@ def webui_capabilities_payload(host: str, port: int) -> dict[str, Any]:
             "webui.config",
             "webui.services",
             "webui.embedding",
+            "webui.embedding-maintenance",
             "webui.dev",
             "webui.graph",
             "webui.diagnostics",
@@ -961,6 +1189,7 @@ def webui_status_payload(host: str, port: int) -> dict[str, Any]:
             "webui.config",
             "webui.services",
             "webui.embedding",
+            "webui.embedding-maintenance",
             "webui.dev",
             "webui.graph",
             "webui.diagnostics",
@@ -1480,6 +1709,14 @@ def create_app(
             }
         )
 
+    @app.post(f"{SERVICE_API_PREFIX}/webui/embedding/maintenance")
+    def embedding_maintenance(body: EmbeddingMaintenanceBody) -> JSONResponse:
+        return JSONResponse(
+            _embedding_maintenance_payload(
+                core, memory_space_key=body.memory_space_key, confirm=body.confirm
+            )
+        )
+
     @app.get(f"{SERVICE_API_PREFIX}/webui/embedding/jobs")
     def list_embedding_jobs(
         state: str | None = None,
@@ -1547,8 +1784,8 @@ def create_app(
         return JSONResponse(_dev_seed_reset_payload(core))
 
     @app.post(f"{SERVICE_API_PREFIX}/webui/dev/eval")
-    def dev_eval(_body: DevEvalBody) -> JSONResponse:
-        return JSONResponse(_dev_eval_payload(core))
+    def dev_eval(body: DevEvalBody) -> JSONResponse:
+        return JSONResponse(_dev_eval_payload(core, confirm=body.confirm))
 
     @app.post(f"{SERVICE_API_PREFIX}/webui/dev/optimize-threshold")
     def dev_optimize_threshold(body: ThresholdOptimizeBody) -> JSONResponse:
@@ -1562,6 +1799,7 @@ def create_app(
                 output_format=body.output_format,
                 output_path=body.output_path,
                 write_config=body.write_config,
+                confirm=body.confirm,
             )
         )
 
@@ -1590,7 +1828,9 @@ def create_app(
 
     @app.get(f"{SERVICE_API_PREFIX}/webui/logs")
     def logs(tail_lines: int = 80) -> JSONResponse:
-        return JSONResponse(_log_summary_payload(core, tail_lines=tail_lines))
+        return JSONResponse(
+            _log_summary_payload(core, tail_lines=_normalized_tail_lines(tail_lines))
+        )
 
     @app.get(f"{SERVICE_API_PREFIX}/webui/diagnostics")
     def diagnostics(
@@ -1599,7 +1839,9 @@ def create_app(
         config = _merged_config(_load_raw_config(core))
         memory_spaces = _memory_space_payload(core, memory_space_key)
         embedding = _embedding_status_payload(core, memory_space_key)
-        log_summary = _log_summary_payload(core, tail_lines=tail_lines)
+        log_summary = _log_summary_payload(
+            core, tail_lines=_normalized_tail_lines(tail_lines)
+        )
         db_status = core.database_status(memory_space_key=memory_space_key)
         return JSONResponse(
             {
@@ -1615,7 +1857,7 @@ def create_app(
                 "config_validation": {
                     "status": "ok",
                     "valid": True,
-                    "config": config,
+                    "config": _sanitize_config_payload(config),
                 },
                 "safe_paths": _service_config_summary(core.config),
                 "services": _service_list_payload(core),

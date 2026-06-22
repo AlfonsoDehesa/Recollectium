@@ -45,6 +45,7 @@ class FakeCore:
             },
             cache_dir=None,
         )
+        self.model_ready_calls: list[dict[str, Any]] = []
 
     def _timestamp(self) -> str:
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -202,11 +203,23 @@ class FakeCore:
         progress_callback=None,
         memory_space_key: str | None = None,
     ) -> dict[str, Any]:
+        job = next(iter(self._embedding_jobs.values()), None)
+        if job is None:
+            job = {
+                "id": "job-001",
+                "state": "completed",
+                "reason": "seed",
+                "provider": "fake",
+                "model": "fake-model",
+                "total_count": 1,
+                "succeeded_count": 1,
+                "failed_count": 0,
+            }
         return {
             "refreshed": True,
             "stale_count": 1,
-            "job": self._embedding_jobs["job-001"],
-            "status_path": "/v1/embedding/jobs/job-001",
+            "job": job,
+            "status_path": f"/v1/embedding/jobs/{job.get('id', 'job-001')}",
         }
 
     def active_embedding_status(
@@ -231,6 +244,11 @@ class FakeCore:
             or self.config.default_memory_space_key,
             "memory_space_db_path": str(self.config.resolved_database_path),
         }
+
+    def _ensure_model_ready(self, *, suppress_provider_output: bool = False) -> None:
+        self.model_ready_calls.append(
+            {"suppress_provider_output": suppress_provider_output}
+        )
 
     def database_status(
         self,
@@ -429,7 +447,12 @@ class FakeCore:
         }
 
 
-def _make_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RecollectiumConfig:
+def _make_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    raw_config: dict[str, Any] | None = None,
+) -> RecollectiumConfig:
     for name in (
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",
@@ -439,7 +462,10 @@ def _make_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recollectiu
     ):
         monkeypatch.setenv(name, str(tmp_path / name.lower()))
     config_path = tmp_path / "config.json"
-    config_path.write_text("{}\n", encoding="utf-8")
+    config_path.write_text(
+        json.dumps(raw_config or {}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     return RecollectiumConfig(config_path=config_path)
 
 
@@ -476,15 +502,18 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     assert 'id="workspace-form"' in index_html
     assert 'id="service-form"' in index_html
     assert 'id="embedding-refresh-form"' in index_html
+    assert 'id="run-embedding-maintenance"' in index_html
+    assert 'name="confirm"' in index_html
     assert 'id="threshold-form"' in index_html
     assert 'id="graph-form"' in index_html
     assert 'id="diagnostics"' in index_html
-    assert 'id="log-tail"' in index_html
+    assert 'id="log-tail-lines"' in index_html
     assert "/v1/webui/memories" in app_js
     assert "/v1/webui/workspaces" in app_js
     assert "/v1/webui/config" in app_js
     assert "/v1/webui/services" in app_js
     assert "/v1/webui/embedding/status" in app_js
+    assert "/v1/webui/embedding/maintenance" in app_js
     assert "/v1/webui/dev/optimize-threshold" in app_js
     assert "/v1/webui/graph" in app_js
     assert "/v1/webui/diagnostics" in app_js
@@ -663,6 +692,20 @@ def test_webui_backend_supports_embeddings_dev_tools_graph_and_diagnostics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     core = _make_core(tmp_path, monkeypatch)
+    core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="note",
+        content="shared staging note with sensitive preview text",
+        workspace_uid="project-alpha",
+        metadata={"tags": ["alpha", "shared"]},
+    )
+    core.add_memory(
+        space=SPACE_WORKSPACE,
+        type="note",
+        content="shared staging note with matching topic",
+        workspace_uid="project-alpha",
+        metadata={"tags": ["alpha", "shared"]},
+    )
 
     monkeypatch.setattr(
         "recollectium.webui.RecollectiumCore", lambda *args, **kwargs: core
@@ -783,9 +826,28 @@ def test_webui_backend_supports_embeddings_dev_tools_graph_and_diagnostics(
     assert dev_seed_reset.status_code == 200
     assert dev_seed_reset.json()["status"] == "reset"
 
-    dev_eval = client.post("/v1/webui/dev/eval", json={})
+    dev_eval_pending = client.post("/v1/webui/dev/eval", json={"confirm": False})
+    assert dev_eval_pending.status_code == 200
+    assert dev_eval_pending.json()["status"] == "confirmation_required"
+
+    dev_eval = client.post("/v1/webui/dev/eval", json={"confirm": True})
     assert dev_eval.status_code == 200
     assert dev_eval.json()["reports"]["exact_mrr"]["value"] == 0.42
+
+    threshold_pending = client.post(
+        "/v1/webui/dev/optimize-threshold",
+        json={
+            "start": 0.0,
+            "end": 1.0,
+            "step": 0.5,
+            "beta": 0.5,
+            "output_format": "csv",
+            "write_config": False,
+            "confirm": False,
+        },
+    )
+    assert threshold_pending.status_code == 200
+    assert threshold_pending.json()["status"] == "confirmation_required"
 
     threshold = client.post(
         "/v1/webui/dev/optimize-threshold",
@@ -796,10 +858,26 @@ def test_webui_backend_supports_embeddings_dev_tools_graph_and_diagnostics(
             "beta": 0.5,
             "output_format": "csv",
             "write_config": False,
+            "confirm": True,
         },
     )
     assert threshold.status_code == 200
     assert threshold.json()["report"]["recommended_threshold"] == 0.5
+
+    maintenance_pending = client.post(
+        "/v1/webui/embedding/maintenance",
+        json={"confirm": False},
+    )
+    assert maintenance_pending.status_code == 200
+    assert maintenance_pending.json()["status"] == "confirmation_required"
+
+    maintenance = client.post(
+        "/v1/webui/embedding/maintenance",
+        json={"confirm": True},
+    )
+    assert maintenance.status_code == 200
+    assert maintenance.json()["status"] == "embedding_maintenance_completed"
+    assert core.model_ready_calls
 
     graph = client.get("/v1/webui/graph?limit=10")
     assert graph.status_code == 200
@@ -807,6 +885,15 @@ def test_webui_backend_supports_embeddings_dev_tools_graph_and_diagnostics(
     assert graph_payload["summary"]["memory_count"] >= 2
     assert any(node["kind"] == "memory_space" for node in graph_payload["nodes"])
     assert any(node["kind"] == "memory" for node in graph_payload["nodes"])
+    assert all("content_preview" not in node for node in graph_payload["nodes"])
+    graph_text = json.dumps(graph_payload)
+    assert "shared staging note with sensitive preview text" not in graph_text
+    assert any(
+        edge["kind"] == "memory_relationship"
+        and edge["source"].startswith("mem-")
+        and edge["target"].startswith("mem-")
+        for edge in graph_payload["edges"]
+    )
 
     diagnostics = client.get("/v1/webui/diagnostics")
     assert diagnostics.status_code == 200
@@ -817,6 +904,72 @@ def test_webui_backend_supports_embeddings_dev_tools_graph_and_diagnostics(
     logs = client.get("/v1/webui/logs")
     assert logs.status_code == 200
     assert logs.json()["recent"]["line_count"] == 2
+
+
+def test_webui_redacts_config_and_diagnostics_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw_config = {
+        "api": {
+            "token": "super-secret-token",
+            "endpoint": "http://localhost:9999",
+        },
+        "credentials": {
+            "password": "hunter2",
+            "nested": {"client_secret": "abc123"},
+        },
+        "service": {"endpoint": "http://localhost:8765"},
+    }
+    config = _make_config(tmp_path, monkeypatch, raw_config=raw_config)
+    client = _client(FakeCore(config))
+
+    config_response = client.get("/v1/webui/config")
+    assert config_response.status_code == 200
+    config_payload = config_response.json()
+    config_text = config_response.text
+    assert "super-secret-token" not in config_text
+    assert "hunter2" not in config_text
+    assert "abc123" not in config_text
+    assert config_payload["config"]["api"]["token"] == "[redacted]"
+    assert config_payload["config"]["credentials"] == "[redacted]"
+    assert config_payload["config"]["service"]["endpoint"] == "http://localhost:8765"
+
+    diagnostics_response = client.get("/v1/webui/diagnostics?tail_lines=10")
+    assert diagnostics_response.status_code == 200
+    diagnostics_payload = diagnostics_response.json()
+    diagnostics_text = diagnostics_response.text
+    assert "super-secret-token" not in diagnostics_text
+    assert (
+        diagnostics_payload["config_validation"]["config"]["api"]["token"]
+        == "[redacted]"
+    )
+    assert (
+        diagnostics_payload["config_validation"]["config"]["credentials"]
+        == "[redacted]"
+    )
+
+
+def test_webui_logs_support_bounded_tail_depth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = _make_core(tmp_path, monkeypatch)
+    log_dir = core.config.xdg_dirs["logs"]
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "recollectium.log"
+    lines = [f"{index:04d} café {'x' * 180}" for index in range(1000)]
+    log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    client = _client(core)
+
+    logs = client.get("/v1/webui/logs?tail_lines=5")
+    assert logs.status_code == 200
+    logs_payload = logs.json()
+    assert logs_payload["recent"]["lines"] == lines[-10:]
+    assert logs_payload["recent"]["truncated"] is True
+
+    diagnostics = client.get("/v1/webui/diagnostics?tail_lines=7")
+    assert diagnostics.status_code == 200
+    diagnostics_payload = diagnostics.json()
+    assert diagnostics_payload["logs"]["recent"]["lines"] == lines[-10:]
 
 
 def test_webui_root_serves_shell_and_bootstrap_endpoints(
