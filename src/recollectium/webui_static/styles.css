@@ -198,7 +198,7 @@ textarea:focus-visible {
 
 .brand-line h1 {
   margin: 0;
-  font-size: clamp(2rem, 5vw, 4.2rem);
+  font-size: clamp(1.9rem, 4.4vw, 3.6rem);
   line-height: 0.95;
   letter-spacing: 0.02em;
 }
@@ -254,17 +254,17 @@ textarea:focus-visible {
 .status-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .status-tile {
-  padding: 14px;
+  padding: 12px;
   border-radius: 10px;
   border: 1px solid var(--border-subtle);
   background:
     linear-gradient(180deg, rgba(17, 23, 34, 0.98), rgba(14, 19, 28, 0.95)),
     linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 18px);
-  min-height: 96px;
+  min-height: 88px;
 }
 
 .status-tile span {
@@ -806,16 +806,17 @@ h3 {
 }
 
 .status-message {
-  position: sticky;
-  bottom: 14px;
-  margin-top: 2px;
-  padding: 12px 14px;
-  border-radius: 8px;
+  position: static;
+  justify-self: stretch;
+  width: 100%;
+  max-width: none;
+  margin-top: 0;
+  padding: 12px 16px;
+  border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--accent-search) 42%, var(--border-subtle));
   background: rgba(7, 10, 16, 0.96);
   color: var(--text-primary);
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
-  max-width: min(100%, 960px);
 }
 
 .status-message[data-kind='error'] {
@@ -851,7 +852,7 @@ h3 {
   }
 
   .tabs {
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -893,7 +894,18 @@ h3 {
 
 @media (max-width: 560px) {
   .brand-line h1 {
-    font-size: clamp(1.8rem, 11vw, 3rem);
+    font-size: clamp(1.7rem, 10vw, 2.6rem);
+  }
+
+  .tabs {
+    gap: 8px;
+  }
+
+  .tab-button {
+    min-height: 40px;
+    padding: 9px 10px;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
   }
 
   .status-grid {
