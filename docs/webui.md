@@ -58,7 +58,7 @@ The WebUI exposes the same major local control surfaces as Core:
 - Dev tools, including seeded data reset, evaluation, and threshold optimization.
 - Graph, diagnostics, and logs views.
 
-The packaged front end lives in `src/recollectium/webui_static/` and is exercised by the test suite, so WebUI changes should keep the static shell and the API contract in sync.
+The packaged front end lives in `src/recollectium/webui_static/` and is exercised by the test suite, so WebUI changes should keep the static shell and the API contract in sync. See [WebUI design source](webui-design.md) for the visual direction and architecture decision.
 
 When Core adds a new user-facing feature or operation, the WebUI should gain matching support in the same release unless the change is explicitly documented as deferred.
 
