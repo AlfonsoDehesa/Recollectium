@@ -45,6 +45,41 @@ function showMessage(message, kind = 'info') {
   el.dataset.kind = kind;
 }
 
+function setIndicator(id, value, state = 'idle') {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = value;
+  el.dataset.state = state;
+}
+
+function toneForStatus(value) {
+  const text = String(value ?? '').toLowerCase();
+  if (!text) return 'idle';
+  if (['ok', 'healthy', 'running', 'ready', 'configured', 'online', 'completed', 'available'].includes(text)) {
+    return 'ok';
+  }
+  if (['warning', 'degraded', 'partial', 'confirmation_required', 'pending'].includes(text)) {
+    return 'warning';
+  }
+  if (['error', 'failed', 'unavailable', 'stopped', 'disabled'].includes(text)) {
+    return 'danger';
+  }
+  return 'ok';
+}
+
+function toneForSpace(value) {
+  return value ? 'active' : 'idle';
+}
+
+function syncCardSelection(root, selector, activeButton) {
+  root?.querySelectorAll(selector).forEach((node) => {
+    const active = node === activeButton;
+    node.classList.toggle('selected', active);
+    node.setAttribute('aria-pressed', active ? 'true' : 'false');
+    node.dataset.selected = active ? 'true' : 'false';
+  });
+}
+
 function renderJson(id, value) {
   const el = $(id);
   if (el) el.textContent = JSON.stringify(value, null, 2);
@@ -109,17 +144,55 @@ async function request(path, options = {}) {
 }
 
 function selectTab(name) {
+  document.documentElement.dataset.activeTab = name;
   document.querySelectorAll('.tab-button').forEach((button) => {
-    button.classList.toggle('active', button.dataset.tab === name);
+    const active = button.dataset.tab === name;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
   });
   document.querySelectorAll('.tab-panel').forEach((panel) => {
     panel.classList.toggle('active', panel.id === `tab-${name}`);
+    panel.setAttribute('aria-hidden', panel.id === `tab-${name}` ? 'false' : 'true');
   });
 }
 
 function wireTabs() {
   document.querySelectorAll('.tab-button').forEach((button) => {
     button.addEventListener('click', () => selectTab(button.dataset.tab));
+  });
+}
+
+function wireGlobalSearch() {
+  const form = $('global-search-form');
+  const input = $('global-search-input');
+  const memoryForm = $('memory-search-form');
+
+  form?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const query = input?.value.trim() || '';
+    selectTab('memories');
+    const queryField = memoryForm?.querySelector('[name="query"]');
+    if (!queryField) return;
+    queryField.value = query;
+    if (!query) {
+      queryField.focus();
+      return;
+    }
+    if (typeof memoryForm.requestSubmit === 'function') {
+      memoryForm.requestSubmit();
+      return;
+    }
+    memoryForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      const field = input;
+      if (!field) return;
+      event.preventDefault();
+      field.focus();
+      field.select();
+    }
   });
 }
 
@@ -147,6 +220,7 @@ function renderMemoryList(memories) {
     root.innerHTML = '<div class="empty">No memories found.</div>';
     return;
   }
+  const selectedId = state.selectedMemory?.id || null;
   root.innerHTML = memories
     .map((entry) => {
       const { memory, score, rank, matchedText, snippet, chunkIndex } = normalizeMemoryEntry(entry);
@@ -156,11 +230,19 @@ function renderMemoryList(memories) {
       if (score !== null) details.push(`score ${score.toFixed(3)}`);
       if (chunkIndex !== null) details.push(`chunk ${chunkIndex}`);
       const preview = snippet || matchedText || memory?.content || '';
+      const selected = Boolean(memoryId && selectedId === memoryId);
       return `
-        <button class="list-item" data-memory-id="${escapeHtml(memoryId)}">
-          <strong>${escapeHtml(memoryId || 'unknown memory')}</strong>
-          <span>${escapeHtml(details.join(' · '))}</span>
-          <small>${escapeHtml(preview).slice(0, 160)}</small>
+        <button class="list-item memory-card ${selected ? 'selected' : ''}" data-memory-id="${escapeHtml(memoryId)}" aria-pressed="${selected}">
+          <div class="list-item__header">
+            <strong>${escapeHtml(memoryId || 'unknown memory')}</strong>
+            <span class="status-chip">${escapeHtml(details.slice(0, 3).join(' · '))}</span>
+          </div>
+          <div class="list-item__meta">
+            ${rank !== null ? `<span class="micro-chip">rank ${rank}</span>` : ''}
+            ${score !== null ? `<span class="micro-chip">score ${score.toFixed(3)}</span>` : ''}
+            ${chunkIndex !== null ? `<span class="micro-chip">chunk ${chunkIndex}</span>` : ''}
+          </div>
+          <small class="list-item__preview">${escapeHtml(preview).slice(0, 160)}</small>
         </button>`;
     })
     .join('');
@@ -168,6 +250,7 @@ function renderMemoryList(memories) {
     button.addEventListener('click', async () => {
       const memory = await apiJson(`${API}/memories/${encodeURIComponent(button.dataset.memoryId)}?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
       state.selectedMemory = memory.memory;
+      syncCardSelection(root, '[data-memory-id]', button);
       renderJson('memory-detail', memory);
     });
   });
@@ -180,13 +263,18 @@ function renderWorkspaceList(workspaces) {
     root.innerHTML = '<div class="empty">No workspaces found.</div>';
     return;
   }
+  const selectedWorkspace = state.selectedWorkspace || null;
   root.innerHTML = workspaces
     .map((workspace) => {
       const aliases = Array.isArray(workspace.aliases) ? workspace.aliases.join(', ') : '';
+      const selected = selectedWorkspace === workspace.workspace_uid;
       return `
-        <button class="list-item" data-workspace-id="${workspace.workspace_uid}">
-          <strong>${escapeHtml(workspace.workspace_uid)}</strong>
-          <span>${aliases ? `Aliases: ${escapeHtml(aliases)}` : 'No aliases'}</span>
+        <button class="list-item workspace-card ${selected ? 'selected' : ''}" data-workspace-id="${workspace.workspace_uid}" aria-pressed="${selected}">
+          <div class="list-item__header">
+            <strong>${escapeHtml(workspace.workspace_uid)}</strong>
+            <span class="status-chip">${aliases ? `Aliases: ${escapeHtml(aliases)}` : 'No aliases'}</span>
+          </div>
+          <small class="list-item__preview">${selected ? 'Resolved workspace anchored to the active scope.' : 'Tap to resolve against the current memory space.'}</small>
         </button>`;
     })
     .join('');
@@ -194,6 +282,7 @@ function renderWorkspaceList(workspaces) {
     button.addEventListener('click', async () => {
       const uid = button.dataset.workspaceId;
       state.selectedWorkspace = uid;
+      syncCardSelection(root, '[data-workspace-id]', button);
       const resolved = await apiJson(`${API}/workspaces/${encodeURIComponent(uid)}/resolve?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
       renderJson('workspace-detail', resolved);
     });
@@ -203,19 +292,27 @@ function renderWorkspaceList(workspaces) {
 function renderServiceList(services) {
   const root = $('service-list');
   if (!root) return;
+  const selectedService = state.selectedService || 'api';
   root.innerHTML = services
     .map(
-      (service) => `
-        <button class="list-item" data-service-id="${service.service_type}">
-          <strong>${escapeHtml(service.service_type)}</strong>
-          <span>${service.running ? 'running' : 'stopped'}</span>
-          <small>${escapeHtml(service.discovery?.service?.endpoint || service.discovery?.next_step || '')}</small>
-        </button>`,
+      (service) => {
+        const isSelected = selectedService === service.service_type;
+        const endpoint = service.discovery?.service?.endpoint || service.discovery?.next_step || '';
+        return `
+        <button class="list-item service-card ${isSelected ? 'selected' : ''}" data-service-id="${service.service_type}" aria-pressed="${isSelected}" data-state="${service.running ? 'running' : 'stopped'}">
+          <div class="list-item__header">
+            <strong>${escapeHtml(service.service_type)}</strong>
+            <span class="status-chip">${service.running ? 'running' : 'stopped'}</span>
+          </div>
+          <small class="list-item__preview">${escapeHtml(endpoint || 'Inspect service discovery and endpoint status.')}</small>
+        </button>`;
+      },
     )
     .join('');
   root.querySelectorAll('[data-service-id]').forEach((button) => {
     button.addEventListener('click', async () => {
       state.selectedService = button.dataset.serviceId;
+      syncCardSelection(root, '[data-service-id]', button);
       const payload = await apiJson(`${API}/services/${encodeURIComponent(state.selectedService)}`);
       renderJson('service-detail', payload);
     });
@@ -229,14 +326,18 @@ function renderEmbeddingJobs(jobs) {
     root.innerHTML = '<div class="empty">No embedding jobs found.</div>';
     return;
   }
+  const selectedJob = state.selectedEmbeddingJob || null;
   root.innerHTML = jobs
     .map((job) => {
       const status = job.state || job.status || 'unknown';
+      const selected = selectedJob === job.id;
       return `
-        <button class="list-item" data-embedding-job-id="${escapeHtml(job.id || '')}">
-          <strong>${escapeHtml(job.id || 'unknown job')}</strong>
-          <span>${escapeHtml(status)} · ${escapeHtml(job.reason || job.error_message || '')}</span>
-          <small>${escapeHtml([job.provider, job.model].filter(Boolean).join(' · '))}</small>
+        <button class="list-item job-card ${selected ? 'selected' : ''}" data-embedding-job-id="${escapeHtml(job.id || '')}" aria-pressed="${selected}">
+          <div class="list-item__header">
+            <strong>${escapeHtml(job.id || 'unknown job')}</strong>
+            <span class="status-chip">${escapeHtml(status)}</span>
+          </div>
+          <small class="list-item__preview">${escapeHtml([job.provider, job.model].filter(Boolean).join(' · ') || job.reason || job.error_message || 'Embedding maintenance detail available in the inspector.')}</small>
         </button>`;
     })
     .join('');
@@ -244,6 +345,7 @@ function renderEmbeddingJobs(jobs) {
     button.addEventListener('click', async () => {
       const jobId = button.dataset.embeddingJobId;
       state.selectedEmbeddingJob = jobId;
+      syncCardSelection(root, '[data-embedding-job-id]', button);
       const payload = await apiJson(`${API}/embedding/jobs/${encodeURIComponent(jobId)}?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
       renderJson('embedding-job-detail', payload);
     });
@@ -347,18 +449,24 @@ function renderSpaces(spaces) {
   if (!root) return;
   root.innerHTML = spaces
     .map(
-      (space) => `
-        <button class="list-item ${space.selected ? 'selected' : ''}" data-memory-space-key="${space.key}">
-          <strong>${escapeHtml(space.key)}${space.is_default ? ' (default)' : ''}</strong>
-          <span>${space.exists ? 'database exists' : 'database missing'}</span>
-          <small>${escapeHtml(space.db_path)}</small>
-        </button>`,
+      (space) => {
+        const selected = space.selected || space.key === state.selectedMemorySpaceKey;
+        return `
+        <button class="list-item space-card ${selected ? 'selected' : ''}" data-memory-space-key="${space.key}" aria-pressed="${selected}">
+          <div class="list-item__header">
+            <strong>${escapeHtml(space.key)}${space.is_default ? ' (default)' : ''}</strong>
+            <span class="status-chip">${space.exists ? 'database exists' : 'database missing'}</span>
+          </div>
+          <small class="list-item__preview">${escapeHtml(space.db_path)}</small>
+        </button>`;
+      },
     )
     .join('');
   root.querySelectorAll('[data-memory-space-key]').forEach((button) => {
     button.addEventListener('click', async () => {
       state.selectedMemorySpaceKey = button.dataset.memorySpaceKey;
-      $('memory-space-status').textContent = state.selectedMemorySpaceKey;
+      setIndicator('memory-space-status', state.selectedMemorySpaceKey, toneForSpace(state.selectedMemorySpaceKey));
+      syncCardSelection(root, '[data-memory-space-key]', button);
       await refreshMemories();
       await refreshWorkspaces();
       await refreshConfig();
@@ -388,9 +496,9 @@ async function refreshContext() {
   const services = await apiJson(`${API}/services`);
   state.context = context;
   state.selectedMemorySpaceKey = memorySpaces.selected_memory_space_key || context.config.safe_paths.default_memory_space_key;
-  $('health-status').textContent = health.status;
-  $('service-status').textContent = status.status;
-  $('memory-space-status').textContent = state.selectedMemorySpaceKey;
+  setIndicator('health-status', health.status, toneForStatus(health.status));
+  setIndicator('service-status', status.status, toneForStatus(status.status));
+  setIndicator('memory-space-status', state.selectedMemorySpaceKey, toneForSpace(state.selectedMemorySpaceKey));
   $('security-warning-text').textContent = context.security.warning;
   renderSpaces(memorySpaces.spaces || []);
   renderServiceList(services.services || []);
@@ -1031,6 +1139,7 @@ function wireRefreshButtons() {
 
 async function boot() {
   wireTabs();
+  wireGlobalSearch();
   wireMemoryForms();
   wireConfigForms();
   wireWorkspaceForms();
@@ -1051,9 +1160,9 @@ async function boot() {
     await refreshLogs();
     showMessage('WebUI ready.');
   } catch (error) {
-    renderText('health-status', 'unavailable');
-    renderText('service-status', 'unavailable');
-    renderText('memory-space-status', 'unavailable');
+    setIndicator('health-status', 'unavailable', 'danger');
+    setIndicator('service-status', 'unavailable', 'danger');
+    setIndicator('memory-space-status', 'unavailable', 'danger');
     renderJson('diagnostics', { error: String(error) });
     showMessage(error.message, 'error');
   }

@@ -496,7 +496,13 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
 
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+    styles_css = (static_dir / "styles.css").read_text(encoding="utf-8")
 
+    assert "cockpit-shell" in index_html
+    assert 'class="top-chrome panel"' in index_html
+    assert 'class="cockpit-rail panel"' in index_html
+    assert 'id="global-search-form"' in index_html
+    assert 'role="tablist"' in index_html
     assert 'id="memory-search-form"' in index_html
     assert 'id="config-key-form"' in index_html
     assert 'id="workspace-form"' in index_html
@@ -511,6 +517,16 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     assert 'id="graph-form"' in index_html
     assert 'id="diagnostics"' in index_html
     assert 'id="log-tail-lines"' in index_html
+
+    assert "--bg-app: #0b0f14" in styles_css
+    assert "--accent-memory: #6ee7b7" in styles_css
+    assert "cockpit-layout" in styles_css
+    assert "status-tile" in styles_css
+    assert "global-search" in styles_css
+    assert "list-item__header" in styles_css
+    assert ":focus-visible" in styles_css
+    assert "prefers-reduced-motion" in styles_css
+
     assert "/v1/webui/memories" in app_js
     assert "/v1/webui/workspaces" in app_js
     assert "/v1/webui/config" in app_js
@@ -519,6 +535,8 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     assert "/v1/webui/embedding/maintenance" in app_js
     assert "/v1/webui/dev/optimize-threshold" in app_js
     assert "updateServiceControls" in app_js
+    assert "wireGlobalSearch" in app_js
+    assert "syncCardSelection" in app_js
     assert "service-restart-note" in app_js
     assert "dev-eval-form" in app_js
     assert "/v1/webui/graph" in app_js
@@ -986,6 +1004,8 @@ def test_webui_root_serves_shell_and_bootstrap_endpoints(
     root_response = client.get("/")
     assert root_response.status_code == 200
     assert "Recollectium WebUI" in root_response.text
+    assert "cockpit-shell" in root_response.text
+    assert 'id="global-search-form"' in root_response.text
     assert 'id="memory-search-form"' in root_response.text
 
     app_js = client.get("/assets/app.js")
