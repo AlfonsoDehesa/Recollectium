@@ -501,8 +501,11 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     assert 'id="config-key-form"' in index_html
     assert 'id="workspace-form"' in index_html
     assert 'id="service-form"' in index_html
+    assert 'id="service-restart"' in index_html
+    assert 'id="service-restart-note"' in index_html
     assert 'id="embedding-refresh-form"' in index_html
     assert 'id="run-embedding-maintenance"' in index_html
+    assert 'id="dev-eval-form"' in index_html
     assert 'name="confirm"' in index_html
     assert 'id="threshold-form"' in index_html
     assert 'id="graph-form"' in index_html
@@ -515,6 +518,9 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     assert "/v1/webui/embedding/status" in app_js
     assert "/v1/webui/embedding/maintenance" in app_js
     assert "/v1/webui/dev/optimize-threshold" in app_js
+    assert "updateServiceControls" in app_js
+    assert "service-restart-note" in app_js
+    assert "dev-eval-form" in app_js
     assert "/v1/webui/graph" in app_js
     assert "/v1/webui/diagnostics" in app_js
     assert "/v1/webui/logs" in app_js

@@ -239,8 +239,9 @@
                 <button type="button" data-action="discover">Discover</button>
                 <button type="button" data-action="start">Start</button>
                 <button type="button" data-action="stop" class="danger">Stop</button>
-                <button type="button" data-action="restart">Restart</button>
+                <button type="button" data-action="restart" id="service-restart">Restart</button>
               </div>
+              <p id="service-restart-note" hidden>WebUI restart is disabled in the browser because the current process cannot restart itself. Stop the WebUI, then relaunch it from your shell or service manager.</p>
             </form>
             <pre id="service-detail" class="json-box">No service selected.</pre>
           </section>
@@ -305,7 +306,9 @@
               <button id="reset-dev-seed" type="button" class="danger">Reset</button>
               <button id="run-dev-eval" type="button">Run eval</button>
             </div>
-            <label class="checkbox"><input type="checkbox" name="confirm" /> Confirm dev eval</label>
+            <form id="dev-eval-form">
+              <label class="checkbox"><input type="checkbox" name="confirm" /> Confirm dev eval</label>
+            </form>
             <pre id="dev-seed-status" class="json-box">Loading…</pre>
             <pre id="dev-eval-result" class="json-box">No dev eval result yet.</pre>
           </section>

@@ -725,6 +725,26 @@ function wireWorkspaceForms() {
 }
 
 function wireServiceForms() {
+  const serviceForm = $('service-form');
+  const restartButton = $('service-restart');
+  const restartNote = $('service-restart-note');
+
+  const updateServiceControls = () => {
+    const values = serviceForm ? formValues(serviceForm) : {};
+    const serviceType = values.service_type || 'api';
+    const isWebui = serviceType === 'webui';
+    if (restartButton) {
+      restartButton.disabled = isWebui;
+      restartButton.title = isWebui
+        ? 'Restart is unavailable for the currently serving WebUI. Stop it and relaunch from the shell or service manager.'
+        : '';
+    }
+    if (restartNote) restartNote.hidden = !isWebui;
+  };
+
+  serviceForm?.querySelector('[name="service_type"]')?.addEventListener('change', updateServiceControls);
+  updateServiceControls();
+
   $('refresh-services')?.addEventListener('click', async () => {
     try {
       await refreshServices();
@@ -745,6 +765,10 @@ function wireServiceForms() {
         allow_self_stop: Boolean(values.allow_self_stop),
       };
       try {
+        if (button.dataset.action === 'restart' && serviceType === 'webui') {
+          showMessage('Restart is unavailable for the currently serving WebUI. Stop it and relaunch from the shell or service manager.', 'warning');
+          return;
+        }
         if (button.dataset.action === 'discover') {
           const payload = await apiJson(`${API}/services/${encodeURIComponent(serviceType)}/discover`);
           renderJson('service-detail', payload);
