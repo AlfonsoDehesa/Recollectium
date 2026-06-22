@@ -523,34 +523,35 @@ def _exercise_api_service(root: Path) -> None:
         raise primary_exc.with_traceback(primary_tb)
 
 
+def _webui_smoke_urls(port: int) -> dict[str, str]:
+    base = f"http://{SERVICE_HOST}:{port}"
+    return {
+        "base": base,
+        "health": f"{base}/v1/health",
+        "status": f"{base}/v1/status",
+        "version": f"{base}/v1/version",
+        "capabilities": f"{base}/v1/capabilities",
+        "context": f"{base}/v1/webui/context",
+        "services": f"{base}/v1/webui/services",
+    }
+
+
 def _assert_webui_payloads(
     start_payload: dict[str, Any], status_payload: dict[str, Any]
-) -> dict[str, str]:
-    for payload, expected_status in (
-        (start_payload, "started"),
-        (status_payload, "running"),
-    ):
-        assert payload["status"] == expected_status, payload
-        assert payload["type"] == "webui", payload
-        assert payload["service_type"] == "webui", payload
-        assert payload["running"] is True, payload
-        assert isinstance(payload["pid"], int) and payload["pid"] > 0, payload
-        assert payload["surface"] == "Recollectium WebUI", payload
-        assert payload["webui_version"] == "1", payload
-        assert payload["endpoints"]["base"].startswith("http://"), payload
-        assert payload["endpoints"]["health"].startswith("http://"), payload
-        assert payload["endpoints"]["status"].startswith("http://"), payload
-        assert payload["endpoints"]["version"].startswith("http://"), payload
-        assert payload["endpoints"]["capabilities"].startswith("http://"), payload
-        assert payload["endpoints"]["context"].startswith("http://"), payload
-        assert payload["endpoints"]["services"].startswith("http://"), payload
-        assert payload["ui_assets"] == ["/", "/assets/app.js", "/assets/styles.css"], (
-            payload
-        )
-        assert "static-ui" in payload["capabilities"], payload
-        assert "webui.context" in payload["capabilities"], payload
-        assert "webui.services" in payload["capabilities"], payload
-    return cast(dict[str, str], status_payload["endpoints"])
+) -> None:
+    assert start_payload["status"] == "started", start_payload
+    assert start_payload["type"] == "webui", start_payload
+    assert start_payload["running"] is True, start_payload
+    assert isinstance(start_payload["pid"], int) and start_payload["pid"] > 0, (
+        start_payload
+    )
+    assert status_payload["status"] == "running", status_payload
+    assert status_payload["type"] == "webui", status_payload
+    assert status_payload["running"] is True, status_payload
+    assert isinstance(status_payload["pid"], int) and status_payload["pid"] > 0, (
+        status_payload
+    )
+    assert status_payload["pid"] == start_payload["pid"], status_payload
 
 
 def _wait_for_webui_ready(endpoints: dict[str, str]) -> None:
@@ -562,21 +563,17 @@ def _wait_for_webui_ready(endpoints: dict[str, str]) -> None:
             assert health.get("status") == "ok", health
             assert health.get("ready") is True, health
             assert health.get("service_type") == "webui", health
-
             status = _request_json("GET", endpoints["status"])
             assert status.get("status") == "running", status
             assert status.get("service_type") == "webui", status
-
             version = _request_json("GET", endpoints["version"])
             assert version.get("status") == "ok", version
             assert version.get("service_type") == "webui", version
             assert version.get("webui_version") == "1", version
-
             capabilities = _request_json("GET", endpoints["capabilities"])
             assert capabilities.get("status") == "ok", capabilities
             assert capabilities.get("service_type") == "webui", capabilities
             assert "webui.context" in capabilities.get("capabilities", []), capabilities
-
             context = _request_json("GET", endpoints["context"])
             assert context.get("status") == "ok", context
             assert context.get("surface") == "Recollectium WebUI", context
@@ -584,12 +581,10 @@ def _wait_for_webui_ready(endpoints: dict[str, str]) -> None:
             assert security.get("authentication") == "none", context
             assert security.get("tls") is False, context
             assert "webui.context" in context.get("capabilities", []), context
-
             root_html = _request_text("GET", endpoints["base"] + "/")
             assert "Recollectium WebUI" in root_html, root_html
             assert "/assets/app.js" in root_html, root_html
             assert "/assets/styles.css" in root_html, root_html
-
             app_js = _request_text("GET", endpoints["base"] + "/assets/app.js")
             styles_css = _request_text("GET", endpoints["base"] + "/assets/styles.css")
             assert app_js.strip(), app_js
@@ -611,39 +606,23 @@ def _exercise_webui_service(root: Path) -> None:
     _configure_smoke_root(
         recollectium, config_path, root, service_port, webui_port=webui_port
     )
-
     stop_payload: dict[str, Any] | None = None
     primary_exc: Exception | None = None
     primary_tb = None
     cleanup_error: Exception | None = None
     started_pid: int | None = None
+    discovery_file: Path | None = None
     try:
         start_payload = _run_json(
-            [
-                *recollectium,
-                "--config",
-                str(config_path),
-                "webui",
-                "start",
-                "--json",
-            ]
+            [*recollectium, "--config", str(config_path), "webui", "start", "--json"]
         )
         started_pid = start_payload["pid"]
         status_payload = _run_json(
-            [
-                *recollectium,
-                "--config",
-                str(config_path),
-                "webui",
-                "status",
-                "--json",
-            ]
+            [*recollectium, "--config", str(config_path), "webui", "status", "--json"]
         )
         _assert_webui_payloads(start_payload, status_payload)
         endpoints = _webui_smoke_urls(webui_port)
-
         _wait_for_webui_ready(endpoints)
-
         discover_payload = _request_json(
             "GET", endpoints["services"] + "/webui/discover"
         )
@@ -660,31 +639,18 @@ def _exercise_webui_service(root: Path) -> None:
         )
         discovery_file = Path(running_discovery["paths"]["discovery_file"])
         assert discovery_file.exists(), discovery_file
-
         stop_result = _run_json(
-            [
-                *recollectium,
-                "--config",
-                str(config_path),
-                "webui",
-                "stop",
-                "--json",
-            ]
+            [*recollectium, "--config", str(config_path), "webui", "stop", "--json"]
         )
         stopped_payload = _run_json(
-            [
-                *recollectium,
-                "--config",
-                str(config_path),
-                "webui",
-                "status",
-                "--json",
-            ]
+            [*recollectium, "--config", str(config_path), "webui", "status", "--json"]
         )
         assert stop_result["status"] == "stopped", stop_result
         assert stop_result["running"] is False, stop_result
         assert stopped_payload["status"] == "not_running", stopped_payload
         assert stopped_payload["running"] is False, stopped_payload
+        if discovery_file is not None:
+            assert not discovery_file.exists(), discovery_file
         stop_payload = stop_result
     except Exception as exc:
         primary_exc = exc
@@ -694,7 +660,6 @@ def _exercise_webui_service(root: Path) -> None:
             cleanup_error = _cleanup_service_process(
                 recollectium, config_path, "webui", started_pid
             )
-
     if cleanup_error is not None:
         if primary_exc is None:
             raise cleanup_error

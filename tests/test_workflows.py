@@ -93,9 +93,9 @@ def test_ci_service_smoke_script_covers_api_and_mcp_surfaces() -> None:
     assert "def _exercise_api_service" in script
     assert "def _exercise_mcp_service" in script
     assert "def _exercise_webui_service" in script
-    assert '"webui",\n                "start",' in script
-    assert '"webui",\n                "status",' in script
-    assert '"webui",\n                "stop",' in script
+    assert '"webui", "start", "--json"' in script
+    assert '"webui", "status", "--json"' in script
+    assert '"webui", "stop", "--json"' in script
     assert '"webui.host"' in script
     assert '"webui.port"' in script
     assert "_webui_smoke_urls(webui_port)" in script

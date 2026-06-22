@@ -46,9 +46,9 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
     assert 'discover_payload["service"]' not in service_smoke
     assert "discover['service']" not in service_smoke
     assert "def _exercise_webui_service" in service_smoke
-    assert '"webui",\n                "start",' in service_smoke
-    assert '"webui",\n                "status",' in service_smoke
-    assert '"webui",\n                "stop",' in service_smoke
+    assert '"webui", "start", "--json"' in service_smoke
+    assert '"webui", "status", "--json"' in service_smoke
+    assert '"webui", "stop", "--json"' in service_smoke
     assert '"webui.host"' in service_smoke
     assert '"webui.port"' in service_smoke
     assert "_webui_smoke_urls(webui_port)" in service_smoke
