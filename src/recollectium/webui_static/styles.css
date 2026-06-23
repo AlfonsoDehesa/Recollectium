@@ -55,11 +55,11 @@
   --gold-ridge: repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.28) 0 1px, transparent 1px 3px, rgba(71, 33, 9, 0.2) 3px 4px, transparent 4px 8px);
   --shell-gold-ridge: repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.035) 0 1px, transparent 1px 7px, rgba(71, 33, 9, 0.035) 7px 8px, transparent 8px 18px);
   --pixel-score-lines: repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.09) 0 1px, transparent 1px 5px);
-  --frame-gold-inner: inset 0 0 0 1px rgba(255, 248, 207, 0.24), inset 0 0 0 3px rgba(255, 226, 154, 0.12), inset 0 0 0 5px rgba(71, 33, 9, 0.42);
-  --frame-paper-inner: inset 0 0 0 1px rgba(255, 248, 207, 0.34), inset 0 0 0 3px rgba(217, 154, 61, 0.18), inset 0 0 0 5px rgba(106, 55, 16, 0.28);
-  --frame-well-inner: inset 0 0 0 1px rgba(255, 240, 173, 0.055), inset 0 0 0 3px rgba(27, 38, 49, 0.5), inset 0 0 0 5px rgba(0, 0, 0, 0.42);
-  --frame-teal-inner: inset 0 0 0 1px rgba(214, 255, 232, 0.24), inset 0 0 0 3px rgba(150, 239, 189, 0.16), inset 0 0 0 5px rgba(11, 48, 34, 0.42);
-  --frame-danger-inner: inset 0 0 0 1px rgba(255, 208, 200, 0.26), inset 0 0 0 3px rgba(255, 117, 103, 0.18), inset 0 0 0 5px rgba(93, 22, 18, 0.42);
+  --frame-gold-inner: inset 0 0 0 1px rgba(169, 101, 31, 0.46), inset 0 0 0 3px rgba(93, 49, 14, 0.36), inset 0 0 0 5px rgba(24, 11, 4, 0.48);
+  --frame-paper-inner: inset 0 0 0 1px rgba(169, 101, 31, 0.34), inset 0 0 0 3px rgba(106, 55, 16, 0.2), inset 0 0 0 5px rgba(74, 39, 10, 0.16);
+  --frame-well-inner: inset 0 0 0 1px rgba(169, 101, 31, 0.2), inset 0 0 0 3px rgba(27, 38, 49, 0.42), inset 0 0 0 5px rgba(0, 0, 0, 0.5);
+  --frame-teal-inner: inset 0 0 0 1px rgba(50, 131, 94, 0.36), inset 0 0 0 3px rgba(20, 55, 39, 0.38), inset 0 0 0 5px rgba(5, 18, 13, 0.46);
+  --frame-danger-inner: inset 0 0 0 1px rgba(201, 67, 59, 0.36), inset 0 0 0 3px rgba(93, 22, 18, 0.34), inset 0 0 0 5px rgba(36, 8, 7, 0.46);
 }
 
 
@@ -107,7 +107,7 @@ a {
   box-shadow:
     0 0 0 2px var(--line-dark),
     0 0 0 4px var(--focus),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+    inset 0 0 0 1px rgba(50, 131, 94, 0.22) !important;
 }
 
 [hidden] {
@@ -143,7 +143,7 @@ a {
   position: absolute;
   inset: 12px;
   pointer-events: none;
-  border: 2px solid rgba(255, 226, 154, 0.08);
+  border: 2px solid rgba(169, 101, 31, 0.12);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
 }
 
@@ -157,8 +157,8 @@ a {
     radial-gradient(circle at calc(100% - 8px) 8px, var(--gold-bright) 0 2px, transparent 2.5px),
     radial-gradient(circle at 8px calc(100% - 8px), var(--gold-edge) 0 2px, transparent 2.5px),
     radial-gradient(circle at calc(100% - 8px) calc(100% - 8px), var(--gold-edge) 0 2px, transparent 2.5px),
-    linear-gradient(90deg, rgba(255, 226, 154, 0.24) 0 2px, transparent 2px calc(100% - 2px), rgba(255, 226, 154, 0.24) calc(100% - 2px)),
-    linear-gradient(180deg, rgba(255, 226, 154, 0.24) 0 2px, transparent 2px calc(100% - 2px), rgba(255, 226, 154, 0.24) calc(100% - 2px));
+    linear-gradient(90deg, rgba(169, 101, 31, 0.18) 0 2px, transparent 2px calc(100% - 2px), rgba(169, 101, 31, 0.18) calc(100% - 2px)),
+    linear-gradient(180deg, rgba(169, 101, 31, 0.18) 0 2px, transparent 2px calc(100% - 2px), rgba(169, 101, 31, 0.18) calc(100% - 2px));
   opacity: 0.18;
   mix-blend-mode: screen;
 }
@@ -198,16 +198,16 @@ a {
   position: absolute;
   inset: 9px;
   pointer-events: none;
-  border: 2px solid rgba(255, 226, 154, 0.18);
+  border: 2px solid rgba(169, 101, 31, 0.26);
   clip-path: none;
   background:
-    radial-gradient(circle at 2px 2px, var(--gold-bright) 0 1px, transparent 1.5px),
-    radial-gradient(circle at calc(100% - 2px) 2px, var(--gold-bright) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 2px 2px, var(--gold-face) 0 1px, transparent 1.5px),
+    radial-gradient(circle at calc(100% - 2px) 2px, var(--gold-face) 0 1px, transparent 1.5px),
     radial-gradient(circle at 2px calc(100% - 2px), var(--gold-edge) 0 1px, transparent 1.5px),
     radial-gradient(circle at calc(100% - 2px) calc(100% - 2px), var(--gold-edge) 0 1px, transparent 1.5px),
-    linear-gradient(90deg, rgba(255, 226, 154, 0.62) 0 4px, transparent 4px calc(100% - 4px), rgba(255, 226, 154, 0.62) calc(100% - 4px)),
-    linear-gradient(180deg, rgba(255, 226, 154, 0.62) 0 4px, transparent 4px calc(100% - 4px), rgba(255, 226, 154, 0.62) calc(100% - 4px));
-  opacity: 0.2;
+    linear-gradient(90deg, rgba(169, 101, 31, 0.32) 0 3px, transparent 3px calc(100% - 3px), rgba(169, 101, 31, 0.32) calc(100% - 3px)),
+    linear-gradient(180deg, rgba(169, 101, 31, 0.32) 0 3px, transparent 3px calc(100% - 3px), rgba(169, 101, 31, 0.32) calc(100% - 3px));
+  opacity: 0.16;
 }
 
 .top-chrome {
@@ -349,7 +349,7 @@ a {
   box-shadow:
     0 0 0 2px #0b0f0d,
     0 0 10px rgba(95, 181, 133, 0.5),
-    inset 2px 2px rgba(255, 255, 255, 0.2),
+    inset 2px 2px rgba(150, 239, 189, 0.2),
     inset -2px -2px rgba(0, 0, 0, 0.3);
   image-rendering: pixelated;
 }
@@ -369,7 +369,7 @@ a {
   padding: 0 7px;
   border: 2px solid #050506;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.045), transparent 34%),
     repeating-linear-gradient(90deg, rgba(150, 239, 189, 0.08) 0 1px, transparent 1px 4px),
     #07130f;
   box-shadow: var(--frame-teal-inner), 0 0 0 1px rgba(0, 0, 0, 0.28);
@@ -386,7 +386,7 @@ a {
   color: var(--teal-light);
   border-color: var(--teal-dark);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.08), transparent 34%),
     repeating-linear-gradient(90deg, rgba(150, 239, 189, 0.07) 0 1px, transparent 1px 4px),
     #10241c;
 }
@@ -462,7 +462,7 @@ a {
   cursor: pointer;
   color: var(--ink);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 36%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.16), transparent 36%),
     repeating-linear-gradient(90deg, rgba(74, 39, 10, 0.08) 0 1px, transparent 1px 4px),
     var(--brass-light);
   border: 4px solid var(--brass-dark);
@@ -516,7 +516,7 @@ button,
   height: 11px;
   margin-right: 8px;
   background: var(--brass-mid);
-  box-shadow: inset 0 0 0 2px rgba(255, 240, 173, 0.42), inset 0 0 0 4px rgba(71, 33, 9, 0.38);
+  box-shadow: inset 0 0 0 2px rgba(201, 133, 52, 0.38), inset 0 0 0 4px rgba(71, 33, 9, 0.42);
   vertical-align: -1px;
 }
 
@@ -524,7 +524,7 @@ button,
 .tab-button[aria-selected="true"] {
   background:
     var(--pixel-dither),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 30%),
+    linear-gradient(180deg, rgba(150, 239, 189, 0.12), transparent 30%),
     repeating-linear-gradient(45deg, rgba(150, 239, 189, 0.1) 0 2px, transparent 2px 6px),
     var(--teal);
   color: var(--ink);
@@ -558,7 +558,7 @@ button:disabled,
 button.secondary,
 .form-actions .secondary {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 36%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.055), transparent 36%),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
     var(--bg-well);
   color: var(--brass-light);
@@ -591,7 +591,7 @@ button.danger,
   color: var(--ink);
   background:
     var(--paper-dither),
-    linear-gradient(180deg, rgba(255, 248, 207, 0.42), transparent 30%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.20), transparent 30%),
     repeating-linear-gradient(0deg, rgba(77, 40, 16, 0.055) 0 1px, transparent 1px 3px),
     linear-gradient(180deg, #ecd491, var(--paper) 58%, var(--paper-shadow));
   border-color: var(--gold-edge);
@@ -670,7 +670,7 @@ button.danger,
 .primary-task {
   background:
     var(--paper-dither),
-    linear-gradient(180deg, rgba(255, 248, 207, 0.48), transparent 22%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.22), transparent 22%),
     repeating-linear-gradient(0deg, rgba(77, 40, 16, 0.045) 0 1px, transparent 1px 3px),
     linear-gradient(180deg, #f0d995, var(--paper) 56%, var(--paper-shadow));
   color: var(--ink);
@@ -693,7 +693,7 @@ button.danger,
 .inline-results {
   min-height: 96px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 24%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.045), transparent 24%),
     repeating-linear-gradient(0deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.015) 0 1px, transparent 1px 4px),
     var(--bg-panel);
@@ -792,7 +792,7 @@ textarea {
   padding: 8px 10px;
   color: var(--text);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 30%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.04), transparent 30%),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
     var(--bg-well);
   border: 4px solid #4e321b;
@@ -828,7 +828,7 @@ textarea::placeholder {
   padding: 8px 10px;
   color: var(--text-soft);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 32%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.035), transparent 32%),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.016) 0 1px, transparent 1px 4px),
     rgba(8, 11, 16, 0.5);
   border: 3px solid #4e321b;
@@ -870,7 +870,7 @@ textarea::placeholder {
   font: 900 0.68rem var(--font-pixel);
   text-transform: uppercase;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 30%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.06), transparent 30%),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.018) 0 1px, transparent 1px 4px),
     var(--bg-well-2);
   border-bottom: 4px solid #4e321b;
@@ -896,7 +896,7 @@ textarea::placeholder {
   color: var(--ink);
   background:
     var(--paper-dither),
-    linear-gradient(180deg, rgba(255, 248, 207, 0.38), transparent 26%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.18), transparent 26%),
     repeating-linear-gradient(0deg, rgba(77, 40, 16, 0.04) 0 1px, transparent 1px 3px),
     linear-gradient(180deg, #e8d092, var(--paper) 58%, #c79752);
   border: 3px solid var(--gold-edge);
@@ -932,7 +932,7 @@ textarea::placeholder {
 .list-item[aria-pressed="true"] {
   border-color: var(--teal-dark);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 28%),
+    linear-gradient(180deg, rgba(150, 239, 189, 0.08), transparent 28%),
     repeating-linear-gradient(45deg, rgba(150, 239, 189, 0.08) 0 2px, transparent 2px 6px),
     #12281f;
   box-shadow:
@@ -994,7 +994,7 @@ textarea::placeholder {
   padding: 16px;
   color: var(--text-muted);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.045), transparent 34%),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
     var(--bg-well);
   border: 4px dashed #4e321b;
@@ -1011,7 +1011,7 @@ textarea::placeholder {
   overflow: auto;
   color: #f9d78a;
   background:
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(0deg, rgba(217,154,61,0.018) 0 1px, transparent 1px 4px),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.016) 0 1px, transparent 1px 4px),
     var(--bg-well);
   border: 4px solid #4e321b;
@@ -1025,8 +1025,8 @@ textarea::placeholder {
   min-height: 330px;
   display: block;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.026) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.045), transparent 34%),
+    repeating-linear-gradient(0deg, rgba(217,154,61,0.02) 0 1px, transparent 1px 4px),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.014) 0 1px, transparent 1px 4px),
     var(--bg-well);
   border: 4px solid #4e321b;
@@ -1089,7 +1089,7 @@ textarea::placeholder {
   padding: 7px 11px;
   color: var(--text-soft);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 36%),
+    linear-gradient(180deg, rgba(217, 154, 61, 0.055), transparent 36%),
     repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.016) 0 1px, transparent 1px 4px),
     var(--bg-rail);
   border: 4px solid var(--brass);
