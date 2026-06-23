@@ -51,8 +51,9 @@
   --pixel-dither: repeating-conic-gradient(from 45deg, rgba(255, 240, 173, 0.05) 0 25%, transparent 0 50%) 0 0 / 2px 2px;
   --pixel-well-dither: repeating-conic-gradient(from 45deg, rgba(150, 239, 189, 0.026) 0 25%, transparent 0 50%) 0 0 / 2px 2px;
   --paper-dither: repeating-conic-gradient(from 45deg, rgba(77, 40, 16, 0.055) 0 25%, transparent 0 50%) 0 0 / 2px 2px;
-  --wood-grain: repeating-linear-gradient(0deg, rgba(255, 226, 154, 0.028) 0 1px, transparent 1px 3px), repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 14px);
+  --wood-grain: repeating-linear-gradient(0deg, rgba(255, 226, 154, 0.014) 0 1px, transparent 1px 3px), repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 14px);
   --gold-ridge: repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.28) 0 1px, transparent 1px 3px, rgba(71, 33, 9, 0.2) 3px 4px, transparent 4px 8px);
+  --shell-gold-ridge: repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.055) 0 1px, transparent 1px 5px, rgba(71, 33, 9, 0.055) 5px 6px, transparent 6px 14px);
   --pixel-score-lines: repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.09) 0 1px, transparent 1px 5px);
 }
 
@@ -116,9 +117,9 @@ a {
   grid-template-rows: auto 1fr auto;
   gap: 14px;
   background:
-    var(--gold-ridge),
+    var(--shell-gold-ridge),
     var(--wood-grain),
-    linear-gradient(90deg, rgba(255, 226, 154, 0.12), transparent 16%, transparent 84%, rgba(255, 226, 154, 0.09)),
+    linear-gradient(90deg, rgba(255, 226, 154, 0.045), transparent 16%, transparent 84%, rgba(255, 226, 154, 0.035)),
     repeating-linear-gradient(0deg, var(--wood-dark) 0 18px, var(--wood-mid) 18px 20px, var(--wood-light) 20px 21px, var(--wood-mid) 21px 38px),
     var(--bg-app);
   border: 10px solid transparent;
