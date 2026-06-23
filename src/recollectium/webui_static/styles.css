@@ -44,7 +44,7 @@
 html {
   min-height: 100%;
   background: var(--bg-void);
-  font-size: 14px;
+  font-size: 14.5px;
 }
 
 body {
@@ -58,7 +58,7 @@ body {
     repeating-linear-gradient(0deg, transparent 0 7px, rgba(255, 240, 173, 0.028) 7px 8px),
     repeating-linear-gradient(90deg, transparent 0 7px, rgba(255, 240, 173, 0.018) 7px 8px),
     linear-gradient(135deg, #090604 0%, #140c07 54%, #070504 100%);
-  line-height: 1.42;
+  line-height: 1.46;
 }
 
 button,
@@ -90,12 +90,12 @@ a {
 
 .app-shell {
   position: relative;
-  width: min(1060px, calc(100vw - 28px));
-  margin: 14px auto;
-  padding: 13px;
+  width: min(1120px, calc(100vw - 32px));
+  margin: 18px auto;
+  padding: 16px;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: 11px;
+  gap: 14px;
   background: var(--bg-app);
   border: 8px solid transparent;
   border-image: linear-gradient(90deg, var(--brass-dark), var(--brass-light), var(--brass), var(--brass-flare), var(--brass-dark)) 8;
@@ -151,18 +151,18 @@ a {
 .top-chrome {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 13px;
+  gap: 16px;
   align-items: stretch;
-  padding: 10px;
-  min-height: 86px;
+  padding: 13px;
+  min-height: 96px;
 }
 
 .brand-stack {
   min-width: 0;
   display: grid;
   align-content: center;
-  gap: 5px;
-  padding: 0 4px;
+  gap: 6px;
+  padding: 0 5px;
 }
 
 .eyebrow,
@@ -232,19 +232,19 @@ a {
 .chrome-stack {
   display: grid;
   align-content: center;
-  gap: 8px;
-  min-width: min(360px, 38vw);
+  gap: 10px;
+  min-width: min(392px, 40vw);
 }
 
 .status-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(96px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(106px, 1fr));
+  gap: 10px;
 }
 
 .status-tile {
-  min-height: 46px;
-  padding: 6px 8px;
+  min-height: 52px;
+  padding: 8px 10px;
   display: grid;
   align-content: center;
   gap: 2px;
@@ -310,28 +310,28 @@ a {
 .cockpit-layout {
   min-height: 0;
   display: grid;
-  grid-template-columns: 154px minmax(0, 1fr);
-  gap: 11px;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 14px;
 }
 
 .cockpit-rail {
   min-width: 0;
   min-height: 0;
-  padding: 9px;
+  padding: 11px;
   align-self: start;
 }
 
 .section-switcher {
   min-width: 0;
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .section-switcher summary {
-  min-height: 30px;
+  min-height: 34px;
   display: flex;
   align-items: center;
-  padding: 0 8px;
+  padding: 0 10px;
   cursor: pointer;
   color: var(--ink);
   background: var(--brass-light);
@@ -343,20 +343,20 @@ a {
 
 .tabs {
   display: grid;
-  gap: 7px;
+  gap: 9px;
 }
 
 .tab-button,
 button,
 .form-actions button {
-  min-height: 30px;
-  padding: 5px 8px;
+  min-height: 34px;
+  padding: 7px 10px;
   cursor: pointer;
   color: var(--ink);
   background: var(--teal);
   border: 4px solid var(--teal-dark);
   box-shadow: inset 0 4px var(--teal-light), inset 0 -4px var(--teal-dark);
-  font: 900 0.68rem var(--font-pixel);
+  font: 900 0.7rem var(--font-pixel);
   text-transform: uppercase;
   letter-spacing: 0.035em;
   transition: transform 120ms ease, filter 120ms ease;
@@ -375,9 +375,9 @@ button,
 .tab-button::before {
   content: "";
   display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 7px;
+  width: 11px;
+  height: 11px;
+  margin-right: 8px;
   background: var(--brass-mid);
   box-shadow: inset 0 3px var(--brass-flare), inset 0 -3px var(--brass-dark);
   vertical-align: -1px;
@@ -433,15 +433,15 @@ button.danger,
   min-width: 0;
   min-height: 0;
   display: grid;
-  gap: 11px;
+  gap: 14px;
 }
 
 .shell-banner {
-  min-height: 42px;
-  padding: 9px 13px;
+  min-height: 48px;
+  padding: 11px 15px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   color: var(--ink);
   background: var(--bg-parchment);
   border-color: #7a4c20;
@@ -458,7 +458,7 @@ button.danger,
 .tab-panel {
   display: none;
   min-width: 0;
-  padding: 12px;
+  padding: 14px;
 }
 
 .tab-panel.active {
@@ -470,7 +470,7 @@ button.danger,
 .split {
   min-width: 0;
   display: grid;
-  gap: 11px;
+  gap: 14px;
 }
 
 .panel-grid {
@@ -483,7 +483,7 @@ button.danger,
 .inline-results,
 .disclosure {
   min-width: 0;
-  padding: 12px;
+  padding: 14px;
 }
 
 .panel-grid > section,
@@ -493,7 +493,7 @@ button.danger,
   box-shadow: inset 0 5px #1c2731, inset 0 -5px #050506;
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 12px;
 }
 
 #tab-memories {
@@ -509,7 +509,7 @@ button.danger,
 }
 
 .focus-stack {
-  max-width: 780px;
+  max-width: 840px;
   margin: 0 auto;
 }
 
@@ -549,8 +549,8 @@ button.danger,
 
 .section-heading {
   display: grid;
-  gap: 5px;
-  margin-bottom: 11px;
+  gap: 6px;
+  margin-bottom: 13px;
 }
 
 h2,
@@ -571,7 +571,7 @@ h3 {
 }
 
 .section-heading h2 {
-  font-size: clamp(1.24rem, 2.25vw, 1.74rem);
+  font-size: clamp(1.32rem, 2.35vw, 1.86rem);
 }
 
 .section-heading p,
@@ -587,7 +587,7 @@ h3 {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  gap: 11px;
 }
 
 .form-grid.compact {
@@ -601,7 +601,7 @@ h3 {
 label,
 .inline-field {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   color: var(--text-soft);
   font-size: 0.68rem;
   font-weight: 900;
@@ -613,8 +613,8 @@ input,
 select,
 textarea {
   width: 100%;
-  min-height: 34px;
-  padding: 7px 9px;
+  min-height: 38px;
+  padding: 8px 10px;
   color: var(--text);
   background: var(--bg-well);
   border: 4px solid #4e321b;
@@ -641,11 +641,11 @@ textarea::placeholder {
 }
 
 .checkbox {
-  min-height: 34px;
+  min-height: 38px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
+  gap: 9px;
+  padding: 8px 10px;
   color: var(--text-soft);
   background: rgba(8, 11, 16, 0.5);
   border: 3px solid #4e321b;
@@ -668,7 +668,7 @@ textarea::placeholder {
 .form-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 9px;
   align-items: center;
 }
 
@@ -678,10 +678,10 @@ textarea::placeholder {
 }
 
 .disclosure > summary {
-  min-height: 35px;
+  min-height: 39px;
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 12px;
   cursor: pointer;
   color: var(--text);
   font: 900 0.68rem var(--font-pixel);
@@ -691,21 +691,21 @@ textarea::placeholder {
 }
 
 .disclosure-body {
-  padding: 11px;
+  padding: 13px;
 }
 
 .list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .list-item {
   width: 100%;
-  min-height: 76px;
-  padding: 10px 10px 10px 50px;
+  min-height: 84px;
+  padding: 12px 12px 12px 54px;
   position: relative;
   display: grid;
-  gap: 6px;
+  gap: 7px;
   text-align: left;
   color: var(--text);
   background: var(--bg-well);
@@ -716,8 +716,8 @@ textarea::placeholder {
 .list-item::before {
   content: "";
   position: absolute;
-  left: 11px;
-  top: 14px;
+  left: 13px;
+  top: 16px;
   width: 24px;
   height: 24px;
   background: var(--brass-mid);
@@ -747,7 +747,7 @@ textarea::placeholder {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .list-item__header strong {
@@ -771,7 +771,7 @@ textarea::placeholder {
 .list-item__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
 }
 
 .micro-chip {
@@ -915,7 +915,7 @@ textarea::placeholder {
 
 @media (max-width: 1180px) {
   .app-shell {
-    width: min(1020px, calc(100vw - 20px));
+    width: min(1080px, calc(100vw - 24px));
   }
 
   .top-chrome {
@@ -929,13 +929,13 @@ textarea::placeholder {
 
 @media (max-width: 920px) {
   html {
-    font-size: 13.5px;
+    font-size: 14px;
   }
 
   .app-shell {
-    width: min(100vw - 14px, 920px);
-    margin: 7px auto;
-    padding: 9px;
+    width: min(100vw - 18px, 940px);
+    margin: 9px auto;
+    padding: 11px;
   }
 
   .cockpit-layout {
@@ -943,7 +943,7 @@ textarea::placeholder {
   }
 
   .cockpit-rail {
-    padding: 8px;
+    padding: 10px;
   }
 
   .section-switcher:not([open]) .tabs {
@@ -955,9 +955,9 @@ textarea::placeholder {
   }
 
   .tab-button {
-    min-height: 26px;
-    padding: 4px 5px;
-    font-size: 0.49rem;
+    min-height: 30px;
+    padding: 5px 6px;
+    font-size: 0.54rem;
     letter-spacing: 0.01em;
   }
 
@@ -977,23 +977,23 @@ textarea::placeholder {
 
 @media (max-width: 640px) {
   html {
-    font-size: 13px;
+    font-size: 13.5px;
   }
 
   .app-shell {
-    width: min(100vw - 8px, 560px);
-    margin: 4px auto;
-    padding: 7px;
+    width: min(100vw - 10px, 580px);
+    margin: 6px auto;
+    padding: 9px;
     border-width: 6px;
   }
 
   .top-chrome {
     min-height: 0;
-    padding: 8px;
+    padding: 10px;
   }
 
   .brand-line h1 {
-    font-size: 1.32rem;
+    font-size: 1.42rem;
   }
 
   .brand-tag,
@@ -1024,7 +1024,7 @@ textarea::placeholder {
     max-width: 100%;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
+    gap: 5px;
     overflow: visible;
     padding-bottom: 0;
   }
@@ -1038,8 +1038,8 @@ textarea::placeholder {
   .shell-banner {
     align-items: start;
     flex-direction: column;
-    gap: 3px;
-    font-size: 0.76rem;
+    gap: 5px;
+    font-size: 0.8rem;
   }
 
   .tab-panel,
@@ -1047,7 +1047,7 @@ textarea::placeholder {
   .inline-results,
   .panel-grid > section,
   .split > div {
-    padding: 7px;
+    padding: 9px;
   }
 
   .form-grid,
@@ -1056,8 +1056,8 @@ textarea::placeholder {
   }
 
   .focus-form {
-    grid-template-columns: minmax(0, 1fr) 86px 64px;
-    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) 92px 70px;
+    gap: 7px;
   }
 
   .focus-form .full,
@@ -1069,36 +1069,36 @@ textarea::placeholder {
   .focus-form .form-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 5px;
+    gap: 6px;
   }
 
   .focus-form .form-actions button {
-    min-height: 28px;
-    padding: 4px 5px;
-    font-size: 0.55rem;
+    min-height: 30px;
+    padding: 5px 6px;
+    font-size: 0.58rem;
   }
 
   input,
   select,
   textarea {
-    min-height: 30px;
-    padding: 5px 7px;
+    min-height: 32px;
+    padding: 6px 8px;
   }
 
   .disclosure > summary,
   .section-switcher summary {
-    min-height: 26px;
-    padding: 0 7px;
-    font-size: 0.55rem;
+    min-height: 29px;
+    padding: 0 8px;
+    font-size: 0.58rem;
   }
 
   .inline-results {
-    min-height: 64px;
+    min-height: 76px;
   }
 
   .empty {
-    min-height: 52px;
-    padding: 10px;
+    min-height: 60px;
+    padding: 12px;
   }
 
   .section-heading h2 {
