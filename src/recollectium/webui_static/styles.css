@@ -165,12 +165,7 @@ a {
     inset 0 -2px #1e0c03,
     inset 0 -5px var(--brass-dark),
     0 14px 30px rgba(0, 0, 0, 0.24);
-  clip-path: polygon(
-    0 10px, 10px 10px, 10px 0,
-    calc(100% - 10px) 0, calc(100% - 10px) 10px, 100% 10px,
-    100% calc(100% - 10px), calc(100% - 10px) calc(100% - 10px), calc(100% - 10px) 100%,
-    10px 100%, 10px calc(100% - 10px), 0 calc(100% - 10px)
-  );
+  clip-path: none;
 }
 
 .panel::after,
@@ -182,7 +177,11 @@ a {
   inset: 9px;
   pointer-events: none;
   border: 2px solid rgba(255, 240, 173, 0.12);
-  clip-path: inherit;
+  clip-path: none;
+  background:
+    linear-gradient(90deg, var(--brass-flare) 0 8px, transparent 8px calc(100% - 8px), var(--brass-dark) calc(100% - 8px)),
+    linear-gradient(180deg, var(--brass-flare) 0 8px, transparent 8px calc(100% - 8px), var(--brass-dark) calc(100% - 8px));
+  opacity: 0.24;
 }
 
 .top-chrome {
@@ -312,7 +311,7 @@ a {
     inset 0 3px #8c5d2c,
     inset 0 -3px #060403,
     0 0 0 2px rgba(241, 198, 110, 0.12);
-  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  clip-path: none;
 }
 
 .header-space-chip::before {
@@ -456,7 +455,7 @@ button,
     inset 0 4px var(--teal-light),
     inset 0 -2px #062115,
     inset 0 -4px var(--teal-dark);
-  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  clip-path: none;
   font: 900 0.7rem var(--font-pixel);
   text-transform: uppercase;
   letter-spacing: 0.035em;
