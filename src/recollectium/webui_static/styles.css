@@ -990,13 +990,14 @@ textarea::placeholder {
   .active-space-chip {
     justify-self: end;
     min-height: 26px;
-    gap: 0;
+    gap: 5px;
     padding: 0 7px;
     border-width: 3px;
   }
 
   .active-space-chip span {
-    display: none;
+    display: inline;
+    font-size: 0.47rem;
   }
 
   .active-space-chip strong {
