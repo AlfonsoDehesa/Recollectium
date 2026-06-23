@@ -578,19 +578,24 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     )
 
     for pattern in [
-        r"--bg-app: #0b0f14",
-        r"--radius-shell: 12px",
-        r"--radius-chip: 4px",
-        r'--font-mono: "JetBrains Mono"',
+        r"--bg-app: #100b08",
+        r"--brass-light: #f1c66e",
+        r"--bg-parchment: #d7bd7c",
+        r"--teal: #32835e",
+        r"--font-pixel:",
+        r"clip-path: polygon",
+        r"repeating-linear-gradient",
+        r"\.primary-task",
         r"\.risk-note",
         r"\.tab-button\.active",
+        r"\.list-item::before",
         r"\.list-item__meta",
         r"\.status-chip",
         r"\.micro-chip",
         r":focus-visible",
         r"prefers-reduced-motion",
-        r"@media \(max-width: 840px\) \{[\s\S]*?\.shell-banner \{\s*display: flex;\s*flex-direction: column;\s*align-items: flex-start;",
-        r"@media \(max-width: 840px\) \{[\s\S]*?\.status-message \{\s*min-height: 44px;[\s\S]*?display: flex;[\s\S]*?word-break: break-word;",
+        r"@media \(max-width: 640px\) \{[\s\S]*?\.shell-banner \{\s*align-items: start;\s*flex-direction: column;",
+        r"@media \(max-width: 640px\) \{[\s\S]*?\.status-message \{[\s\S]*?min-height: 34px;[\s\S]*?display: flex;",
     ]:
         _assert_pattern(styles_css, pattern)
 

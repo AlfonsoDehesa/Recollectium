@@ -76,102 +76,91 @@
 
       <div class="cockpit-layout">
         <aside class="cockpit-rail panel" aria-label="WebUI sections">
-          <div class="rail-header">
-            <p class="rail-label">Command rail</p>
-            <p class="rail-copy">
-              Dense navigation for the packaged control plane.
-            </p>
-          </div>
-
-          <nav class="tabs" role="tablist" aria-label="WebUI sections">
-            <button
-              id="tab-button-memories"
-              class="tab-button active"
-              data-tab="memories"
-              role="tab"
-              aria-selected="true"
-              aria-controls="tab-memories"
-            >
-              Memories
-            </button>
-            <button
-              id="tab-button-spaces-config"
-              class="tab-button"
-              data-tab="spaces-config"
-              role="tab"
-              aria-selected="false"
-              aria-controls="tab-spaces-config"
-            >
-              Memory Spaces / Config
-            </button>
-            <button
-              id="tab-button-workspaces"
-              class="tab-button"
-              data-tab="workspaces"
-              role="tab"
-              aria-selected="false"
-              aria-controls="tab-workspaces"
-            >
-              Workspaces
-            </button>
-            <button
-              id="tab-button-services"
-              class="tab-button"
-              data-tab="services"
-              role="tab"
-              aria-selected="false"
-              aria-controls="tab-services"
-            >
-              Services
-            </button>
-            <button
-              id="tab-button-embeddings"
-              class="tab-button"
-              data-tab="embeddings"
-              role="tab"
-              aria-selected="false"
-              aria-controls="tab-embeddings"
-            >
-              Embeddings
-            </button>
-            <button
-              id="tab-button-dev-tools"
-              class="tab-button"
-              data-tab="dev-tools"
-              role="tab"
-              aria-selected="false"
-              aria-controls="tab-dev-tools"
-            >
-              Dev tools
-            </button>
-            <button
-              id="tab-button-graph"
-              class="tab-button"
-              data-tab="graph"
-              role="tab"
-              aria-selected="false"
-              aria-controls="tab-graph"
-            >
-              Graph
-            </button>
-            <button
-              id="tab-button-diagnostics"
-              class="tab-button"
-              data-tab="diagnostics"
-              role="tab"
-              aria-selected="false"
-              aria-controls="tab-diagnostics"
-            >
-              Diagnostics / Logs
-            </button>
-          </nav>
-
-          <div class="rail-footer">
-            <p class="rail-note">
-              Operationally serious by default. Preserve scope boundaries and
-              treat destructive actions as deliberate maintenance.
-            </p>
-          </div>
+          <details class="section-switcher" open>
+            <summary>Sections · Memories</summary>
+            <nav class="tabs" role="tablist" aria-label="WebUI sections">
+              <button
+                id="tab-button-memories"
+                class="tab-button active"
+                data-tab="memories"
+                role="tab"
+                aria-selected="true"
+                aria-controls="tab-memories"
+              >
+                Memories
+              </button>
+              <button
+                id="tab-button-spaces-config"
+                class="tab-button"
+                data-tab="spaces-config"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-spaces-config"
+              >
+                Memory Spaces / Config
+              </button>
+              <button
+                id="tab-button-workspaces"
+                class="tab-button"
+                data-tab="workspaces"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-workspaces"
+              >
+                Workspaces
+              </button>
+              <button
+                id="tab-button-services"
+                class="tab-button"
+                data-tab="services"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-services"
+              >
+                Services
+              </button>
+              <button
+                id="tab-button-embeddings"
+                class="tab-button"
+                data-tab="embeddings"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-embeddings"
+              >
+                Embeddings
+              </button>
+              <button
+                id="tab-button-dev-tools"
+                class="tab-button"
+                data-tab="dev-tools"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-dev-tools"
+              >
+                Dev tools
+              </button>
+              <button
+                id="tab-button-graph"
+                class="tab-button"
+                data-tab="graph"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-graph"
+              >
+                Graph
+              </button>
+              <button
+                id="tab-button-diagnostics"
+                class="tab-button"
+                data-tab="diagnostics"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-diagnostics"
+              >
+                Diagnostics / Logs
+              </button>
+            </nav>
+          </details>
         </aside>
 
         <section class="cockpit-stage" aria-label="Control surface">
@@ -181,10 +170,17 @@
           </section>
 
           <section class="panel tab-panel active" id="tab-memories" role="tabpanel" aria-labelledby="tab-button-memories">
-            <div class="panel-grid">
-              <section>
-                <h2>List / Search memories</h2>
-                <form id="memory-search-form" class="form-grid">
+            <div class="focus-stack">
+              <section class="primary-task">
+                <div class="section-heading">
+                  <h2>Find memories</h2>
+                  <p>Search the active memory space first. Open filters or write tools only when you need them.</p>
+                </div>
+                <form id="memory-search-form" class="form-grid focus-form">
+                  <label class="full">
+                    Query
+                    <input name="query" placeholder="search text" />
+                  </label>
                   <label>
                     Scope
                     <select name="scope">
@@ -193,57 +189,56 @@
                     </select>
                   </label>
                   <label>
-                    Workspace UID
-                    <input name="workspace_uid" placeholder="required for workspace scope" />
-                  </label>
-                  <label>
-                    Memory space key
-                    <input name="memory_space_key" placeholder="default" />
-                  </label>
-                  <label>
-                    Query
-                    <input name="query" placeholder="search text" />
-                  </label>
-                  <label>
-                    Type
-                    <input name="type" placeholder="fact, note, decision…" />
-                  </label>
-                  <label>
                     Limit
                     <input name="limit" type="number" min="1" value="20" />
                   </label>
-                  <label class="checkbox"
-                    ><input type="checkbox" name="include_archived" /> Include archived</label
-                  >
-                  <label>
-                    Protected minimum
-                    <input name="protected_minimum" type="number" min="0" placeholder="optional" />
-                  </label>
-                  <label>
-                    Match threshold
-                    <input name="match_threshold" placeholder="optional / model_recommended_default" />
-                  </label>
-                  <div class="form-actions">
+                  <details class="disclosure full">
+                    <summary>Filters</summary>
+                    <div class="form-grid compact disclosure-body">
+                      <label>
+                        Workspace UID
+                        <input name="workspace_uid" placeholder="required for workspace scope" />
+                      </label>
+                      <label>
+                        Memory space key
+                        <input name="memory_space_key" placeholder="default" />
+                      </label>
+                      <label>
+                        Type
+                        <input name="type" placeholder="fact, note, decision…" />
+                      </label>
+                      <label class="checkbox"
+                        ><input type="checkbox" name="include_archived" /> Include archived</label
+                      >
+                      <label>
+                        Protected minimum
+                        <input name="protected_minimum" type="number" min="0" placeholder="optional" />
+                      </label>
+                      <label>
+                        Match threshold
+                        <input name="match_threshold" placeholder="optional / model_recommended_default" />
+                      </label>
+                    </div>
+                  </details>
+                  <div class="form-actions full">
                     <button type="submit">Search</button>
                     <button type="button" id="memory-list-button">List</button>
                     <button type="button" id="memory-clear-button" class="secondary">Clear</button>
                   </div>
                 </form>
-                <div class="split">
-                  <div>
-                    <h3>Results</h3>
-                    <div id="memory-results" class="list"></div>
-                  </div>
-                  <div>
-                    <h3>Selected memory</h3>
-                    <pre id="memory-detail" class="json-box">No memory selected.<br />Select a result to inspect provenance, metadata, and raw content.</pre>
-                  </div>
-                </div>
               </section>
 
-              <section>
-                <h2>Add / update / archive</h2>
-                <form id="memory-form" class="form-grid">
+              <div class="inline-results" aria-label="Memory results">
+                <div id="memory-results" class="list"></div>
+              </div>
+
+              <div class="hidden-default">
+                <pre id="memory-detail" class="json-box">No memory selected.<br />Select a result to inspect provenance, metadata, and raw content.</pre>
+              </div>
+
+              <details class="disclosure write-disclosure hidden-default">
+                <summary>Write tools</summary>
+                <form id="memory-form" class="form-grid disclosure-body">
                   <label>
                     Memory ID (for update/archive)
                     <input name="memory_id" placeholder="optional" />
@@ -287,16 +282,16 @@
                     Sensitivity
                     <input name="sensitivity" placeholder="optional" />
                   </label>
-                  <div class="form-actions">
+                  <div class="form-actions full">
                     <button type="submit" data-action="add">Add</button>
                     <button type="button" data-action="update">Update</button>
                     <button type="button" data-action="archive" class="danger">Archive</button>
                   </div>
-                  <p class="risk-note">
+                  <p class="risk-note full">
                     Archive only touches the selected memory in the active space. Browser confirmation is required.
                   </p>
                 </form>
-              </section>
+              </details>
             </div>
           </section>
 
