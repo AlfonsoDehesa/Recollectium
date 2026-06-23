@@ -578,6 +578,7 @@ def _threshold_optimizer_payload(
     output_format: str,
     output_path: str | None,
     write_config: bool,
+    memory_space_key: str | None,
     confirm: bool,
 ) -> dict[str, Any]:
     warning = (
@@ -628,6 +629,7 @@ def _threshold_optimizer_payload(
                 include_archived=False,
                 protected_minimum=0,
                 match_threshold=None,
+                memory_space_key=memory_space_key,
             ),
             search_workspace=lambda query, workspace_uid, limit: (
                 seeded_core.search_workspace_memories(
@@ -637,6 +639,7 @@ def _threshold_optimizer_payload(
                     include_archived=False,
                     protected_minimum=0,
                     match_threshold=None,
+                    memory_space_key=memory_space_key,
                 )
             ),
         ),
@@ -1799,6 +1802,7 @@ def create_app(
                 output_format=body.output_format,
                 output_path=body.output_path,
                 write_config=body.write_config,
+                memory_space_key=body.memory_space_key,
                 confirm=body.confirm,
             )
         )

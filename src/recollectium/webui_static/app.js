@@ -39,6 +39,15 @@ const state = {
 const MEMORY_DETAIL_EMPTY_STATE = `No memory selected.
 Select a result to inspect provenance, metadata, and raw content.`;
 
+function activeMemorySpaceKey() {
+  return state.selectedMemorySpaceKey || state.context?.config?.safe_paths?.default_memory_space_key || '';
+}
+
+function updateActiveMemorySpaceIndicator() {
+  const memorySpaceKey = activeMemorySpaceKey();
+  setIndicator('memory-space-status', memorySpaceKey || 'unselected', toneForSpace(memorySpaceKey));
+}
+
 function $(id) {
   return document.getElementById(id);
 }
@@ -259,11 +268,6 @@ function wireGlobalSearch() {
   });
 }
 
-function memorySpaceKeyFromForm(form) {
-  const value = form.querySelector('[name="memory_space_key"]')?.value?.trim();
-  return value || state.context?.config?.safe_paths?.default_memory_space_key || '';
-}
-
 function normalizeMemoryEntry(entry) {
   const memory = entry?.memory && typeof entry.memory === 'object' ? entry.memory : entry;
   return {
@@ -325,7 +329,7 @@ function renderMemoryList(memories) {
     .join('');
   root.querySelectorAll('[data-memory-id]').forEach((button) => {
     button.addEventListener('click', async () => {
-      const memory = await apiJson(`${API}/memories/${encodeURIComponent(button.dataset.memoryId)}?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
+      const memory = await apiJson(`${API}/memories/${encodeURIComponent(button.dataset.memoryId)}?memory_space_key=${encodeURIComponent(activeMemorySpaceKey())}`);
       state.selectedMemory = memory.memory;
       syncCardSelection(root, '[data-memory-id]', button);
       renderJson('memory-detail', memory);
@@ -383,7 +387,7 @@ function renderWorkspaceList(workspaces) {
       const uid = button.dataset.workspaceId;
       state.selectedWorkspace = uid;
       syncCardSelection(root, '[data-workspace-id]', button);
-      const resolved = await apiJson(`${API}/workspaces/${encodeURIComponent(uid)}/resolve?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
+      const resolved = await apiJson(`${API}/workspaces/${encodeURIComponent(uid)}/resolve?memory_space_key=${encodeURIComponent(activeMemorySpaceKey())}`);
       renderJson('workspace-detail', resolved);
     });
   });
@@ -481,7 +485,7 @@ function renderEmbeddingJobs(jobs) {
       const jobId = button.dataset.embeddingJobId;
       state.selectedEmbeddingJob = jobId;
       syncCardSelection(root, '[data-embedding-job-id]', button);
-      const payload = await apiJson(`${API}/embedding/jobs/${encodeURIComponent(jobId)}?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
+      const payload = await apiJson(`${API}/embedding/jobs/${encodeURIComponent(jobId)}?memory_space_key=${encodeURIComponent(activeMemorySpaceKey())}`);
       renderJson('embedding-job-detail', payload);
     });
   });
@@ -610,16 +614,18 @@ function renderSpaces(spaces) {
           space.created_at ? `created ${formatTimestamp(space.created_at)}` : null,
           space.updated_at ? `updated ${formatTimestamp(space.updated_at)}` : null,
         ]);
+        const actionText = selected ? 'Selected' : 'Use this space';
         return `
         <button class="list-item space-card ${selected ? 'selected' : ''}" data-memory-space-key="${escapeAttr(space.key)}" aria-pressed="${selected}">
           <div class="list-item__header">
             <strong>${escapeHtml(space.key)}${space.is_default ? ' (default)' : ''}</strong>
-            <span class="status-chip">${escapeHtml(summary.join(' · ') || 'memory space')}</span>
+            <span class="status-chip space-card__action" data-state="${selected ? 'selected' : 'idle'}">${escapeHtml(actionText)}</span>
           </div>
           <div class="list-item__meta">
+            <span class="status-chip">${escapeHtml(summary.join(' · ') || 'memory space')}</span>
             ${metadata.map((item) => `<span class="micro-chip">${escapeHtml(item)}</span>`).join('')}
           </div>
-          <small class="list-item__preview">${escapeHtml(space.db_path)}</small>
+          <small class="list-item__preview">${escapeHtml(selected ? 'Currently active across the whole app.' : 'Switch every memory-scoped WebUI action to this space.')}</small>
         </button>`;
       },
     )
@@ -627,7 +633,7 @@ function renderSpaces(spaces) {
   root.querySelectorAll('[data-memory-space-key]').forEach((button) => {
     button.addEventListener('click', async () => {
       state.selectedMemorySpaceKey = button.dataset.memorySpaceKey;
-      setIndicator('memory-space-status', state.selectedMemorySpaceKey, toneForSpace(state.selectedMemorySpaceKey));
+      updateActiveMemorySpaceIndicator();
       syncCardSelection(root, '[data-memory-space-key]', button);
       await refreshMemories();
       await refreshWorkspaces();
@@ -693,10 +699,10 @@ async function refreshContext() {
   const memorySpaces = await apiJson(`${API}/memory-spaces`);
   const services = await apiJson(`${API}/services`);
   state.context = context;
-  state.selectedMemorySpaceKey = memorySpaces.selected_memory_space_key || context.config.safe_paths.default_memory_space_key;
+  state.selectedMemorySpaceKey = memorySpaces.selected_memory_space_key || context.config.safe_paths.default_memory_space_key || '';
   setIndicator('health-status', health.status, toneForStatus(health.status));
   setIndicator('service-status', status.status, toneForStatus(status.status));
-  setIndicator('memory-space-status', state.selectedMemorySpaceKey, toneForSpace(state.selectedMemorySpaceKey));
+  updateActiveMemorySpaceIndicator();
   $('security-warning-text').textContent = context.security.warning;
   renderSpaces(memorySpaces.spaces || []);
   renderServiceList(services.services || []);
@@ -708,7 +714,7 @@ async function refreshContext() {
 
 async function refreshMemories() {
   const params = new URLSearchParams();
-  const memorySpaceKey = state.selectedMemorySpaceKey || state.context?.config?.safe_paths?.default_memory_space_key;
+  const memorySpaceKey = activeMemorySpaceKey();
   if (memorySpaceKey) params.set('memory_space_key', memorySpaceKey);
   const payload = await apiJson(`${API}/memories?${params.toString()}`);
   renderMemoryList(payload.memories || []);
@@ -719,7 +725,7 @@ async function refreshMemories() {
 
 async function refreshWorkspaces() {
   const params = new URLSearchParams();
-  const memorySpaceKey = state.selectedMemorySpaceKey || state.context?.config?.safe_paths?.default_memory_space_key;
+  const memorySpaceKey = activeMemorySpaceKey();
   if (memorySpaceKey) params.set('memory_space_key', memorySpaceKey);
   const payload = await apiJson(`${API}/workspaces?${params.toString()}`);
   renderWorkspaceList(payload.workspaces || []);
@@ -737,7 +743,7 @@ async function refreshServices() {
 
 async function refreshEmbeddingStatus() {
   const payload = await apiJson(
-    `${API}/embedding/status?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`,
+    `${API}/embedding/status?memory_space_key=${encodeURIComponent(activeMemorySpaceKey())}`,
   );
   renderEmbeddingStatus(payload);
   return payload;
@@ -745,7 +751,8 @@ async function refreshEmbeddingStatus() {
 
 async function refreshEmbeddingJobs() {
   const params = new URLSearchParams();
-  if (state.selectedMemorySpaceKey) params.set('memory_space_key', state.selectedMemorySpaceKey);
+  const memorySpaceKey = activeMemorySpaceKey();
+  if (memorySpaceKey) params.set('memory_space_key', memorySpaceKey);
   const payload = await apiJson(`${API}/embedding/jobs?${params.toString()}`);
   renderEmbeddingJobs(payload.jobs || []);
   return payload;
@@ -759,7 +766,7 @@ async function refreshDevStatus() {
 
 async function refreshDiagnosticsBundle() {
   const payload = await apiJson(
-    `${API}/diagnostics?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}&tail_lines=${encodeURIComponent(String(currentTailLines()))}`,
+    `${API}/diagnostics?memory_space_key=${encodeURIComponent(activeMemorySpaceKey())}&tail_lines=${encodeURIComponent(String(currentTailLines()))}`,
   );
   renderDiagnosticsBundle(payload);
   return payload;
@@ -776,7 +783,7 @@ async function refreshGraph() {
   const form = $('graph-form');
   const values = form ? formValues(form) : {};
   const params = new URLSearchParams();
-  const memorySpaceKey = values.memory_space_key?.trim() || state.selectedMemorySpaceKey || '';
+  const memorySpaceKey = activeMemorySpaceKey();
   if (memorySpaceKey) params.set('memory_space_key', memorySpaceKey);
   if (values.space) params.set('space', values.space);
   if (values.workspace_uid) params.set('workspace_uid', values.workspace_uid);
@@ -822,7 +829,7 @@ function wireMemoryForms() {
       type: values.type || null,
       protected_minimum: values.protected_minimum ? Number(values.protected_minimum) : null,
       match_threshold: values.match_threshold ? parseMaybeJson(values.match_threshold) : null,
-      memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null,
+      memory_space_key: activeMemorySpaceKey() || null,
     };
     try {
       const response = await apiJson(`${API}/memories/search`, {
@@ -853,7 +860,7 @@ function wireMemoryForms() {
       showMessage('Memory ID is required for archive.', 'error');
       return;
     }
-    const scope = values.memory_space_key?.trim() || state.selectedMemorySpaceKey || 'current memory space';
+    const scope = activeMemorySpaceKey() || 'current memory space';
     if (!confirmDanger('Archive memory', `memory ${memoryId} in ${scope}`, [
       'Archived memories are hidden from normal browsing until explicitly restored.',
     ])) {
@@ -876,7 +883,7 @@ async function submitMemoryForm(action) {
     source: values.source || null,
     confidence: values.confidence ? Number(values.confidence) : null,
     sensitivity: values.sensitivity || null,
-    memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null,
+    memory_space_key: activeMemorySpaceKey() || null,
   };
 
   try {
@@ -1006,7 +1013,7 @@ function wireWorkspaceForms() {
       const form = $('workspace-form');
       const values = formValues(form);
       const workspaceUid = values.workspace_uid?.trim();
-      const memorySpaceKey = values.memory_space_key?.trim() || state.selectedMemorySpaceKey || null;
+      const memorySpaceKey = activeMemorySpaceKey() || null;
       try {
         if (button.dataset.action === 'resolve') {
           if (!workspaceUid) throw new Error('Workspace UID is required.');
@@ -1173,14 +1180,12 @@ function wireEmbeddingForms() {
 
   $('run-embedding-maintenance')?.addEventListener('click', async () => {
     try {
-      const form = $('embedding-refresh-form');
-      const values = form ? formValues(form) : {};
       const payload = await apiJson(ROUTES.embeddingMaintenance, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          confirm: Boolean(values.confirm),
-          memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null,
+          confirm: Boolean($('embedding-refresh-form')?.querySelector('[name="confirm"]')?.checked),
+          memory_space_key: activeMemorySpaceKey() || null,
         }),
       });
       renderJson('embedding-job-detail', payload);
@@ -1198,7 +1203,7 @@ function wireEmbeddingForms() {
 
   $('clear-embedding-jobs')?.addEventListener('click', async () => {
     try {
-      const scope = state.selectedMemorySpaceKey || 'current memory space';
+      const scope = activeMemorySpaceKey() || 'current memory space';
       if (!confirmDanger('Clear embedding job history', scope, [
         'This removes job records for the active memory space only.',
       ])) {
@@ -1207,7 +1212,7 @@ function wireEmbeddingForms() {
       const payload = await apiJson(`${API}/embedding/jobs`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memory_space_key: state.selectedMemorySpaceKey || null }),
+        body: JSON.stringify({ memory_space_key: activeMemorySpaceKey() || null }),
       });
       renderJson('embedding-job-detail', payload);
       await refreshEmbeddingJobs();
@@ -1228,7 +1233,7 @@ function wireEmbeddingForms() {
           space: values.space || null,
           workspace_uid: values.workspace_uid || null,
           include_archived: Boolean(values.include_archived),
-          memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null,
+          memory_space_key: activeMemorySpaceKey() || null,
         }),
       });
       renderJson('embedding-job-detail', payload);
@@ -1266,7 +1271,7 @@ function wireDevForms() {
     try {
       const form = $('dev-eval-form');
       const values = form ? formValues(form) : {};
-      const scope = values.memory_space_key?.trim() || state.selectedMemorySpaceKey || 'current memory space';
+      const scope = activeMemorySpaceKey() || 'current memory space';
       if (!confirmDanger('Reset seeded dev database', scope, [
         'This clears the seeded development dataset for the active memory space.',
       ])) {
@@ -1285,7 +1290,7 @@ function wireDevForms() {
     try {
       const form = $('dev-eval-form');
       const values = form ? formValues(form) : {};
-      const payload = await apiJson(`${API}/dev/eval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: Boolean(values.confirm), memory_space_key: values.memory_space_key || state.selectedMemorySpaceKey || null }) });
+      const payload = await apiJson(`${API}/dev/eval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: Boolean(values.confirm), memory_space_key: activeMemorySpaceKey() || null }) });
       renderJson('dev-eval-result', payload);
       if (payload.status === 'confirmation_required') {
         showMessage(payload.warning || 'Confirmation required.', 'warning');
@@ -1312,6 +1317,7 @@ function wireDevForms() {
           output_format: values.output_format || 'csv',
           output_path: values.output_path || null,
           write_config: Boolean(values.write_config),
+          memory_space_key: activeMemorySpaceKey() || null,
           confirm: Boolean(values.confirm),
         }),
       });
@@ -1395,7 +1401,7 @@ function wireDiagnosticsForms() {
 function wireRefreshButtons() {
   $('refresh-spaces')?.addEventListener('click', async () => {
     try {
-      const payload = await apiJson(`${API}/memory-spaces?memory_space_key=${encodeURIComponent(state.selectedMemorySpaceKey || '')}`);
+      const payload = await apiJson(`${API}/memory-spaces?memory_space_key=${encodeURIComponent(activeMemorySpaceKey())}`);
       renderSpaces(payload.spaces || []);
       showMessage('Memory spaces refreshed.');
     } catch (error) {

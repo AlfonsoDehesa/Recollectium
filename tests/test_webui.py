@@ -524,12 +524,16 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
 
     for pattern in [
         r'id="global-search-form"',
+        r'<header[^>]*class="top-chrome panel"[\s\S]*id="memory-space-status"',
+        r'class="chrome-stack"',
+        r'class="active-space-chip header-space-chip"',
         r'id="memory-detail-disclosure"',
         r'id="write-disclosure"',
         r'id="security-warning"',
         r'id="status-message"',
         r'placeholder="Search memories only"',
         r"Ctrl/⌘K · memories",
+        r"Choose the app-wide memory space here\.",
         r'id="memory-search-form"',
         r'id="config-key-form"',
         r'id="workspace-form"',
@@ -568,6 +572,8 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     assert 'id="service-status"' not in index_html
     assert "active-space-chip" in index_html
     assert 'id="memory-space-status"' in index_html
+    assert 'name="memory_space_key"' not in index_html
+    assert "Choose the app-wide memory space here." in index_html
     assert (
         "No memory selected.\\nSelect a result to inspect provenance, metadata, and raw content."
         not in index_html
@@ -612,6 +618,8 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
         r"\.list-item__meta",
         r"\.status-chip",
         r"\.micro-chip",
+        r"\.space-card__action",
+        r"\.chrome-stack",
         r":focus-visible",
         r"prefers-reduced-motion",
         r"@media \(max-width: 640px\) \{[\s\S]*?\.shell-banner \{\s*align-items: start;\s*flex-direction: column;",
@@ -630,6 +638,10 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
         r"/v1/webui/graph",
         r"/v1/webui/diagnostics",
         r"/v1/webui/logs",
+        r"function activeMemorySpaceKey\(\)",
+        r"updateActiveMemorySpaceIndicator",
+        r"memory_space_key: activeMemorySpaceKey\(\) \|\| null",
+        r"dev/optimize-threshold[\s\S]*?memory_space_key: activeMemorySpaceKey\(\) \|\| null",
         r"function selectTab\(name, \{ focusButton = false \} = \{\}\)",
         r"ArrowRight",
         r"ArrowLeft",
@@ -661,6 +673,7 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
         r"job\.provider",
         r"job\.model",
         r"space\.source",
+        r"Use this space",
         r"lines\.join\('\\n'\)",
         r"log-tail-filter",
         r"copy-logs",
@@ -673,6 +686,8 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
     ]:
         _assert_pattern(app_js, pattern)
 
+    assert "memorySpaceKeyFromForm" not in app_js
+    assert "activeMemorySpaceKey()" in app_js
     for snippet in [
         "memory?.source",
         "memory?.confidence",

@@ -15,22 +15,29 @@
           </div>
         </div>
 
-        <form id="global-search-form" class="global-search" role="search">
-          <label>
-            Search memories
-            <input
-              id="global-search-input"
-              name="query"
-              type="search"
-              placeholder="Search memories only"
-              autocomplete="off"
-            />
-          </label>
-          <div class="global-search-actions">
-            <button type="submit">Search</button>
-            <span class="search-hint">Ctrl/⌘K · memories</span>
-          </div>
-        </form>
+        <div class="chrome-stack">
+          <span class="active-space-chip header-space-chip" aria-label="Active memory space">
+            <span>Active memory space</span>
+            <strong id="memory-space-status" data-state="loading">loading…</strong>
+          </span>
+
+          <form id="global-search-form" class="global-search" role="search">
+            <label>
+              Search memories
+              <input
+                id="global-search-input"
+                name="query"
+                type="search"
+                placeholder="Search memories only"
+                autocomplete="off"
+              />
+            </label>
+            <div class="global-search-actions">
+              <button type="submit">Search</button>
+              <span class="search-hint">Ctrl/⌘K · memories</span>
+            </div>
+          </form>
+        </div>
       </header>
 
       <div class="cockpit-layout">
@@ -134,10 +141,6 @@
                 <div class="section-heading">
                   <div class="heading-row">
                     <h2>Find memories</h2>
-                    <span class="active-space-chip heading-space-chip" aria-label="Active memory space">
-                      <span>Memory space</span>
-                      <strong id="memory-space-status" data-state="loading">loading…</strong>
-                    </span>
                   </div>
                   <p>Search the active memory space first. Open filters or write tools only when you need them.</p>
                 </div>
@@ -163,10 +166,6 @@
                       <label>
                         Workspace UID
                         <input name="workspace_uid" placeholder="required for workspace scope" />
-                      </label>
-                      <label>
-                        Memory space key
-                        <input name="memory_space_key" placeholder="default" />
                       </label>
                       <label>
                         Type
@@ -226,10 +225,6 @@
                     Type
                     <input name="type" placeholder="fact, note, decision…" />
                   </label>
-                  <label>
-                    Memory space key
-                    <input name="memory_space_key" placeholder="default" />
-                  </label>
                   <label class="full">
                     Content
                     <textarea name="content" rows="5" placeholder="memory content"></textarea>
@@ -267,6 +262,7 @@
             <div class="panel-grid">
               <section>
                 <h2>Memory spaces</h2>
+                <p class="rail-note">Choose the app-wide memory space here. Every memory, workspace, embedding, graph, diagnostic, and dev action uses it.</p>
                 <div class="form-actions">
                   <button id="refresh-spaces" type="button">Refresh</button>
                 </div>
@@ -317,10 +313,6 @@
                   <label>
                     Workspace UID
                     <input name="workspace_uid" placeholder="project-alpha" />
-                  </label>
-                  <label>
-                    Memory space key
-                    <input name="memory_space_key" placeholder="default" />
                   </label>
                   <label>
                     New UID
@@ -424,10 +416,6 @@
                     Workspace UID
                     <input name="workspace_uid" placeholder="optional" />
                   </label>
-                  <label>
-                    Memory space key
-                    <input name="memory_space_key" placeholder="default" />
-                  </label>
                   <label class="checkbox"
                     ><input type="checkbox" name="include_archived" /> Include archived</label
                   >
@@ -528,10 +516,6 @@
               <section>
                 <h2>Graph filters</h2>
                 <form id="graph-form" class="form-grid compact">
-                  <label>
-                    Memory space key
-                    <input name="memory_space_key" placeholder="default" />
-                  </label>
                   <label>
                     Scope
                     <select name="space">
