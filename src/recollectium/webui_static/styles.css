@@ -150,11 +150,11 @@ a {
 
 .top-chrome {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: stretch;
-  padding: 13px;
-  min-height: 96px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: center;
+  padding: 12px 13px;
+  min-height: 72px;
 }
 
 .brand-stack {
@@ -165,14 +165,11 @@ a {
   padding: 0 5px;
 }
 
-.eyebrow,
-.brand-tag,
 .search-hint,
 .rail-note,
 .log-tail-note,
 .status-message,
-.metric-strip span,
-.status-tile span,
+.active-space-chip span,
 .status-chip,
 .micro-chip,
 .list-item__meta,
@@ -184,31 +181,30 @@ a {
   letter-spacing: 0.045em;
 }
 
-.eyebrow {
-  margin: 0;
-  color: var(--brass-light);
-  font-size: 0.66rem;
-  font-weight: 900;
-}
-
 .brand-line {
   display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 8px;
+  align-items: center;
 }
 
 .brand-line h1 {
   margin: 0;
   color: var(--text);
-  font-size: clamp(1.4rem, 2.1vw, 2rem);
-  line-height: 0.96;
-  letter-spacing: -0.055em;
+  font-family: var(--font-pixel);
+  font-size: clamp(1.55rem, 2.55vw, 2.35rem);
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: 0.018em;
+  text-transform: uppercase;
+  text-shadow:
+    3px 0 var(--line-dark),
+    0 3px var(--line-dark),
+    3px 3px var(--brass-dark),
+    5px 5px 0 rgba(0, 0, 0, 0.34);
 }
 
-.brand-tag,
 .status-chip,
-.micro-chip {
+.micro-chip,
+.active-space-chip {
   display: inline-flex;
   align-items: center;
   width: fit-content;
@@ -218,66 +214,42 @@ a {
   box-shadow: inset 0 3px #202a33, inset 0 -3px #050506;
 }
 
-.brand-tag {
-  min-height: 22px;
-  padding: 0 7px;
-  font-size: 0.58rem;
-}
-
-.lede,
-.metric-strip {
-  display: none;
-}
-
 .chrome-stack {
   display: grid;
+  justify-items: end;
   align-content: center;
   gap: 10px;
-  min-width: min(392px, 40vw);
+  min-width: min(220px, 26vw);
 }
 
-.status-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(106px, 1fr));
-  gap: 10px;
+.active-space-chip {
+  min-height: 34px;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--text);
 }
 
-.status-tile {
-  min-height: 52px;
-  padding: 8px 10px;
-  display: grid;
-  align-content: center;
-  gap: 2px;
-  background: var(--bg-well);
-  border: 4px solid #4e321b;
-  box-shadow: inset 0 4px #1b2631, inset 0 -4px #050506;
-}
-
-.status-tile span {
+.active-space-chip span {
   color: var(--text-muted);
   font-size: 0.58rem;
   font-weight: 900;
 }
 
-.status-tile strong {
+.active-space-chip strong {
+  max-width: 12rem;
   overflow: hidden;
-  color: var(--text);
+  color: var(--teal-light);
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.status-tile strong[data-state="ok"],
-.status-tile strong[data-state="active"] {
-  color: var(--teal-light);
-}
-
-.status-tile strong[data-state="warning"] {
+.active-space-chip strong[data-state="warning"] {
   color: var(--brass-light);
 }
 
-.status-tile strong[data-state="danger"],
-.status-tile strong[data-state="error"] {
+.active-space-chip strong[data-state="danger"],
+.active-space-chip strong[data-state="error"] {
   color: var(--danger-light);
 }
 
@@ -551,6 +523,17 @@ button.danger,
   display: grid;
   gap: 6px;
   margin-bottom: 13px;
+}
+
+.heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.heading-space-chip {
+  flex: 0 0 auto;
 }
 
 h2,
@@ -989,20 +972,36 @@ textarea::placeholder {
 
   .top-chrome {
     min-height: 0;
-    padding: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 0;
+    padding: 8px 9px;
   }
 
   .brand-line h1 {
-    font-size: 1.42rem;
+    font-size: 1.58rem;
   }
 
-  .brand-tag,
-  .eyebrow {
-    font-size: 0.52rem;
+  .heading-row {
+    align-items: center;
+    gap: 8px;
   }
 
-  .status-grid {
+  .active-space-chip {
+    justify-self: end;
+    min-height: 26px;
+    gap: 0;
+    padding: 0 7px;
+    border-width: 3px;
+  }
+
+  .active-space-chip span {
     display: none;
+  }
+
+  .active-space-chip strong {
+    max-width: 5.5rem;
+    font-size: 0.68rem;
   }
 
   .global-search {

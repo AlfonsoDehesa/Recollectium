@@ -10,68 +10,27 @@
     <main class="app-shell cockpit-shell">
       <header class="top-chrome panel">
         <div class="brand-stack">
-          <p class="eyebrow">Recollectium Core // local memory operations cockpit</p>
           <div class="brand-line">
             <h1>Recollectium WebUI</h1>
-            <span class="brand-tag">Packaged static shell</span>
           </div>
-          <p class="lede">
-            A dark, dense control plane for memories, spaces, services,
-            embeddings, graph inspection, diagnostics, and logs.
-          </p>
-          <ul class="metric-strip" aria-label="Deployment facts">
-            <li>
-              <span>Mode</span>
-              <strong>local-first</strong>
-            </li>
-            <li>
-              <span>Auth</span>
-              <strong>none</strong>
-            </li>
-            <li>
-              <span>Surface</span>
-              <strong>static + FastAPI</strong>
-            </li>
-            <li>
-              <span>Protocol</span>
-              <strong>control plane</strong>
-            </li>
-          </ul>
         </div>
 
-        <div class="chrome-stack">
-          <div class="status-grid" aria-label="System status">
-            <article class="status-tile">
-              <span>Health</span>
-              <strong id="health-status" data-state="loading">loading…</strong>
-            </article>
-            <article class="status-tile">
-              <span>Status</span>
-              <strong id="service-status" data-state="loading">loading…</strong>
-            </article>
-            <article class="status-tile">
-              <span>Memory space</span>
-              <strong id="memory-space-status" data-state="loading">loading…</strong>
-            </article>
+        <form id="global-search-form" class="global-search" role="search">
+          <label>
+            Search memories
+            <input
+              id="global-search-input"
+              name="query"
+              type="search"
+              placeholder="Search memories only"
+              autocomplete="off"
+            />
+          </label>
+          <div class="global-search-actions">
+            <button type="submit">Search</button>
+            <span class="search-hint">Ctrl/⌘K · memories</span>
           </div>
-
-          <form id="global-search-form" class="global-search" role="search">
-            <label>
-              Search memories
-              <input
-                id="global-search-input"
-                name="query"
-                type="search"
-                placeholder="Search memories only"
-                autocomplete="off"
-              />
-            </label>
-            <div class="global-search-actions">
-              <button type="submit">Search</button>
-              <span class="search-hint">Ctrl/⌘K · memories</span>
-            </div>
-          </form>
-        </div>
+        </form>
       </header>
 
       <div class="cockpit-layout">
@@ -173,7 +132,13 @@
             <div class="focus-stack">
               <section class="primary-task">
                 <div class="section-heading">
-                  <h2>Find memories</h2>
+                  <div class="heading-row">
+                    <h2>Find memories</h2>
+                    <span class="active-space-chip heading-space-chip" aria-label="Active memory space">
+                      <span>Space</span>
+                      <strong id="memory-space-status" data-state="loading">loading…</strong>
+                    </span>
+                  </div>
                   <p>Search the active memory space first. Open filters or write tools only when you need them.</p>
                 </div>
                 <form id="memory-search-form" class="form-grid focus-form">

@@ -562,6 +562,12 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
 
     assert "Search memories" in index_html
     assert "workspaces, or services" not in index_html
+    assert "Recollectium Core // local memory operations cockpit" not in index_html
+    assert "Packaged static shell" not in index_html
+    assert 'id="health-status"' not in index_html
+    assert 'id="service-status"' not in index_html
+    assert "active-space-chip" in index_html
+    assert 'id="memory-space-status"' in index_html
     assert (
         "No memory selected.\\nSelect a result to inspect provenance, metadata, and raw content."
         not in index_html
