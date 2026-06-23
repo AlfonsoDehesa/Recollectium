@@ -25,19 +25,33 @@ from recollectium.service_contract import SERVICE_API_PREFIX, SERVICE_API_VERSIO
 
 _log = logging.getLogger(__name__)
 
+
+def _service_file_stem(service_type: str | None) -> str:
+    if service_type == "webui":
+        return "webui"
+    return "service"
+
+
 # ---------------------------------------------------------------------------
 # PID file helpers
 # ---------------------------------------------------------------------------
 
 
-def get_pid_file_path(config: RecollectiumConfig) -> Path:
-    """Return the PID file path: ``runtime_dir / "service.pid"``."""
-    return config.xdg_dirs["runtime"] / "service.pid"
+def get_pid_file_path(
+    config: RecollectiumConfig, service_type: str | None = None
+) -> Path:
+    """Return the PID file path for the requested service type."""
+    return config.xdg_dirs["runtime"] / f"{_service_file_stem(service_type)}.pid"
 
 
-def get_discovery_file_path(config: RecollectiumConfig) -> Path:
-    """Return the service discovery file path."""
-    return config.xdg_dirs["runtime"] / "service-discovery.json"
+def get_discovery_file_path(
+    config: RecollectiumConfig, service_type: str | None = None
+) -> Path:
+    """Return the service discovery file path for the requested service type."""
+    return (
+        config.xdg_dirs["runtime"]
+        / f"{_service_file_stem(service_type)}-discovery.json"
+    )
 
 
 def read_pid_file(path: Path) -> dict[str, Any] | None:
@@ -62,7 +76,7 @@ def read_pid_file(path: Path) -> dict[str, Any] | None:
         raise ServiceError("corrupted PID file: missing or invalid 'pid' field")
     if data["pid"] <= 0:
         raise ServiceError("corrupted PID file: pid must be a positive integer")
-    if "type" not in data or data["type"] not in {"api", "mcp"}:
+    if "type" not in data or data["type"] not in {"api", "mcp", "webui"}:
         raise ServiceError("corrupted PID file: missing or invalid 'type' field")
     if (
         "process_start_time" in data
@@ -287,15 +301,25 @@ def remove_discovery_file(path: Path) -> None:
         pass
 
 
-def _service_endpoint(config: RecollectiumConfig) -> str:
-    host = str(config.effective_config["service"]["host"])
-    port = int(config.effective_config["service"]["port"])
+def _service_endpoint(
+    config: RecollectiumConfig, service_type: str | None = None
+) -> str:
+    if service_type == "webui":
+        service_config = config.effective_config.get(
+            "webui", config.effective_config["service"]
+        )
+    else:
+        service_config = config.effective_config["service"]
+    host = str(service_config["host"])
+    port = int(service_config["port"])
     return f"http://{host}:{port}"
 
 
-def _discovery_paths(config: RecollectiumConfig) -> dict[str, str]:
-    pid_file = get_pid_file_path(config)
-    discovery_file = get_discovery_file_path(config)
+def _discovery_paths(
+    config: RecollectiumConfig, service_type: str | None = None
+) -> dict[str, str]:
+    pid_file = get_pid_file_path(config, service_type)
+    discovery_file = get_discovery_file_path(config, service_type)
     return {
         "config": str(config.config_file_path),
         "runtime_dir": str(config.xdg_dirs["runtime"]),
@@ -309,10 +333,14 @@ def service_discovery_payload(
     running: dict[str, Any] | None,
     *,
     stale: dict[str, bool] | None = None,
+    service_type: str | None = None,
 ) -> dict[str, Any]:
     """Build the JSON-ready service discovery payload."""
-    endpoint = _service_endpoint(config)
-    paths = _discovery_paths(config)
+    resolved_service_type = (
+        service_type or (running["type"] if running else None) or "api"
+    )
+    endpoint = _service_endpoint(config, resolved_service_type)
+    paths = _discovery_paths(config, resolved_service_type)
     versions = {
         "service_api_version": SERVICE_API_VERSION,
         "recollectium_version": __version__,
@@ -323,7 +351,11 @@ def service_discovery_payload(
             "service": None,
             "versions": versions,
             "paths": paths,
-            "next_step": "Run `recollectium service start api` to start the local API service.",
+            "next_step": (
+                "Run `recollectium webui start` to start the local WebUI service."
+                if resolved_service_type == "webui"
+                else "Run `recollectium service start api` to start the local API service."
+            ),
         }
         if stale is not None:
             payload["stale"] = stale
@@ -347,35 +379,48 @@ def service_discovery_payload(
     }
 
 
-def write_discovery_file(config: RecollectiumConfig, running: dict[str, Any]) -> None:
+def write_discovery_file(
+    config: RecollectiumConfig,
+    running: dict[str, Any],
+    *,
+    service_type: str | None = None,
+) -> None:
     """Write the service discovery file atomically."""
-    path = get_discovery_file_path(config)
+    path = get_discovery_file_path(config, service_type)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = service_discovery_payload(config, running)
+    payload = service_discovery_payload(config, running, service_type=service_type)
     temp_path = path.with_name(f".{path.name}.tmp")
     temp_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
     temp_path.replace(path)
 
 
-def discover_service(config: RecollectiumConfig) -> dict[str, Any]:
+def discover_service(
+    config: RecollectiumConfig, service_type: str | None = None
+) -> dict[str, Any]:
     """Return current service discovery details and clean stale files."""
-    pid_path = get_pid_file_path(config)
-    discovery_path = get_discovery_file_path(config)
+    pid_path = get_pid_file_path(config, service_type)
+    discovery_path = get_discovery_file_path(config, service_type)
     had_pid_file = pid_path.exists()
     had_discovery_file = discovery_path.exists()
-    running = check_running_service(config)
+    running = (
+        check_running_service(config, "webui")
+        if service_type == "webui"
+        else check_running_service(config)
+    )
     if running is None:
         remove_discovery_file(discovery_path)
         stale = {
             "pid_file_removed": had_pid_file and not pid_path.exists(),
             "discovery_file_removed": had_discovery_file,
         }
-        return service_discovery_payload(config, None, stale=stale)
+        return service_discovery_payload(
+            config, None, stale=stale, service_type=service_type
+        )
     try:
-        write_discovery_file(config, running)
+        write_discovery_file(config, running, service_type=service_type)
     except OSError as exc:
         raise ServiceError(f"could not write discovery file: {exc}") from exc
-    return service_discovery_payload(config, running)
+    return service_discovery_payload(config, running, service_type=service_type)
 
 
 def _log_service_crashed(data: dict[str, Any], reason: str) -> None:
@@ -448,23 +493,25 @@ def _is_windows_pid_alive(pid: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def check_running_service(config: RecollectiumConfig) -> dict[str, Any] | None:
+def check_running_service(
+    config: RecollectiumConfig, service_type: str | None = None
+) -> dict[str, Any] | None:
     """Return PID file data if a service is alive, or ``None``.
 
     If the PID file exists but the process is dead the stale file is cleaned
     up and ``None`` is returned.  Raises ``ServiceError`` if the PID file
     exists but is corrupted.
     """
-    path = get_pid_file_path(config)
+    path = get_pid_file_path(config, service_type)
     data = read_pid_file(path)
     if data is None:
-        remove_discovery_file(get_discovery_file_path(config))
+        remove_discovery_file(get_discovery_file_path(config, service_type))
         return None
 
     if not is_pid_alive(data["pid"]):
         _log_service_crashed(data, "process_not_running")
         remove_pid_file(path)
-        remove_discovery_file(get_discovery_file_path(config))
+        remove_discovery_file(get_discovery_file_path(config, service_type))
         return None
 
     if not is_recollectium_service_process(
@@ -472,7 +519,7 @@ def check_running_service(config: RecollectiumConfig) -> dict[str, Any] | None:
     ):
         _log_service_crashed(data, "process_mismatch")
         remove_pid_file(path)
-        remove_discovery_file(get_discovery_file_path(config))
+        remove_discovery_file(get_discovery_file_path(config, service_type))
         return None
 
     return data
@@ -489,18 +536,24 @@ def start_service(
     db_path: str | None = None,
     log_level: str | None = None,
 ) -> int:
-    """Start a Recollectium daemon subprocess of *service_type* (``"api"`` or ``"mcp"``).
+    """Start a Recollectium daemon subprocess of *service_type* (``"api"``, ``"mcp"``, or ``"webui"``).
 
     Returns the child PID.
 
-    Raises ``ServiceConflictError`` if any service is already running. Use
+    Raises ``ServiceConflictError`` if any matching service is already running. Use
     ``service restart`` for restart semantics so the PID file always tracks
     the process that is actually serving requests.
     """
-    if service_type not in {"api", "mcp"}:
-        raise ValueError(f"service_type must be 'api' or 'mcp' (got {service_type!r})")
+    if service_type not in {"api", "mcp", "webui"}:
+        raise ValueError(
+            f"service_type must be 'api', 'mcp', or 'webui' (got {service_type!r})"
+        )
 
-    existing = check_running_service(config)
+    existing = (
+        check_running_service(config, "webui")
+        if service_type == "webui"
+        else check_running_service(config)
+    )
     if existing is not None:
         raise ServiceConflictError(
             f"a {existing['type']} service is already running (PID {existing['pid']}). "
@@ -508,8 +561,14 @@ def start_service(
         )
 
     config_path = str(config.config_file_path)
-    host = str(config.effective_config["service"]["host"])
-    port = int(config.effective_config["service"]["port"])
+    if service_type == "webui":
+        service_config = config.effective_config.get(
+            "webui", config.effective_config["service"]
+        )
+    else:
+        service_config = config.effective_config["service"]
+    host = str(service_config["host"])
+    port = int(service_config["port"])
 
     cmd: list[str] = [
         sys.executable,
@@ -539,7 +598,9 @@ def start_service(
             start_new_session=True,
         )
     pid = process.pid
-    pid_path = get_pid_file_path(config)
+    pid_path = get_pid_file_path(
+        config, service_type if service_type == "webui" else None
+    )
     process_start_time = get_process_start_time(pid)
     write_pid_file(pid_path, pid, service_type, process_start_time)
     try:
@@ -550,6 +611,7 @@ def start_service(
                 "type": service_type,
                 "process_start_time": process_start_time,
             },
+            service_type=service_type if service_type == "webui" else None,
         )
     except OSError as exc:
         try:
@@ -582,7 +644,11 @@ def start_service(
     time.sleep(0.3)
     if process.poll() is not None or not is_pid_alive(pid):
         remove_pid_file(pid_path)
-        remove_discovery_file(get_discovery_file_path(config))
+        remove_discovery_file(
+            get_discovery_file_path(
+                config, service_type if service_type == "webui" else None
+            )
+        )
         _log.error(
             "service exited immediately after start",
             extra={
@@ -609,7 +675,9 @@ def start_service(
     return pid
 
 
-def stop_service(config: RecollectiumConfig) -> int | None:
+def stop_service(
+    config: RecollectiumConfig, service_type: str | None = None
+) -> int | None:
     """Stop the running Recollectium service.
 
     Sends ``SIGTERM``, waits up to 10 seconds (polling every 0.1 seconds),
@@ -618,8 +686,12 @@ def stop_service(config: RecollectiumConfig) -> int | None:
 
     Returns the PID that was stopped, or ``None`` if no service was running.
     """
-    path = get_pid_file_path(config)
-    data = check_running_service(config)
+    path = get_pid_file_path(config, service_type)
+    data = (
+        check_running_service(config, "webui")
+        if service_type == "webui"
+        else check_running_service(config)
+    )
     if data is None:
         _log.info(
             "no service running to stop",
@@ -653,7 +725,7 @@ def stop_service(config: RecollectiumConfig) -> int | None:
                 },
             )
             remove_pid_file(path)
-            remove_discovery_file(get_discovery_file_path(config))
+            remove_discovery_file(get_discovery_file_path(config, service_type))
             return pid
         time.sleep(0.1)
 
@@ -671,7 +743,7 @@ def stop_service(config: RecollectiumConfig) -> int | None:
         pass
     time.sleep(0.5)
     remove_pid_file(path)
-    remove_discovery_file(get_discovery_file_path(config))
+    remove_discovery_file(get_discovery_file_path(config, service_type))
     return pid
 
 
@@ -695,6 +767,7 @@ def _run_server(
     server framework (uvicorn).
     """
     from recollectium.service import run_service
+    from recollectium.webui import run_webui
 
     service_kwargs: dict[str, Any] = {
         "db_path": db_path,
@@ -710,6 +783,13 @@ def _run_server(
         run_service(**service_kwargs)
     elif service_type == "mcp":
         run_service(**service_kwargs, service_type="mcp")
+    elif service_type == "webui":
+        run_webui(
+            host=host or "127.0.0.1",
+            port=port or 8766,
+            config_path=config_path,
+            log_level=log_level,
+        )
     else:
         _log.error(
             f"unknown service type: {service_type!r}",
@@ -732,7 +812,7 @@ def main(argv: list[str] | None = None) -> int:
     # When spawned as: python -m recollectium.service_manager _run_server <type> [...]
     if len(args) < 2 or args[0] != "_run_server":
         _log.error(
-            "usage: python -m recollectium.service_manager _run_server <api|mcp> [--db-path PATH] [--config-path PATH] [--host HOST] [--port PORT]"
+            "usage: python -m recollectium.service_manager _run_server <api|mcp|webui> [--db-path PATH] [--config-path PATH] [--host HOST] [--port PORT]"
         )
         return 2
 

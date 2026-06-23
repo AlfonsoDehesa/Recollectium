@@ -273,6 +273,7 @@ jobs:
           fi
           uv run python scripts/ci_service_smoke.py api
           uv run python scripts/ci_service_smoke.py mcp
+          uv run python scripts/ci_service_smoke.py webui
 
       - name: Verify service surface smoke on Windows
         if: runner.os == 'Windows'
@@ -283,6 +284,7 @@ jobs:
           if (-not (Test-Path $uv)) { throw "uv executable was not installed at $uv" }
           & $uv run python scripts/ci_service_smoke.py api
           & $uv run python scripts/ci_service_smoke.py mcp
+          & $uv run python scripts/ci_service_smoke.py webui
 
       - name: Verify installed memory-space smoke on Unix
         if: runner.os != 'Windows'

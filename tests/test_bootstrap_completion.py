@@ -21,8 +21,11 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
 
     assert "scripts/ci_service_smoke.py api" in workflow
     assert "scripts/ci_service_smoke.py mcp" in workflow
+    assert "scripts/ci_service_smoke.py webui" in workflow
     assert '$uv = Join-Path $env:LOCALAPPDATA "uv\\uv.exe"' in workflow
     assert "& $uv run python scripts/ci_service_smoke.py api" in workflow
+    assert "& $uv run python scripts/ci_service_smoke.py mcp" in workflow
+    assert "& $uv run python scripts/ci_service_smoke.py webui" in workflow
     assert '"service",\n                "discover",' in service_smoke
     assert '"service", "status", "--json"' in service_smoke
     assert '"service", "stop", "--json"' in service_smoke
@@ -42,6 +45,16 @@ def test_install_smoke_asserts_compact_service_discover_shape() -> None:
     assert 'stop_result["status"] == "stopped"' in service_smoke
     assert 'discover_payload["service"]' not in service_smoke
     assert "discover['service']" not in service_smoke
+    assert "def _exercise_webui_service" in service_smoke
+    assert '"webui", "start", "--json"' in service_smoke
+    assert '"webui", "status", "--json"' in service_smoke
+    assert '"webui", "stop", "--json"' in service_smoke
+    assert '"webui.host"' in service_smoke
+    assert '"webui.port"' in service_smoke
+    assert "_webui_smoke_urls(webui_port)" in service_smoke
+    assert '"/assets/app.js"' in service_smoke
+    assert '"/assets/styles.css"' in service_smoke
+    assert '"Recollectium WebUI"' in service_smoke
 
 
 def test_install_smoke_uses_uv_tool_dir_and_explicit_macos_path_cases() -> None:

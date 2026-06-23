@@ -8,7 +8,7 @@ Agents work better when they can remember what already happened.
 
 Recollectium gives AI agents a local, inspectable memory layer. It keeps the context that usually evaporates between sessions: preferences, project decisions, setup notes, debugging context, working style, and the hard-earned details that make an agent more useful over time.
 
-Core handles the durable parts: SQLite storage, local embeddings, semantic search, migrations, local service APIs, MCP tools, service lifecycle, structured logs, and adapter discovery. Adapters stay thin. They bring the current workspace context, then let Core handle memory the same way every time.
+Core handles the durable parts: SQLite storage, local embeddings, semantic search, migrations, local service APIs, MCP tools, service lifecycle, structured logs, WebUI control plane, and adapter discovery. Adapters stay thin. They bring the current workspace context, then let Core handle memory the same way every time.
 
 OpenCode is the first major adapter target, but Recollectium is built for a world with many agents, many models, and many interfaces sharing one memory store.
 
@@ -23,7 +23,7 @@ Recollectium is built around a few stubborn ideas:
 - **Personal context matters.** Project facts are useful. Durable user memory is the multiplier: preferences, style, goals, habits, and the patterns that make an assistant feel like it has been paying attention.
 - **Setup should stay boring.** Install it, initialize it, and keep moving, without signing up for a hosted memory provider or fighting a dependency maze.
 - **Models should be replaceable.** Use the agents, providers, and clients you like. If you switch tools, your memory comes with you.
-- **One Core, many surfaces.** CLI, Python, local HTTP API, MCP stdio, and managed MCP service mode all talk to the same memory engine.
+- **One Core, many surfaces.** CLI, Python API, local HTTP API, MCP stdio, managed MCP service mode, and the local WebUI all talk to the same memory engine.
 - **The future needs a shared foundation.** Dreamer agents, context managers, summarizers, and richer adapter integrations should build on one memory layer instead of inventing a new store each time.
 - **Open source means no mystery box.** Inspect it, run it, back it up, move it, fork it, improve it.
 
@@ -62,6 +62,7 @@ Common next steps:
 - Configure Recollectium: [Configuration](https://github.com/AlfonsoDehesa/Recollectium/wiki/Configuration)
 - Use a seeded development database: [Seeded development database](https://github.com/AlfonsoDehesa/Recollectium/wiki/Configuration#seeded-development-database)
 - Use the CLI: [CLI Reference](https://github.com/AlfonsoDehesa/Recollectium/wiki/CLI-Reference)
+- Use the WebUI: [WebUI guide](docs/webui.md)
 - Start services: [Service Management](https://github.com/AlfonsoDehesa/Recollectium/wiki/Service-Management)
 - Read logs: [Logs](https://github.com/AlfonsoDehesa/Recollectium/wiki/Logs)
 - Connect through MCP: [MCP Server](https://github.com/AlfonsoDehesa/Recollectium/wiki/MCP-Server)
@@ -74,6 +75,7 @@ Common next steps:
 - Canonical memory buckets for preferences, facts, decisions, task context, configuration, bug findings, and notes.
 - Logical memory-space keys are the normal routing mechanism for CLI, API, and MCP memory/database operations.
 - Create, search, list, get, update, and archive memory operations.
+- Dedicated spawnable WebUI control plane for browser-based memory, config, service, embedding, dev, graph, diagnostics, and log workflows.
 - Local FastEmbed embeddings. Default: `BAAI/bge-base-en-v1.5` with 768 dimensions, profile `builtin-fastembed-bge-base-en-v1-5-v1`, 512 max tokens, 384 chunk tokens, and 64 overlap tokens.
 - Legacy FastEmbed support for `jinaai/jina-embeddings-v2-small-en` with 512 dimensions, profile `builtin-fastembed-jina-v2-small-en-v1`, 8192 max tokens, 6144 chunk tokens, and 512 overlap tokens.
 - Inline re-embedding jobs, explicit refresh controls, embedding job audit-record cleanup, and embedding status inspection. Switching embedding model or profile refreshes stale memories in the command or request that triggered it instead of relying on a fragile background thread.
@@ -100,6 +102,7 @@ Start with the GitHub Wiki:
 - [Logs](https://github.com/AlfonsoDehesa/Recollectium/wiki/Logs)
 - [MCP Server](https://github.com/AlfonsoDehesa/Recollectium/wiki/MCP-Server)
 - [API Reference](https://github.com/AlfonsoDehesa/Recollectium/wiki/API-Reference)
+- [WebUI guide](docs/webui.md)
 - [Adapter and Plugin Integration](https://github.com/AlfonsoDehesa/Recollectium/wiki/Adapter-and-Plugin-Integration)
 - [Verified Supported Plugins](https://github.com/AlfonsoDehesa/Recollectium/wiki/Verified-Supported-Plugins)
 - [Troubleshooting](https://github.com/AlfonsoDehesa/Recollectium/wiki/Troubleshooting)
@@ -118,13 +121,15 @@ Repo docs that act as canonical contracts:
 
 Recollectium v1 services are local-first and unauthenticated. The recommended deployment is to run Recollectium on the same machine as the agent or client and keep services bound to localhost, usually `127.0.0.1`.
 
+The WebUI follows the same local-first model. It uses the same unauthenticated local service contract as Core and should stay bound to `127.0.0.1` unless you intentionally add private-network controls.
+
 Binding the API or MCP service to a non-local interface can expose memory operations to anyone who can reach that interface. If you need split-machine access, use private networking with external access controls. For most users, Tailscale is the friendliest path.
 
 Read [SECURITY.md](SECURITY.md) before changing service host settings or exposing Recollectium outside the local machine.
 
 ## Project status
 
-Recollectium Core v1.2.0 is the current release. Core includes the CLI, Python API, local HTTP API, MCP stdio, managed MCP service, local embeddings, service lifecycle, install, upgrade, uninstall, logging, and adapter discovery contract.
+Recollectium Core v1.2.0 is the current release. Core includes the CLI, Python API, local HTTP API, MCP stdio, managed MCP service, local WebUI, local embeddings, service lifecycle, install, upgrade, uninstall, logging, and adapter discovery contract.
 
 OpenCode plugin implementation remains a roadmap item.
 

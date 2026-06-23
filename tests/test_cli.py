@@ -413,6 +413,7 @@ def test_cli_help_documents_commands_and_flags(capsys) -> None:
     assert "dev" in top_level_help
     assert "upgrade" in top_level_help
     assert "uninstall" in top_level_help
+    assert "webui" in top_level_help
     assert "completion" in top_level_help
     assert "run the local Recollectium HTTP service" not in top_level_help
 

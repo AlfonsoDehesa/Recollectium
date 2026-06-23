@@ -41,6 +41,7 @@ Fill every item below in the release-prep PR. Use the checkbox itself for status
 - [ ] A19. First-run and empty-state workflows are correct and documented.
 - [ ] A20. Workspace isolation works across aliases, UID changes, moved or renamed directories, and cross-workspace behavior.
 - [ ] A21. Archive and delete semantics, Unicode and path weirdness, large output and limits, timeouts and cancellation, exit and status codes, noninteractive automation, and agent-facing compact responses behave correctly.
+- [ ] A22. WebUI support is updated for any user-facing feature or operation, or the release notes call out why it is intentionally deferred.
 
 </details>
 
@@ -64,6 +65,7 @@ Fill every item below in the release-prep PR. Use the checkbox itself for status
 - [ ] B15. Docs links resolve.
 - [ ] B16. Release notes call out operator actions, rollback guidance, known limitations, the support window, and the compatibility matrix.
 - [ ] B17. Changelog and release notes describe the user-visible diff and omit internal noise.
+- [ ] B18. WebUI usage docs cover start, stop, restart, status, default host and port, local-first security warning, and feature coverage.
 
 </details>
 

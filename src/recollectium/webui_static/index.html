@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recollectium WebUI</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell cockpit-shell">
+      <header class="top-chrome panel">
+        <div class="brand-stack">
+          <div class="brand-line">
+            <h1>Recollectium WebUI</h1>
+          </div>
+        </div>
+
+        <div class="chrome-stack">
+          <span class="active-space-chip header-space-chip" aria-label="Active memory space">
+            <span>Space</span>
+            <strong id="memory-space-status" data-state="loading">loading…</strong>
+          </span>
+
+          <form id="global-search-form" class="global-search" role="search">
+            <label>
+              Search memories
+              <input
+                id="global-search-input"
+                name="query"
+                type="search"
+                placeholder="Search memories only"
+                autocomplete="off"
+              />
+            </label>
+            <div class="global-search-actions">
+              <button type="submit">Search</button>
+              <span class="search-hint">Ctrl/⌘K · memories</span>
+            </div>
+          </form>
+        </div>
+      </header>
+
+      <div class="cockpit-layout">
+        <aside class="cockpit-rail panel" aria-label="WebUI sections">
+          <details class="section-switcher" open>
+            <summary>Sections · Memories</summary>
+            <nav class="tabs" role="tablist" aria-label="WebUI sections">
+              <button
+                id="tab-button-memories"
+                class="tab-button active"
+                data-tab="memories"
+                role="tab"
+                aria-selected="true"
+                aria-controls="tab-memories"
+              >
+                Memories
+              </button>
+              <button
+                id="tab-button-spaces-config"
+                class="tab-button"
+                data-tab="spaces-config"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-spaces-config"
+              >
+                Memory Spaces / Config
+              </button>
+              <button
+                id="tab-button-workspaces"
+                class="tab-button"
+                data-tab="workspaces"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-workspaces"
+              >
+                Workspaces
+              </button>
+              <button
+                id="tab-button-services"
+                class="tab-button"
+                data-tab="services"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-services"
+              >
+                Services
+              </button>
+              <button
+                id="tab-button-embeddings"
+                class="tab-button"
+                data-tab="embeddings"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-embeddings"
+              >
+                Embeddings
+              </button>
+              <button
+                id="tab-button-dev-tools"
+                class="tab-button"
+                data-tab="dev-tools"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-dev-tools"
+              >
+                Dev tools
+              </button>
+              <button
+                id="tab-button-graph"
+                class="tab-button"
+                data-tab="graph"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-graph"
+              >
+                Graph
+              </button>
+              <button
+                id="tab-button-diagnostics"
+                class="tab-button"
+                data-tab="diagnostics"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-diagnostics"
+              >
+                Diagnostics / Logs
+              </button>
+            </nav>
+          </details>
+        </aside>
+
+        <section class="cockpit-stage" aria-label="Control surface">
+          <section class="panel warning shell-banner" id="security-warning">
+            <strong>Security warning:</strong>
+            <span id="security-warning-text"></span>
+          </section>
+
+          <section class="panel tab-panel active" id="tab-memories" role="tabpanel" aria-labelledby="tab-button-memories">
+            <div class="focus-stack">
+              <section class="primary-task">
+                <div class="section-heading">
+                  <div class="heading-row">
+                    <h2>Find memories</h2>
+                  </div>
+                  <p>Search the active memory space first. Open filters or write tools only when you need them.</p>
+                </div>
+                <form id="memory-search-form" class="form-grid focus-form">
+                  <label class="full">
+                    Query
+                    <input name="query" placeholder="search text" />
+                  </label>
+                  <label>
+                    Scope
+                    <select name="scope">
+                      <option value="user">user</option>
+                      <option value="workspace">workspace</option>
+                    </select>
+                  </label>
+                  <label>
+                    Limit
+                    <input name="limit" type="number" min="1" value="20" />
+                  </label>
+                  <details class="disclosure full">
+                    <summary>Filters</summary>
+                    <div class="form-grid compact disclosure-body">
+                      <label>
+                        Workspace UID
+                        <input name="workspace_uid" placeholder="required for workspace scope" />
+                      </label>
+                      <label>
+                        Type
+                        <input name="type" placeholder="fact, note, decision…" />
+                      </label>
+                      <label class="checkbox"
+                        ><input type="checkbox" name="include_archived" /> Include archived</label
+                      >
+                      <label>
+                        Protected minimum
+                        <input name="protected_minimum" type="number" min="0" placeholder="optional" />
+                      </label>
+                      <label>
+                        Match threshold
+                        <input name="match_threshold" placeholder="optional / model_recommended_default" />
+                      </label>
+                    </div>
+                  </details>
+                  <div class="form-actions full">
+                    <button type="submit">Search</button>
+                    <button type="button" id="memory-list-button">List</button>
+                    <button type="button" id="memory-clear-button" class="secondary">Clear</button>
+                  </div>
+                </form>
+              </section>
+
+              <div class="inline-results" aria-label="Memory results">
+                <div id="memory-results" class="list"></div>
+              </div>
+
+              <details id="memory-detail-disclosure" class="disclosure detail-disclosure">
+                <summary>Selected memory</summary>
+                <div class="disclosure-body">
+                  <pre id="memory-detail" class="json-box">No memory selected.<br />Select a result to inspect provenance, metadata, and raw content.</pre>
+                </div>
+              </details>
+
+              <details id="write-disclosure" class="disclosure write-disclosure">
+                <summary>Write tools</summary>
+                <form id="memory-form" class="form-grid disclosure-body">
+                  <label>
+                    Memory ID (for update/archive)
+                    <input name="memory_id" placeholder="optional" />
+                  </label>
+                  <label>
+                    Space
+                    <select name="space">
+                      <option value="user">user</option>
+                      <option value="workspace">workspace</option>
+                    </select>
+                  </label>
+                  <label>
+                    Workspace UID
+                    <input name="workspace_uid" placeholder="required for workspace memories" />
+                  </label>
+                  <label>
+                    Type
+                    <input name="type" placeholder="fact, note, decision…" />
+                  </label>
+                  <label class="full">
+                    Content
+                    <textarea name="content" rows="5" placeholder="memory content"></textarea>
+                  </label>
+                  <label class="full">
+                    Metadata JSON
+                    <textarea name="metadata" rows="4" placeholder='{"source":"webui"}'></textarea>
+                  </label>
+                  <label>
+                    Source
+                    <input name="source" placeholder="optional" />
+                  </label>
+                  <label>
+                    Confidence
+                    <input name="confidence" type="number" step="0.01" min="0" max="1" placeholder="optional" />
+                  </label>
+                  <label>
+                    Sensitivity
+                    <input name="sensitivity" placeholder="optional" />
+                  </label>
+                  <div class="form-actions full">
+                    <button type="submit" data-action="add">Add</button>
+                    <button type="button" data-action="update">Update</button>
+                    <button type="button" data-action="archive" class="danger">Archive</button>
+                  </div>
+                  <p class="risk-note full">
+                    Archive only touches the selected memory in the active space. Browser confirmation is required.
+                  </p>
+                </form>
+              </details>
+            </div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-spaces-config" role="tabpanel" aria-labelledby="tab-button-spaces-config">
+            <div class="panel-grid">
+              <section>
+                <h2>Memory spaces</h2>
+                <p class="rail-note">Choose the app-wide memory space here. Every memory, workspace, embedding, graph, diagnostic, and dev action uses it.</p>
+                <div class="form-actions">
+                  <button id="refresh-spaces" type="button">Refresh</button>
+                </div>
+                <div id="memory-spaces" class="list"></div>
+              </section>
+
+              <section>
+                <h2>Config</h2>
+                <div class="form-actions">
+                  <button id="refresh-config" type="button">Refresh config</button>
+                  <button id="validate-config" type="button">Validate current config</button>
+                </div>
+                <pre id="config-view" class="json-box">Loading…</pre>
+                <form id="config-key-form" class="form-grid compact">
+                  <label>
+                    Key
+                    <input name="key" placeholder="service.port" />
+                  </label>
+                  <label>
+                    Value
+                    <input name="value" placeholder="JSON value or string" />
+                  </label>
+                  <div class="form-actions">
+                    <button type="button" data-action="get">Get</button>
+                    <button type="button" data-action="set">Set</button>
+                    <button type="button" data-action="unset" class="danger">Unset</button>
+                  </div>
+                  <p class="risk-note">
+                    Unset removes a live config key from the active file and usually needs a restart to take effect.
+                  </p>
+                </form>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-workspaces" role="tabpanel" aria-labelledby="tab-button-workspaces">
+            <div class="panel-grid">
+              <section>
+                <h2>Workspace inventory</h2>
+                <div class="form-actions">
+                  <button id="refresh-workspaces" type="button">Refresh</button>
+                </div>
+                <div id="workspace-list" class="list"></div>
+              </section>
+              <section>
+                <h2>Resolve / rename / aliases</h2>
+                <form id="workspace-form" class="form-grid">
+                  <label>
+                    Workspace UID
+                    <input name="workspace_uid" placeholder="project-alpha" />
+                  </label>
+                  <label>
+                    New UID
+                    <input name="new_uid" placeholder="project-bravo" />
+                  </label>
+                  <label>
+                    Alias UID
+                    <input name="alias_uid" placeholder="alt-name" />
+                  </label>
+                  <label class="checkbox"
+                    ><input type="checkbox" name="migrate_existing" /> Migrate existing alias memories</label
+                  >
+                  <div class="form-actions">
+                    <button type="button" data-action="resolve">Resolve</button>
+                    <button type="button" data-action="rename">Rename</button>
+                    <button type="button" data-action="aliases">List aliases</button>
+                    <button type="button" data-action="add-alias">Add alias</button>
+                    <button type="button" data-action="remove-alias" class="danger">Remove alias</button>
+                  </div>
+                  <p class="risk-note">
+                    Removing an alias changes the active workspace map only; it does not delete memory rows.
+                  </p>
+                </form>
+                <pre id="workspace-detail" class="json-box">No workspace selected.<br />Resolve a workspace to inspect aliases and canonical mapping.</pre>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-services" role="tabpanel" aria-labelledby="tab-button-services">
+            <div class="panel-grid">
+              <section>
+                <h2>Service status</h2>
+                <div class="form-actions">
+                  <button id="refresh-services" type="button">Refresh</button>
+                </div>
+                <div id="service-list" class="list"></div>
+              </section>
+              <section>
+                <h2>Controls</h2>
+                <form id="service-form" class="form-grid compact">
+                  <label>
+                    Service
+                    <select name="service_type">
+                      <option value="api">api</option>
+                      <option value="mcp">mcp</option>
+                      <option value="webui">webui</option>
+                    </select>
+                  </label>
+                  <label>
+                    DB path
+                    <input name="db_path" placeholder="optional for start/restart" />
+                  </label>
+                  <label>
+                    Log level
+                    <input name="log_level" placeholder="optional" />
+                  </label>
+                  <label class="checkbox"
+                    ><input type="checkbox" name="allow_self_stop" /> Allow WebUI self-stop</label
+                  >
+                  <div class="form-actions">
+                    <button type="button" data-action="discover">Discover</button>
+                    <button type="button" data-action="start">Start</button>
+                    <button type="button" data-action="stop" class="danger">Stop</button>
+                    <button type="button" data-action="restart" id="service-restart">Restart</button>
+                  </div>
+                  <p class="risk-note">
+                    Stop/restart are live process controls. WebUI self-stop needs explicit opt-in and may close this page.
+                  </p>
+                  <p id="service-restart-note" hidden>
+                    WebUI restart is disabled in the browser because the current process cannot restart itself.
+                    Stop the WebUI, then relaunch it from your shell or service manager.
+                  </p>
+                </form>
+                <pre id="service-detail" class="json-box">No service selected.</pre>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-embeddings" role="tabpanel" aria-labelledby="tab-button-embeddings">
+            <div class="panel-grid">
+              <section>
+                <h2>Embedding model status</h2>
+                <div class="form-actions">
+                  <button id="refresh-embedding-status" type="button">Refresh status</button>
+                  <button id="refresh-embedding-jobs" type="button">Refresh jobs</button>
+                </div>
+                <pre id="embedding-status" class="json-box">Loading…</pre>
+                <pre id="embedding-model-state" class="json-box">Loading model state…</pre>
+              </section>
+              <section>
+                <h2>Refresh embeddings</h2>
+                <form id="embedding-refresh-form" class="form-grid compact">
+                  <label>
+                    Space
+                    <select name="space">
+                      <option value="user">user</option>
+                      <option value="workspace">workspace</option>
+                    </select>
+                  </label>
+                  <label>
+                    Workspace UID
+                    <input name="workspace_uid" placeholder="optional" />
+                  </label>
+                  <label class="checkbox"
+                    ><input type="checkbox" name="include_archived" /> Include archived</label
+                  >
+                  <label class="checkbox"
+                    ><input type="checkbox" name="confirm" /> Confirm embedding maintenance</label
+                  >
+                  <div class="form-actions">
+                    <button type="submit">Refresh stale embeddings</button>
+                    <button type="button" id="run-embedding-maintenance">Run embedding maintenance</button>
+                    <button type="button" id="clear-embedding-jobs" class="secondary">Clear job history</button>
+                  </div>
+                  <p class="risk-note">
+                    Clearing job history removes job records for the active memory space only. Browser confirmation is required.
+                  </p>
+                </form>
+                <div class="split">
+                  <div>
+                    <h3>Jobs</h3>
+                    <div id="embedding-jobs" class="list"></div>
+                  </div>
+                  <div>
+                    <h3>Job detail</h3>
+                    <pre id="embedding-job-detail" class="json-box">No embedding job selected.</pre>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-dev-tools" role="tabpanel" aria-labelledby="tab-button-dev-tools">
+            <div class="panel-grid">
+              <section>
+                <h2>Seeded dev database</h2>
+                <div class="form-actions">
+                  <button id="refresh-dev-status" type="button">Refresh status</button>
+                  <button id="init-dev-seed" type="button">Init</button>
+                  <button id="reset-dev-seed" type="button" class="danger">Reset</button>
+                  <button id="run-dev-eval" type="button">Run eval</button>
+                </div>
+                <form id="dev-eval-form">
+                  <label class="checkbox"
+                    ><input type="checkbox" name="confirm" /> Confirm dev eval</label
+                  >
+                </form>
+                <p class="risk-note">
+                  Reset wipes the seeded dev dataset for the active memory space and is intended only for lab work.
+                </p>
+                <pre id="dev-seed-status" class="json-box">Loading…</pre>
+                <pre id="dev-eval-result" class="json-box">No dev eval result yet.</pre>
+              </section>
+              <section>
+                <h2>Threshold optimizer</h2>
+                <form id="threshold-form" class="form-grid compact">
+                  <label>
+                    Start
+                    <input name="start" type="number" step="0.01" min="0" max="1" value="0" />
+                  </label>
+                  <label>
+                    End
+                    <input name="end" type="number" step="0.01" min="0" max="1" value="1" />
+                  </label>
+                  <label>
+                    Step
+                    <input name="step" type="number" step="0.01" min="0.01" max="1" value="0.05" />
+                  </label>
+                  <label>
+                    Beta
+                    <input name="beta" type="number" step="0.1" min="0.1" max="5" value="0.5" />
+                  </label>
+                  <label>
+                    Format
+                    <select name="output_format">
+                      <option value="csv">csv</option>
+                      <option value="png">png</option>
+                    </select>
+                  </label>
+                  <label>
+                    Output path
+                    <input name="output_path" placeholder="optional" />
+                  </label>
+                  <label class="checkbox"
+                    ><input type="checkbox" name="write_config" /> Write recommended config</label
+                  >
+                  <label class="checkbox"
+                    ><input type="checkbox" name="confirm" /> Confirm threshold optimization</label
+                  >
+                  <div class="form-actions">
+                    <button type="submit">Optimize threshold</button>
+                  </div>
+                </form>
+                <pre id="threshold-result" class="json-box">No threshold optimization result yet.</pre>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-graph" role="tabpanel" aria-labelledby="tab-button-graph">
+            <div class="panel-grid">
+              <section>
+                <h2>Graph filters</h2>
+                <form id="graph-form" class="form-grid compact">
+                  <label>
+                    Scope
+                    <select name="space">
+                      <option value="">any</option>
+                      <option value="user">user</option>
+                      <option value="workspace">workspace</option>
+                    </select>
+                  </label>
+                  <label>
+                    Workspace UID
+                    <input name="workspace_uid" placeholder="optional" />
+                  </label>
+                  <label>
+                    Type
+                    <input name="type" placeholder="optional" />
+                  </label>
+                  <label>
+                    Status
+                    <input name="status" placeholder="optional" />
+                  </label>
+                  <label>
+                    Limit
+                    <input name="limit" type="number" min="1" value="40" />
+                  </label>
+                  <label class="checkbox"
+                    ><input type="checkbox" name="include_archived" /> Include archived</label
+                  >
+                  <div class="form-actions">
+                    <button type="submit">Render graph</button>
+                    <button type="button" id="refresh-graph" class="secondary">Refresh</button>
+                  </div>
+                </form>
+                <pre id="graph-detail" class="json-box">Graph filters and summary will appear here.</pre>
+              </section>
+              <section>
+                <h2>Visualization</h2>
+                <svg
+                  id="graph-svg"
+                  class="graph-svg"
+                  viewBox="0 0 1200 700"
+                  role="img"
+                  aria-label="Memory graph visualization"
+                ></svg>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-diagnostics" role="tabpanel" aria-labelledby="tab-button-diagnostics">
+            <div class="panel-grid">
+              <section>
+                <h2>Diagnostics bundle</h2>
+                <div class="form-actions">
+                  <button id="refresh-diagnostics" type="button">Refresh bundle</button>
+                  <button id="copy-diagnostics" type="button">Copy bundle</button>
+                </div>
+                <pre id="diagnostics" class="json-box">Loading…</pre>
+              </section>
+              <section>
+                <h2>Logs</h2>
+                <div class="form-actions log-controls">
+                  <label class="inline-field">
+                    Log depth
+                    <input id="log-tail-lines" name="tail_lines" type="number" min="10" max="500" value="80" />
+                  </label>
+                  <label class="inline-field">
+                    Filter loaded log tail
+                    <input
+                      id="log-tail-filter"
+                      name="log_tail_filter"
+                      type="search"
+                      placeholder="Filter loaded log tail"
+                      aria-describedby="log-tail-note"
+                    />
+                  </label>
+                  <button id="refresh-logs" type="button">Refresh logs</button>
+                  <button id="copy-logs" type="button">Copy logs</button>
+                </div>
+                <p id="log-tail-note" class="rail-note log-tail-note">Filters only the loaded log tail.</p>
+                <pre id="log-summary" class="json-box">Loading…</pre>
+                <pre id="log-tail" class="json-box">Loading log tail…</pre>
+              </section>
+            </div>
+          </section>
+        </section>
+      </div>
+
+      <div id="status-message" class="status-message" aria-live="polite">READY // LOCAL-FIRST CONTROL PLANE</div>
+    </main>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

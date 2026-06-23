@@ -10,6 +10,7 @@ In v1, Recollectium services are not hardened as public network services:
 
 - The API service has no built-in authentication.
 - The MCP service has no built-in authentication.
+- The WebUI has no built-in authentication.
 - Recollectium does not provide API keys, user accounts, ACLs, or built-in TLS termination in v1.
 - Health, version, and capability checks confirm service compatibility. They are not authentication or authorization controls.
 - The SQLite memory database is not encrypted by Recollectium.
@@ -25,7 +26,7 @@ are not patched for security issues.
 The recommended deployment is simple:
 
 1. Run Recollectium on the same machine as the agent or client.
-2. Keep services bound to localhost, usually `127.0.0.1`.
+2. Keep the API, MCP, and WebUI services bound to localhost, usually `127.0.0.1`.
 3. Use local service discovery for same-machine adapters.
 4. Protect config, logs, cache, runtime files, and the memory database with normal operating-system account protections.
 5. Prefer logical memory-space keys for ordinary CLI/API/MCP operations instead of raw SQLite path overrides. Legacy `--db` routing is not supported.
@@ -56,6 +57,14 @@ recollectium dev serve --host 127.0.0.1 --port 8765
 Keep API and MCP services bound to `127.0.0.1` unless you are deliberately running Recollectium over a private network with external access controls.
 
 Binding to a non-local interface, such as `0.0.0.0`, a LAN address, a VPN address, a container bridge, or a public interface, can expose unauthenticated memory operations to anyone who can reach that interface.
+
+The same rule applies to the WebUI. Its default bind is localhost-only, and it should stay on `127.0.0.1` unless you intentionally add private-network controls and accept that anyone who can reach the interface can use the browser control plane.
+
+For local development, run the WebUI foreground service on localhost:
+
+```bash
+recollectium webui serve --host 127.0.0.1 --port 8766
+```
 
 ## What a reachable client can do
 
@@ -107,6 +116,7 @@ For most users who need split-machine access, Tailscale is the friendliest path.
 Avoid these v1 deployment patterns unless you have added external protections and understand the risk:
 
 - Binding Recollectium to `0.0.0.0` on an untrusted network.
+- Binding the WebUI to `0.0.0.0` on an untrusted network.
 - Exposing Recollectium on a public IP address.
 - Publishing Recollectium through a public reverse proxy.
 - Tunneling Recollectium through a public tunnel without restricting who can connect.

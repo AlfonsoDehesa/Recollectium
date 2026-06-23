@@ -56,7 +56,10 @@ def _make_mock_config(
     config = MagicMock()
     config.xdg_dirs = {"runtime": runtime_dir, "logs": runtime_dir / "logs"}
     config.config_file_path = Path(config_path)
-    config.effective_config = {"service": {"host": "127.0.0.9", "port": 9876}}
+    config.effective_config = {
+        "service": {"host": "127.0.0.9", "port": 9876},
+        "webui": {"host": "127.0.0.1", "port": 8766},
+    }
     return config
 
 
@@ -195,6 +198,40 @@ def test_remove_pid_file_missing(tmp_path: Path) -> None:
     remove_pid_file(path)  # should not raise
 
 
+def test_get_pid_file_path_webui(tmp_path: Path) -> None:
+    config = _make_mock_config(tmp_path / "runtime")
+
+    assert get_pid_file_path(config, "webui") == tmp_path / "runtime" / "webui.pid"
+    assert (
+        get_discovery_file_path(config, "webui")
+        == tmp_path / "runtime" / "webui-discovery.json"
+    )
+
+
+def test_write_and_read_webui_pid_file(tmp_path: Path) -> None:
+    path = tmp_path / "webui.pid"
+    write_pid_file(path, pid=9001, service_type="webui", process_start_time=321)
+
+    assert read_pid_file(path) == {
+        "pid": 9001,
+        "type": "webui",
+        "process_start_time": 321,
+    }
+
+
+def test_service_discovery_payload_webui_next_step(tmp_path: Path) -> None:
+    config = _make_mock_config(tmp_path / "runtime")
+
+    payload = service_discovery_payload(config, None, service_type="webui")
+
+    assert payload["status"] == "not_running"
+    assert (
+        payload["next_step"]
+        == "Run `recollectium webui start` to start the local WebUI service."
+    )
+    assert payload["paths"]["pid_file"].endswith("webui.pid")
+
+
 def test_get_discovery_file_path(tmp_path: Path) -> None:
     config = _make_mock_config(tmp_path / "runtime")
 
@@ -252,6 +289,27 @@ def test_service_discovery_payload_running_api(tmp_path: Path) -> None:
         "health_url": "http://127.0.0.9:9876/v1/health",
         "version_url": "http://127.0.0.9:9876/v1/version",
         "capabilities_url": "http://127.0.0.9:9876/v1/capabilities",
+    }
+
+
+def test_service_discovery_payload_running_webui(tmp_path: Path) -> None:
+    config = _make_mock_config(tmp_path / "runtime")
+
+    payload = service_discovery_payload(
+        config,
+        {"pid": 67890, "type": "webui", "process_start_time": 88},
+    )
+
+    assert payload["status"] == "running"
+    assert payload["service"] == {
+        "type": "webui",
+        "pid": 67890,
+        "process_start_time": 88,
+        "endpoint": "http://127.0.0.1:8766",
+        "api_prefix": "/v1",
+        "health_url": "http://127.0.0.1:8766/v1/health",
+        "version_url": "http://127.0.0.1:8766/v1/version",
+        "capabilities_url": "http://127.0.0.1:8766/v1/capabilities",
     }
 
 

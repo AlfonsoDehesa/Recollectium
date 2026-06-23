@@ -122,6 +122,12 @@ from recollectium.retrieval import resolve_retrieval_policy
 from recollectium.mcp_server import create_mcp_server
 from recollectium.retrieval import UNSET
 from recollectium.service import run_service
+from recollectium.webui import (
+    WEBUI_DEFAULT_HOST,
+    WEBUI_DEFAULT_PORT,
+    run_webui,
+    webui_status_payload,
+)
 from recollectium.representations import (
     OPERATION_DEV_EVAL,
     OPERATION_DEV_MODE,
@@ -880,6 +886,11 @@ def _format_human_output(
         lines.extend(_format_mapping_lines(payload, indent=2, color=color))
         return "\n".join(lines) + "\n"
 
+    if command and command.startswith("webui"):
+        lines = [_style("WebUI result", _RICH_HEADING, enabled=color)]
+        lines.extend(_format_mapping_lines(payload, indent=2, color=color))
+        return "\n".join(lines) + "\n"
+
     if command in {
         "db-status",
         "embedding-status",
@@ -926,6 +937,8 @@ def _operation_for_command(command: str | None, payload: Any = None) -> str | No
         "service status",
         "service restart",
     }:
+        return OPERATION_SERVICE_LIFECYCLE
+    if command and command.startswith("webui"):
         return OPERATION_SERVICE_LIFECYCLE
     if command == "add":
         return OPERATION_MEMORIES_ADD
@@ -1744,6 +1757,7 @@ def _extract_global_config_path(argv: Sequence[str] | None) -> str | None:
         "embedding-jobs",
         "embedding-jobs-clear",
         "service",
+        "webui",
         "mcp-stdio",
         "dev",
         "upgrade",
@@ -1806,6 +1820,7 @@ def _extract_cli_output_override(
         "embedding-jobs",
         "embedding-jobs-clear",
         "service",
+        "webui",
         "mcp-stdio",
         "dev",
         "upgrade",
@@ -5708,6 +5723,82 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # -- webui -------------------------------------------------------------
+    webui_parser = subparsers.add_parser(
+        "webui",
+        help="manage the dedicated Recollectium WebUI",
+        description=(
+            "Start, stop, inspect, and restart the dedicated packaged Recollectium WebUI. "
+            "The WebUI is localhost-first, exposes a static shell, and does not require the "
+            "embedding model."
+        ),
+    )
+    webui_sub = webui_parser.add_subparsers(
+        dest="webui_action",
+        required=True,
+        title="webui actions",
+        metavar="ACTION",
+    )
+    webui_serve_parser = webui_sub.add_parser(
+        "serve",
+        help="run the WebUI shell in the foreground",
+        description=(
+            "Start the dedicated Recollectium WebUI in the foreground. This localhost-first shell "
+            f"binds to {WEBUI_DEFAULT_HOST}:{WEBUI_DEFAULT_PORT} by default, serves the packaged static shell, "
+            "and exposes local health, status, and capabilities endpoints. Non-local binds "
+            "should only be used with private-network controls because the WebUI is "
+            "unauthenticated in v1."
+        ),
+    )
+    webui_serve_parser.add_argument(
+        "--host",
+        default=None,
+        help=(
+            f"Host interface to bind. Defaults to {WEBUI_DEFAULT_HOST}. Non-local binds "
+            "should only be used with private-network controls."
+        ),
+    )
+    webui_serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help=(
+            f"TCP port to bind. Defaults to {WEBUI_DEFAULT_PORT}, which does not collide with "
+            "the API service default."
+        ),
+    )
+    webui_sub.add_parser(
+        "start",
+        help="start the managed WebUI service",
+        description=(
+            "Start the dedicated Recollectium WebUI in the background. The service writes "
+            "owned PID and discovery files under the runtime directory."
+        ),
+    )
+    webui_sub.add_parser(
+        "stop",
+        help="stop the managed WebUI service",
+        description=(
+            "Stop the managed Recollectium WebUI if it is running. The command cleans up "
+            "stale WebUI-owned PID and discovery files when applicable."
+        ),
+    )
+    webui_sub.add_parser(
+        "status",
+        help="show WebUI status details",
+        description=(
+            "Report the WebUI state as running or not running. Output uses the selected output format."
+        ),
+    )
+    webui_sub.add_parser(
+        "restart",
+        help="restart the managed WebUI service",
+        description=(
+            "Restart the dedicated Recollectium WebUI. If no running WebUI exists, the command "
+            "starts a fresh one using the configured localhost-first defaults."
+        ),
+    )
+
     # -- db-status ---------------------------------------------------------
     db_status_parser = subparsers.add_parser(
         "db-status",
@@ -7078,6 +7169,126 @@ def main(argv: Sequence[str] | None = None) -> int:
                     exit_code=2,
                     command=f"service {args.service_action}",
                 )
+            return 0
+
+    if args.command == "webui":
+        if args.webui_action == "serve":
+            try:
+                run_webui(
+                    host=args.host,
+                    port=args.port,
+                    config_path=core_config_path,
+                    log_level=args.log_level,
+                    foreground_stderr_logs=True,
+                )
+            except FileNotFoundError as exc:
+                return _config_missing_error(exc, command="webui serve")
+            except ValidationError as exc:
+                return _config_invalid_error(exc, command="webui serve")
+            return 0
+
+        try:
+            cfg = RecollectiumConfig(core_config_path, log_level=args.log_level)
+        except FileNotFoundError as exc:
+            return _config_missing_error(exc, command=f"webui {args.webui_action}")
+        except ValidationError as exc:
+            return _config_invalid_error(exc, command=f"webui {args.webui_action}")
+
+        webui_config = cfg.effective_config.get("webui", {})
+        host = str(webui_config.get("host", WEBUI_DEFAULT_HOST))
+        port = int(webui_config.get("port", WEBUI_DEFAULT_PORT))
+        pid_path = get_pid_file_path(cfg, "webui")
+
+        if args.webui_action == "start":
+            try:
+                pid = start_service(cfg, "webui", log_level=args.log_level)
+            except ServiceConflictError as exc:
+                return _service_error(
+                    exc,
+                    command="webui start",
+                    status="service_conflict",
+                    event="service.startup_rejected",
+                )
+            except ServiceError as exc:
+                return _service_error(exc, command="webui start")
+            payload = webui_status_payload(host, port)
+            payload.update(
+                {"status": "started", "running": True, "pid": pid, "type": "webui"}
+            )
+            _emit_success(payload, output_format=output_format, command="webui start")
+            return 0
+
+        if args.webui_action == "stop":
+            try:
+                pid = stop_service(cfg, "webui")
+            except ServiceError as exc:
+                return _service_error(exc, command="webui stop")
+            if pid is not None:
+                _emit_success(
+                    {"status": "stopped", "running": False, "pid": pid},
+                    output_format=output_format,
+                    command="webui stop",
+                )
+            else:
+                _emit_success(
+                    {"status": "no_service_running", "running": False},
+                    output_format=output_format,
+                    command="webui stop",
+                )
+            return 0
+
+        if args.webui_action == "status":
+            try:
+                raw_pid_info = read_pid_file(pid_path)
+                running = check_running_service(cfg, "webui")
+            except ServiceError as exc:
+                return _service_error(exc, command="webui status")
+            payload = webui_status_payload(host, port)
+            if running is not None:
+                payload.update(
+                    {
+                        "running": True,
+                        "status": "running",
+                        "pid": running["pid"],
+                        "type": "webui",
+                    }
+                )
+            else:
+                payload.update({"running": False, "status": "not_running"})
+                if raw_pid_info is not None:
+                    payload["last_service"] = {
+                        "type": raw_pid_info["type"],
+                        "pid": raw_pid_info["pid"],
+                    }
+            _emit_success(payload, output_format=output_format, command="webui status")
+            return 0
+
+        if args.webui_action == "restart":
+            try:
+                raw_pid_info = read_pid_file(pid_path)
+                running = check_running_service(cfg, "webui")
+            except ServiceError as exc:
+                return _service_error(exc, command="webui restart")
+            if running is not None:
+                stop_service(cfg, "webui")
+            elif raw_pid_info is None:
+                pass
+            try:
+                pid = start_service(cfg, "webui", log_level=args.log_level)
+            except ServiceConflictError as exc:
+                return _service_error(
+                    exc,
+                    command="webui restart",
+                    status="service_conflict",
+                    event="service.startup_rejected",
+                )
+            except ServiceError as exc:
+                return _service_error(exc, command="webui restart")
+            payload = webui_status_payload(host, port)
+            payload.update(
+                {"status": "restarted", "running": True, "pid": pid, "type": "webui"}
+            )
+            _emit_success(payload, output_format=output_format, command="webui restart")
             return 0
 
     if args.command == "update" and args.memory_id is None:

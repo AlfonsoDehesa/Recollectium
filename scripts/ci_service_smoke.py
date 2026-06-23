@@ -1,8 +1,9 @@
 """Cross-platform CI smoke coverage for Recollectium service surfaces.
 
-This helper exercises the installed bootstrap CLI, API service, and MCP service
-in isolated temp state so the CI workflow can stay compact while still verifying
-service lifecycle and memory operations on every matrix platform.
+This helper exercises the installed bootstrap CLI, API service, MCP service,
+and WebUI service in isolated temp state so the CI workflow can stay compact
+while still verifying service lifecycle and memory operations on every matrix
+platform.
 """
 
 from __future__ import annotations
@@ -32,8 +33,8 @@ SERVICE_HOST = "127.0.0.1"
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if len(args) != 1 or args[0] not in {"api", "mcp"}:
-        print("usage: ci_service_smoke.py [api|mcp]", file=sys.stderr)
+    if len(args) != 1 or args[0] not in {"api", "mcp", "webui"}:
+        print("usage: ci_service_smoke.py [api|mcp|webui]", file=sys.stderr)
         return 2
 
     service_type = args[0]
@@ -43,15 +44,21 @@ def main(argv: list[str] | None = None) -> int:
         root = Path(smoke_root)
         if service_type == "api":
             _exercise_api_service(root)
-        else:
+        elif service_type == "mcp":
             asyncio.run(_exercise_mcp_service(root))
+        else:
+            _exercise_webui_service(root)
     return 0
 
 
 def _resolve_recollectium_command() -> list[str]:
-    command = shutil.which("recollectium")
-    if command:
-        return [command]
+    tool_bin_dir = os.environ.get("UV_TOOL_BIN_DIR")
+    if tool_bin_dir:
+        executable = Path(tool_bin_dir) / (
+            "recollectium.exe" if os.name == "nt" else "recollectium"
+        )
+        if executable.exists():
+            return [str(executable)]
 
     uv = shutil.which("uv")
     if uv:
@@ -62,13 +69,9 @@ def _resolve_recollectium_command() -> list[str]:
         if executable.exists():
             return [str(executable)]
 
-    tool_bin_dir = os.environ.get("UV_TOOL_BIN_DIR")
-    if tool_bin_dir:
-        executable = Path(tool_bin_dir) / (
-            "recollectium.exe" if os.name == "nt" else "recollectium"
-        )
-        if executable.exists():
-            return [str(executable)]
+    command = shutil.which("recollectium")
+    if command:
+        return [command]
 
     raise RuntimeError(
         "recollectium executable was not found on PATH or in the uv tool bin directory"
@@ -155,14 +158,24 @@ def _force_kill_pid(pid: int) -> None:
 def _cleanup_service_process(
     recollectium: list[str], config_path: Path, service_type: str, pid: int | None
 ) -> Exception | None:
-    stop_args = [
-        *recollectium,
-        "--config",
-        str(config_path),
-        "service",
-        "stop",
-        "--json",
-    ]
+    if service_type == "webui":
+        stop_args = [
+            *recollectium,
+            "--config",
+            str(config_path),
+            "webui",
+            "stop",
+            "--json",
+        ]
+    else:
+        stop_args = [
+            *recollectium,
+            "--config",
+            str(config_path),
+            "service",
+            "stop",
+            "--json",
+        ]
     try:
         stop_payload = _run_json(stop_args)
     except Exception as exc:
@@ -192,7 +205,10 @@ def _cleanup_service_process(
         )
         return None
 
-    if not isinstance(stop_payload, dict) or stop_payload.get("status") != "stopped":
+    if not isinstance(stop_payload, dict) or stop_payload.get("status") not in {
+        "stopped",
+        "no_service_running",
+    }:
         details = (
             f"unexpected service stop cleanup payload for {service_type} service: {stop_payload!r}"
             f"\ncommand: {_format_command(stop_args)}"
@@ -217,6 +233,25 @@ def _cleanup_service_process(
             f"PID fallback cleanup succeeded for {service_type} service (PID {pid})",
             file=sys.stderr,
         )
+    elif stop_payload["status"] == "no_service_running" and pid is not None:
+        print(
+            f"service stop cleanup found no running {service_type} service; trying PID fallback "
+            f"cleanup for PID {pid}",
+            file=sys.stderr,
+        )
+        try:
+            _force_kill_pid(pid)
+        except Exception as kill_exc:
+            error = RuntimeError(
+                f"service stop cleanup reported no running {service_type} service and PID "
+                f"fallback also failed for PID {pid}"
+            )
+            error.__cause__ = kill_exc
+            return error
+        print(
+            f"PID fallback cleanup succeeded for {service_type} service (PID {pid})",
+            file=sys.stderr,
+        )
     return None
 
 
@@ -227,7 +262,12 @@ def _free_port() -> int:
 
 
 def _configure_smoke_root(
-    recollectium: list[str], config_path: Path, smoke_root: Path, port: int
+    recollectium: list[str],
+    config_path: Path,
+    smoke_root: Path,
+    port: int,
+    *,
+    webui_port: int | None = None,
 ) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     for key, value in (
@@ -250,6 +290,23 @@ def _configure_smoke_root(
                 "--json",
             ]
         )
+    if webui_port is not None:
+        for key, value in (
+            ("webui.host", SERVICE_HOST),
+            ("webui.port", str(webui_port)),
+        ):
+            _run_json(
+                [
+                    *recollectium,
+                    "--config",
+                    str(config_path),
+                    "config",
+                    "set",
+                    key,
+                    value,
+                    "--json",
+                ]
+            )
 
 
 def _assert_service_payloads(
@@ -318,6 +375,13 @@ def _request_json(
     with urllib.request.urlopen(request, timeout=10) as response:
         assert response.status == 200, (method, url, response.status)
         return json.loads(response.read().decode("utf-8"))
+
+
+def _request_text(method: str, url: str) -> str:
+    request = urllib.request.Request(url, method=method, headers={"Accept": "*/*"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        assert response.status == 200, (method, url, response.status)
+        return response.read().decode("utf-8")
 
 
 def _exercise_api_service(root: Path) -> None:
@@ -451,6 +515,151 @@ def _exercise_api_service(root: Path) -> None:
                 recollectium, config_path, "api", started_pid
             )
 
+    if cleanup_error is not None:
+        if primary_exc is None:
+            raise cleanup_error
+        print(f"cleanup error after primary failure: {cleanup_error}", file=sys.stderr)
+    if primary_exc is not None:
+        raise primary_exc.with_traceback(primary_tb)
+
+
+def _webui_smoke_urls(port: int) -> dict[str, str]:
+    base = f"http://{SERVICE_HOST}:{port}"
+    return {
+        "base": base,
+        "health": f"{base}/v1/health",
+        "status": f"{base}/v1/status",
+        "version": f"{base}/v1/version",
+        "capabilities": f"{base}/v1/capabilities",
+        "context": f"{base}/v1/webui/context",
+        "services": f"{base}/v1/webui/services",
+    }
+
+
+def _assert_webui_payloads(
+    start_payload: dict[str, Any], status_payload: dict[str, Any]
+) -> None:
+    assert start_payload["status"] == "started", start_payload
+    assert start_payload["type"] == "webui", start_payload
+    assert start_payload["running"] is True, start_payload
+    assert isinstance(start_payload["pid"], int) and start_payload["pid"] > 0, (
+        start_payload
+    )
+    assert status_payload["status"] == "running", status_payload
+    assert status_payload["type"] == "webui", status_payload
+    assert status_payload["running"] is True, status_payload
+    assert isinstance(status_payload["pid"], int) and status_payload["pid"] > 0, (
+        status_payload
+    )
+    assert status_payload["pid"] == start_payload["pid"], status_payload
+
+
+def _wait_for_webui_ready(endpoints: dict[str, str]) -> None:
+    deadline = time.monotonic() + 30
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            health = _request_json("GET", endpoints["health"])
+            assert health.get("status") == "ok", health
+            assert health.get("ready") is True, health
+            assert health.get("service_type") == "webui", health
+            status = _request_json("GET", endpoints["status"])
+            assert status.get("status") == "running", status
+            assert status.get("service_type") == "webui", status
+            version = _request_json("GET", endpoints["version"])
+            assert version.get("status") == "ok", version
+            assert version.get("service_type") == "webui", version
+            assert version.get("webui_version") == "1", version
+            capabilities = _request_json("GET", endpoints["capabilities"])
+            assert capabilities.get("status") == "ok", capabilities
+            assert capabilities.get("service_type") == "webui", capabilities
+            assert "webui.context" in capabilities.get("capabilities", []), capabilities
+            context = _request_json("GET", endpoints["context"])
+            assert context.get("status") == "ok", context
+            assert context.get("surface") == "Recollectium WebUI", context
+            security = context.get("security") or {}
+            assert security.get("authentication") == "none", context
+            assert security.get("tls") is False, context
+            assert "webui.context" in context.get("capabilities", []), context
+            root_html = _request_text("GET", endpoints["base"] + "/")
+            assert "Recollectium WebUI" in root_html, root_html
+            assert "/assets/app.js" in root_html, root_html
+            assert "/assets/styles.css" in root_html, root_html
+            app_js = _request_text("GET", endpoints["base"] + "/assets/app.js")
+            styles_css = _request_text("GET", endpoints["base"] + "/assets/styles.css")
+            assert app_js.strip(), app_js
+            assert styles_css.strip(), styles_css
+            return
+        except Exception as exc:  # pragma: no cover - smoke retry
+            last_error = exc
+            time.sleep(1)
+    raise RuntimeError(f"WebUI service did not become ready: {last_error!r}")
+
+
+def _exercise_webui_service(root: Path) -> None:
+    recollectium = _resolve_recollectium_command()
+    config_path = root / "config" / "config.json"
+    service_port = _free_port()
+    webui_port = _free_port()
+    while webui_port == service_port:
+        webui_port = _free_port()
+    _configure_smoke_root(
+        recollectium, config_path, root, service_port, webui_port=webui_port
+    )
+    stop_payload: dict[str, Any] | None = None
+    primary_exc: Exception | None = None
+    primary_tb = None
+    cleanup_error: Exception | None = None
+    started_pid: int | None = None
+    discovery_file: Path | None = None
+    try:
+        start_payload = _run_json(
+            [*recollectium, "--config", str(config_path), "webui", "start", "--json"]
+        )
+        started_pid = start_payload["pid"]
+        status_payload = _run_json(
+            [*recollectium, "--config", str(config_path), "webui", "status", "--json"]
+        )
+        _assert_webui_payloads(start_payload, status_payload)
+        endpoints = _webui_smoke_urls(webui_port)
+        _wait_for_webui_ready(endpoints)
+        discover_payload = _request_json(
+            "GET", endpoints["services"] + "/webui/discover"
+        )
+        assert discover_payload["status"] == "ok", discover_payload
+        assert discover_payload["service_type"] == "webui", discover_payload
+        running_discovery = discover_payload["discovery"]
+        assert running_discovery["status"] == "running", running_discovery
+        assert running_discovery["service"]["type"] == "webui", running_discovery
+        assert running_discovery["service"]["endpoint"] == endpoints["base"], (
+            running_discovery
+        )
+        assert running_discovery["versions"]["service_api_version"] == "1", (
+            running_discovery
+        )
+        discovery_file = Path(running_discovery["paths"]["discovery_file"])
+        assert discovery_file.exists(), discovery_file
+        stop_result = _run_json(
+            [*recollectium, "--config", str(config_path), "webui", "stop", "--json"]
+        )
+        stopped_payload = _run_json(
+            [*recollectium, "--config", str(config_path), "webui", "status", "--json"]
+        )
+        assert stop_result["status"] == "stopped", stop_result
+        assert stop_result["running"] is False, stop_result
+        assert stopped_payload["status"] == "not_running", stopped_payload
+        assert stopped_payload["running"] is False, stopped_payload
+        if discovery_file is not None:
+            assert not discovery_file.exists(), discovery_file
+        stop_payload = stop_result
+    except Exception as exc:
+        primary_exc = exc
+        primary_tb = exc.__traceback__
+    finally:
+        if stop_payload is None:
+            cleanup_error = _cleanup_service_process(
+                recollectium, config_path, "webui", started_pid
+            )
     if cleanup_error is not None:
         if primary_exc is None:
             raise cleanup_error

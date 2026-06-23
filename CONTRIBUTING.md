@@ -131,6 +131,7 @@ Every PR should answer:
 - Why did it change?
 - How was it verified?
 - Which docs were updated?
+- Did any user-facing feature, operation, or surface also need WebUI support, or is WebUI explicitly not applicable or deferred?
 - What is the status of every required quality gate?
 - Are there any risks, compatibility notes, migration notes, or follow-up items?
 
@@ -156,6 +157,7 @@ One or two sentences describing the change.
 - [ ] `SECURITY.md` updated, or not applicable because ...
 - [ ] `ROADMAP.md` updated, or not applicable because ...
 - [ ] `CONTRIBUTING.md` updated, or not applicable because ...
+- [ ] WebUI support was updated for any user-facing feature or operation, or not applicable because ...
 - [ ] `CHANGELOG.md` updated under `✨ Features`, `🐛 Fixes`, or `🧹 Chores`, or not applicable because ...
 
 ## Database migrations
@@ -225,6 +227,7 @@ Before marking a PR ready for review, complete the gates that match the changed 
 - `git diff --check` passes.
 - The PR template is complete.
 - Docs are updated or marked not applicable with a reason for each canonical doc.
+- WebUI support is updated for any user-facing feature or operation, or the PR explains why it is not applicable or deferred.
 - `CHANGELOG.md` is updated for release-notable work, or the PR explains why no changelog entry is needed.
 - CI is passing or the PR clearly states which check is still pending or failing.
 - Secrets, tokens, credentials, private memory contents, and sensitive local paths are not included.

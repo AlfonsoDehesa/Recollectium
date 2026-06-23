@@ -2,6 +2,16 @@
 
 Recollectium gives AI tools a local memory they can search across sessions. It keeps useful context on your machine, separates personal memory from workspace memory, and exposes the same memory system through the CLI, API, and MCP integrations.
 
+## Unreleased
+
+### ✨ Features
+
+- Added the dedicated Recollectium WebUI control plane for starting, stopping, restarting, and inspecting Core from a local browser.
+
+### 🐛 Fixes
+
+### 🧹 Chores
+
 ## v1.2.0
 
 Recollectium v1.2.0 adds memory spaces. Memory spaces let you keep different memories separate, such as personal, work, project, or agent-specific memories, without changing the default setup.
