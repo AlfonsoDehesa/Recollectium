@@ -524,6 +524,8 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
 
     for pattern in [
         r'id="global-search-form"',
+        r'id="memory-detail-disclosure"',
+        r'id="write-disclosure"',
         r'id="security-warning"',
         r'id="status-message"',
         r'placeholder="Search memories only"',
@@ -577,6 +579,18 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
         r"<pre[^>]*id=\"workspace-detail\"[^>]*>No workspace selected\.<br\s*/>Resolve a workspace to inspect aliases and canonical mapping\.</pre>",
     )
 
+    assert "hidden-default" not in index_html
+    _assert_pattern(
+        index_html,
+        r'<details[^>]*id="memory-detail-disclosure"[^>]*class="[^"]*detail-disclosure[^"]*">[\s\S]*?<pre[^>]*id="memory-detail"',
+    )
+    _assert_pattern(
+        index_html,
+        r'<details[^>]*id="write-disclosure"[^>]*class="[^"]*write-disclosure[^"]*">[\s\S]*?<form[^>]*id="memory-form"',
+    )
+    assert not re.search(r'hidden-default[\s\S]{0,160}id="memory-detail"', index_html)
+    assert not re.search(r'write-disclosure[^"]*hidden-default', index_html)
+
     for pattern in [
         r"--bg-app: #100b08",
         r"--brass-light: #f1c66e",
@@ -621,6 +635,9 @@ def test_webui_static_assets_expose_control_plane_contract() -> None:
         r"formatConfidence",
         r"updateServiceControls",
         r"wireGlobalSearch",
+        r"const mainQueryField = \(\) => memoryForm\?\.querySelector",
+        r"const field = mainQueryField\(\) \|\| input",
+        r"openMemoryDetail",
         r"syncCardSelection",
         r"service-restart-note",
         r"function normalizeMemoryEntry\(entry\)",

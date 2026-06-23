@@ -218,16 +218,22 @@ function wireTabs() {
   });
 }
 
+function openMemoryDetail() {
+  const disclosure = $('memory-detail-disclosure');
+  if (disclosure) disclosure.open = true;
+}
+
 function wireGlobalSearch() {
   const form = $('global-search-form');
   const input = $('global-search-input');
   const memoryForm = $('memory-search-form');
+  const mainQueryField = () => memoryForm?.querySelector('[name="query"]');
 
   form?.addEventListener('submit', (event) => {
     event.preventDefault();
     const query = input?.value.trim() || '';
     selectTab('memories');
-    const queryField = memoryForm?.querySelector('[name="query"]');
+    const queryField = mainQueryField();
     if (!queryField) return;
     queryField.value = query;
     if (!query) {
@@ -243,9 +249,10 @@ function wireGlobalSearch() {
 
   document.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-      const field = input;
+      const field = mainQueryField() || input;
       if (!field) return;
       event.preventDefault();
+      selectTab('memories');
       field.focus();
       field.select();
     }
@@ -322,6 +329,7 @@ function renderMemoryList(memories) {
       state.selectedMemory = memory.memory;
       syncCardSelection(root, '[data-memory-id]', button);
       renderJson('memory-detail', memory);
+      openMemoryDetail();
     });
   });
 }
@@ -880,6 +888,7 @@ async function submitMemoryForm(action) {
       });
       state.selectedMemory = response.memory;
       renderJson('memory-detail', response);
+      openMemoryDetail();
       showMessage('Memory added.');
     } else if (action === 'update') {
       if (!memoryId) throw new Error('Memory ID is required for update.');
@@ -899,6 +908,7 @@ async function submitMemoryForm(action) {
       });
       state.selectedMemory = response.memory;
       renderJson('memory-detail', response);
+      openMemoryDetail();
       showMessage('Memory updated.');
     } else if (action === 'archive') {
       if (!memoryId) throw new Error('Memory ID is required for archive.');
@@ -909,6 +919,7 @@ async function submitMemoryForm(action) {
       });
       state.selectedMemory = response.memory;
       renderJson('memory-detail', response);
+      openMemoryDetail();
       showMessage('Memory archived.', 'warning');
     }
     await refreshMemories();

@@ -232,11 +232,14 @@
                 <div id="memory-results" class="list"></div>
               </div>
 
-              <div class="hidden-default">
-                <pre id="memory-detail" class="json-box">No memory selected.<br />Select a result to inspect provenance, metadata, and raw content.</pre>
-              </div>
+              <details id="memory-detail-disclosure" class="disclosure detail-disclosure">
+                <summary>Selected memory</summary>
+                <div class="disclosure-body">
+                  <pre id="memory-detail" class="json-box">No memory selected.<br />Select a result to inspect provenance, metadata, and raw content.</pre>
+                </div>
+              </details>
 
-              <details class="disclosure write-disclosure hidden-default">
+              <details id="write-disclosure" class="disclosure write-disclosure">
                 <summary>Write tools</summary>
                 <form id="memory-form" class="form-grid disclosure-body">
                   <label>
