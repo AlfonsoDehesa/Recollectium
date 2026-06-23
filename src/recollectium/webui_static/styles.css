@@ -34,7 +34,12 @@
   --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-pixel: "Trebuchet MS", "Lucida Console", "Courier New", ui-monospace, monospace;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", ui-monospace, monospace;
-  --step-corner: 12px;
+  --px: 2px;
+  --step-corner: 10px;
+  --step-corner-sm: 6px;
+  --pixel-dither: repeating-conic-gradient(from 45deg, rgba(255, 240, 173, 0.055) 0 25%, transparent 0 50%) 0 0 / 4px 4px;
+  --pixel-well-dither: repeating-conic-gradient(from 45deg, rgba(150, 239, 189, 0.04) 0 25%, transparent 0 50%) 0 0 / 4px 4px;
+  --pixel-score-lines: repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.11) 0 2px, transparent 2px 8px);
 }
 
 * {
@@ -55,8 +60,9 @@ body {
   background:
     radial-gradient(circle at 8% 3%, rgba(201, 133, 52, 0.16), transparent 28rem),
     radial-gradient(circle at 90% 8%, rgba(50, 131, 94, 0.12), transparent 26rem),
-    repeating-linear-gradient(0deg, transparent 0 7px, rgba(255, 240, 173, 0.028) 7px 8px),
-    repeating-linear-gradient(90deg, transparent 0 7px, rgba(255, 240, 173, 0.018) 7px 8px),
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(255, 240, 173, 0.024) 3px 4px),
+    repeating-linear-gradient(90deg, transparent 0 3px, rgba(255, 240, 173, 0.018) 3px 4px),
+    repeating-conic-gradient(from 45deg, rgba(255, 240, 173, 0.018) 0 25%, transparent 0 50%) 0 0 / 4px 4px,
     linear-gradient(135deg, #090604 0%, #140c07 54%, #070504 100%);
   line-height: 1.46;
 }
@@ -80,8 +86,8 @@ a {
 :where(button, input, select, textarea, summary, .list-item):focus-visible {
   box-shadow:
     0 0 0 2px var(--line-dark),
-    0 0 0 5px var(--focus),
-    0 0 24px rgba(150, 239, 189, 0.35) !important;
+    0 0 0 4px var(--focus),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
 }
 
 [hidden] {
@@ -96,7 +102,10 @@ a {
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 14px;
-  background: var(--bg-app);
+  background:
+    var(--pixel-dither),
+    linear-gradient(90deg, rgba(241, 198, 110, 0.09), transparent 18%, transparent 82%, rgba(241, 198, 110, 0.07)),
+    var(--bg-app);
   border: 8px solid transparent;
   border-image: linear-gradient(90deg, var(--brass-dark), var(--brass-light), var(--brass), var(--brass-flare), var(--brass-dark)) 8;
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.72);
@@ -117,22 +126,50 @@ a {
   );
 }
 
+.app-shell::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, var(--brass-flare) 0 10px, transparent 10px calc(100% - 10px), var(--brass-dark) calc(100% - 10px)),
+    linear-gradient(180deg, var(--brass-flare) 0 10px, transparent 10px calc(100% - 10px), var(--brass-dark) calc(100% - 10px));
+  opacity: 0.2;
+  mix-blend-mode: screen;
+}
+
+.app-shell::before,
+.app-shell::after {
+  z-index: 0;
+}
+
+.app-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
 .panel,
 .primary-task,
 .disclosure,
 .inline-results {
   position: relative;
   border: 5px solid var(--brass);
-  background: var(--bg-panel);
+  background:
+    var(--pixel-dither),
+    linear-gradient(180deg, rgba(255, 240, 173, 0.07), transparent 26%),
+    linear-gradient(90deg, rgba(5, 5, 6, 0.24) 0 2px, transparent 2px calc(100% - 2px), rgba(255, 240, 173, 0.08) calc(100% - 2px)),
+    var(--bg-panel);
   box-shadow:
+    inset 0 2px var(--brass-flare),
     inset 0 5px var(--brass-light),
+    inset 0 -2px #1e0c03,
     inset 0 -5px var(--brass-dark),
     0 14px 30px rgba(0, 0, 0, 0.24);
   clip-path: polygon(
-    0 11px, 11px 11px, 11px 0,
-    calc(100% - 11px) 0, calc(100% - 11px) 11px, 100% 11px,
-    100% calc(100% - 11px), calc(100% - 11px) calc(100% - 11px), calc(100% - 11px) 100%,
-    11px 100%, 11px calc(100% - 11px), 0 calc(100% - 11px)
+    0 10px, 10px 10px, 10px 0,
+    calc(100% - 10px) 0, calc(100% - 10px) 10px, 100% 10px,
+    100% calc(100% - 10px), calc(100% - 10px) calc(100% - 10px), calc(100% - 10px) 100%,
+    10px 100%, 10px calc(100% - 10px), 0 calc(100% - 10px)
   );
 }
 
@@ -209,9 +246,15 @@ a {
   align-items: center;
   width: fit-content;
   border: 3px solid var(--brass);
-  background: var(--bg-well);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 36%),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.03) 0 1px, transparent 1px 4px),
+    var(--bg-well);
   color: var(--brass-light);
-  box-shadow: inset 0 3px #202a33, inset 0 -3px #050506;
+  box-shadow:
+    inset 0 3px rgba(255, 255, 255, 0.05),
+    inset 0 -3px #050506,
+    0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .chrome-stack {
@@ -262,7 +305,8 @@ a {
   padding: 4px 8px 4px 25px;
   border-color: var(--brass-dark);
   background:
-    linear-gradient(90deg, rgba(241, 198, 110, 0.2), transparent 28%),
+    linear-gradient(90deg, rgba(241, 198, 110, 0.16), transparent 28%),
+    repeating-linear-gradient(45deg, rgba(255, 240, 173, 0.04) 0 2px, transparent 2px 6px),
     linear-gradient(180deg, #4b2e15, #1b120b 46%, #080605);
   box-shadow:
     inset 0 3px #8c5d2c,
@@ -301,8 +345,11 @@ a {
   min-height: 24px;
   padding: 0 7px;
   border: 2px solid #050506;
-  background: #07130f;
-  box-shadow: inset 0 2px #143026, inset 0 -2px #020403;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
+    repeating-linear-gradient(90deg, rgba(150, 239, 189, 0.08) 0 1px, transparent 1px 4px),
+    #07130f;
+  box-shadow: inset 0 2px #143026, inset 0 -2px #020403, 0 0 0 1px rgba(0, 0, 0, 0.28);
   font-size: 0.92rem;
 }
 
@@ -315,7 +362,10 @@ a {
 .space-card__action[data-state="selected"] {
   color: var(--teal-light);
   border-color: var(--teal-dark);
-  background: #10241c;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 34%),
+    repeating-linear-gradient(90deg, rgba(150, 239, 189, 0.07) 0 1px, transparent 1px 4px),
+    #10241c;
 }
 
 .space-card__action[data-state="idle"] {
@@ -375,7 +425,10 @@ a {
   padding: 0 10px;
   cursor: pointer;
   color: var(--ink);
-  background: var(--brass-light);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 36%),
+    repeating-linear-gradient(90deg, rgba(74, 39, 10, 0.08) 0 1px, transparent 1px 4px),
+    var(--brass-light);
   border: 4px solid var(--brass-dark);
   box-shadow: inset 0 4px var(--brass-flare), inset 0 -4px var(--brass);
   font: 900 0.66rem var(--font-pixel);
@@ -394,9 +447,16 @@ button,
   padding: 7px 10px;
   cursor: pointer;
   color: var(--ink);
-  background: var(--teal);
+  background:
+    var(--pixel-score-lines),
+    linear-gradient(180deg, var(--teal-light), var(--teal) 36%, #236c4f);
   border: 4px solid var(--teal-dark);
-  box-shadow: inset 0 4px var(--teal-light), inset 0 -4px var(--teal-dark);
+  box-shadow:
+    inset 0 2px #e6ffe4,
+    inset 0 4px var(--teal-light),
+    inset 0 -2px #062115,
+    inset 0 -4px var(--teal-dark);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
   font: 900 0.7rem var(--font-pixel);
   text-transform: uppercase;
   letter-spacing: 0.035em;
@@ -407,10 +467,16 @@ button,
   width: 100%;
   justify-content: flex-start;
   text-align: left;
-  background: var(--bg-well);
+  background:
+    var(--pixel-well-dither),
+    linear-gradient(180deg, #111b22, var(--bg-well));
   color: var(--text-soft);
   border-color: #4e321b;
-  box-shadow: inset 0 4px #1b2631, inset 0 -4px #050506;
+  box-shadow:
+    inset 0 2px #2a3a44,
+    inset 0 4px #1b2631,
+    inset 0 -2px #010202,
+    inset 0 -4px #050506;
 }
 
 .tab-button::before {
@@ -426,10 +492,17 @@ button,
 
 .tab-button.active,
 .tab-button[aria-selected="true"] {
-  background: var(--teal);
+  background:
+    var(--pixel-dither),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 30%),
+    repeating-linear-gradient(45deg, rgba(150, 239, 189, 0.1) 0 2px, transparent 2px 6px),
+    var(--teal);
   color: var(--ink);
   border-color: var(--teal-dark);
-  box-shadow: inset 0 4px var(--teal-light), inset 0 -4px var(--teal-dark);
+  box-shadow:
+    inset 0 4px var(--teal-light),
+    inset 0 -4px var(--teal-dark),
+    0 0 0 1px rgba(150, 239, 189, 0.22);
   transform: translateX(3px);
 }
 
@@ -455,7 +528,10 @@ button:disabled,
 
 button.secondary,
 .form-actions .secondary {
-  background: var(--bg-well);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 36%),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
+    var(--bg-well);
   color: var(--brass-light);
   border-color: #4e321b;
   box-shadow: inset 0 4px #1b2631, inset 0 -4px #050506;
@@ -484,7 +560,10 @@ button.danger,
   align-items: center;
   gap: 10px;
   color: var(--ink);
-  background: var(--bg-parchment);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 34%),
+    repeating-linear-gradient(45deg, rgba(74, 39, 10, 0.05) 0 2px, transparent 2px 6px),
+    var(--bg-parchment);
   border-color: #7a4c20;
   box-shadow: inset 0 5px var(--brass-flare), inset 0 -5px var(--bg-parchment-2);
   font-size: 0.86rem;
@@ -529,7 +608,11 @@ button.danger,
 
 .panel-grid > section,
 .split > div {
-  background: var(--bg-well);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 24%),
+    repeating-linear-gradient(0deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.015) 0 1px, transparent 1px 4px),
+    var(--bg-well);
   border: 4px solid #4e321b;
   box-shadow: inset 0 5px #1c2731, inset 0 -5px #050506;
   display: grid;
@@ -555,10 +638,17 @@ button.danger,
 }
 
 .primary-task {
-  background: var(--bg-parchment);
+  background:
+    var(--pixel-dither),
+    linear-gradient(180deg, #e6c986, var(--bg-parchment) 52%, #ba8c4d);
   color: var(--ink);
   border-color: #7a4c20;
-  box-shadow: inset 0 5px var(--brass-flare), inset 0 -5px var(--bg-parchment-2), 0 18px 36px rgba(0,0,0,.28);
+  box-shadow:
+    inset 0 2px #fff8cf,
+    inset 0 5px var(--brass-flare),
+    inset 0 -2px #704211,
+    inset 0 -5px var(--bg-parchment-2),
+    0 18px 36px rgba(0,0,0,.28);
 }
 
 .primary-task .section-heading h2,
@@ -573,7 +663,11 @@ button.danger,
 
 .inline-results {
   min-height: 96px;
-  background: var(--bg-panel);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 24%),
+    repeating-linear-gradient(0deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.015) 0 1px, transparent 1px 4px),
+    var(--bg-panel);
 }
 
 /* Progressive disclosure keeps secondary tools reachable without competing with the primary task. */
@@ -668,10 +762,16 @@ textarea {
   min-height: 38px;
   padding: 8px 10px;
   color: var(--text);
-  background: var(--bg-well);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 30%),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
+    var(--bg-well);
   border: 4px solid #4e321b;
   border-radius: 0;
-  box-shadow: inset 0 4px #1b2631, inset 0 -4px #050506;
+  box-shadow:
+    inset 0 4px #1b2631,
+    inset 0 -4px #050506,
+    0 0 0 1px rgba(0, 0, 0, 0.24);
   font-family: var(--font-mono);
   font-size: 0.82rem;
 }
@@ -699,7 +799,10 @@ textarea::placeholder {
   gap: 9px;
   padding: 8px 10px;
   color: var(--text-soft);
-  background: rgba(8, 11, 16, 0.5);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 32%),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.016) 0 1px, transparent 1px 4px),
+    rgba(8, 11, 16, 0.5);
   border: 3px solid #4e321b;
   box-shadow: inset 0 3px #1b2631, inset 0 -3px #050506;
 }
@@ -738,7 +841,10 @@ textarea::placeholder {
   color: var(--text);
   font: 900 0.68rem var(--font-pixel);
   text-transform: uppercase;
-  background: var(--bg-well-2);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 30%),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.018) 0 1px, transparent 1px 4px),
+    var(--bg-well-2);
   border-bottom: 4px solid #4e321b;
 }
 
@@ -760,7 +866,11 @@ textarea::placeholder {
   gap: 7px;
   text-align: left;
   color: var(--text);
-  background: var(--bg-well);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 28%),
+    repeating-linear-gradient(0deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.016) 0 1px, transparent 1px 4px),
+    var(--bg-well);
   border: 4px solid #4e321b;
   box-shadow: inset 0 5px #1c2731, inset 0 -5px #050506;
 }
@@ -772,7 +882,10 @@ textarea::placeholder {
   top: 16px;
   width: 24px;
   height: 24px;
-  background: var(--brass-mid);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.45), transparent 52%),
+    linear-gradient(315deg, rgba(0, 0, 0, 0.22), transparent 55%),
+    var(--brass-mid);
   box-shadow:
     0 -4px var(--brass-light),
     0 4px var(--brass-dark),
@@ -791,8 +904,15 @@ textarea::placeholder {
 .list-item.selected,
 .list-item[aria-pressed="true"] {
   border-color: var(--teal-dark);
-  background: #12281f;
-  box-shadow: inset 0 5px #2f7f5e, inset 0 -5px #07140f, 0 0 0 2px rgba(150, 239, 189, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 28%),
+    repeating-linear-gradient(45deg, rgba(150, 239, 189, 0.08) 0 2px, transparent 2px 6px),
+    #12281f;
+  box-shadow:
+    inset 0 5px #2f7f5e,
+    inset 0 -5px #07140f,
+    0 0 0 2px rgba(150, 239, 189, 0.22),
+    0 0 0 4px rgba(17, 40, 31, 0.72);
 }
 
 .list-item__header {
@@ -847,7 +967,10 @@ textarea::placeholder {
   place-items: center;
   padding: 16px;
   color: var(--text-muted);
-  background: var(--bg-well);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.02) 0 1px, transparent 1px 4px),
+    var(--bg-well);
   border: 4px dashed #4e321b;
   font: 900 0.72rem var(--font-pixel);
   text-transform: uppercase;
@@ -862,7 +985,8 @@ textarea::placeholder {
   overflow: auto;
   color: #f9d78a;
   background:
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.016) 0 1px, transparent 1px 4px),
     var(--bg-well);
   border: 4px solid #4e321b;
   box-shadow: inset 0 5px #1b2631, inset 0 -5px #050506;
@@ -874,9 +998,14 @@ textarea::placeholder {
   width: 100%;
   min-height: 330px;
   display: block;
-  background: var(--bg-well);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.026) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.014) 0 1px, transparent 1px 4px),
+    var(--bg-well);
   border: 4px solid #4e321b;
   box-shadow: inset 0 5px #1b2631, inset 0 -5px #050506;
+  shape-rendering: crispEdges;
 }
 
 .graph-svg .edge {
@@ -884,6 +1013,7 @@ textarea::placeholder {
   stroke-width: 3.5;
   stroke-linecap: square;
   opacity: 0.8;
+  vector-effect: non-scaling-stroke;
 }
 
 .graph-svg circle {
@@ -932,7 +1062,10 @@ textarea::placeholder {
   align-items: center;
   padding: 7px 11px;
   color: var(--text-soft);
-  background: var(--bg-rail);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 36%),
+    repeating-linear-gradient(90deg, rgba(255, 240, 173, 0.016) 0 1px, transparent 1px 4px),
+    var(--bg-rail);
   border: 4px solid var(--brass);
   box-shadow: inset 0 4px var(--brass-mid), inset 0 -4px var(--brass-dark);
   font-size: 0.66rem;
